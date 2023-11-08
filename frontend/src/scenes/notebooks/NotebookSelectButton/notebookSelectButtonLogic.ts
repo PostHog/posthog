@@ -1,6 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeResource } from '~/types'
+import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '~/types'
 
 import api from 'lib/api'
 
@@ -69,7 +69,17 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                     }
                     const response = await api.notebooks.list(
                         props.resource && typeof props.resource !== 'boolean'
-                            ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
+                            ? [
+                                  {
+                                      type: props.resource.type,
+                                      attrs: {
+                                          id:
+                                              props.resource.type === NotebookNodeType.Query
+                                                  ? props.resource.attrs.query.shortId
+                                                  : props.resource.attrs.id,
+                                      },
+                                  },
+                              ]
                             : undefined,
                         undefined,
                         values.searchQuery ?? undefined

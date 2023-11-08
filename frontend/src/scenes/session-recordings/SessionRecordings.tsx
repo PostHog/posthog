@@ -67,10 +67,8 @@ export function SessionsRecordings(): JSX.Element {
                             <>
                                 <NotebookSelectButton
                                     resource={{
-                                        attrs: {
-                                            filters: filters,
-                                        },
                                         type: NotebookNodeType.RecordingPlaylist,
+                                        attrs: { filters: filters },
                                     }}
                                     type="secondary"
                                 />

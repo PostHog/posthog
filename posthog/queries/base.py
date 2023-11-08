@@ -11,7 +11,8 @@ from typing import (
     Union,
     cast,
 )
-
+from zoneinfo import ZoneInfo
+from dateutil.relativedelta import relativedelta
 from dateutil import parser
 from django.db.models import Exists, OuterRef, Q, Value
 from rest_framework.exceptions import ValidationError
@@ -171,21 +172,27 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after"]:
+    if operator in ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"]:
         try:
-            parsed_date = parser.parse(str(value))
-            parsed_date = convert_to_datetime_aware(parsed_date)
+            if operator in ["is_relative_date_before", "is_relative_date_after"]:
+                parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
+            else:
+                parsed_date = parser.parse(str(value))
+                parsed_date = convert_to_datetime_aware(parsed_date)
         except Exception:
+            return False
+
+        if not parsed_date:
             return False
 
         if isinstance(override_value, datetime.datetime):
             override_date = convert_to_datetime_aware(override_value)
-            if operator == "is_date_before":
+            if operator in ("is_date_before", "is_relative_date_before"):
                 return override_date < parsed_date
             else:
                 return override_date > parsed_date
         elif isinstance(override_value, datetime.date):
-            if operator == "is_date_before":
+            if operator in ("is_date_before", "is_relative_date_before"):
                 return override_value < parsed_date.date()
             else:
                 return override_value > parsed_date.date()
@@ -193,7 +200,7 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             try:
                 override_date = parser.parse(override_value)
                 override_date = convert_to_datetime_aware(override_date)
-                if operator == "is_date_before":
+                if operator in ("is_date_before", "is_relative_date_before"):
                     return override_date < parsed_date
                 else:
                     return override_date > parsed_date
@@ -333,9 +340,18 @@ def property_to_Q(
             negated=True,
         )
 
-    if property.operator in ("is_date_after", "is_date_before"):
-        effective_operator = "gt" if property.operator == "is_date_after" else "lt"
-        return Q(**{f"{column}__{property.key}__{effective_operator}": value})
+    if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
+        effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
+        effective_value = value
+        if property.operator in ("is_relative_date_before", "is_relative_date_after"):
+            relative_date = relative_date_parse_for_feature_flag_matching(str(value))
+            if relative_date:
+                effective_value = relative_date.isoformat()
+            else:
+                # Return no data for invalid relative dates
+                return Q(pk=-1)
+
+        return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
     if property.operator == "is_not":
         # is_not is inverse of exact
@@ -416,6 +432,31 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
         or value is True
         or value is False
     )
+
+
+def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
+    regex = r"(?P<number>[0-9]+)(?P<interval>[a-z])"
+    match = re.search(regex, value)
+    parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
+    if match:
+        number = int(match.group("number"))
+        interval = match.group("interval")
+        if interval == "h":
+            parsed_dt = parsed_dt - relativedelta(hours=number)
+        elif interval == "d":
+            parsed_dt = parsed_dt - relativedelta(days=number)
+        elif interval == "w":
+            parsed_dt = parsed_dt - relativedelta(weeks=number)
+        elif interval == "m":
+            parsed_dt = parsed_dt - relativedelta(months=number)
+        elif interval == "y":
+            parsed_dt = parsed_dt - relativedelta(years=number)
+        else:
+            return None
+
+        return parsed_dt
+    else:
+        return None
 
 
 def sanitize_property_key(key: Any) -> str:

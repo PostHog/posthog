@@ -4,6 +4,7 @@ import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFil
 import { InsightCard as InsightCardComponent } from './index'
 
 import EXAMPLE_TRENDS from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import EXAMPLE_TRENDS_MULTI from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
@@ -18,6 +19,7 @@ import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api
 
 const examples = [
     EXAMPLE_TRENDS,
+    EXAMPLE_TRENDS_MULTI,
     EXAMPLE_TRENDS_HORIZONTAL_BAR,
     EXAMPLE_TRENDS_TABLE,
     EXAMPLE_TRENDS_PIE,

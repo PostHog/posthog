@@ -5,9 +5,7 @@ import {
     annotationModalLogic,
     ANNOTATION_DAYJS_FORMAT,
 } from './annotationModalLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationScope, InsightShortId, AnnotationType, ProductKey } from '~/types'
-import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -23,11 +21,6 @@ import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
-
-export const scene: SceneExport = {
-    component: Annotations,
-    logic: annotationModalLogic,
-}
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -135,26 +128,10 @@ export function Annotations(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                title="Annotations"
-                caption={
-                    !shouldShowEmptyState && !shouldShowProductIntroduction ? (
-                        <>
-                            Annotations allow you to mark when certain changes happened so you can easily see how they
-                            impacted your metrics.
-                        </>
-                    ) : null
-                }
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="create-annotation"
-                        onClick={() => openModalToCreateAnnotation()}
-                    >
-                        New annotation
-                    </LemonButton>
-                }
-            />
+            <p>
+                Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
+                metrics.
+            </p>
             <div data-attr={'annotations-content'}>
                 {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                     <div className="mt-4">

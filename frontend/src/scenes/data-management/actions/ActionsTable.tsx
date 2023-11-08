@@ -3,13 +3,12 @@ import { Radio } from 'antd'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { NewActionButton } from './NewActionButton'
+import { NewActionButton } from '../../actions/NewActionButton'
 import { ActionType, AvailableFeature, ChartDisplayType, InsightType, ProductKey } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { teamLogic } from '../teamLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from '../../teamLogic'
 import api from 'lib/api'
-import { urls } from '../urls'
+import { urls } from '../../urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -18,18 +17,11 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-
-export const scene: SceneExport = {
-    component: ActionsTable,
-    logic: actionsLogic,
-}
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -230,13 +222,6 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-                buttons={<NewActionButton />}
-            />
-            <DataManagementPageTabs tab={DataManagementTab.Actions} />
             {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                 <ProductIntroduction
                     productName="Actions"
