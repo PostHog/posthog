@@ -5,7 +5,7 @@ import './LemonSkeleton.scss'
 
 export interface LemonSkeletonProps {
     className?: string
-    /** Height if the skeleton bar */
+    /** Height of the skeleton bar */
     height?: number
     /** Repeat this component this many of times */
     repeat?: number
