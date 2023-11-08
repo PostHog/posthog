@@ -9,13 +9,13 @@ from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql_queries.events_query_runner import MAX_LIMIT_DISTINCT_IDS
-from posthog.models import Action, Filter, Person, PersonDistinctId, Team
+from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
+from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
@@ -46,15 +46,7 @@ def determine_event_conditions(
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
             person = get_pk_or_uuid(Person.objects.filter(team=team), v).first()
-            if person is not None:
-                distinct_ids = (
-                    PersonDistinctId.objects.filter(person=person, team=team)
-                    .order_by("id")
-                    .values_list("id", flat=True)[:MAX_LIMIT_DISTINCT_IDS]
-                )
-            else:
-                distinct_ids = []
-            params.update({"distinct_ids": list(map(str, distinct_ids))})
+            params.update({"distinct_ids": get_distinct_ids_for_subquery(person, team)})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s "
             params.update({"distinct_id": v})
