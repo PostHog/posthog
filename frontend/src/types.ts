@@ -2103,7 +2103,6 @@ export interface InsightLogicProps {
     setQuery?: (node: InsightVizNode) => void
 
     hidePersonsModal?: boolean
-    suppressSessionAnalysisWarning?: boolean
     /** chart-specific rendering context **/
     chartRenderingMetadata?: ChartRenderingMetadata
 }

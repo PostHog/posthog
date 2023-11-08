@@ -315,6 +315,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
                                     },
+                                    suppressSessionAnalysisWarning: true,
                                 },
                             },
                         ],
