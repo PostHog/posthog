@@ -2,7 +2,7 @@ import { loaders } from 'kea-loaders'
 import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { idToKey, isUserLoggedIn } from 'lib/utils'
+import { idToKey, isUserLoggedIn, permanentlyMountLogic } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { dashboardsModelType } from './dashboardsModelType'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
@@ -323,6 +323,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
+            permanentlyMountLogic(dashboardsModel)
             actions.loadDashboards()
         },
     })),

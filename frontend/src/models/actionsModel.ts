@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { ActionType } from '~/types'
 import type { actionsModelType } from './actionsModelType'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { permanentlyMountLogic } from 'lib/utils'
 
 export interface ActionsModelProps {
     params?: string
@@ -51,6 +52,7 @@ export const actionsModel = kea<actionsModelType>([
     })),
     events(({ values, actions }) => ({
         afterMount: () => {
+            permanentlyMountLogic(actionsModel)
             if (isAuthenticatedTeam(values.currentTeam)) {
                 // Don't load on shared insights/dashboards
                 actions.loadActions()

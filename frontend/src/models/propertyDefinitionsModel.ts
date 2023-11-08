@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
 import {
     BreakdownKeyType,
@@ -11,7 +11,7 @@ import {
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, permanentlyMountLogic } from 'lib/utils'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -366,5 +366,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 }
             },
         ],
+    }),
+    afterMount(() => {
+        permanentlyMountLogic(propertyDefinitionsModel)
     }),
 ])

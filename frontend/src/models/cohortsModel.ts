@@ -4,9 +4,10 @@ import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo, processCohort } from 'lib/utils'
+import { deleteWithUndo, permanentlyMountLogic, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import Fuse from 'fuse.js'
 
 const POLL_TIMEOUT = 5000
 
@@ -45,19 +46,21 @@ export const cohortsModel = kea<cohortsModelType>([
                 if (!cohort) {
                     return state
                 }
-                return [...state].map((existingCohort) => (existingCohort.id === cohort.id ? cohort : existingCohort))
+                return [...(state ?? [])].map((existingCohort) =>
+                    existingCohort.id === cohort.id ? cohort : existingCohort
+                )
             },
-            cohortCreated: (state = [], { cohort }) => {
+            cohortCreated: (state, { cohort }) => {
                 if (!cohort) {
                     return state
                 }
-                return [cohort, ...state]
+                return [cohort, ...(state ?? [])]
             },
             deleteCohort: (state, { cohort }) => {
                 if (!cohort.id) {
                     return state
                 }
-                return [...state].filter((c) => c.id !== cohort.id)
+                return [...(state ?? [])].filter((c) => c.id !== cohort.id)
             },
         },
     }),
@@ -67,6 +70,18 @@ export const cohortsModel = kea<cohortsModelType>([
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
                 Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])),
+        ],
+
+        cohortsSearch: [
+            (s) => [s.cohorts],
+            (cohorts): ((term: string) => CohortType[]) => {
+                const fuse = new Fuse<CohortType>(cohorts ?? [], {
+                    keys: ['name'],
+                    threshold: 0.3,
+                })
+
+                return (term) => fuse.search(term).map((result) => result.item)
+            },
         ],
     }),
     listeners(({ actions }) => ({
@@ -99,6 +114,7 @@ export const cohortsModel = kea<cohortsModelType>([
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
+            permanentlyMountLogic(cohortsModel)
             if (isAuthenticatedTeam(values.currentTeam)) {
                 // Don't load on shared insights/dashboards
                 actions.loadCohorts()

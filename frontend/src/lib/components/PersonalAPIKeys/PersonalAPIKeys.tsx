@@ -1,4 +1,4 @@
-import { useState, useCallback, Dispatch, SetStateAction } from 'react'
+import { useState, useCallback, Dispatch, SetStateAction, useEffect } from 'react'
 import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
@@ -102,7 +102,9 @@ function RowActionsCreator(
 
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
-    const { deleteKey } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
+
+    useEffect(() => loadKeys(), [])
 
     const columns: ColumnsType<Record<string, any>> = [
         {

@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, permanentlyMountLogic } from 'lib/utils'
 import type { annotationsModelType } from './annotationsModelType'
 import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
@@ -120,6 +120,7 @@ export const annotationsModel = kea<annotationsModelType>([
         },
     })),
     afterMount(({ values, actions }) => {
+        permanentlyMountLogic(annotationsModel)
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
             actions.loadAnnotations()

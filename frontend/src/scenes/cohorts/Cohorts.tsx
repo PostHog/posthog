@@ -4,7 +4,6 @@ import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, CohortType, ProductKey } from '~/types'
 import './Cohorts.scss'
-import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,24 +22,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ListHog } from 'lib/components/hedgehogs'
 
-const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
-    return new Fuse(sources, {
-        keys: ['name'],
-        threshold: 0.3,
-    })
-        .search(search)
-        .map((result) => result.item)
-}
-
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading } = useValues(cohortsModel)
+    const { cohorts, cohortsSearch, cohortsLoading } = useValues(cohortsModel)
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowEmptyState = cohorts.length == 0 && !cohortsLoading
+    const shouldShowEmptyState = cohorts?.length == 0 && !cohortsLoading
     const shouldShowProductIntroduction =
         !user?.has_seen_product_intro_for?.[ProductKey.COHORTS] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
@@ -170,7 +160,7 @@ export function Cohorts(): JSX.Element {
                     productKey={ProductKey.COHORTS}
                     thingName="cohort"
                     description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-                    isEmpty={cohorts.length == 0}
+                    isEmpty={cohorts?.length == 0}
                     docsURL="https://posthog.com/docs/data/cohorts"
                     action={() => router.actions.push(urls.cohort('new'))}
                     customHog={ListHog}
@@ -198,7 +188,7 @@ export function Cohorts(): JSX.Element {
                         loading={cohortsLoading}
                         rowKey="id"
                         pagination={{ pageSize: 100 }}
-                        dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                        dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
                         nouns={['cohort', 'cohorts']}
                         data-attr="cohorts-table"
                     />
