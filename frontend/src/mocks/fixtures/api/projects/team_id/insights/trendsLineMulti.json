@@ -1,0 +1,637 @@
+{
+    "id": 75,
+    "short_id": "ZzKvMiTK",
+    "name": "",
+    "derived_name": "Pageview count & Rageclick count & All events count",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "math": "total",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0
+            },
+            {
+                "id": "$rageclick",
+                "math": "total",
+                "name": "$rageclick",
+                "type": "events",
+                "order": 1
+            },
+            {
+                "id": null,
+                "math": "total",
+                "name": "All events",
+                "type": "events",
+                "order": 2
+            }
+        ],
+        "date_to": "2023-07-10",
+        "display": "ActionsLineGraph",
+        "insight": "TRENDS",
+        "interval": "day",
+        "date_from": "2023-07-03",
+        "entity_type": "events",
+        "filter_test_accounts": true
+    },
+    "query": null,
+    "order": null,
+    "deleted": false,
+    "dashboards": [],
+    "dashboard_tiles": [],
+    "last_refresh": "2023-11-06T10:50:47.286941Z",
+    "next_allowed_client_refresh": "2023-11-06T11:05:47.286941Z",
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview",
+            "count": 702,
+            "data": [85, 77, 82, 84, 85, 96, 79, 114],
+            "labels": [
+                "3-Jul-2023",
+                "4-Jul-2023",
+                "5-Jul-2023",
+                "6-Jul-2023",
+                "7-Jul-2023",
+                "8-Jul-2023",
+                "9-Jul-2023",
+                "10-Jul-2023"
+            ],
+            "days": [
+                "2023-07-03",
+                "2023-07-04",
+                "2023-07-05",
+                "2023-07-06",
+                "2023-07-07",
+                "2023-07-08",
+                "2023-07-09",
+                "2023-07-10"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-03T00:00:00Z",
+                        "date_to": "2023-07-03T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-03T00%3A00%3A00%2B00%3A00&date_to=2023-07-03T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-04T00:00:00Z",
+                        "date_to": "2023-07-04T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-04T00%3A00%3A00%2B00%3A00&date_to=2023-07-04T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-05T00:00:00Z",
+                        "date_to": "2023-07-05T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-05T00%3A00%3A00%2B00%3A00&date_to=2023-07-05T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-06T00:00:00Z",
+                        "date_to": "2023-07-06T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-06T00%3A00%3A00%2B00%3A00&date_to=2023-07-06T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-07T00:00:00Z",
+                        "date_to": "2023-07-07T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-07T00%3A00%3A00%2B00%3A00&date_to=2023-07-07T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-08T00:00:00Z",
+                        "date_to": "2023-07-08T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-08T00%3A00%3A00%2B00%3A00&date_to=2023-07-08T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-09T00:00:00Z",
+                        "date_to": "2023-07-09T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-09T00%3A00%3A00%2B00%3A00&date_to=2023-07-09T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-10T00:00:00Z",
+                        "date_to": "2023-07-10T23:59:59.999999Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-10T00%3A00%3A00%2B00%3A00&date_to=2023-07-10T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_math=total&entity_order=0&cache_invalidation_key=8uR5j88g"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "date_from": "2023-07-03",
+                "date_to": "2023-07-10",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": "$rageclick",
+                        "type": "events",
+                        "order": 1,
+                        "name": "$rageclick",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": null,
+                        "type": "events",
+                        "order": 2,
+                        "name": "All events",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "id",
+                            "type": "precalculated-cohort",
+                            "value": 2
+                        }
+                    ]
+                },
+                "sampling_factor": "",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$rageclick",
+                "type": "events",
+                "order": 1,
+                "name": "$rageclick",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$rageclick",
+            "count": 0,
+            "data": [0, 0, 0, 0, 0, 0, 0, 0],
+            "labels": [
+                "3-Jul-2023",
+                "4-Jul-2023",
+                "5-Jul-2023",
+                "6-Jul-2023",
+                "7-Jul-2023",
+                "8-Jul-2023",
+                "9-Jul-2023",
+                "10-Jul-2023"
+            ],
+            "days": [
+                "2023-07-03",
+                "2023-07-04",
+                "2023-07-05",
+                "2023-07-06",
+                "2023-07-07",
+                "2023-07-08",
+                "2023-07-09",
+                "2023-07-10"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-03T00:00:00Z",
+                        "date_to": "2023-07-03T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-03T00%3A00%3A00%2B00%3A00&date_to=2023-07-03T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-04T00:00:00Z",
+                        "date_to": "2023-07-04T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-04T00%3A00%3A00%2B00%3A00&date_to=2023-07-04T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-05T00:00:00Z",
+                        "date_to": "2023-07-05T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-05T00%3A00%3A00%2B00%3A00&date_to=2023-07-05T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-06T00:00:00Z",
+                        "date_to": "2023-07-06T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-06T00%3A00%3A00%2B00%3A00&date_to=2023-07-06T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-07T00:00:00Z",
+                        "date_to": "2023-07-07T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-07T00%3A00%3A00%2B00%3A00&date_to=2023-07-07T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-08T00:00:00Z",
+                        "date_to": "2023-07-08T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-08T00%3A00%3A00%2B00%3A00&date_to=2023-07-08T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-09T00:00:00Z",
+                        "date_to": "2023-07-09T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-09T00%3A00%3A00%2B00%3A00&date_to=2023-07-09T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$rageclick",
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-10T00:00:00Z",
+                        "date_to": "2023-07-10T23:59:59.999999Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-10T00%3A00%3A00%2B00%3A00&date_to=2023-07-10T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24rageclick&entity_math=total&entity_order=1&cache_invalidation_key=o5IvdVHO"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "date_from": "2023-07-03",
+                "date_to": "2023-07-10",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": "$rageclick",
+                        "type": "events",
+                        "order": 1,
+                        "name": "$rageclick",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": null,
+                        "type": "events",
+                        "order": 2,
+                        "name": "All events",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "id",
+                            "type": "precalculated-cohort",
+                            "value": 2
+                        }
+                    ]
+                },
+                "sampling_factor": "",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": null,
+                "type": "events",
+                "order": 2,
+                "name": "All events",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "All events",
+            "count": 1598,
+            "data": [192, 174, 186, 185, 202, 217, 178, 264],
+            "labels": [
+                "3-Jul-2023",
+                "4-Jul-2023",
+                "5-Jul-2023",
+                "6-Jul-2023",
+                "7-Jul-2023",
+                "8-Jul-2023",
+                "9-Jul-2023",
+                "10-Jul-2023"
+            ],
+            "days": [
+                "2023-07-03",
+                "2023-07-04",
+                "2023-07-05",
+                "2023-07-06",
+                "2023-07-07",
+                "2023-07-08",
+                "2023-07-09",
+                "2023-07-10"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-03T00:00:00Z",
+                        "date_to": "2023-07-03T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-03T00%3A00%3A00%2B00%3A00&date_to=2023-07-03T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-04T00:00:00Z",
+                        "date_to": "2023-07-04T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-04T00%3A00%3A00%2B00%3A00&date_to=2023-07-04T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-05T00:00:00Z",
+                        "date_to": "2023-07-05T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-05T00%3A00%3A00%2B00%3A00&date_to=2023-07-05T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-06T00:00:00Z",
+                        "date_to": "2023-07-06T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-06T00%3A00%3A00%2B00%3A00&date_to=2023-07-06T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-07T00:00:00Z",
+                        "date_to": "2023-07-07T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-07T00%3A00%3A00%2B00%3A00&date_to=2023-07-07T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-08T00:00:00Z",
+                        "date_to": "2023-07-08T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-08T00%3A00%3A00%2B00%3A00&date_to=2023-07-08T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-09T00:00:00Z",
+                        "date_to": "2023-07-09T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-09T00%3A00%3A00%2B00%3A00&date_to=2023-07-09T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                },
+                {
+                    "filter": {
+                        "entity_id": null,
+                        "entity_type": "events",
+                        "entity_math": "total",
+                        "date_from": "2023-07-10T00:00:00Z",
+                        "date_to": "2023-07-10T23:59:59.999999Z",
+                        "entity_order": 2
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2023-07-10T00%3A00%3A00%2B00%3A00&date_to=2023-07-10T23%3A59%3A59.999999%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24rageclick%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22%24rageclick%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+null%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22All+events%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_hogql%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_type=events&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22id%22%2C+%22type%22%3A+%22precalculated-cohort%22%2C+%22value%22%3A+2%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_math=total&entity_order=2&cache_invalidation_key=ZOGpDIEg"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "date_from": "2023-07-03",
+                "date_to": "2023-07-10",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": "$rageclick",
+                        "type": "events",
+                        "order": 1,
+                        "name": "$rageclick",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": null,
+                        "type": "events",
+                        "order": 2,
+                        "name": "All events",
+                        "custom_name": null,
+                        "math": "total",
+                        "math_property": null,
+                        "math_hogql": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "id",
+                            "type": "precalculated-cohort",
+                            "value": 2
+                        }
+                    ]
+                },
+                "sampling_factor": "",
+                "smoothing_intervals": 1
+            }
+        }
+    ],
+    "created_at": "2023-11-06T10:51:27.097499Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "018a92f8-b5a3-0000-5af3-ef9c18b7af66",
+        "distinct_id": "krRfgopsUy1TwNU1yhSDLqNDTd6N5tMZrHlm8nLJIDI",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com",
+        "is_email_verified": null
+    },
+    "description": "",
+    "updated_at": "2023-11-06T10:51:27.097614Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2023-11-06T10:51:27.096743Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "018a92f8-b5a3-0000-5af3-ef9c18b7af66",
+        "distinct_id": "krRfgopsUy1TwNU1yhSDLqNDTd6N5tMZrHlm8nLJIDI",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com",
+        "is_email_verified": null
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "timezone": "UTC",
+    "is_cached": true,
+    "tags": [],
+    "filters_hash": "cache_b53c35f102234cbe71094050b19539e3"
+}
