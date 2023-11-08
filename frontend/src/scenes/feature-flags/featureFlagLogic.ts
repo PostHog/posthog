@@ -588,9 +588,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
 
-                const projects: ProjectsWithCurrentFlagResponse = await api.get(
-                    `api/organizations/${orgId}/feature_flags/${flagKey}`
-                )
+                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
 
                 // Put current project first
                 const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
@@ -605,12 +603,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlagCopy: {
             copyFlag: async () => {
                 const orgId = values.currentOrganization?.id
+                const featureFlagKey = values.featureFlag.key
+                const { copyDestinationProject, currentTeamId } = values
 
-                return await api.create(`api/organizations/${orgId}/feature_flags/copy_flags`, {
-                    feature_flag_key: values.featureFlag.key,
-                    from_project: values.currentTeamId,
-                    target_project_ids: [values.copyDestinationProject],
-                })
+                if (currentTeamId && copyDestinationProject) {
+                    return await api.organizationFeatureFlags.copy(orgId, {
+                        feature_flag_key: featureFlagKey,
+                        from_project: currentTeamId,
+                        target_project_ids: [copyDestinationProject],
+                    })
+                }
             },
         },
     })),
@@ -774,7 +776,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
-            if (featureFlagCopy.success.length) {
+            if (featureFlagCopy?.success.length) {
                 const operation = values.projectsWithCurrentFlag.find(
                     (p) => Number(p.team_id) === values.copyDestinationProject
                 )
@@ -782,7 +784,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
             } else {
-                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy.failed || featureFlagCopy}`)
+                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
             }
 
             actions.loadProjectsWithCurrentFlag()
