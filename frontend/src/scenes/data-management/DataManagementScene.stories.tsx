@@ -92,12 +92,12 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/ingestion_warnings/': () => {
+                '/api/projects/team_id/ingestion_warnings/': () => {
                     return [200, ingestionWarningsResponse(dayjs('2023-02-15T16:00:00.000Z'))]
                 },
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
+                '/api/projects/team_id/query/': (req) => {
                     if ((req.body as any).query.kind === 'DatabaseSchemaQuery') {
                         return [200, MOCK_DATABASE]
                     }

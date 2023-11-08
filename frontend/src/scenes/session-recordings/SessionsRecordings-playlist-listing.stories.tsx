@@ -19,8 +19,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
-                '/api/projects/:team_id/session_recordings': (req) => {
+                '/api/projects/team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,

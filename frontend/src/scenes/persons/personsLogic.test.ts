@@ -14,7 +14,7 @@ describe('personsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/persons/': (req) => {
+                '/api/projects/team_id/persons/': (req) => {
                     if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
                         return [200, { results: ['person from api'] }]
                     }

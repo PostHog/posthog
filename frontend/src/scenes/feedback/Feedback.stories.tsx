@@ -22,8 +22,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/events/': require('./__mocks__/events.json'),
-                'api/projects/:team_id/insights/trend/': require('./__mocks__/trend.json'),
+                '/api/projects/team_id/events/': require('./__mocks__/events.json'),
+                'api/projects/team_id/insights/trend/': require('./__mocks__/trend.json'),
             },
         }),
     ],

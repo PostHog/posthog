@@ -16,12 +16,12 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
-                '/api/projects/:team_id/dashboards/1/collaborators/': [],
-                '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
-                '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
-                '/api/projects/:team_id/dashboards/:dash_id/sharing/': {
+                '/api/projects/team_id/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/projects/team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
+                '/api/projects/team_id/dashboards/1/collaborators/': [],
+                '/api/projects/team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
+                '/api/projects/team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
+                '/api/projects/team_id/dashboards/:dash_id/sharing/': {
                     created_at: '2023-02-25T13:28:20.454940Z',
                     enabled: false,
                     access_token: 'a-secret-token',

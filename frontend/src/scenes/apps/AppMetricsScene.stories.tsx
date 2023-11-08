@@ -20,7 +20,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/app_metrics/:plugin_config_id/': {
+                '/api/projects/team_id/app_metrics/:plugin_config_id/': {
                     metrics: {
                         dates: [
                             '2023-01-10',

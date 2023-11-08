@@ -130,7 +130,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
     }
     useMocks({
         get: {
-            '/api/projects/:team_id/insights/': () => {
+            '/api/projects/team_id/insights/': () => {
                 return [
                     200,
                     {
@@ -138,7 +138,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
                     },
                 ]
             },
-            [`/api/projects/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
+            [`/api/projects/team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
                 return [200, insight]
             },
         },
@@ -148,7 +148,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
 function useAnnotationsMocks(): void {
     useMocks({
         get: {
-            '/api/projects/:team_id/annotations/': {
+            '/api/projects/team_id/annotations/': {
                 results: [
                     MOCK_ANNOTATION_ORG_SCOPED,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,

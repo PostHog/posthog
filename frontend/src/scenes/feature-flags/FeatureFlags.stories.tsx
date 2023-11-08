@@ -21,8 +21,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/feature_flags': featureFlags,
-                '/api/projects/:team_id/feature_flags/1111111111111/': [
+                '/api/projects/team_id/feature_flags': featureFlags,
+                '/api/projects/team_id/feature_flags/1111111111111/': [
                     404,
                     {
                         type: 'invalid',
@@ -30,7 +30,7 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
+                '/api/projects/team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],

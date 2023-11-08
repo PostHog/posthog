@@ -40,7 +40,7 @@ const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
     setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS])
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/notebooks/': (req, res, ctx) => {
+            '/api/projects/team_id/notebooks/': (req, res, ctx) => {
                 const contains = req.url.searchParams.get('contains')
                 const sessionRecordingId = contains?.split(':')[1]
                 const unfiltered = contains == null && sessionRecordingId === undefined

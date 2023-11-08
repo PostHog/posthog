@@ -163,16 +163,16 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/surveys/': toPaginatedResponse([
+                '/api/projects/team_id/surveys/': toPaginatedResponse([
                     MOCK_BASIC_SURVEY,
                     MOCK_SURVEY_WITH_RELEASE_CONS,
                 ]),
-                '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
-                '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
-                '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
+                '/api/projects/team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
+                '/api/projects/team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                '/api/projects/team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
+                '/api/projects/team_id/query/': (req) => {
                     if ((req.body as any).kind == 'EventsQuery') {
                         return MOCK_SURVEY_RESULTS
                     }

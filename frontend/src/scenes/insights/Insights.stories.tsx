@@ -19,10 +19,10 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
-                '/api/projects/:team_id/persons/properties': samplePersonProperties,
-                '/api/projects/:team_id/groups_types': [],
-                '/api/projects/:team_id/notebooks': () => {
+                '/api/projects/team_id/persons/retention': sampleRetentionPeopleResponse,
+                '/api/projects/team_id/persons/properties': samplePersonProperties,
+                '/api/projects/team_id/groups_types': [],
+                '/api/projects/team_id/notebooks': () => {
                     // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
                     return [
                         200,
@@ -34,7 +34,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team_id/cohorts/': { id: 1 },
+                '/api/projects/team_id/cohorts/': { id: 1 },
             },
         }),
     ],
@@ -57,13 +57,13 @@ TrendsLineEdit.parameters = {
 }
 
 export const TrendsLineMulti: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/:team_id/insights/trendsLineMulti.json')
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')
 )
 TrendsLine.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 export const TrendsLineMultiEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/:team_id/insights/trendsLineMulti.json'),
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
     'edit'
 )
 TrendsLineEdit.parameters = {
