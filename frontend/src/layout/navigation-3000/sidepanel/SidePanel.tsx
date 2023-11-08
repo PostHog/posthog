@@ -6,11 +6,10 @@ import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconInfo } from '@posthog/icons'
+import { IconNotebook, IconInfo, IconSupport } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { IconSupport } from 'lib/lemon-ui/icons'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -20,7 +19,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
     },
     [SidePanelTab.Support]: {
         label: 'Support',
-        Icon: IconSupport, // TODO: Use a Central icon
+        Icon: IconSupport,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
