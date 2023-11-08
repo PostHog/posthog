@@ -212,5 +212,5 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str
         )
         distinct_ids = first_ids.union(last_ids)
     else:
-        distinct_ids = []
+        distinct_ids = []  # type: ignore
     return list(map(str, distinct_ids))
