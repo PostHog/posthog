@@ -40,11 +40,7 @@ function CommandBar(): JSX.Element | null {
         }
     })
 
-    useOutsideClickHandler(
-        containerRef,
-        hideCommandBar,
-        []
-    )
+    useOutsideClickHandler(containerRef, hideCommandBar, [])
 
     return (
         <LemonModal isOpen={barStatus !== BarStatus.HIDDEN} simple closable={false} width={800}>
