@@ -67,7 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(function () {
-    const { state, duration, fullTitle } = this.currentTest
+    const { state, duration, fullTitle, title } = this.currentTest
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
