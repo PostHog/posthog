@@ -36,7 +36,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
-    PluginSourceFileStatus,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -1531,39 +1530,5 @@ export class DB {
             'getPluginSource'
         )
         return rows[0]?.source ?? null
-    }
-
-    public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, transpiled = $5, error = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
-            'setPluginTranspiled'
-        )
-    }
-
-    public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, error = $5, transpiled = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
-            'setPluginTranspiledError'
-        )
-    }
-
-    public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
-        const response = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, NULL, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, updated_at = NOW() WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
-            'getPluginTranspilationLock'
-        )
-        return response.rowCount > 0
     }
 }
