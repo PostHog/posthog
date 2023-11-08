@@ -83,7 +83,7 @@ afterEach(function () {
                     .replace(/[^a-z0-9-]/g, '')}.test-replay-url.txt`
 
                 // Use Cypress command to write the file
-                cy.writeFile(filePath, replayUrl)
+                cy.writeFile(filePath, `[replay for ${title}](${replayUrl})`)
             }
         })
     }
