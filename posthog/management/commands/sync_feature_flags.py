@@ -4,6 +4,8 @@ from django.core.management.base import BaseCommand
 
 from posthog.models import FeatureFlag, Team, User
 
+INACTIVE_FLAGS = ["cloud-announcement", "session-reset-on-load"]
+
 
 class Command(BaseCommand):
     help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all teams"
@@ -36,12 +38,11 @@ class Command(BaseCommand):
             deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
             for flag in flags.keys():
                 flag_type = flags[flag]
-                # do not sync the cloud announcement or session reset flags
-                if flag == "cloud-announcement" or flag == "session-reset-on-load":
-                    continue
-                elif flag in deleted_flags:
+
+                if flag in deleted_flags:
                     ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
                     ff.deleted = False
+                    ff.active = flag not in INACTIVE_FLAGS
                     ff.save()
                     print(f"Undeleted feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
                 elif flag not in existing_flags:
@@ -52,6 +53,7 @@ class Command(BaseCommand):
                             name=flag,
                             key=flag,
                             created_by=first_user,
+                            active=flag not in INACTIVE_FLAGS,
                             filters={
                                 "groups": [{"properties": [], "rollout_percentage": None}],
                                 "multivariate": {
@@ -77,5 +79,6 @@ class Command(BaseCommand):
                             name=flag,
                             key=flag,
                             created_by=first_user,
+                            active=flag not in INACTIVE_FLAGS,
                         )
                     print(f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
