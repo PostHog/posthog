@@ -67,18 +67,24 @@ beforeEach(() => {
 })
 
 afterEach(function () {
-    const { state, duration } = this.currentTest
+    const { state, duration, title } = this.currentTest
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
         cy.window().then((win) => {
             ;(win as any).posthog?.capture(event, { state, duration })
 
-            const replayUrl = (win as any).posthog?.get_session_replay_url() || ''
-            const filePath = `./cypress/${state}.test-replay-url.txt`
+            if (state === 'failed') {
+                const replayUrl = (win as any).posthog?.get_session_replay_url() || ''
+                const filePath = `./cypress/${title
+                    .trim()
+                    .replace(/ +/g, '-')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9-]/g, '')}.test-replay-url.txt`
 
-            // Use Cypress command to write the file
-            cy.writeFile(filePath, replayUrl)
+                // Use Cypress command to write the file
+                cy.writeFile(filePath, replayUrl)
+            }
         })
     }
 })
