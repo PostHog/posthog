@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import re
 from typing import (
     Any,
@@ -12,7 +13,7 @@ from typing import (
 )
 
 from dateutil import parser
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, Value
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
@@ -20,7 +21,6 @@ from posthog.models.cohort import Cohort, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import (
-    CLICKHOUSE_ONLY_PROPERTY_TYPES,
     Property,
     PropertyGroup,
 )
@@ -29,10 +29,10 @@ from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
-F = TypeVar("F", Filter, PathFilter)
+FilterType = TypeVar("FilterType", Filter, PathFilter)
 
 
-def determine_compared_filter(filter: F) -> F:
+def determine_compared_filter(filter: FilterType) -> FilterType:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(
@@ -142,17 +142,34 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         except re.error:
             return False
 
-    if operator == "gt":
-        return type(override_value) == type(value) and override_value > value
+    if operator in ("gt", "gte", "lt", "lte"):
+        # :TRICKY: We adjust comparison based on the override value passed in,
+        # to make sure we handle both numeric and string comparisons appropriately.
+        def compare(lhs, rhs, operator):
+            if operator == "gt":
+                return lhs > rhs
+            elif operator == "gte":
+                return lhs >= rhs
+            elif operator == "lt":
+                return lhs < rhs
+            elif operator == "lte":
+                return lhs <= rhs
+            else:
+                raise ValueError(f"Invalid operator: {operator}")
 
-    if operator == "gte":
-        return type(override_value) == type(value) and override_value >= value
+        parsed_value = None
+        try:
+            parsed_value = float(value)  # type: ignore
+        except Exception:
+            pass
 
-    if operator == "lt":
-        return type(override_value) == type(value) and override_value < value
-
-    if operator == "lte":
-        return type(override_value) == type(value) and override_value <= value
+        if parsed_value is not None and override_value is not None:
+            if isinstance(override_value, str):
+                return compare(override_value, str(value), operator)
+            else:
+                return compare(override_value, parsed_value, operator)
+        else:
+            return compare(str(override_value), str(value), operator)
 
     if operator in ["is_date_before", "is_date_after"]:
         try:
@@ -207,7 +224,24 @@ def empty_or_null_with_value_q(
                 f"{column}__{key}", value_as_coerced_to_number
             )
     else:
-        target_filter = Q(**{f"{column}__{key}__{operator}": value})
+        parsed_value = None
+        if operator in ("gt", "gte", "lt", "lte"):
+            try:
+                # try to parse even if arrays can't be parsed, the catch will handle it
+                parsed_value = float(value)  # type: ignore
+            except Exception:
+                pass
+
+        if parsed_value is not None:
+            # When we can coerce given value to a number, check whether the value in DB is a number
+            # and do a numeric comparison. Otherwise, do a string comparison.
+            sanitized_key = sanitize_property_key(key)
+            target_filter = Q(
+                Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{sanitized_key}_type": Value("string")})
+                | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{sanitized_key}_type": Value("number")})
+            )
+        else:
+            target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 
@@ -229,7 +263,8 @@ def property_to_Q(
     cohorts_cache: Optional[Dict[int, Cohort]] = None,
     using_database: str = "default",
 ) -> Q:
-    if property.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
+    if property.type not in ["person", "group", "cohort", "event"]:
+        # We need to support event type for backwards compatibility, even though it's treated as a person property type
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
 
     value = property._parse_value(property.value)
@@ -381,3 +416,15 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
         or value is True
         or value is False
     )
+
+
+def sanitize_property_key(key: Any) -> str:
+    string_key = str(key)
+    # remove all but a-zA-Z0-9 characters from the key
+    substitute = re.sub(r"[^a-zA-Z0-9]", "", string_key)
+
+    # :TRICKY: We also want to prevent clashes between key1_ and key1, or key1 and key2 so we add
+    #  a salt based on hash of the key
+    # This is because we don't want to overwrite the value of key1 when we're trying to read key2
+    hash_value = hashlib.sha1(string_key.encode("utf-8")).hexdigest()[:15]
+    return f"{substitute}_{hash_value}"

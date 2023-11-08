@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
 import { dayjs } from 'lib/dayjs'
