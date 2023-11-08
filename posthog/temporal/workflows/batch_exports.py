@@ -717,7 +717,6 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
 
 
 async def execute_batch_export_insert_activity(
-    destination: str,
     activity,
     inputs,
     non_retryable_error_types: list[str],
@@ -746,6 +745,7 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     logger = get_batch_exports_logger(inputs=inputs)
+    destination = workflow.info().workflow_type.lower()
 
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),

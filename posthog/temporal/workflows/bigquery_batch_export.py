@@ -258,7 +258,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         )
 
         await execute_batch_export_insert_activity(
-            "bigquery",
             insert_into_bigquery_activity,
             insert_inputs,
             non_retryable_error_types=[

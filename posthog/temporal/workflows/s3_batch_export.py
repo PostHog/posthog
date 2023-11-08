@@ -530,7 +530,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         )
 
         await execute_batch_export_insert_activity(
-            "s3",
             insert_into_s3_activity,
             insert_inputs,
             non_retryable_error_types=[

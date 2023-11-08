@@ -351,7 +351,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         )
 
         await execute_batch_export_insert_activity(
-            "snowflake",
             insert_into_snowflake_activity,
             insert_inputs,
             non_retryable_error_types=[
