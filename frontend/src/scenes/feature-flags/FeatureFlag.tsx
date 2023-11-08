@@ -155,6 +155,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+        tabs.push({
+            label: 'Projects',
+            key: FeatureFlagsTab.PROJECTS,
+            content: <FeatureFlagProjects />,
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
             label: (
@@ -202,15 +211,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
-        tabs.push({
-            label: 'Projects',
-            key: FeatureFlagsTab.PROJECTS,
-            content: <FeatureFlagProjects />,
         })
     }
 
