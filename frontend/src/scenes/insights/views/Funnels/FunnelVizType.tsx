@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+// eslint-disable-next-line no-restricted-imports
 import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'

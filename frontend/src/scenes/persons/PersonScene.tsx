@@ -1,4 +1,5 @@
 import { Dropdown, Menu, Tag } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'

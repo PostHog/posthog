@@ -8,6 +8,7 @@ import { PluginType } from '~/types'
 import { PluginTags } from './components'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Popconfirm } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { GlobalOutlined } from '@ant-design/icons'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'

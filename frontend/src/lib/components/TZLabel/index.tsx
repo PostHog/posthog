@@ -1,5 +1,6 @@
 import './index.scss'
 import { useActions, useValues } from 'kea'
+// eslint-disable-next-line no-restricted-imports
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

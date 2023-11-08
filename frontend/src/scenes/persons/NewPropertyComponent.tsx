@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Input, Radio } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { SaveOutlined, StopOutlined, CheckOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

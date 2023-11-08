@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+// eslint-disable-next-line no-restricted-imports
 import { CheckOutlined } from '@ant-design/icons'
 import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'

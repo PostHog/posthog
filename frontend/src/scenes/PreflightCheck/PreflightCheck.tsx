@@ -1,4 +1,5 @@
 import { useValues, useActions } from 'kea'
+// eslint-disable-next-line no-restricted-imports
 import { LoadingOutlined } from '@ant-design/icons'
 import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'

@@ -1,6 +1,7 @@
 import { useState, useCallback, Dispatch, SetStateAction } from 'react'
 import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
+// eslint-disable-next-line no-restricted-imports
 import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'

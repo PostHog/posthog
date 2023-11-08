@@ -8,6 +8,7 @@ import SourceModal from '../external/SourceModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+// eslint-disable-next-line no-restricted-imports
 import { LoadingOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {

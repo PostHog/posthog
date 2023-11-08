@@ -1,6 +1,7 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
+// eslint-disable-next-line no-restricted-imports
 import { SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
