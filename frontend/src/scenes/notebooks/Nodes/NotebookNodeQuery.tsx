@@ -66,6 +66,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
+            modifiedQuery.showTimings = false
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
