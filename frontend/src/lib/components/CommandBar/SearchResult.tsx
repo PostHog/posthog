@@ -14,8 +14,8 @@ type SearchResultProps = {
 }
 
 const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { scrolling } = useValues(searchBarLogic)
-    const { onMouseEnterResult, onMouseLeaveResult, openResult, setScrolling } = useActions(searchBarLogic)
+    const { isAutoScrolling } = useValues(searchBarLogic)
+    const { onMouseEnterResult, onMouseLeaveResult, openResult, setIsAutoScrolling } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -32,9 +32,9 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
 
             // set scrolling state to prevent mouse enter/leave events during
             // keyboard navigation
-            setScrolling(true)
+            setIsAutoScrolling(true)
             setTimeout(() => {
-                setScrolling(false)
+                setIsAutoScrolling(false)
             }, 50)
         }
     }, [keyboardFocused])
@@ -45,13 +45,13 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
             } border-b cursor-pointer`}
             onMouseEnter={() => {
-                if (scrolling) {
+                if (isAutoScrolling) {
                     return
                 }
                 onMouseEnterResult(resultIndex)
             }}
             onMouseLeave={() => {
-                if (scrolling) {
+                if (isAutoScrolling) {
                     return
                 }
                 onMouseLeaveResult()
