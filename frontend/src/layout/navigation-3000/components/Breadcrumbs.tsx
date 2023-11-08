@@ -75,6 +75,11 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                         setPopoverShown(false)
                     }
                 }}
+                onClickInside={() => {
+                    if (popoverShown) {
+                        setPopoverShown(false)
+                    }
+                }}
             >
                 {breadcrumbContent}
             </Popover>
