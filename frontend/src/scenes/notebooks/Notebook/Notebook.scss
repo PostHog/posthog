@@ -8,6 +8,7 @@
         flex: 1;
         width: 100%;
         overflow: hidden;
+        position: relative;
 
         .ProseMirror {
             &-focused {
@@ -248,6 +249,11 @@
     }
 
     .NotebookRecordingTimestamp {
+        display: inline-flex;
+        max-height: 22px;
+    }
+
+    .NotebookMention {
         display: inline-flex;
         max-height: 22px;
     }

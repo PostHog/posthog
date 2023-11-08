@@ -13,7 +13,7 @@ import {
     UserType,
 } from '~/types'
 import type { teamMembersLogicType } from './teamMembersLogicType'
-import { membersLogic } from '../../organization/Settings/membersLogic'
+import { membersLogic } from '../../organization/membersLogic'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { userLogic } from '../../userLogic'
 import { teamLogic } from '../../teamLogic'

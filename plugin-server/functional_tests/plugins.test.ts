@@ -10,6 +10,7 @@ import {
     createPluginAttachment,
     createPluginConfig,
     createTeam,
+    enablePluginConfig,
     fetchEvents,
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
@@ -573,7 +574,9 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    // Create the pluginconfig disabled to avoid it being loaded by a concurrent test
+    // before the attachment is available.
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, false)
     await createPluginAttachment({
         teamId,
         pluginConfigId: pluginConfig.id,
@@ -583,6 +586,7 @@ test.concurrent('plugins can use attachements', async () => {
         key: 'testAttachment',
         contents: 'test',
     })
+    await enablePluginConfig(teamId, plugin.id)
 
     await reloadPlugins()
 

@@ -251,7 +251,7 @@ gunicorn==20.1.0
     # via -r requirements.in
 h11==0.13.0
     # via wsproto
-hogql-parser==1.0.0
+hogql-parser==1.0.2
     # via -r requirements.in
 idna==2.8
     # via

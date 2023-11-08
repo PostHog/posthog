@@ -261,6 +261,7 @@ export function OverViewTab({
                                             <b>Type</b>
                                         </span>
                                         <LemonSelect
+                                            dropdownMatchSelectWidth={false}
                                             onChange={(type) => {
                                                 if (type) {
                                                     if (type === 'all') {
@@ -287,6 +288,7 @@ export function OverViewTab({
                                     <b>Status</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(status) => {
                                         if (status) {
                                             if (status === 'all') {
@@ -310,6 +312,7 @@ export function OverViewTab({
                                     <b>Created by</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(user) => {
                                         if (user) {
                                             if (user === 'any') {
@@ -423,10 +426,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties as AnyPropertyFilter[]}
-                        style={{ margin: 0, flexDirection: 'column' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )
         } else if (rollout_percentage !== null) {

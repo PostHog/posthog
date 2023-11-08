@@ -3,6 +3,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { convertAmountToUsage } from './billing-utils'
+import posthog from 'posthog-js'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -11,7 +12,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
         values: [billingLogic, ['billing', 'isUnlicensedDebug']],
-        actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess']],
+        actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess', 'deactivateProduct']],
     }),
     props({
         product: {} as BillingProductV2Type | BillingProductV2AddonType,
@@ -23,6 +24,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: true,
+        setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
+        reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
+        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
+            surveyID,
+            surveyResponse,
+        }),
+        reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
+        setSurveyID: (surveyID: string) => ({ surveyID }),
     }),
     reducers({
         isEditingBillingLimit: [
@@ -53,6 +62,26 @@ export const billingProductLogic = kea<billingProductLogicType>([
             false as boolean,
             {
                 toggleIsPlanComparisonModalOpen: (state) => !state,
+            },
+        ],
+        surveyResponse: [
+            {},
+            {
+                setSurveyResponse: (state, { surveyResponse, key }) => {
+                    return { ...state, [key]: surveyResponse }
+                },
+            },
+        ],
+        unsubscribeReasonSurvey: [
+            null,
+            {
+                setUnsubscribeReasonSurvey: (_, { survey }) => survey,
+            },
+        ],
+        surveyID: [
+            '',
+            {
+                setSurveyID: (_, { surveyID }) => surveyID,
             },
         ],
     }),
@@ -166,6 +195,25 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     (props.product.tiers ? parseInt(props.product.projected_amount_usd || '0') * 1.5 : 0) ||
                     DEFAULT_BILLING_LIMIT
             )
+        },
+        reportSurveyShown: ({ surveyID }) => {
+            posthog.capture('survey shown', {
+                $survey_id: surveyID,
+            })
+            actions.setSurveyID(surveyID)
+        },
+        reportSurveySent: ({ surveyID, surveyResponse }) => {
+            posthog.capture('survey sent', {
+                $survey_id: surveyID,
+                ...surveyResponse,
+            })
+            actions.setSurveyID('')
+        },
+        reportSurveyDismissed: ({ surveyID }) => {
+            posthog.capture('survey dismissed', {
+                $survey_id: surveyID,
+            })
+            actions.setSurveyID('')
         },
     })),
 ])

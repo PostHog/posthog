@@ -7,6 +7,7 @@ import { Field, Form } from 'kea-forms'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Link } from '@posthog/lemon-ui'
 
 export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): JSX.Element {
     const { closeAsyncMigrationsModal } = useActions(asyncMigrationsLogic)
@@ -32,13 +33,13 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                         {collapsed && (
                             <>
                                 <br />
-                                <a
+                                <Link
                                     onClick={() => {
                                         setCollapsed(!collapsed)
                                     }}
                                 >
                                     Click here to show advanced configuration.
-                                </a>
+                                </Link>
                             </>
                         )}
                     </p>

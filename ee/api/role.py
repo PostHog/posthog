@@ -25,7 +25,7 @@ class RolePermissions(BasePermission):
     def has_permission(self, request, view):
         organization = request.user.organization
 
-        requesting_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
             organization=organization,
         )

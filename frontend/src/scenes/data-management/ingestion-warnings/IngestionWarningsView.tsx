@@ -1,8 +1,5 @@
 import { useValues } from 'kea'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { PageHeader } from 'lib/components/PageHeader'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,11 +9,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { ProductKey } from '~/types'
 import { ReadingHog } from 'lib/components/hedgehogs'
 
-export const scene: SceneExport = {
-    component: IngestionWarningsView,
-    logic: ingestionWarningsLogic,
-}
-
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
@@ -24,6 +16,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
+    message_size_too_large: 'Discarded event exceeding 1MB limit',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -126,6 +119,19 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    message_size_too_large: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded event for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> that exceeded 1MB in
+                size after processing (event uuid: <code>{details.eventUuid}</code>)
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
@@ -133,12 +139,6 @@ export function IngestionWarningsView(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-            <DataManagementPageTabs tab={DataManagementTab.IngestionWarnings} />
             {data.length > 0 || dataLoading ? (
                 <>
                     <div className="mb-4">Data ingestion related warnings from past 30 days.</div>

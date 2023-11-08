@@ -491,7 +491,7 @@ class TestSignupAPI(APIBaseTest):
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
-    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request, mock_capture):
+    def run_test_for_allowed_domain(self, mock_sso_providers, mock_request, mock_capture):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -536,10 +536,10 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_self_hosted(
+    def test_social_signup_with_allowed_domain_on_self_hosted(
         self, mock_identify, mock_sso_providers, mock_request, mock_capture
     ):
-        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
+        self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
     @patch("posthoganalytics.capture")
     @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
@@ -547,7 +547,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_cloud(
+    def test_social_signup_with_allowed_domain_on_cloud(
         self,
         mock_identify,
         mock_sso_providers,
@@ -556,13 +556,13 @@ class TestSignupAPI(APIBaseTest):
         mock_capture,
     ):
         with self.is_cloud(True):
-            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
+            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
         assert mock_update_distinct_ids.called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
+    def test_social_signup_with_allowed_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
         with self.is_cloud(True):
             # user already exists
             User.objects.create(email="jane@hogflix.posthog.com", distinct_id=str(uuid.uuid4()))
@@ -608,9 +608,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_cannot_social_signup_with_whitelisted_but_jit_provisioning_disabled(
-        self, mock_sso_providers, mock_request
-    ):
+    def test_cannot_social_signup_with_allowed_but_jit_provisioning_disabled(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -639,7 +637,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_cannot_social_signup_with_whitelisted_but_unverified_domain(self, mock_sso_providers, mock_request):
+    def test_cannot_social_signup_with_allowed_but_unverified_domain(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -668,7 +666,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_api_cannot_use_whitelist_for_different_domain(self, mock_sso_providers, mock_request):
+    def test_api_cannot_use_allow_list_for_different_domain(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -697,7 +695,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
+    def test_social_signup_to_existing_org_without_allowed_domain_on_cloud(self, mock_sso_providers, mock_request):
         with self.is_cloud(True):
             mock_sso_providers.return_value = {"google-oauth2": True}
             Organization.objects.create(name="Hogflix Movies")

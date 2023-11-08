@@ -137,6 +137,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
         ],
+        propertyAllowList: [
+            () => [(_, props) => props.propertyAllowList],
+            (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeamId,
@@ -145,6 +149,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNames,
                 s.hogQLTable,
                 s.excludedProperties,
+                s.propertyAllowList,
             ],
             (
                 teamId,
@@ -152,7 +157,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
                 hogQLTable,
-                excludedProperties
+                excludedProperties,
+                propertyAllowList
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -200,6 +206,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
                             is_feature_flag: false,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                : undefined,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -207,6 +216,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       event_names: eventNames,
                                       is_feature_flag: false,
                                       filter_by_event_names: true,
+                                      properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                          ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                          : undefined,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
@@ -219,6 +231,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {

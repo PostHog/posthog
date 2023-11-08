@@ -339,9 +339,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
-        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk},)[
-            0
-        ][0]
+        ch_events = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )[0][0]
         self.assertEqual(ch_events, 3)
 
     @freeze_time("2021-08-25T22:09:14.252Z")

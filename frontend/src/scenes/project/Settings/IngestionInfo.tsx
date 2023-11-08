@@ -45,7 +45,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             </p>
             <p>
                 For more guidance, including on identifying users,{' '}
-                <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
+                <Link to="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
             <LemonDivider className="my-6" />
@@ -62,9 +62,9 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             <h2 id="custom-events" className="subtitle">
                 Send custom events
             </h2>
-            To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and integrate
-            the library for the specific language or platform you're using. We support Python, Ruby, Node, Go, PHP, iOS,
-            Android, and more.
+            To send custom events <Link to="https://posthog.com/docs/integrations">visit PostHog Docs</Link> and
+            integrate the library for the specific language or platform you're using. We support Python, Ruby, Node, Go,
+            PHP, iOS, Android, and more.
             <LemonDivider className="my-6" />
             <h2 id="project-variables" className="subtitle mb-4">
                 Project Variables
@@ -74,7 +74,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             </h3>
             <p>
                 You can use this write-only key in any one of{' '}
-                <a href="https://posthog.com/docs/integrations">our libraries</a>.
+                <Link to="https://posthog.com/docs/integrations">our libraries</Link>.
             </p>
             <CodeSnippet
                 actions={
@@ -111,7 +111,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
                 Project ID
             </h3>
             <p>
-                You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
+                You can use this ID to reference your project in our <Link to="https://posthog.com/docs/api">API</Link>.
             </p>
             <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
         </>

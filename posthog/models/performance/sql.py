@@ -92,9 +92,7 @@ redirect_count Int64,
 navigation_type LowCardinality(String),
 unload_event_end Float64,
 unload_event_start Float64,
-""".strip().rstrip(
-    ","
-)
+""".strip().rstrip(",")
 
 PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
     "performance_events", replication_scheme=ReplicationScheme.SHARDED
@@ -179,7 +177,8 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
-PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
+PERFORMANCE_EVENTS_TABLE_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -187,11 +186,12 @@ AS SELECT
 ,{extra_fields}
 FROM {database}.kafka_performance_events
 """.format(
-    columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="writeable_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
+        columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
+        target_table="writeable_performance_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+        extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
+    )
 )
 
 # TODO this should probably be a materialized view

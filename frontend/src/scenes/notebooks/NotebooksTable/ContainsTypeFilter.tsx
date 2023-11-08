@@ -4,7 +4,11 @@ import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksT
 
 export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
-    NotebookNodeType.Backlink | NotebookNodeType.PersonFeed | NotebookNodeType.Properties | NotebookNodeType.Map
+    | NotebookNodeType.Backlink
+    | NotebookNodeType.PersonFeed
+    | NotebookNodeType.Properties
+    | NotebookNodeType.Map
+    | NotebookNodeType.Mention
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',

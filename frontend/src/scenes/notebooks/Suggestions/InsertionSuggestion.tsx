@@ -2,7 +2,7 @@ import { Node, NotebookEditor } from '../Notebook/utils'
 
 export type InsertionSuggestionViewProps = {
     previousNode: Node | null
-    editor: NotebookEditor | null
+    editor: NotebookEditor
 }
 
 interface InsertionSuggestionConfig {

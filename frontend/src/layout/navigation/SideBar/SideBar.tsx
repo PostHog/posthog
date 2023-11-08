@@ -7,7 +7,6 @@ import {
     IconApps,
     IconBarChart,
     IconCohort,
-    IconComment,
     IconDatabase,
     IconExperiment,
     IconFlag,
@@ -15,7 +14,6 @@ import {
     IconLive,
     IconMessages,
     IconOpenInApp,
-    IconPerson,
     IconPinOutline,
     IconPipeline,
     IconPlus,
@@ -39,7 +37,6 @@ import { AvailableFeature } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { groupsModel } from '~/models/groupsModel'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
@@ -60,7 +57,6 @@ function Pages(): JSX.Element {
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
-    const { showGroupsOptions } = useValues(groupsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -222,10 +218,10 @@ function Pages(): JSX.Element {
                         to={urls.eventDefinitions()}
                     />
                     <PageButton
-                        icon={<IconPerson />}
-                        identifier={Scene.Persons}
+                        icon={<IconCohort />}
+                        identifier={Scene.PersonsManagement}
                         to={urls.persons()}
-                        title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
+                        title="People"
                     />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
@@ -239,8 +235,6 @@ function Pages(): JSX.Element {
                             highlight="beta"
                         />
                     </FlaggedFeature>
-                    <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                    <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>
