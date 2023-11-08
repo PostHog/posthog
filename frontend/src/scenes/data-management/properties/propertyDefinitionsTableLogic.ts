@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import {
@@ -82,21 +82,6 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        name: `Data Management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
-                        name: 'Properties',
-                        path: urls.propertyDefinitions(),
-                    },
-                ]
-            },
-        ],
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) => {

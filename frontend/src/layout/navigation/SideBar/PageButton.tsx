@@ -6,6 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { SidebarChangeNoticeTooltip } from '~/layout/navigation/SideBar/SidebarChangeNotice'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
@@ -32,48 +33,51 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
 
     return (
         <li>
-            {sideAction ? (
-                <LemonButtonWithSideAction
-                    fullWidth
-                    status={buttonStatus}
-                    active={isActive}
-                    onClick={hideSideBarMobile}
-                    sideAction={{
-                        ...sideAction,
-                        'data-attr': sideAction.identifier
-                            ? `menu-item-${sideAction.identifier.toLowerCase()}`
-                            : undefined,
-                    }}
-                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                    {...buttonProps}
-                >
-                    <span className="text-default">{title}</span>
-                </LemonButtonWithSideAction>
-            ) : (
-                <LemonButton
-                    fullWidth
-                    status={buttonStatus}
-                    active={isActive}
-                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                    onClick={hideSideBarMobile}
-                    {...buttonProps}
-                >
-                    <span className="text-default grow">{title}</span>
-                    {highlight === 'alpha' ? (
-                        <LemonTag type="completion" className="ml-1 float-right uppercase">
-                            Alpha
-                        </LemonTag>
-                    ) : highlight === 'beta' ? (
-                        <LemonTag type="warning" className="ml-1 float-right uppercase">
-                            Beta
-                        </LemonTag>
-                    ) : highlight === 'new' ? (
-                        <LemonTag type="success" className="ml-1 float-right uppercase">
-                            New
-                        </LemonTag>
-                    ) : null}
-                </LemonButton>
-            )}
+            <SidebarChangeNoticeTooltip identifier={identifier}>
+                {sideAction ? (
+                    <LemonButtonWithSideAction
+                        fullWidth
+                        status={buttonStatus}
+                        active={isActive}
+                        onClick={hideSideBarMobile}
+                        sideAction={{
+                            ...sideAction,
+                            'data-attr': sideAction.identifier
+                                ? `menu-item-${sideAction.identifier.toLowerCase()}`
+                                : undefined,
+                        }}
+                        data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                        {...buttonProps}
+                    >
+                        <span className="text-default">{title}</span>
+                    </LemonButtonWithSideAction>
+                ) : (
+                    <LemonButton
+                        fullWidth
+                        status={buttonStatus}
+                        active={isActive}
+                        data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                        onClick={hideSideBarMobile}
+                        sideIcon={null}
+                        {...buttonProps}
+                    >
+                        <span className="text-default grow">{title}</span>
+                        {highlight === 'alpha' ? (
+                            <LemonTag type="completion" className="ml-1 float-right uppercase">
+                                Alpha
+                            </LemonTag>
+                        ) : highlight === 'beta' ? (
+                            <LemonTag type="warning" className="ml-1 float-right uppercase">
+                                Beta
+                            </LemonTag>
+                        ) : highlight === 'new' ? (
+                            <LemonTag type="success" className="ml-1 float-right uppercase">
+                                New
+                            </LemonTag>
+                        ) : null}
+                    </LemonButton>
+                )}
+            </SidebarChangeNoticeTooltip>
         </li>
     )
 }
