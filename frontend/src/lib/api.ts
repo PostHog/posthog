@@ -19,6 +19,8 @@ import {
     ExportedAssetType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
+    OrganizationFeatureFlags,
+    OrganizationFeatureFlagsCopyBody,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
@@ -176,6 +178,20 @@ class ApiRequest {
 
     public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
         return this.organizationResourceAccess().addPathComponent(id)
+    }
+
+    public organizationFeatureFlags(orgId: OrganizationType['id'], featureFlagKey: FeatureFlagType['key']): ApiRequest {
+        return this.organizations()
+            .addPathComponent(orgId)
+            .addPathComponent('feature_flags')
+            .addPathComponent(featureFlagKey)
+    }
+
+    public copyOrganizationFeatureFlags(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations()
+            .addPathComponent(orgId)
+            .addPathComponent('feature_flags')
+            .addPathComponent('copy_flags')
     }
 
     // # Projects
@@ -671,6 +687,21 @@ const api = {
     featureFlags: {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
+        },
+    },
+
+    organizationFeatureFlags: {
+        async get(
+            orgId: OrganizationType['id'] = getCurrentOrganizationId(),
+            featureFlagKey: FeatureFlagType['key']
+        ): Promise<OrganizationFeatureFlags> {
+            return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
+        },
+        async copy(
+            orgId: OrganizationType['id'] = getCurrentOrganizationId(),
+            data: OrganizationFeatureFlagsCopyBody
+        ): Promise<{ success: FeatureFlagType[]; failed: any }> {
+            return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
     },
 

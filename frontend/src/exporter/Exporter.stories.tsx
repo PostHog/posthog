@@ -42,7 +42,7 @@ TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team
 
 export const TrendsLineMultiInsight: Story = Template.bind({})
 TrendsLineMultiInsight.args = {
-    insight: require('../mocks/fixtures/api/projects/:team_id/insights/trendsLineMulti.json'),
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
 }
 TrendsLineMultiInsight.parameters = {
     mockDate: '2023-07-10',
