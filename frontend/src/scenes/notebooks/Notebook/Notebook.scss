@@ -253,6 +253,11 @@
         max-height: 22px;
     }
 
+    .NotebookMention {
+        display: inline-flex;
+        max-height: 22px;
+    }
+
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {

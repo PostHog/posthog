@@ -1,5 +1,5 @@
 import { useValues, useActions } from 'kea'
-import { membersLogic } from './membersLogic'
+import { membersLogic } from '../membersLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
