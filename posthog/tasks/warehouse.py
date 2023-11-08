@@ -1,14 +1,126 @@
+from django.conf import settings
 import datetime
-from posthog.models import Team
+from posthog.models import Team, Organization
 from posthog.warehouse.external_data_source.client import send_request
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.external_data_source.connection import retrieve_sync
 from urllib.parse import urlencode
 from posthog.ph_client import get_ph_client
 
 from posthog.celery import app
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
 
 DEFAULT_DATE_TIME = datetime.datetime(2023, 11, 7, tzinfo=datetime.timezone.utc)
+
+
+def sync_resources():
+    resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
+
+    for resource in resources:
+        sync_resource.delay(resource.pk)
+
+
+@app.task(ignore_result=True)
+def sync_resource(resource_id):
+    resource = ExternalDataSource.objects.get(pk=resource_id)
+
+    try:
+        job = retrieve_sync(resource.connection_id)
+    except Exception as e:
+        logger.exception("Data Warehouse: Sync Resource failed with an unexpected exception.", exc_info=e)
+        resource.status = "error"
+        resource.save()
+        return
+
+    if job is None:
+        logger.error(f"Data Warehouse: No jobs found for connection: {resource.connection_id}")
+        resource.status = "error"
+        resource.save()
+        return
+
+    if job["status"] == "succeeded":
+        resource = ExternalDataSource.objects.get(pk=resource_id)
+        credential, _ = DataWarehouseCredential.objects.get_or_create(
+            team_id=resource.team.pk,
+            access_key=settings.AIRBYTE_BUCKET_KEY,
+            access_secret=settings.AIRBYTE_BUCKET_SECRET,
+        )
+
+        data = {
+            "credential": credential,
+            "name": "stripe_customers",
+            "format": "Parquet",
+            "url_pattern": f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/airbyte/{resource.team.pk}/customers/*.parquet",
+            "team_id": resource.team.pk,
+        }
+
+        table = DataWarehouseTable(**data)
+        try:
+            table.columns = table.get_columns()
+        except Exception as e:
+            logger.exception(
+                f"Data Warehouse: Sync Resource failed with an unexpected exception for connection: {resource.connection_id}",
+                exc_info=e,
+            )
+        else:
+            table.save()
+
+            resource.are_tables_created = True
+            resource.status = job["status"]
+            resource.save()
+
+    else:
+        resource.status = job["status"]
+        resource.save()
+
+
+DEFAULT_USAGE_LIMIT = 1000000
+
+
+@app.task(ignore_result=True, max_retries=2)
+def check_external_data_source_billing_limit_by_team(team_id):
+    from posthog.warehouse.external_data_source.connection import deactivate_connection_by_id, activate_connection_by_id
+
+    team = Team.objects.get(pk=team_id)
+    all_active_connections = ExternalDataSource.objects.filter(team=team, status="active")
+    all_inactive_connections = ExternalDataSource.objects.filter(team=team, status="inactive")
+
+    _usage_limit = _get_data_warehouse_usage_limit(team_id)
+
+    # TODO: consider more boundaries
+    if _usage_limit and team.external_data_workspace_rows_synced_in_month >= _usage_limit:
+        for connection in all_active_connections:
+            deactivate_connection_by_id(connection.connection_id)
+            connection.status = "inactive"
+            connection.save()
+    else:
+        for connection in all_inactive_connections:
+            activate_connection_by_id(connection.connection_id)
+            connection.status = "active"
+            connection.save()
+
+
+def _get_data_warehouse_usage_limit(team_id):
+    from posthog.cloud_utils import get_cached_instance_license
+    from ee.billing.billing_manager import BillingManager
+
+    license = get_cached_instance_license()
+    org = Organization.objects.get(pk=team_id)
+
+    response = BillingManager(license).get_billing(org, None)
+    try:
+        data_warehouse_product = [product for product in response["products"] if product["name"] == "Data Warehouse"][0]
+        usage_limit = data_warehouse_product["usage_limit"]
+    except Exception as e:
+        logger.exception("Data Warehouse: Failed to retrieve data warehouse billing product", exc_info=e)
+        usage_limit = DEFAULT_USAGE_LIMIT
+
+    return usage_limit
 
 
 @app.task(ignore_result=True, max_retries=2)
