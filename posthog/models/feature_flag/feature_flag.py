@@ -27,6 +27,7 @@ class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
+    # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
         blank=True
