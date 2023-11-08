@@ -1055,10 +1055,18 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["data_warehouse_rows_synced_in_period"] == 20
 
         assert org_1_report["teams"]["3"]["data_warehouse_rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["4"]["data_warehouse_rows_synced_in_period"] == 10
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["data_warehouse_rows_synced_in_period"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
