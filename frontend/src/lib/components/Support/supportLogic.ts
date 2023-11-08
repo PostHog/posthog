@@ -43,9 +43,9 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
-    bug: 'Report a bug',
+    support: 'Ask a question',
     feedback: 'Give feedback',
-    support: 'Get support',
+    bug: 'Report a bug',
 }
 
 export const TARGET_AREA_TO_NAME = {
