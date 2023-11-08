@@ -14,6 +14,7 @@ import {
     StringMatching,
     Team,
 } from '../../../src/types'
+import { chainToElements } from '../../../src/utils/db/elements-chain'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
@@ -44,7 +45,7 @@ describe('ActionMatcher', () => {
     })
 
     /** Return a test action created on a common base using provided steps. */
-    async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
+    async function createTestAction(partialSteps: Partial<ActionStep>[], bytecode?: any[]): Promise<Action> {
         const action: RawAction = {
             id: actionCounter++,
             team_id: 2,
@@ -58,7 +59,7 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode: null,
+            bytecode: bytecode ?? null,
             bytecode_error: null,
         }
         const steps: ActionStep[] = partialSteps.map(
@@ -1254,6 +1255,119 @@ describe('ActionMatcher', () => {
             expect(
                 actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
             ).toBeFalsy()
+        })
+
+        it('executes bytecode if present', async () => {
+            // properties.foo like '%bar%'
+            const fooLikeBar = [32, '%bar%', 32, 'foo', 32, 'properties', 1, 2, 17]
+            const viewportWidth = [32, '$viewport_width', 32, 'properties', 1, 2]
+            const viewportHeight = [32, '$viewport_height', 32, 'properties', 1, 2]
+            const portraitMode = [...viewportHeight, ...viewportWidth, 15] // w < h; args are reversed
+            const bytecode = ['_h', ...fooLikeBar, ...portraitMode, 4, 2]
+
+            const actionDefinitionOpIsSet: Action = await createTestAction(
+                [
+                    {
+                        // not used, bytecode takes precedence
+                        properties: [
+                            { type: 'event', key: 'foo', operator: PropertyOperator.IContains, value: ['bar'] },
+                            { type: 'hogql', key: 'properties.$viewport_width < properties.$viewport_height' },
+                        ],
+                    },
+                ],
+                bytecode
+            )
+
+            const eventFooBar = createTestEvent({
+                properties: { foo: 'bar', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBarPolPot = createTestEvent({
+                properties: { foo: null, pol: 'pot', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBaR = createTestEvent({
+                properties: { foo: 'baR', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBaz = createTestEvent({
+                properties: { foo: 'baz', $viewport_width: 400, $viewport_height: 600 },
+            })
+            const eventFooRabarbar = createTestEvent({
+                properties: { foo: 'rabarbar', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooNumber = createTestEvent({
+                properties: { foo: 7, $viewport_width: 400, $viewport_height: 600 },
+            })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({
+                properties: { foo: null, $viewport_width: 400, $viewport_height: 600 },
+            })
+
+            // TODO: replace with `actionMatcher.match` once we enable bytecode matching for all
+            expect(actionMatcher.matchBytecode(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooBaR)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventNoNothing)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFigNumber)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooTrue)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+        })
+
+        it('bytecode element handling works', async () => {
+            const actionDefinition: Action = await createTestAction(
+                [
+                    {
+                        // bytecode takes precedence, setting value to -1 here
+                        properties: [{ type: 'cohort', key: 'id', value: -1 }],
+                    },
+                ],
+                [
+                    '_h',
+                    /* STRING */ 32,
+                    '.*?data-attr="menu-item-featureflags".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))',
+                    /* STRING */ 32,
+                    'elements_chain',
+                    /* FIELD */ 1,
+                    /* arg_count */ 1,
+                    /* REGEX */ 23,
+                    /* STRING */ 32,
+                    '$autocapture',
+                    /* STRING */ 32,
+                    'event',
+                    /* FIELD */ 1,
+                    /* arg_count */ 1,
+                    /* EQ */ 11,
+                    /* AND */ 3,
+                    /* arg_count */ 2,
+                ]
+            )
+
+            const event = createTestEvent({
+                event: '$autocapture',
+                properties: {
+                    $os: 'Mac OS X',
+                    $os_version: '10.15.7',
+                    $browser: 'Chrome',
+                    $device_type: 'Desktop',
+                    $current_url: 'http://localhost:8000/data-management/actions/1',
+                    $host: 'localhost:8000',
+                    $pathname: '/data-management/actions/1',
+                    $browser_version: 114,
+                    $viewport_height: 1046,
+                    $viewport_width: 771,
+                    $lib: 'web',
+                    $ip: '127.0.0.1',
+                },
+                elementsList: chainToElements(
+                    'span.grow.text-default:attr__class="text-default grow"attr__href="/feature_flags"href="/feature_flags"nth-child="1"nth-of-type="1"text="Feature Flags";span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--status-stealth.LemonButton--tertiary.Link:attr__class="Link LemonButton LemonButton--tertiary LemonButton--status-stealth LemonButton--full-width LemonButton--has-icon"attr__data-attr="menu-item-featureflags"attr__href="/feature_flags"href="/feature_flags"nth-child="1"nth-of-type="1"text="Feature Flags";li:nth-child="9"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.SideBar__slider__content:attr__class="SideBar__slider__content"nth-child="1"nth-of-type="1";div.SideBar__slider:attr__class="SideBar__slider"nth-child="1"nth-of-type="1";div.SideBar:attr__class="SideBar"nth-child="4"nth-of-type="3";div.flex.flex-col.h-screen:attr__class="h-screen flex flex-col"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="4"nth-of-type="1";body:attr__theme="light"nth-child="2"nth-of-type="1"',
+                    2
+                ),
+            })
+            // TODO: replace with `actionMatcher.match` once we enable bytecode matching for all
+            expect(actionMatcher.matchBytecode(event)).toEqual([actionDefinition])
         })
     })
 

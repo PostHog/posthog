@@ -22,7 +22,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
-import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { elementsToString } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
