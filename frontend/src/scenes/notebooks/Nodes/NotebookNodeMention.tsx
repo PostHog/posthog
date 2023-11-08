@@ -45,7 +45,7 @@ export const NotebookNodeMention = Node.create({
     atom: true,
 
     serializedText: (attrs: NotebookNodeMentionAttrs): string => {
-        // timestamp is not a block so `getText` does not add a separator.
+        // mention is not a block so `getText` does not add a separator.
         // we need to add it manually
         return `(member:${attrs.id})`
     },
