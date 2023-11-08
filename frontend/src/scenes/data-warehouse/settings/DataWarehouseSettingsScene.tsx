@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
@@ -8,8 +8,6 @@ import SourceModal from '../external/SourceModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-// eslint-disable-next-line no-restricted-imports
-import { LoadingOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -90,7 +88,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                                 <div className="flex flex-row justify-end">
                                     {sourceReloadingById[source.id] ? (
                                         <div>
-                                            <LoadingOutlined />
+                                            <Spinner />
                                         </div>
                                     ) : (
                                         <div>
