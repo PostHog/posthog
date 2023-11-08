@@ -1,4 +1,3 @@
-import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
