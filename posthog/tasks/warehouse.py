@@ -75,9 +75,11 @@ def _traverse_jobs_by_field(ph_client, team, url, field, acc=[]):
             "external data sync job",
             {
                 "count": job[field],
+                "workspace_id": team.external_data_workspace_id,
                 "team_id": team.pk,
                 "team_uuid": team.uuid,
                 "startTime": job["startTime"],
+                "job_id": str(job["jobId"]),
             },
         )
 

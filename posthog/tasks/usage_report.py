@@ -596,7 +596,29 @@ def get_teams_with_survey_responses_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_data_warehouse_rows_synced_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
-    pass
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+
+    # dedup by job id incase there were duplicates sent?
+    results = sync_execute(
+        """
+        SELECT team, sum(count) FROM (
+            SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced, any(JSONExtractString(properties, 'start_time')) AS start_time
+            FROM events
+            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND start_time between %(begin)s AND %(end)s
+            GROUP BY job_id, team
+        )
+        GROUP BY team
+        """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
 
 
 @app.task(ignore_result=True, max_retries=0)

@@ -48,7 +48,14 @@ class TestWarehouse(APIBaseTest):
         mock_capture.capture.assert_called_with(
             self.team.pk,
             "external data sync job",
-            {"count": 97747, "team_id": self.team.pk, "team_uuid": self.team.uuid, "startTime": "2023-11-05T18:32:41Z"},
+            {
+                "count": 97747,
+                "workspace_id": self.team.external_data_workspace_id,
+                "team_id": self.team.pk,
+                "team_uuid": self.team.uuid,
+                "startTime": "2023-11-05T18:32:41Z",
+                "job_id": "5783573",
+            },
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
