@@ -12,11 +12,12 @@ import { notebookPanelLogic } from './notebookPanelLogic'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { urls } from 'scenes/urls'
 import { NotebookMenu } from '../NotebookMenu'
+import { NotebookTarget } from '~/types'
 
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({

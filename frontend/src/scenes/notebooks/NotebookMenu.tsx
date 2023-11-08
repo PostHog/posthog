@@ -33,16 +33,17 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             icon: <IconShare />,
                             onClick: () => openNotebookShareDialog({ shortId }),
                         },
-                        !notebook?.is_template && {
-                            label: 'Delete',
-                            icon: <IconDelete />,
-                            status: 'danger',
+                        !isLocalOnly &&
+                            !notebook?.is_template && {
+                                label: 'Delete',
+                                icon: <IconDelete />,
+                                status: 'danger',
 
-                            onClick: () => {
-                                notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                router.actions.push(urls.notebooks())
+                                onClick: () => {
+                                    notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
+                                    router.actions.push(urls.notebooks())
+                                },
                             },
-                        },
                     ],
                 },
             ]}

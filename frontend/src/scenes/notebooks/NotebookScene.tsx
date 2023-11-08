@@ -15,6 +15,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { NotebookMenu } from './NotebookMenu'
+import { NotebookTarget } from '~/types'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -30,7 +31,9 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
-    const { notebook, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
+    const { notebook, conflictWarningVisible } = useValues(
+        notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
+    )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
