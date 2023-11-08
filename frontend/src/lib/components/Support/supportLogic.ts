@@ -154,10 +154,10 @@ export const supportLogic = kea<supportLogicType>([
     })),
     forms(({ actions }) => ({
         sendSupportRequest: {
-            defaults: {} as unknown as {
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
+            defaults: {
+                kind: 'support' as SupportTicketKind,
+                target_area: null as SupportTicketTargetArea | null,
+                message: '',
             },
             errors: ({ message, kind, target_area }) => {
                 return {
@@ -215,7 +215,7 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             })
 
-            actions.openSidePanel(SidePanelTab.Feedback)
+            actions.openSidePanel(SidePanelTab.Support)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
