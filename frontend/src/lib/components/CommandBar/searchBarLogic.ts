@@ -29,7 +29,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
         searchResponse: [
             null as SearchResponse | null,
             {
-                setSearchQuery: async ({ query }) => {
+                setSearchQuery: async ({ query }, breakpoint) => {
+                    await breakpoint(300)
                     return await api.get(`api/projects/@current/search?q=${query}`)
                 },
             },
