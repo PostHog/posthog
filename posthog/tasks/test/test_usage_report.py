@@ -980,6 +980,87 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         assert org_2_report["teams"]["5"]["survey_responses_count_in_month"] == 7
 
 
+@freeze_time("2022-01-10T00:01:00Z")
+class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        for i in range(5):
+            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _create_event(
+                distinct_id="3",
+                event="external data sync job",
+                properties={
+                    "count": 10,
+                    "job_id": 10924,
+                    "start_time": start_time,
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+            # identical job id should be deduped and not counted
+            _create_event(
+                distinct_id="3",
+                event="external data sync job",
+                properties={
+                    "count": 10,
+                    "job_id": 10924,
+                    "start_time": start_time,
+                },
+                timestamp=now() - relativedelta(hours=i, minutes=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="external data sync job",
+                properties={
+                    "count": 10,
+                    "job_id": 10924,
+                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        flush_persons_and_events()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["data_warehouse_rows_synced_in_period"] == 20
+
+        assert org_1_report["teams"]["3"]["data_warehouse_rows_synced_in_period"] == 10
+
+
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

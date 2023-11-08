@@ -598,13 +598,13 @@ def get_teams_with_survey_responses_count_in_period(
 def get_teams_with_data_warehouse_rows_synced_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     team_to_query = 1 if get_instance_region() == "EU" else 2
 
-    # dedup by job id incase there were duplicates sent?
+    # dedup by job id incase there were duplicates sent
     results = sync_execute(
         """
-        SELECT team, sum(count) FROM (
+        SELECT team, sum(rows_synced) FROM (
             SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced, any(JSONExtractString(properties, 'start_time')) AS start_time
             FROM events
-            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND start_time between %(begin)s AND %(end)s
+            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN %(begin)s AND %(end)s
             GROUP BY job_id, team
         )
         GROUP BY team
