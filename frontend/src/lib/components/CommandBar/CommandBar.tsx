@@ -42,9 +42,7 @@ function CommandBar(): JSX.Element | null {
 
     useOutsideClickHandler(
         containerRef,
-        () => {
-            hideCommandBar()
-        },
+        hideCommandBar,
         []
     )
 
