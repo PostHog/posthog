@@ -1599,7 +1599,7 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_session_recording_event(event_data=["some snapshot data"])
+            self._send_august_2023_version_session_recording_event()
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
 
