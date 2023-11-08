@@ -306,6 +306,36 @@
   ORDER BY "posthog_persondistinctid"."id" ASC
   '
 ---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value.1
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%red%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value.2
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (("posthog_person"."properties" -> '$key') > '["2"]'
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
   '
   SELECT (1) AS "a"
