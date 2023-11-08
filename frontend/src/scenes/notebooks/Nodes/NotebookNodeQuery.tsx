@@ -88,7 +88,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={nodeId} />
+            <Query query={modifiedQuery} uniqueKey={nodeId} readOnly={true} />
         </div>
     )
 }
@@ -127,7 +127,6 @@ export const Settings = ({
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
-            modifiedQuery.showHeader = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
         }
