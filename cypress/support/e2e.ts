@@ -73,7 +73,7 @@ afterEach(function () {
     if (E2E_TESTING) {
         cy.window().then((win) => {
             ;(win as any).posthog?.capture(event, { state, duration })
-            cy.log(`View session recording at: ${(win as any).posthog.get_session_replay_url()}`)
+            cy.log(`View E2E testing project session recording at: ${(win as any).posthog.get_session_replay_url()}`)
         })
     }
 })
