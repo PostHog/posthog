@@ -369,22 +369,21 @@
         }
 
         &.LemonButton--secondary {
-            background: #323232;
-            border-color: #383838;
+            background: var(--secondary-3000-frame-bg);
+            border-color: var(--secondary-3000-frame-border);
             border-radius: 6px;
             padding-bottom: 1px;
 
             > span {
                 color: var(--default);
-                // background: var(--secondary-3000);
-                background: #1d1f27;
-                border-color: #4a4c52;
+                background: var(--secondary-3000-button-bg);
+                border-color: var(--secondary-3000-button-border);
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     // background: var(--secondary-3000-hover);
                     // color: var(--default);
-                    border-color: #5e6064;
+                    border-color: var(--secondary-3000-button-border-hover);
                 }
                 .LemonButton__icon {
                     color: var(--default);
