@@ -8,7 +8,6 @@ import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from 'lib/lemon-ui/icons'
 import { ProfessorHog } from '../hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ReplayGeneral } from 'scenes/settings/project/SessionRecordingSettings'
 
 const Task = ({ id, name, description, completed, canSkip, skipped, url }: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
