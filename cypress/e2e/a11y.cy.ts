@@ -28,7 +28,7 @@ describe('a11y', () => {
         it(`${sideBarItem} should have no accessibility violations`, () => {
             cy.clickNavMenu(sideBarItem)
             cy.injectAxe()
-            reportA11y({ includedImpacts: ['serious', 'critical'] }, sideBarItem)
+            reportA11y({ includedImpacts: ['serious', 'critical'] }, sideBarItem, false)
         })
     })
 })
