@@ -4,6 +4,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/navigation/SideBar/SidebarChangeNotice'
 import { navigation3000Logic } from '../navigationLogic'
 import { LemonTag } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -63,29 +64,46 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         }
     }
 
+    const buttonContent = (
+        <LemonButton
+            ref={ref}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+            onMouseEnter={() => setHasBeenClicked(false)}
+            onClick={() => {
+                setHasBeenClicked(true)
+                onClick?.()
+            }}
+            className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+            fullWidth
+            {...buttonProps}
+        >
+            {content}
+        </LemonButton>
+    )
+
+    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+
     return (
         <li className="w-full">
-            <Tooltip
-                title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
-                placement="right"
-                delayMs={0}
-                visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
-            >
-                <LemonButton
-                    ref={ref}
-                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                    onMouseEnter={() => setHasBeenClicked(false)}
-                    onClick={() => {
-                        setHasBeenClicked(true)
-                        onClick?.()
-                    }}
-                    className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
-                    fullWidth
-                    {...buttonProps}
+            {notices.length ? (
+                <Tooltip
+                    title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
+                    placement={notices[0].placement ?? 'right'}
+                    delayMs={0}
+                    visible={true}
                 >
-                    {content}
-                </LemonButton>
-            </Tooltip>
+                    {buttonContent}
+                </Tooltip>
+            ) : (
+                <Tooltip
+                    title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
+                    placement="right"
+                    delayMs={0}
+                    visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                >
+                    {buttonContent}
+                </Tooltip>
+            )}
         </li>
     )
 })

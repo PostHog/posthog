@@ -4,7 +4,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { IconCheckmark, IconWarning } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 export function TwoFactorAuthentication(): JSX.Element {
     const { user } = useValues(userLogic)

@@ -110,9 +110,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     type="secondary"
                                     resource={{
                                         type: NotebookNodeType.Cohort,
-                                        attrs: {
-                                            id,
-                                        },
+                                        attrs: { id },
                                     }}
                                 />
                             )}

@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { notebook, isLocalOnly } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const editable = !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
@@ -52,14 +52,16 @@ export function NotebookPanel(): JSX.Element | null {
                                 tooltipPlacement="left"
                             />
 
-                            <LemonButton
-                                size="small"
-                                onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
-                                status="primary-alt"
-                                icon={<IconShare />}
-                                tooltip="Share notebook"
-                                tooltipPlacement="left"
-                            />
+                            {!isLocalOnly ? (
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
+                                    status="primary-alt"
+                                    icon={<IconShare />}
+                                    tooltip="Share notebook"
+                                    tooltipPlacement="left"
+                                />
+                            ) : null}
 
                             {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
                         </span>

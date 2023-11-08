@@ -610,6 +610,42 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         events = _filter_events(filter, self.team)
         self.assertEqual(events[0]["id"], event1_uuid)
 
+    def test_numerical_person_properties(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$a_number": 4})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$a_number": 5})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$a_number": 6})
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": 4,
+                        "operator": "gt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(_filter_persons(filter, self.team)), 2)
+
+        filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
+        self.assertEqual(len(_filter_persons(filter, self.team)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": 6,
+                        "operator": "lt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(_filter_persons(filter, self.team)), 2)
+
     def test_contains(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
         event2_uuid = _create_event(
