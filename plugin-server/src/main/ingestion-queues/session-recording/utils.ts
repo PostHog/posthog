@@ -138,7 +138,14 @@ export const parseKafkaMessage = async (
     message: Message,
     getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
 ): Promise<IncomingRecordingMessage | void> => {
-    const statusWarn = (reason: string, extra?: Record<string, any>) => {
+    const dropMessage = (reason: string, extra?: Record<string, any>) => {
+        eventDroppedCounter
+            .labels({
+                event_type: 'session_recordings_blob_ingestion',
+                drop_cause: reason,
+            })
+            .inc()
+
         status.warn('⚠️', 'invalid_message', {
             reason,
             partition: message.partition,
@@ -149,7 +156,7 @@ export const parseKafkaMessage = async (
 
     if (!message.value || !message.timestamp) {
         // Typing says this can happen but in practice it shouldn't
-        return statusWarn('message value or timestamp is empty')
+        return dropMessage('message_value_or_timestamp_is_empty')
     }
 
     const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
@@ -160,14 +167,7 @@ export const parseKafkaMessage = async (
     // if token was in the headers but, we could not load team config
     // then, we can return early
     if (!!token && (teamIdWithConfig == null || teamIdWithConfig.teamId == null)) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'session_recordings_blob_ingestion',
-                drop_cause: 'header_token_team_missing_or_disabled',
-            })
-            .inc()
-
-        return statusWarn('header_token_team_missing_or_disabled', {
+        return dropMessage('header_token_present_team_missing_or_disabled', {
             token: token,
         })
     }
@@ -179,22 +179,21 @@ export const parseKafkaMessage = async (
         messagePayload = JSON.parse(message.value.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return statusWarn('invalid_json', { error })
+        return dropMessage('invalid_json', { error })
     }
 
     const { $snapshot_items, $session_id, $window_id } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-        status.warn('🙈', 'Received non-snapshot message, ignoring')
-        return
+        return dropMessage('received_non_snapshot_message')
     }
 
     // TODO this mechanism is deprecated for blobby ingestion, we should remove it
     // once we're happy that the new mechanism is working
     // if there was not a token in the header then we try to load one from the message payload
     if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
-        return statusWarn('no_token')
+        return dropMessage('no_token_in_header_or_payload')
     }
 
     if (teamIdWithConfig == null) {
@@ -207,14 +206,7 @@ export const parseKafkaMessage = async (
 
     // NB `==` so we're comparing undefined and null
     if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'session_recordings_blob_ingestion',
-                drop_cause: 'token_fallback_team_missing_or_disabled',
-            })
-            .inc()
-
-        return statusWarn('token_fallback_team_missing_or_disabled', {
+        return dropMessage('token_fallback_team_missing_or_disabled', {
             token: messagePayload.token,
             teamId: messagePayload.team_id,
             payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
@@ -247,9 +239,7 @@ export const parseKafkaMessage = async (
     }
 
     if (!events.length) {
-        status.warn('🙈', 'Event contained no valid rrweb events, ignoring')
-
-        return statusWarn('invalid_rrweb_events', {
+        return dropMessage('message_contained_no_valid_rrweb_events', {
             token: messagePayload.token,
             teamId: messagePayload.team_id,
         })
