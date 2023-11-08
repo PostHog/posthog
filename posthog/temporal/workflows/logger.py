@@ -243,6 +243,7 @@ class KafkaLogProducerFromQueue:
                 bootstrap_servers=settings.KAFKA_HOSTS,
                 security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
+                api_version="2.5.0",
             )
         )
 
