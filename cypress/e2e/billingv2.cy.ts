@@ -5,7 +5,7 @@ describe('Billing', () => {
         cy.visit('/organization/billing')
     })
 
-    it('Show unsubscribe survey', () => {
+    it('Show and submit unsubscribe survey', () => {
         cy.intercept('/api/billing-v2/deactivate?products=product_analytics', {
             fixture: 'api/billing-v2/billing-v2-unsubscribed-product-analytics.json',
         })
@@ -17,7 +17,7 @@ describe('Billing', () => {
         )
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
-        cy.get('[data-attr=upgrade-card-product_analytics]').should('be.visible')
+        cy.get('.LemonModal').should('not.exist')
     })
 
     it('Unsubscribe survey text area maintains unique state between product types', () => {
