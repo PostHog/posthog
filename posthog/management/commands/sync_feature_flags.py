@@ -36,8 +36,8 @@ class Command(BaseCommand):
             deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
             for flag in flags.keys():
                 flag_type = flags[flag]
-                # do not sync the cloud announcement flag for in-app banners
-                if flag == "cloud-announcement":
+                # do not sync the cloud announcement or session reset flags
+                if flag == "cloud-announcement" or flag == "session-reset-on-load":
                     continue
                 elif flag in deleted_flags:
                     ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
