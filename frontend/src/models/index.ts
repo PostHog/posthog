@@ -5,9 +5,10 @@ import { cohortsModel } from './cohortsModel'
 import { dashboardsModel } from './dashboardsModel'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 import type { modelsType } from './indexType'
+import { groupsModel } from './groupsModel'
 
 /** "Models" are logics that are persistently mounted (start with app) */
 export const models = kea<modelsType>([
     path(['models', 'index']),
-    connect([actionsModel, annotationsModel, cohortsModel, dashboardsModel, propertyDefinitionsModel]),
+    connect([actionsModel, annotationsModel, cohortsModel, dashboardsModel, propertyDefinitionsModel, groupsModel]),
 ])

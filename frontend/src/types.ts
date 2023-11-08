@@ -515,6 +515,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum PipelineTabs {
+    Filters = 'filters',
+    Transformations = 'transformations',
+    Destinations = 'destinations',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -2245,6 +2251,18 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
 }
 
+export interface OrganizationFeatureFlagsCopyBody {
+    feature_flag_key: FeatureFlagType['key']
+    from_project: TeamType['id']
+    target_project_ids: TeamType['id'][]
+}
+
+export type OrganizationFeatureFlags = {
+    flag_id: FeatureFlagType['id']
+    team_id: TeamType['id']
+    active: FeatureFlagType['active']
+}[]
+
 export interface FeatureFlagRollbackConditions {
     threshold: number
     threshold_type: string
@@ -3069,6 +3087,7 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
+    Mention = 'ph-mention',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3135,6 +3154,19 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
+export interface ExternalDataStripeSourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface ExternalDataStripeSource {
+    id: string
+    source_id: string
+    connection_id: string
+    status: string
+    source_type: string
+}
+
 export type BatchExportDestinationS3 = {
     type: 'S3'
     config: {
@@ -3198,11 +3230,28 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationRedshift = {
+    type: 'Redshift'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        properties_data_type: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
+    | BatchExportDestinationRedshift
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

@@ -140,7 +140,7 @@ describe('Trends', () => {
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.get('div').contains('Yesterday').should('exist').click()
-        cy.get('.trends-insights-container .insight-empty-state').should('exist')
+        cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
     it('Apply property breakdown', () => {

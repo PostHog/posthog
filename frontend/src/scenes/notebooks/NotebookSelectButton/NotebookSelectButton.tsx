@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { IconNotebook, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
@@ -18,6 +18,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { IconNotebook } from '../IconNotebook'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -127,7 +128,12 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
+                <LemonButton
+                    data-attr="notebooks-select-button-create"
+                    fullWidth
+                    icon={<IconPlus />}
+                    onClick={openNewNotebook}
+                >
                     New notebook
                 </LemonButton>
                 <LemonButton

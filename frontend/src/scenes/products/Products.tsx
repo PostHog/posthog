@@ -126,7 +126,12 @@ export function Products(): JSX.Element {
                 <>
                     <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
                         {products
-                            .filter((product) => !product.contact_support && !product.inclusion_only)
+                            .filter(
+                                (product) =>
+                                    !product.contact_support &&
+                                    !product.inclusion_only &&
+                                    product.type !== 'data_warehouse'
+                            )
                             .map((product) => (
                                 <ProductCard product={product} key={product.type} />
                             ))}

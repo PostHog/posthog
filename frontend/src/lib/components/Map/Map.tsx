@@ -6,6 +6,7 @@ import layers from 'protomaps-themes-base'
 import useResizeObserver from 'use-resize-observer'
 
 import 'maplibre-gl/dist/maplibre-gl.css'
+import './Maplibre.scss'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -74,7 +75,7 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
                 marker.addTo(map.current)
             }
         }
-    }, [])
+    }, [isDarkModeOn])
 
     useResizeObserver({
         ref: mapContainer,

@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { sceneLogic } from '../../sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -28,7 +28,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                     <>
                         This project is{' '}
                         <b>
-                            <LockOutlined style={{ color: 'var(--warning)', marginRight: 5 }} />
+                            <IconLock style={{ color: 'var(--warning)', marginRight: 5 }} />
                             private
                         </b>
                         . Only members listed below are allowed to access it.
@@ -37,7 +37,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                     <>
                         This project is{' '}
                         <b>
-                            <UnlockOutlined style={{ marginRight: 5 }} />
+                            <IconLockOpen style={{ marginRight: 5 }} />
                             open
                         </b>
                         . Any member of the organization can access it. To enable granular access control, make it

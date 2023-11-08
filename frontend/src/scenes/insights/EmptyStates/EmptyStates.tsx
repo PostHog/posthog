@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, ThunderboltFilled, WarningOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
 import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
@@ -21,6 +21,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SupportModal } from 'lib/components/Support/SupportModal'
+import { IconWarning } from '@posthog/icons'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -220,16 +221,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     </div>
                 )}
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="funnels-single-step-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noopener"
                         className="flex items-center justify-center"
+                        targetBlankIcon
                     >
                         Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>
@@ -241,7 +241,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <WarningOutlined />
+                    <IconWarning />
                 </div>
                 <h2>Invalid exclusion filters</h2>
                 <p>
@@ -249,15 +249,14 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     filters, or removing the overlapping exclusion event.
                 </p>
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
-                        rel="noopener"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>

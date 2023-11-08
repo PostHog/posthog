@@ -5,7 +5,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
@@ -17,6 +16,7 @@ import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { IconInfo } from '@posthog/icons'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -27,8 +27,7 @@ export function VerifiedDomains(): JSX.Element {
     return (
         <>
             <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
-                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 2022-06-01. */}
+                <div className="grow">
                     <h2 id="authentication-domains" className="subtitle">
                         Authentication domains
                     </h2>
@@ -80,7 +79,7 @@ function VerifiedDomainsTable(): JSX.Element {
                           <>
                               Verification
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                  <IconInfo style={{ marginLeft: 4 }} />
                               </Tooltip>
                           </>
                       ),
@@ -112,7 +111,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             currentOrganization?.name || 'this organization'
                         } if it does not exist.`}
                     >
-                        <InfoCircleOutlined />
+                        <IconInfo />
                     </Tooltip>
                 </>
             ),
@@ -139,7 +138,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 <>
                     Enforce SSO{' '}
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                        <InfoCircleOutlined />
+                        <IconInfo />
                     </Tooltip>
                 </>
             ),

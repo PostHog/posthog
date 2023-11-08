@@ -41,6 +41,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
@@ -108,6 +109,12 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
+
+export type ProjectsWithCurrentFlagResponse = {
+    flag_id: number
+    team_id: number
+    active: boolean
+}[]
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
@@ -177,6 +184,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature'],
             dashboardsLogic,
             ['dashboards'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -219,6 +228,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        setCopyDestinationProject: (id: number | null) => ({ id }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -465,6 +475,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        copyDestinationProject: [
+            null as number | null,
+            {
+                setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -566,6 +582,39 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        projectsWithCurrentFlag: {
+            __default: [] as Record<string, string>[],
+            loadProjectsWithCurrentFlag: async () => {
+                const orgId = values.currentOrganization?.id
+                const flagKey = values.featureFlag.key
+
+                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
+
+                // Put current project first
+                const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
+                if (currentProjectIdx) {
+                    const [currentProject] = projects.splice(currentProjectIdx, 1)
+                    const sortedProjects = [currentProject, ...projects]
+                    return sortedProjects
+                }
+                return projects
+            },
+        },
+        featureFlagCopy: {
+            copyFlag: async () => {
+                const orgId = values.currentOrganization?.id
+                const featureFlagKey = values.featureFlag.key
+                const { copyDestinationProject, currentTeamId } = values
+
+                if (currentTeamId && copyDestinationProject) {
+                    return await api.organizationFeatureFlags.copy(orgId, {
+                        feature_flag_key: featureFlagKey,
+                        from_project: currentTeamId,
+                        target_project_ids: [copyDestinationProject],
+                    })
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -725,6 +774,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setFeatureFlag(updatedFlag)
                 featureFlagsLogic.findMounted()?.actions.updateFlag(updatedFlag)
             }
+        },
+        copyFlagSuccess: ({ featureFlagCopy }) => {
+            if (featureFlagCopy?.success.length) {
+                const operation = values.projectsWithCurrentFlag.find(
+                    (p) => Number(p.team_id) === values.copyDestinationProject
+                )
+                    ? 'updated'
+                    : 'copied'
+                lemonToast.success(`Feature flag ${operation} successfully!`)
+            } else {
+                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
+            }
+
+            actions.loadProjectsWithCurrentFlag()
+            actions.setCopyDestinationProject(null)
         },
     })),
     selectors({

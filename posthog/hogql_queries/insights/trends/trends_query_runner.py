@@ -186,11 +186,17 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        item.strftime("%-d-%b-%Y") for item in get_value("date", val)
-                    ],  # TODO: Add back in hour formatting
+                        item.strftime(
+                            "%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else "")
+                        )
+                        for item in val[0]
+                    ],
                     "days": [
-                        item.strftime("%Y-%m-%d") for item in get_value("date", val)
-                    ],  # TODO: Add back in hour formatting
+                        item.strftime(
+                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
+                        )
+                        for item in val[0]
+                    ],
                     "count": float(sum(get_value("total", val))),
                     "label": "All events"
                     if self.series_event(series.series) is None

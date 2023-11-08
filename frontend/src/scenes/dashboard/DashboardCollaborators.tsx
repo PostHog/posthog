@@ -88,12 +88,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                 </div>
                             )}
                             <h5 className="mt-4">Project members with access</h5>
-                            <div
-                                className="mt-2 pb-2 rounded overflow-y-auto"
-                                style={{
-                                    maxHeight: 300,
-                                }}
-                            >
+                            <div className="mt-2 pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
                                 {allCollaborators.map((collaborator) => (
                                     <CollaboratorRow
                                         key={collaborator.user.uuid}

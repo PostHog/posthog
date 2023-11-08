@@ -68,6 +68,7 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - frontend/src/queries/schema.json # Used for generating schema.py
+                        - plugin-transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/actions/run-backend-tests/action.yml
@@ -125,11 +126,11 @@ jobs:
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
-                  ruff .
+                  ruff check .
 
             - name: Check formatting
               run: |
-                  black --exclude posthog/hogql/grammar --check --diff .
+                  ruff format --exclude posthog/hogql/grammar --check --diff .
 
             - name: Check static typing
               run: |

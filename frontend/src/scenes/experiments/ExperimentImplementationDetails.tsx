@@ -1,8 +1,15 @@
 import { Card, Select } from 'antd'
-import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
+import {
+    IconArrowDropDown,
+    IconGolang,
+    IconJavascript,
+    IconNodeJS,
+    IconPHP,
+    IconPython,
+    IconRuby,
+} from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Experiment, MultivariateFlagVariant } from '~/types'
-import { CaretDownOutlined } from '@ant-design/icons'
 import {
     GolangSnippet,
     JSSnippet,
@@ -79,7 +86,7 @@ export function CodeLanguageSelect({
             value={selectedOptionValue}
             onChange={selectOption}
             style={{ minWidth: 120 }}
-            suffixIcon={<CaretDownOutlined />}
+            suffixIcon={<IconArrowDropDown />}
         >
             {OPTIONS.map(({ value, Icon }, index) => (
                 <Select.Option data-attr={'experiment-instructions-select-option-' + value} key={index} value={value}>
@@ -111,14 +118,14 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             title={<span className="card-secondary">Feature flag usage and implementation</span>}
             className="experiment-implementation-details"
         >
-            <div style={{ justifyContent: 'space-between' }} className="flex mb-2">
+            <div className="flex mb-2 justify-between">
                 <div>
                     <span className="mr-2">Variant group</span>
                     <Select
                         onChange={setCurrentVariant}
                         value={currentVariant}
                         style={{ minWidth: 80 }}
-                        suffixIcon={<CaretDownOutlined />}
+                        suffixIcon={<IconArrowDropDown />}
                     >
                         {experiment?.parameters?.feature_flag_variants?.map(
                             (variant: MultivariateFlagVariant, idx: number) => (

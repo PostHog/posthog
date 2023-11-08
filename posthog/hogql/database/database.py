@@ -61,10 +61,10 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
-    console_logs_log_entries: (ReplayConsoleLogsLogEntriesTable) = ReplayConsoleLogsLogEntriesTable()
+    console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
 
-    raw_session_replay_events: (RawSessionReplayEventsTable) = RawSessionReplayEventsTable()
+    raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()

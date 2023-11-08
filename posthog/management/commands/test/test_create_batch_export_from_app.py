@@ -506,6 +506,7 @@ def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
         batch_export_id = str(batch_export_data["id"])
         workflows = wait_for_workflow_executions(temporal, query=f'TemporalScheduledById="{batch_export_id}"')
 
-        assert len(workflows) == 1
+        # In the event the test takes too long, we may spawn more than one run
+        assert len(workflows) >= 1
         workflow_execution = workflows[0]
         assert workflow_execution.workflow_type == f"{export_type.lower()}-export"

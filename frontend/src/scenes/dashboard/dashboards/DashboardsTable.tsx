@@ -22,7 +22,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export function DashboardsTableContainer(): JSX.Element {

@@ -66,6 +66,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
+            modifiedQuery.showTimings = false
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
@@ -87,7 +88,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={nodeId} readOnly={true} />
+            <Query query={modifiedQuery} uniqueKey={nodeId} />
         </div>
     )
 }
@@ -126,6 +127,7 @@ export const Settings = ({
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
+            modifiedQuery.showHeader = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
         }
@@ -207,7 +209,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     },
     href: (attrs) =>
         attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
-    settings: Settings,
+    Settings,
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
         getAttributes: async (match) => {

@@ -122,7 +122,7 @@ class Organization(UUIDModel):
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    plugins_access_level: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
