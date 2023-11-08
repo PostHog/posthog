@@ -2,7 +2,6 @@ import 'givens/setup'
 import './commands'
 import 'cypress-axe'
 import { decideResponse } from '../fixtures/api/decide'
-import { writeFileSync } from 'fs'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -74,10 +73,12 @@ afterEach(function () {
     if (E2E_TESTING) {
         cy.window().then((win) => {
             ;(win as any).posthog?.capture(event, { state, duration })
-            writeFileSync(
-                `./cypress/${state}.test-replay-url.txt`,
-                (win as any).posthog?.get_session_replay_url() || ''
-            )
+
+            const replayUrl = (win as any).posthog?.get_session_replay_url() || ''
+            const filePath = `./cypress/${state}.test-replay-url.txt`
+
+            // Use Cypress command to write the file
+            cy.writeFile(filePath, replayUrl)
         })
     }
 })
