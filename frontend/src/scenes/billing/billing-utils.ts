@@ -175,6 +175,10 @@ export const getUpgradeProductLink = (
     }
     // remove the trailing comma that will be at the end of the url
     url = url.slice(0, -1)
+    if (product.type === 'data_warehouse') {
+        // TODO: remove once data_warehouse is out of beta
+        url += `&custom_limits_usd=${product.type}:500`
+    }
     if (redirectPath) {
         url += `&redirect_path=${redirectPath}`
     }

@@ -101,6 +101,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         plan = request.GET.get("plan", None)
         product_keys = request.GET.get("products", None)
+        custom_limits = request.GET.get("custom_limits_usd", None)
         if not plan and not product_keys:
             # If no plan or product keys are specified, we default to the standard plan
             # This is to support the old activation flow
@@ -110,6 +111,8 @@ class BillingViewset(viewsets.GenericViewSet):
             url = f"{url}&plan={plan}"
         if product_keys:
             url = f"{url}&products={product_keys}"
+        if custom_limits:
+            url = f"{url}&custom_limits_usd={custom_limits}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)

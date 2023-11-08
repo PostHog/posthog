@@ -258,8 +258,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (step) {
                 actions.setStepKey(step)
-            } else {
-                actions.resetStepKey()
             }
         },
     })),
