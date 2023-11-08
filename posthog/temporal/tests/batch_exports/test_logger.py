@@ -71,7 +71,7 @@ class CaptureKafkaProducer(aiokafka.AIOKafkaProducer):
     """A test aiokafka.AIOKafkaProducer that captures calls to send_and_wait."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(bootstrap_servers="localhost:9092")
         self.entries = []
 
     async def send(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
