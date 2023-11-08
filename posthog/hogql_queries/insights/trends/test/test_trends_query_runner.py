@@ -204,6 +204,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response.results[0]["labels"],
         )
 
+    def test_trends_query_labels_hour(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(self.default_date_from, self.default_date_from, IntervalType.hour)
+
+        self.assertEqual(
+            [
+                "9-Jan-2020 00:00",
+            ],
+            response.results[0]["labels"],
+            response.results[0]["labels"],
+        )
+
     def test_trends_query_multiple_series(self):
         self._create_test_events()
 

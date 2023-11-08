@@ -43,7 +43,7 @@ function ExtraSettingInput({
     const [value, setValue] = useState(defaultValue)
 
     return (
-        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4 max-w-160">
             <LemonInput value={value as any} onChange={setValue} disabled={currentTeamLoading} type={type as any} />
             <LemonButton
                 type="primary"

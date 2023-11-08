@@ -1,4 +1,4 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 import { loaders } from 'kea-loaders'
@@ -10,6 +10,11 @@ export interface DataWarehouseSource {}
 
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
+    actions({
+        deleteSource: (source: ExternalDataStripeSource) => ({ source }),
+        reloadSource: (source: ExternalDataStripeSource) => ({ source }),
+        loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+    }),
     loaders({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataStripeSource> | null,
@@ -17,6 +22,25 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 loadSources: async () => {
                     return api.externalDataSources.list()
                 },
+            },
+        ],
+    }),
+    reducers({
+        sourceReloadingById: [
+            {} as Record<string, boolean>,
+            {
+                reloadSource: (state, { source }) => ({
+                    ...state,
+                    [source.id]: true,
+                }),
+                deleteSource: (state, { source }) => ({
+                    ...state,
+                    [source.id]: true,
+                }),
+                loadingFinished: (state, { source }) => ({
+                    ...state,
+                    [source.id]: false,
+                }),
             },
         ],
     }),
@@ -35,6 +59,18 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             ],
         ],
     }),
+    listeners(({ actions }) => ({
+        deleteSource: async ({ source }) => {
+            await api.externalDataSources.delete(source.id)
+            actions.loadSources()
+            actions.loadingFinished(source)
+        },
+        reloadSource: async ({ source }) => {
+            await api.externalDataSources.reload(source.id)
+            actions.loadSources()
+            actions.loadingFinished(source)
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadSources()
     }),

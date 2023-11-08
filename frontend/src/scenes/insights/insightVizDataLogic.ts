@@ -10,6 +10,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
 
@@ -27,6 +28,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    nodeKindToFilterProperty,
 } from '~/queries/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import {
@@ -312,11 +314,19 @@ const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode
 ): QuerySourceUpdate => {
-    const mergedUpdate = { ...update }
+    const mergedUpdate = { ...update } as InsightQueryNode
 
     const maybeChangedSeries = (update as TrendsQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
+    const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
+    const insightFilter = currentState[nodeKindToFilterProperty[currentState.kind]] as Partial<InsightFilter>
+    const maybeChangedInsightFilter = update[nodeKindToFilterProperty[kind]] as Partial<InsightFilter>
+
     const interval = (currentState as TrendsQuery).interval
+
+    /*
+     * Series change side effects.
+     */
 
     // If the user just flipped an event action to use WAUs/MAUs math and their
     // current interval is unsupported by the math type, switch their interval
@@ -335,6 +345,9 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
+    /*
+     * Date range change side effects.
+     */
     if (
         update.dateRange &&
         update.dateRange.date_from &&
@@ -366,6 +379,27 @@ const handleQuerySourceUpdateSideEffects = (
                 }
             }
             ;(mergedUpdate as Partial<TrendsQuery>).interval = newDefaultInterval
+        }
+    }
+
+    /*
+     * Display change side effects.
+     */
+    const display = (insightFilter as Partial<TrendsFilter>)?.display || ChartDisplayType.ActionsLineGraph
+    const maybeChangedDisplay =
+        (maybeChangedInsightFilter as Partial<TrendsFilter>)?.display || ChartDisplayType.ActionsLineGraph
+
+    // For the map, make sure we are breaking down by country
+    if (
+        kind === NodeKind.TrendsQuery &&
+        display !== maybeChangedDisplay &&
+        maybeChangedDisplay === ChartDisplayType.WorldMap
+    ) {
+        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
+
+        mergedUpdate['breakdown'] = {
+            breakdown: '$geoip_country_code',
+            breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
     }
 
