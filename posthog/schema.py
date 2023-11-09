@@ -828,15 +828,22 @@ class HogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    explain: Optional[List[str]] = None
-    hogql: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[List] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+    )
+    explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: Optional[str] = Field(default=None, description="Input query string")
+    results: Optional[List] = Field(default=None, description="Query results")
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
 class LifecycleFilter(BaseModel):

@@ -65,6 +65,7 @@ class HogQLQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             timings=self.timings,
             in_export_context=self.in_export_context,
+            explain=bool(self.query.explain),
         )
 
     def _is_stale(self, cached_result_package):
