@@ -26,7 +26,7 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     children?: JSX.Element
 }
 
-export const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
+const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
 }: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
