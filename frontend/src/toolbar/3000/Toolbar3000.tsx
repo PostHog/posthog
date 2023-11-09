@@ -36,7 +36,7 @@ function MoreMenu({
 }: {
     onOpenOrClose: (e: React.MouseEvent, actionFn: () => void) => void
 }): JSX.Element {
-    const { visibleMenu, theme } = useValues(toolbarButtonLogic)
+    const { visibleMenu, hedgehogMode, theme } = useValues(toolbarButtonLogic)
     const { setHedgehogMode, setVisibleMenu, toggleTheme } = useActions(toolbarButtonLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
@@ -60,7 +60,7 @@ function MoreMenu({
                     icon: <>🦔</>,
                     label: 'Hedgehog mode',
                     onClick: () => {
-                        setHedgehogMode(true)
+                        setHedgehogMode(!hedgehogMode)
                     },
                 },
                 {

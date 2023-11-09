@@ -3,6 +3,7 @@ import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { posthog } from '~/toolbar/posthog'
+import { HedgehogButton } from '~/toolbar/button/HedgehogButton'
 
 export function DraggableButton(): JSX.Element {
     const { dragPosition, theme } = useValues(toolbarButtonLogic)
@@ -36,8 +37,7 @@ export function DraggableButton(): JSX.Element {
                     <ToolbarButton />
                 </div>
             </Draggable>
-
-            {/*<HedgehogButton />*/}
+            <HedgehogButton />
         </>
     )
 }
