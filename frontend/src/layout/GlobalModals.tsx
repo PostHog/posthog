@@ -1,10 +1,10 @@
 import { kea, path, actions, reducers, useActions, useValues } from 'kea'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { InviteModal } from 'scenes/settings/organization/InviteModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
