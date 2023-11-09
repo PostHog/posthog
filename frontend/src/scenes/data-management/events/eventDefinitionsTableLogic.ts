@@ -7,6 +7,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
+import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -36,9 +37,6 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         ...filter,
     }
 }
-
-export const EVENT_DEFINITIONS_PER_PAGE = 50
-export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
