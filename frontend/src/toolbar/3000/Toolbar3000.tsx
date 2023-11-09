@@ -1,20 +1,18 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
-    IconClick,
-    IconClose,
-    IconDarkMode,
-    IconDragHandle,
-    IconFlag,
-    IconHelpOutline,
-    IconLightMode,
-    IconMagnifier,
-    IconMenu,
-    IconTarget,
-} from 'lib/lemon-ui/icons'
+    IconX,
+    IconLogomark,
+    IconSearch,
+    IconNight,
+    IconDay,
+    IconToggle,
+    IconCursorClick,
+    IconQuestion,
+} from '@posthog/icons'
+import { IconDragHandle, IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
-import { Logomark as Logomark3000 } from '~/toolbar/button/icons/icons'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -64,20 +62,20 @@ function MoreMenu({
                     },
                 },
                 {
-                    icon: currentlyLightMode ? <IconDarkMode /> : <IconLightMode />,
+                    icon: currentlyLightMode ? <IconNight /> : <IconDay />,
                     label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                     onClick: () => {
                         toggleTheme()
                     },
                 },
                 {
-                    icon: <IconHelpOutline />,
+                    icon: <IconQuestion />,
                     label: 'Help',
                     onClick: () => {
                         window.open(HELP_URL, '_blank')?.focus()
                     },
                 },
-                { icon: <IconClose />, label: 'Logout', onClick: logout },
+                { icon: <IconX />, label: 'Logout', onClick: logout },
             ]}
             maxContentWidth={true}
         >
@@ -187,7 +185,7 @@ export function Toolbar3000(): JSX.Element {
                     <>
                         <Tooltip title={'Inspect'}>
                             <LemonButton
-                                icon={<IconMagnifier />}
+                                icon={<IconSearch />}
                                 aria-label={'Inspect'}
                                 status={'stealth'}
                                 onClick={(e) =>
@@ -202,7 +200,7 @@ export function Toolbar3000(): JSX.Element {
                         <Tooltip title={'Heatmap'}>
                             <LemonButton
                                 aria-label={'Heatmap'}
-                                icon={<IconClick />}
+                                icon={<IconCursorClick />}
                                 status={'stealth'}
                                 onClick={(e) =>
                                     swallowClick(e, () =>
@@ -230,7 +228,7 @@ export function Toolbar3000(): JSX.Element {
                         <Tooltip title={'Feature flags'}>
                             <LemonButton
                                 aria-label={'Feature flags'}
-                                icon={<IconFlag />}
+                                icon={<IconToggle />}
                                 status={'stealth'}
                                 onClick={(e) =>
                                     swallowClick(e, () =>
@@ -245,18 +243,16 @@ export function Toolbar3000(): JSX.Element {
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
                 ) : null}
-                <LemonButton
-                    icon={<Logomark3000 />}
-                    title={minimizedWidth ? 'expand the toolbar' : 'minimize'}
-                    status={'stealth'}
-                    size={'small'}
-                    square={true}
-                    noPadding={false}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        toggleWidth()
-                    }}
-                />
+                <Tooltip title={minimizedWidth ? 'expand the toolbar' : 'minimize'}>
+                    <LemonButton
+                        icon={<IconLogomark />}
+                        status={'stealth'}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            toggleWidth()
+                        }}
+                    />
+                </Tooltip>
             </div>
         </>
     )
