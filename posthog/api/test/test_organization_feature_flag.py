@@ -1,6 +1,10 @@
 from rest_framework import status
 from posthog.models.team.team import Team
 from posthog.models import FeatureFlag
+from posthog.models.experiment import Experiment
+from posthog.models.feedback.survey import Survey
+from posthog.models.early_access_feature import EarlyAccessFeature
+from posthog.api.dashboards.dashboard import Dashboard
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from typing import Any, Dict
 
@@ -130,7 +134,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_update_existing(self):
         target_project = self.team_2
         rollout_percentage_existing = 99
-        self.feature_flag_existing = FeatureFlag.objects.create(
+
+        existing_flag = FeatureFlag.objects.create(
             team=target_project,
             created_by=self.user,
             key=self.feature_flag_key,
@@ -139,6 +144,19 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             rollout_percentage=rollout_percentage_existing,
             ensure_experience_continuity=False,
         )
+
+        # The following instances must remain linked to the existing flag after overwriting it
+        experiment = Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=existing_flag.id)
+        survey = Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_flag)
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            feature_flag=existing_flag,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+        )
+        existing_flag.analytics_dashboards.set([dashboard])
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 
@@ -163,19 +181,19 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": self.user.id,
-            "id": "__ignore__",
-            "created_at": "__ignore__",
-            "usage_dashboard": "__ignore__",
             "is_simple_flag": True,
-            "experiment_set": [],
-            "surveys": [],
-            "features": [],
             "rollback_conditions": None,
             "performed_rollback": False,
             "can_edit": True,
-            "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
+            "id": "__ignore__",
+            "created_at": "__ignore__",
+            "usage_dashboard": "__ignore__",
+            "experiment_set": "__ignore__",
+            "surveys": "__ignore__",
+            "features": "__ignore__",
+            "analytics_dashboards": "__ignore__",
         }
 
         flag_response = response.json()["success"][0]
@@ -187,6 +205,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                     self.assertEqual(flag_response[key]["id"], expected_value)
                 else:
                     self.assertEqual(flag_response[key], expected_value)
+
+        # Linked instances must remain linked
+        self.assertEqual(experiment.id, flag_response["experiment_set"][0])
+        self.assertEqual(str(survey.id), flag_response["surveys"][0]["id"])
+        self.assertEqual(str(feature.id), flag_response["features"][0]["id"])
+        self.assertEqual(dashboard.id, flag_response["analytics_dashboards"][0])
 
         self.assertSetEqual(
             set(expected_flag_response.keys()),
