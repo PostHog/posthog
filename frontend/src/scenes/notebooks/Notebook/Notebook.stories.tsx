@@ -200,6 +200,9 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
+        testOptions: {
+            waitForSelector: '.NotebookNode__content',
+        },
     },
     decorators: [
         mswDecorator({
@@ -387,11 +390,6 @@ export const RecordingsPlaylist: StoryFn = () => {
         router.actions.push(urls.notebook('recordings-playlist'))
     }, [])
     return <App />
-}
-RecordingsPlaylist.parameters = {
-    testOptions: {
-        waitForSelector: '.SessionRecordingsPlaylist__list',
-    },
 }
 
 export const TextOnlyNotebook: StoryFn = () => {
