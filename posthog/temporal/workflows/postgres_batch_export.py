@@ -122,7 +122,7 @@ async def create_table_in_postgres(
                     # This is safe as we are hardcoding the type values anyways.
                     sql.SQL("{field} {type}").format(
                         field=sql.Identifier(field),
-                        type=sql.SQL(field_type),  # type: ignore
+                        type=sql.SQL(field_type),
                     )
                     for field, field_type in fields
                 ),

@@ -5,11 +5,11 @@ from random import randint
 from uuid import uuid4
 
 import psycopg
-import psycopg.sql
 import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
+from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -41,9 +41,7 @@ async def assert_events_in_postgres(connection, schema, table_name, events, excl
 
     async with connection.cursor() as cursor:
         await cursor.execute(
-            psycopg.sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(
-                psycopg.sql.Identifier(schema, table_name)
-            )
+            sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name))
         )
         columns = [column.name for column in cursor.description]
 
@@ -110,14 +108,12 @@ async def setup_test_db(postgres_config):
 
     async with connection.cursor() as cursor:
         await cursor.execute(
-            psycopg.sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
+            sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
             (postgres_config["database"],),
         )
 
         if await cursor.fetchone() is None:
-            await cursor.execute(
-                psycopg.sql.SQL("CREATE DATABASE {}").format(psycopg.sql.Identifier(postgres_config["database"]))
-            )
+            await cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
 
@@ -133,15 +129,13 @@ async def setup_test_db(postgres_config):
 
     async with connection.cursor() as cursor:
         await cursor.execute(
-            psycopg.sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psycopg.sql.Identifier(postgres_config["schema"]))
+            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(postgres_config["schema"]))
         )
 
     yield
 
     async with connection.cursor() as cursor:
-        await cursor.execute(
-            psycopg.sql.SQL("DROP SCHEMA {} CASCADE").format(psycopg.sql.Identifier(postgres_config["schema"]))
-        )
+        await cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(postgres_config["schema"])))
 
     await connection.close()
 
@@ -155,9 +149,7 @@ async def setup_test_db(postgres_config):
     await connection.set_autocommit(True)
 
     async with connection.cursor() as cursor:
-        await cursor.execute(
-            psycopg.sql.SQL("DROP DATABASE {}").format(psycopg.sql.Identifier(postgres_config["database"]))
-        )
+        await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
 
