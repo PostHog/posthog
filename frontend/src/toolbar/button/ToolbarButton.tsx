@@ -5,19 +5,7 @@ import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 // import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import {
-    getShadowRoot,
-    // getShadowRootPopoverContainer
-} from '~/toolbar/utils'
-// import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-// import { useLongPress } from 'lib/hooks/useLongPress'
-// import { Fire } from '~/toolbar/button/icons/Fire'
-// import { Magnifier } from '~/toolbar/button/icons/Magnifier'
-// import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-// import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-// import { IconHelpOutline, IconTarget, IconClose } from 'lib/lemon-ui/icons'
-// import { Logomark } from '~/toolbar/assets/Logomark'
-// import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getShadowRoot } from '~/toolbar/utils'
 import { Toolbar3000 } from '../3000/Toolbar3000'
 
 export const HELP_URL =
@@ -56,25 +44,6 @@ export function ToolbarButton(): JSX.Element {
         window.addEventListener('mousemove', globalMouseMove.current)
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
-
-    // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
-    // const clickEvents = useLongPress(
-    //     (clicked) => {
-    //         if (clicked) {
-    //             if (isAuthenticated) {
-    //                 setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
-    //             } else {
-    //                 authenticate()
-    //             }
-    //         }
-    //     },
-    //     {
-    //         ms: undefined,
-    //         clickMs: 1 as any,
-    //         touch: true,
-    //         click: true,
-    //     }
-    // )
 
     // const borderRadius = 14
     // const buttonWidth = 42
