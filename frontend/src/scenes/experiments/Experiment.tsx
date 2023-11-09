@@ -1,10 +1,10 @@
 import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -21,7 +21,7 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
-import { LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Form, Group } from 'kea-forms'
@@ -37,6 +37,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ExperimentResult } from './ExperimentResult'
+import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -528,7 +529,7 @@ export function Experiment(): JSX.Element {
                                             >
                                                 <span className="text-muted">{experiment.feature_flag?.key}</span>
                                             </CopyToClipboardInline>
-                                            <StatusTag />
+                                            <StatusTag experiment={experiment} />
                                             <ResultsTag />
                                         </>
                                     }
@@ -829,27 +830,10 @@ export function Experiment(): JSX.Element {
     )
 }
 
-type ExperimentStatus = 'running' | 'draft' | 'complete'
-
-export function StatusTag(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const statusColors: Record<ExperimentStatus, LemonTagType> = {
-        running: 'success',
-        draft: 'default',
-        complete: 'completion',
-    }
-
-    const status: ExperimentStatus = useMemo(() => {
-        if (!isExperimentRunning) {
-            return 'draft'
-        } else if (!experiment?.end_date) {
-            return 'running'
-        }
-        return 'complete'
-    }, [isExperimentRunning, experiment.end_date])
-
+export function StatusTag({ experiment }: { experiment: Experiment }): JSX.Element {
+    const status = getExperimentStatus(experiment)
     return (
-        <LemonTag type={statusColors[status]}>
+        <LemonTag type={getExperimentStatusColor(status)}>
             <b className="uppercase">{status}</b>
         </LemonTag>
     )

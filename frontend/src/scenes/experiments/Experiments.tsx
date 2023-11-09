@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/lemon-ui/Link'
 import { dayjs } from 'lib/dayjs'
-import { Tag } from 'antd'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -22,6 +21,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { StatusTag } from './Experiment'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -94,13 +94,7 @@ export function Experiments(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-                const status = getExperimentStatus(experiment)
-                return (
-                    <Tag color={statusColors[status]} style={{ fontWeight: 600 }}>
-                        {status.toUpperCase()}
-                    </Tag>
-                )
+                return <StatusTag experiment={experiment} />
             },
             align: 'center',
             sorter: (a, b) => {
