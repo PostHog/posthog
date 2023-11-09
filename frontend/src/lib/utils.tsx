@@ -19,6 +19,7 @@ import {
     FilterLogicalOperator,
     FunnelVizType,
     GroupActorType,
+    KeyMappingInterface,
     InsightType,
     IntervalType,
     PropertyFilterValue,
@@ -33,7 +34,6 @@ import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/taxonomy'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
