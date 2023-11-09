@@ -18,6 +18,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+// eslint-disable-next-line no-restricted-imports
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'

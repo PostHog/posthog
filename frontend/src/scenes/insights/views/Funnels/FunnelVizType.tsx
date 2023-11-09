@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { ClockCircleOutlined, LineChartOutlined } from '@ant-design/icons'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FunnelVizType as VizType, EditorFilterProps } from '~/types'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { FunnelsFilter } from '~/queries/schema'
+import { IconFunnels } from '@posthog/icons'
 
 export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
@@ -19,7 +21,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
             key: VizType.Steps,
             label: 'Conversion steps',
             description: `Track ${aggregationTargetLabel.plural} progress between steps of the funnel`,
-            icon: <FunnelPlotOutlined />,
+            icon: <IconFunnels />,
         },
         {
             key: VizType.TimeToConvert,

@@ -1,12 +1,10 @@
 import { useState } from 'react'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, CohortType, ProductKey } from '~/types'
 import './Cohorts.scss'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
@@ -150,10 +148,6 @@ export function Cohorts(): JSX.Element {
 
     return (
         <div>
-            <PageHeader
-                title="Cohorts"
-                caption="Create lists of users who have something in common to use in analytics or feature flags."
-            />
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName="Cohorts"
@@ -175,13 +169,6 @@ export function Cohorts(): JSX.Element {
                             onChange={setSearchTerm}
                             value={searchTerm}
                         />
-                        <LemonButton
-                            type="primary"
-                            data-attr="create-cohort"
-                            onClick={() => router.actions.push(urls.cohort('new'))}
-                        >
-                            New Cohort
-                        </LemonButton>
                     </div>
                     <LemonTable
                         columns={columns}
@@ -196,9 +183,4 @@ export function Cohorts(): JSX.Element {
             )}
         </div>
     )
-}
-
-export const scene: SceneExport = {
-    component: Cohorts,
-    logic: cohortsModel,
 }

@@ -1,4 +1,5 @@
 import { Select } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'

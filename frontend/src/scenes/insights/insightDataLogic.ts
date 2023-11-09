@@ -15,9 +15,9 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -84,12 +84,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+                propsQuery ||
                 internalQuery ||
                 insight.query ||
                 (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+        ],
+
+        propsQuery: [
+            () => [(_, props) => props],
+            // overwrite query from props for standalone InsightVizNode queries
+            (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
         isQueryBasedInsight: [

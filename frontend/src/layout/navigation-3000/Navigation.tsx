@@ -12,6 +12,7 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanel } from './sidepanel/SidePanel'
+import { GlobalModals } from '../GlobalModals'
 
 export function Navigation({
     children,
@@ -48,6 +49,7 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandPalette />
+            <GlobalModals />
         </div>
     )
 }
