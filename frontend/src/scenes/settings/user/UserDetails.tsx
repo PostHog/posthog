@@ -5,9 +5,11 @@ import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 import { LemonTag } from '@posthog/lemon-ui'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export function UserDetails(): JSX.Element {
-    const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
+    const { user } = useValues(userLogic)
+    const { userLoading, isUserDetailsSubmitting, userDetailsChanged } = useValues(userManagementLogic)
 
     return (
         <Form

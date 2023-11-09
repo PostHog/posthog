@@ -8,6 +8,7 @@ import { DashboardCompatibleScenes, Scene } from 'scenes/sceneTypes'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
 import { userLogic } from 'scenes/userLogic'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export interface SceneDashboardChoiceModalProps {
     scene: DashboardCompatibleScenes
@@ -25,7 +26,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     key((props) => `${props.scene}`),
     connect({
         logic: [eventUsageLogic],
-        actions: [teamLogic, ['updateCurrentTeam'], userLogic, ['setUserScenePersonalisation']],
+        actions: [teamLogic, ['updateCurrentTeam'], userManagementLogic, ['setUserScenePersonalisation']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], dashboardsModel, ['nameSortedDashboards']],
     }),
     actions({

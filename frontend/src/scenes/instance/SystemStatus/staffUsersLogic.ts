@@ -6,12 +6,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 import type { staffUsersLogicType } from './staffUsersLogicType'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export const staffUsersLogic = kea<staffUsersLogicType>([
     path(['scenes', 'instance', 'SystemStatus', 'staffUsersLogic']),
     connect({
         values: [userLogic, ['user']],
-        actions: [userLogic, ['loadUser']],
+        actions: [userManagementLogic, ['loadUser']],
     }),
     actions({
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),

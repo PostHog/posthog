@@ -1,5 +1,11 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
+import {
+    FilterType,
+    NotebookNodeAttributeProperties,
+    NotebookNodeProps,
+    NotebookNodeType,
+    RecordingFilters,
+} from '~/types'
 import {
     SessionRecordingPlaylistLogicProps,
     addedAdvancedFilters,
@@ -11,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/types'
+import { JSONContent } from '../Notebook/types'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'

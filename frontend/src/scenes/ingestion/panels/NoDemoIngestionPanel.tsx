@@ -2,13 +2,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconArrowRight } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 import { CardContainer } from '../CardContainer'
 import './Panels.scss'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export function NoDemoIngestionPanel(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam } = useActions(userManagementLogic)
 
     return (
         <CardContainer>

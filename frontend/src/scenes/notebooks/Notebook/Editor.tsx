@@ -27,7 +27,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
+import { textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
@@ -41,6 +41,7 @@ import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { MentionsExtension } from './MentionsExtension'
 import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
+import { EditorRange, EditorFocusPosition, JSONContent, TipTapNode } from './types'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -234,7 +235,7 @@ export function Editor(): JSX.Element {
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
-                hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
+                hasChildOfType: (node: TipTapNode, type: string) => !!firstChildOfType(node, type),
                 scrollToSelection: () => {
                     queueMicrotask(() => {
                         const position = editor.state.selection.$anchor.pos
@@ -273,11 +274,11 @@ function findEndPositionOfNode(editor: TTEditor, position: number): number | nul
     return !node ? null : position + node.nodeSize
 }
 
-function findNode(editor: TTEditor, position: number): Node | null {
+function findNode(editor: TTEditor, position: number): TipTapNode | null {
     return editor.state.doc.nodeAt(position)
 }
 
-function nextNode(editor: TTEditor, position: number): { node: Node; position: number } | null {
+function nextNode(editor: TTEditor, position: number): { node: TipTapNode; position: number } | null {
     const endPosition = findEndPositionOfNode(editor, position)
     if (!endPosition) {
         return null
@@ -286,7 +287,7 @@ function nextNode(editor: TTEditor, position: number): { node: Node; position: n
     return result.node ? { node: result.node, position: result.offset } : null
 }
 
-export function hasChildOfType(node: Node, type: string, direct: boolean = true): boolean {
+export function hasChildOfType(node: TipTapNode, type: string, direct: boolean = true): boolean {
     const types: string[] = []
     node.descendants((child) => {
         types.push(child.type.name)
@@ -316,13 +317,13 @@ function closest(array: number[], num: number): number {
     return array.sort((a, b) => Math.abs(num - a) - Math.abs(num - b))[0]
 }
 
-export function firstChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
+export function firstChildOfType(node: TipTapNode, type: string, direct: boolean = true): TipTapNode | null {
     const children = getChildren(node, direct)
     return children.find((child) => child.type.name === type) || null
 }
 
-function getChildren(node: Node, direct: boolean = true): Node[] {
-    const children: Node[] = []
+function getChildren(node: TipTapNode, direct: boolean = true): TipTapNode[] {
+    const children: TipTapNode[] = []
     node.descendants((child) => {
         children.push(child)
         return !direct
@@ -330,13 +331,13 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
     return children
 }
 
-function getAdjacentNodes(editor: TTEditor, pos: number): { previous: Node | null; next: Node | null } {
+function getAdjacentNodes(editor: TTEditor, pos: number): { previous: TipTapNode | null; next: TipTapNode | null } {
     const { doc } = editor.state
     const currentIndex = doc.resolve(pos).index(0)
     return { previous: doc.maybeChild(currentIndex - 1), next: doc.maybeChild(currentIndex + 1) }
 }
 
-function getNodeBeforeActiveNode(editor: TTEditor): Node | null {
+function getNodeBeforeActiveNode(editor: TTEditor): TipTapNode | null {
     const { doc, selection } = editor.state
     const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
     return doc.maybeChild(currentIndex - 1)

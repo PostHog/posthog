@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
-import { appContextLogic } from './appContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -49,7 +48,7 @@ export const sceneLogic = kea<sceneLogicType>([
     ),
     path(['scenes', 'sceneLogic']),
     connect(() => ({
-        logic: [router, userLogic, preflightLogic, appContextLogic],
+        logic: [router, userLogic, preflightLogic],
         actions: [router, ['locationChanged']],
     })),
     actions({

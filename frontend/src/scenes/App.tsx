@@ -1,4 +1,16 @@
-import { kea, useMountedLogic, useValues, BindLogic, path, connect, actions, reducers, selectors, events } from 'kea'
+import {
+    kea,
+    useMountedLogic,
+    useValues,
+    BindLogic,
+    path,
+    connect,
+    actions,
+    reducers,
+    selectors,
+    events,
+    useActions,
+} from 'kea'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,10 +38,11 @@ import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
+import { userManagementLogic } from './userManagementLogic'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic]),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic, userLogic]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -41,14 +54,14 @@ export const appLogic = kea<appLogicType>([
     selectors({
         showApp: [
             (s) => [
-                userLogic.selectors.userLoading,
                 userLogic.selectors.user,
+                userLogic.selectors.userLoading,
                 featureFlagLogic.selectors.receivedFeatureFlags,
                 s.featureFlagsTimedOut,
                 preflightLogic.selectors.preflightLoading,
                 preflightLogic.selectors.preflight,
             ],
-            (userLoading, user, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
+            (user, userLoading, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
                 return (
                     (!userLoading || user) &&
                     (receivedFeatureFlags || featureFlagsTimedOut) &&
@@ -118,6 +131,7 @@ function LoadedSceneLogics(): JSX.Element {
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
+    const { loadUser } = useActions(userManagementLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -186,7 +200,7 @@ function AppScene(): JSX.Element | null {
                     </p>
                     <Setup2FA
                         onSuccess={() => {
-                            userLogic.actions.loadUser()
+                            loadUser()
                             membersLogic.actions.loadMembers()
                         }}
                     />

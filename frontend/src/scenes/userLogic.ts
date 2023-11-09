@@ -1,14 +1,8 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
 
 import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { DashboardCompatibleScenes } from './sceneTypes'
 import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
@@ -18,102 +12,33 @@ export interface UserDetailsFormType {
 
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
-    actions(() => ({
-        loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
-        updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
+    actions({
         logout: true,
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-        setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
-    })),
-    forms(({ actions }) => ({
-        userDetails: {
-            errors: ({ first_name, email }) => ({
-                first_name: !first_name
-                    ? 'You need to have a name.'
-                    : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
-                email: !email
-                    ? 'You need to have an email.'
-                    : first_name.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
-            }),
-            submit: (user) => {
-                actions.updateUser(user)
-            },
-        },
-    })),
-    loaders(({ values, actions }) => ({
+        setUser: (user: UserType | null) => ({ user }),
+        setUserLoading: (loading: boolean) => ({ loading }),
+    }),
+    reducers({
         user: [
-            // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
             null as UserType | null,
             {
-                loadUser: async () => {
-                    try {
-                        return await api.get('api/users/@me/')
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.loadUserFailure(error.message)
-                    }
-                    return null
-                },
-                updateUser: async ({ user, successCallback }) => {
-                    if (!values.user) {
-                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
-                    }
-                    try {
-                        const response = await api.update('api/users/@me/', user)
-                        successCallback && successCallback()
-                        return response
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                    }
-                },
-                setUserScenePersonalisation: async ({ scene, dashboard }) => {
-                    if (!values.user) {
-                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
-                    }
-                    try {
-                        return await api.create('api/users/@me/scene_personalisation', {
-                            scene,
-                            dashboard,
-                        })
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                    }
-                },
+                setUser: (_, { user }) => user,
             },
         ],
-    })),
-    reducers({
-        userDetails: [
-            {} as UserDetailsFormType,
+
+        userLoading: [
+            false,
             {
-                loadUserSuccess: (_, { user }) => ({
-                    first_name: user?.first_name || '',
-                    email: user?.email || '',
-                }),
-                updateUserSuccess: (_, { user }) => ({
-                    first_name: user?.first_name || '',
-                    email: user?.email || '',
-                }),
+                setUser: () => false,
+                setUserLoading: (_, { loading }) => loading,
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
         },
-        loadUserSuccess: ({ user }) => {
+        setUser: ({ user }) => {
             if (user && user.uuid) {
                 const Sentry = (window as any).Sentry
                 Sentry?.setUser({
@@ -161,47 +86,7 @@ export const userLogic = kea<userLogicType>([
                 }
             }
         },
-        updateUserSuccess: () => {
-            lemonToast.dismiss('updateUser')
-            lemonToast.success('Preferences saved', {
-                toastId: 'updateUser',
-            })
-        },
-        updateUserFailure: () => {
-            lemonToast.error(`Error saving preferences`, {
-                toastId: 'updateUser',
-            })
-        },
-        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
-            if (values.user?.team?.id === teamId) {
-                return
-            }
-            await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_team: teamId })
-            window.location.href = destination || '/'
-        },
-        updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
-            if (values.user?.organization?.id === organizationId) {
-                return
-            }
-            await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
-            window.location.href = destination || '/'
-        },
-        updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
-            await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [productKey]: value,
-                    },
-                })
-                .then(() => {
-                    actions.loadUser()
-                })
-        },
-    })),
+    }),
     selectors({
         hasAvailableFeature: [
             (s) => [s.user],
@@ -238,11 +123,7 @@ export const userLogic = kea<userLogicType>([
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
         if (preloadedUser) {
-            actions.loadUserSuccess(preloadedUser)
-        } else if (preloadedUser === null) {
-            actions.loadUserFailure('Logged out')
-        } else {
-            actions.loadUser()
+            actions.setUser(preloadedUser)
         }
     }),
 ])

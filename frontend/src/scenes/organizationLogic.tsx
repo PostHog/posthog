@@ -1,13 +1,13 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
-import { userLogic } from './userLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
+import { userManagementLogic } from './userManagementLogic'
 
 export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'is_member_join_email_enabled' | 'enforce_2fa'>
@@ -15,6 +15,9 @@ export type OrganizationUpdatePayload = Partial<
 
 export const organizationLogic = kea<organizationLogicType>([
     path(['scenes', 'organizationLogic']),
+    connect({
+        actions: [userManagementLogic, ['loadUser']],
+    }),
     actions({
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,
@@ -54,7 +57,7 @@ export const organizationLogic = kea<organizationLogicType>([
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
                     )
-                    userLogic.actions.loadUser()
+                    loadUser()
                     return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),

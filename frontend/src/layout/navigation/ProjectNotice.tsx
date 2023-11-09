@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -19,7 +20,7 @@ interface ProjectNoticeBlueprint {
 export function ProjectNotice(): JSX.Element | null {
     const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam } = useActions(userManagementLogic)
     const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)

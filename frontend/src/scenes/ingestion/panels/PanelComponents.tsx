@@ -7,10 +7,10 @@ import { IconArrowLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
@@ -80,7 +80,7 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
     const { next } = useActions(ingestionLogic)
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam } = useActions(userManagementLogic)
     const { reportIngestionTryWithDemoDataClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

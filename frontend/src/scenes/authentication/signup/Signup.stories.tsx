@@ -32,7 +32,7 @@ export const SelfHosted = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
+        userLogic.actions.setUser(null)
     }, [])
     return <SignupContainer />
 }
@@ -49,7 +49,7 @@ export const SelfHostedSSO = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
+        userLogic.actions.setUser(null)
     }, [])
     return <SignupContainer />
 }
@@ -66,7 +66,7 @@ export const Cloud = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
+        userLogic.actions.setUser(null)
     }, [])
     return <SignupContainer />
 }

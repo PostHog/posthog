@@ -5,13 +5,13 @@ import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 import { useEffect } from 'react'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 const getColumns = (): LemonTableColumns<Record<string, string>> => {
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam } = useActions(userManagementLogic)
 
     return [
         {

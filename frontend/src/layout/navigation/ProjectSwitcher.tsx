@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 import { globalModalsLogic } from '../GlobalModals'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -89,7 +90,7 @@ function CurrentProjectButton(): JSX.Element | null {
 }
 
 function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam } = useActions(userManagementLogic)
     const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return (

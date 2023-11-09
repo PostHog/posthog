@@ -1,12 +1,10 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
 import { PreflightStatus, Realm } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 import type { preflightLogicType } from './preflightLogicType'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { loaders } from 'kea-loaders'
 
 export type PreflightMode = 'experimentation' | 'live'
 
@@ -32,18 +30,9 @@ export interface EnvironmentConfigOption {
 
 export const preflightLogic = kea<preflightLogicType>([
     path(['scenes', 'PreflightCheck', 'preflightLogic']),
-    loaders({
-        preflight: [
-            null as PreflightStatus | null,
-            {
-                loadPreflight: async () => {
-                    const response = (await api.get('_preflight/')) as PreflightStatus
-                    return response
-                },
-            },
-        ],
-    }),
     actions({
+        loadPreflight: true,
+        setPreflight: (preflight: PreflightStatus) => ({ preflight }),
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
         handlePreflightFinished: true,
@@ -51,6 +40,19 @@ export const preflightLogic = kea<preflightLogicType>([
         revalidatePreflight: true,
     }),
     reducers({
+        preflight: [
+            null as PreflightStatus | null,
+            {
+                setPreflight: (_, { preflight }) => preflight,
+            },
+        ],
+        preflightLoading: [
+            false,
+            {
+                loadPreflight: () => true,
+                setPreflight: () => false,
+            },
+        ],
         preflightMode: [
             null as PreflightMode | null,
             {
@@ -270,7 +272,7 @@ export const preflightLogic = kea<preflightLogicType>([
         handlePreflightFinished: () => {
             router.actions.push(urls.signup())
         },
-        loadPreflightSuccess: () => {
+        setPreflight: () => {
             actions.registerInstrumentationProps()
             actions.setChecksManuallyExpanded(values.areChecksManuallyExpanded || null)
         },
@@ -312,7 +314,7 @@ export const preflightLogic = kea<preflightLogicType>([
             const appContext = getAppContext()
             const preflight = appContext?.preflight
             if (preflight) {
-                actions.loadPreflightSuccess(preflight)
+                actions.setPreflight(preflight)
             } else if (!values.preflight) {
                 actions.loadPreflight()
             }

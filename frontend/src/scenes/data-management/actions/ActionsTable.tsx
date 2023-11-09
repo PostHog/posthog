@@ -23,6 +23,7 @@ import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -34,7 +35,7 @@ export function ActionsTable(): JSX.Element {
     const { setFilterByMe, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { updateHasSeenProductIntroFor } = useActions(userManagementLogic)
 
     const columns: LemonTableColumns<ActionType> = [
         {

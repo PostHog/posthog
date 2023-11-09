@@ -8,12 +8,12 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -64,7 +64,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
-        actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
+        actions: [userManagementLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
     }),
     reducers({
         showLicenseDirectInput: [

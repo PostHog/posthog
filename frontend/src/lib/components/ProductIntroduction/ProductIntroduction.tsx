@@ -1,9 +1,9 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
-import { userLogic } from 'scenes/userLogic'
 import { useActions } from 'kea'
 import { ProductKey } from '~/types'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export const ProductIntroduction = ({
     productName,
@@ -34,7 +34,7 @@ export const ProductIntroduction = ({
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
 }): JSX.Element => {
-    const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { updateHasSeenProductIntroFor } = useActions(userManagementLogic)
     const actionable = action || actionElementOverride
     return (
         <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">

@@ -53,6 +53,7 @@ import {
     UserBasicType,
     ExternalDataStripeSourceCreatePayload,
     ExternalDataStripeSource,
+    NotebookNodeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'

@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 import { globalModalsLogic } from '../GlobalModals'
+import { userManagementLogic } from 'scenes/userManagementLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
@@ -28,7 +29,7 @@ export function OtherOrganizationButton({
     organization: OrganizationBasicType
     index: number
 }): JSX.Element {
-    const { updateCurrentOrganization } = useActions(userLogic)
+    const { updateCurrentOrganization } = useActions(userManagementLogic)
 
     return (
         <LemonButton
