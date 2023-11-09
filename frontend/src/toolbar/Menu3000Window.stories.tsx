@@ -164,7 +164,6 @@ interface StoryProps {
     contents: JSX.Element
     name: string
     label: string
-    tagComponent?: JSX.Element
     listActionsAPIResponse?: { results: any[] }
     theme: 'light' | 'dark' | null
 }
@@ -370,7 +369,6 @@ Flags.args = {
     contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
-    tagComponent: <span className="overridden-tag">1 overridden</span>,
 }
 
 export const FlagsLightMode: Story = Template.bind({})
@@ -378,7 +376,6 @@ FlagsLightMode.args = {
     contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
-    tagComponent: <span className="overridden-tag">1 overridden</span>,
     theme: 'light',
 }
 
@@ -387,6 +384,5 @@ FlagsDarkMode.args = {
     contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
-    tagComponent: <span className="overridden-tag">1 overridden</span>,
     theme: 'dark',
 }
