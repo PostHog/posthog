@@ -17,7 +17,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     return (
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
-            dateFrom={dateRange?.date_from ?? '-7d' ?? undefined}
+            dateFrom={dateRange?.date_from ?? '-7d'}
             disabled={disabled}
             onChange={(date_from, date_to) => {
                 updateDateRange({ date_from, date_to })
