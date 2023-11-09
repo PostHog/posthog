@@ -1,5 +1,5 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import {
@@ -15,6 +15,8 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import Fuse from 'fuse.js'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 const POLL_TIMEOUT = 5000
 
@@ -90,7 +92,7 @@ export const cohortsModel = kea<cohortsModelType>([
                 }
                 return [...state].map((existingCohort) => (existingCohort.id === cohort.id ? cohort : existingCohort))
             },
-            cohortCreated: (state = [], { cohort }) => {
+            cohortCreated: (state, { cohort }) => {
                 if (!cohort) {
                     return state
                 }
@@ -110,6 +112,18 @@ export const cohortsModel = kea<cohortsModelType>([
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
                 Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])),
+        ],
+
+        cohortsSearch: [
+            (s) => [s.cohorts],
+            (cohorts): ((term: string) => CohortType[]) => {
+                const fuse = new Fuse<CohortType>(cohorts ?? [], {
+                    keys: ['name'],
+                    threshold: 0.3,
+                })
+
+                return (term) => fuse.search(term).map((result) => result.item)
+            },
         ],
     }),
     listeners(({ actions }) => ({
@@ -140,15 +154,13 @@ export const cohortsModel = kea<cohortsModelType>([
             })
         },
     })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            if (isAuthenticatedTeam(values.currentTeam)) {
-                // Don't load on shared insights/dashboards
-                actions.loadCohorts()
-            }
-        },
-        beforeUnmount: () => {
-            clearTimeout(values.pollTimeout || undefined)
-        },
-    })),
+    beforeUnmount(({ values }) => {
+        clearTimeout(values.pollTimeout || undefined)
+    }),
+    permanentlyMount(({ actions, values }) => {
+        if (isAuthenticatedTeam(values.currentTeam)) {
+            // Don't load on shared insights/dashboards
+            actions.loadCohorts()
+        }
+    }),
 ])
