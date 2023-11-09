@@ -10,6 +10,7 @@ export enum SidePanelTab {
     Feedback = 'feedback',
     Docs = 'docs',
     Activation = 'activation',
+    Settings = 'settings',
 }
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -60,6 +61,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
 
                 tabs.push(SidePanelTab.Activation)
+                tabs.push(SidePanelTab.Settings)
 
                 return tabs
             },

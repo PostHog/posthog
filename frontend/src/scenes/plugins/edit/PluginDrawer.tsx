@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Form, Switch } from 'antd'
-import { LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
@@ -18,6 +17,7 @@ import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { IconCode } from '@posthog/icons'
 
@@ -44,7 +44,7 @@ const SecretFieldIcon = (): JSX.Element => (
             placement="topLeft"
             title="This is a secret write-only field. Its value is not available after saving."
         >
-            <LockFilled style={{ marginRight: 5 }} />
+            <IconLock style={{ marginRight: 5 }} />
         </Tooltip>
     </>
 )

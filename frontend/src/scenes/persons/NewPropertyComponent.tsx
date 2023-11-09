@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Input, Radio } from 'antd'
-import { SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { SaveOutlined, StopOutlined, CheckOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 interface NewPropertyInterface {
     creating: boolean
@@ -100,7 +102,7 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
                                     <CheckOutlined /> True
                                 </Radio.Button>
                                 <Radio.Button value="false">
-                                    <CloseOutlined /> False
+                                    <IconClose /> False
                                 </Radio.Button>
                                 <Radio.Button value="null">
                                     <StopOutlined /> Null
