@@ -261,6 +261,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
                                     },
+                                    hidePersonsModal: true,
                                 },
                             },
                             {
@@ -288,6 +289,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
                                     },
+                                    hidePersonsModal: true,
                                 },
                             },
                             {
@@ -316,6 +318,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     suppressSessionAnalysisWarning: true,
+                                    hidePersonsModal: true,
                                 },
                             },
                         ],
@@ -467,7 +470,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-
                     {
                         layout: {
                             colSpan: 6,
@@ -501,6 +503,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
                                     },
+                                    hidePersonsModal: true,
                                 },
                             },
                             {

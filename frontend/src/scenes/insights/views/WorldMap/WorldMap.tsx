@@ -201,18 +201,18 @@ const WorldMapSVG = React.memo(
     )
 )
 
-export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
+export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
-    const { hidePersonsModal, chartRenderingMetadata } = insightProps
+    const { chartRenderingMetadata } = context
     const renderingMetadata = chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
-    const svgRef = useWorldMapTooltip(showPersonsModal && !hidePersonsModal)
+    const svgRef = useWorldMapTooltip(showPersonsModal)
 
     return (
         <WorldMapSVG
-            showPersonsModal={showPersonsModal && !hidePersonsModal}
+            showPersonsModal={showPersonsModal}
             countryCodeToSeries={countryCodeToSeries}
             maxAggregatedValue={maxAggregatedValue}
             showTooltip={showTooltip}

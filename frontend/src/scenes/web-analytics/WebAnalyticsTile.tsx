@@ -185,15 +185,12 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
     const context = useMemo((): QueryContext => {
         return {
             ...webAnalyticsDataTableQueryContext,
-            insightProps: {
-                chartRenderingMetadata: {
-                    [ChartDisplayType.WorldMap]: {
-                        countryProps: (countryCode) => ({
-                            onClick: () => onWorldMapClick(countryCode),
-                        }),
-                    },
+            chartRenderingMetadata: {
+                [ChartDisplayType.WorldMap]: {
+                    countryProps: (countryCode) => ({
+                        onClick: () => onWorldMapClick(countryCode),
+                    }),
                 },
-                hidePersonsModal: true,
             },
         }
     }, [onWorldMapClick])

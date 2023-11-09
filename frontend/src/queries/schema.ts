@@ -398,6 +398,7 @@ interface InsightVizNodeViewProps {
     /** Query is embedded inside another bordered component */
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
+    hidePersonsModal?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
