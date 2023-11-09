@@ -2292,6 +2292,7 @@ export enum EarlyAccessFeatureTabs {
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
+    flagKey: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
