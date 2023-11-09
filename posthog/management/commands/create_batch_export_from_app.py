@@ -57,6 +57,12 @@ class Command(BaseCommand):
             default=False,
             help="Migrate a PluginConfig even if its disabled.",
         )
+        parser.add_argument(
+            "--paused",
+            action="store_true",
+            default=False,
+            help="Create batch export as paused.",
+        )
 
     def handle(self, *args, **options):
         """Handle creation of a BatchExport from a given PluginConfig."""
@@ -101,6 +107,7 @@ class Command(BaseCommand):
                 name=batch_export_data["name"],
                 interval=batch_export_data["interval"],
                 destination=destination,
+                paused=options["paused"],
             )
 
             destination.save()
