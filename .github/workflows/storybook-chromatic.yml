@@ -155,6 +155,13 @@ jobs:
               run: |
                   pnpm test:visual-regression:legacy:ci:$VARIANT
 
+            - name: Archive failure screenshots
+              if: ${{ failure() }}
+              uses: actions/upload-artifact@v3
+              with:
+                  name: failure-screenshots-${{ matrix.browser }}
+                  path: frontend/__snapshots__/__failures__/
+
             - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
