@@ -4,7 +4,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { Progress } from 'antd'
 import { activationLogic } from './activationLogic'
 
-const ActivationSidebarToggle = (): JSX.Element | null => {
+export const ActivationSidebarToggle = (): JSX.Element | null => {
     const { mobileLayout } = useValues(navigationLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
     const { activeTasks, completionPercent, isReady, hasCompletedAllTasks } = useValues(activationLogic)
@@ -38,5 +38,3 @@ const ActivationSidebarToggle = (): JSX.Element | null => {
         </LemonButton>
     )
 }
-
-export default ActivationSidebarToggle

@@ -3119,7 +3119,7 @@ export type NotebookNodeResource = {
 
 export enum NotebookTarget {
     Popover = 'popover',
-    Auto = 'auto',
+    Scene = 'scene',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
