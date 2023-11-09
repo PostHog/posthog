@@ -149,7 +149,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
-        "Running Postgres export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -175,7 +175,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -224,8 +224,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             with postgres_connection(inputs) as connection:
 
                 async def flush_to_postgres():
-                    await logger.info(
-                        "Copying %s records of size %s bytes to Postgres",
+                    logger.debug(
+                        "Copying %s records of size %s bytes",
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )

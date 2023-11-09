@@ -166,8 +166,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             with BatchExportTemporaryFile() as jsonl_file:
 
                 async def flush_to_bigquery():
-                    await logger.info(
-                        "Copying %s records of size %s bytes",
+                    logger.debug(
+                        "Loading %s records of size %s bytes",
                         jsonl_file.records_since_last_reset,
                         jsonl_file.bytes_since_last_reset,
                     )
