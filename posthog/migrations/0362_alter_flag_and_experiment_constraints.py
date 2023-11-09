@@ -33,25 +33,45 @@ class Migration(migrations.Migration):
     operations = [
         # make the feature_flag column nullable in experiments
         migrations.RunSQL(
-            'SET CONSTRAINTS "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" IMMEDIATE; ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f";'
-        ),
-        migrations.RunSQL('ALTER TABLE "posthog_experiment" ALTER COLUMN "feature_flag_id" DROP NOT NULL;'),
-        migrations.RunSQL(
-            'ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" FOREIGN KEY ("feature_flag_id") REFERENCES "posthog_featureflag" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;'
+            """
+            SET CONSTRAINTS "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" IMMEDIATE;
+            ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f";
+            ALTER TABLE "posthog_experiment" ALTER COLUMN "feature_flag_id" DROP NOT NULL;
+            ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" FOREIGN KEY ("feature_flag_id") REFERENCES "posthog_featureflag" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+            """,
+            reverse_sql="""
+                SET CONSTRAINTS "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" IMMEDIATE;
+                ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f";
+                ALTER TABLE "posthog_experiment" ALTER COLUMN "feature_flag_id" SET NOT NULL;
+                ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f" FOREIGN KEY ("feature_flag_id") REFERENCES "posthog_featureflag" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+            """,
         ),
         # make the created_by column nullable in experiments & flags
         migrations.RunSQL(
-            'SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE; ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";'
+            """
+            SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE;
+            ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";
+            ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" DROP NOT NULL;
+            ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+            """,
+            reverse_sql="""
+                SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE;
+                ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";
+                ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" SET NOT NULL;
+                ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+            """,
         ),
-        migrations.RunSQL('ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" DROP NOT NULL;'),
         migrations.RunSQL(
-            'ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;'
-        ),
-        migrations.RunSQL(
-            'SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE; ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";'
-        ),
-        migrations.RunSQL('ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" DROP NOT NULL;'),
-        migrations.RunSQL(
-            'ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;'
+            """SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
+            ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";
+            ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" DROP NOT NULL;
+            ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;
+            """,
+            reverse_sql="""
+                SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
+                ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";
+                ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" SET NOT NULL;
+                ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+            """,
         ),
     ]
