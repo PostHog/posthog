@@ -1927,6 +1927,27 @@ export function IconMonitor(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Bold icon. */
+export function IconBold(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fill="currentColor"
+                d="M6.8 19V5H12.325C13.4083 5 14.4083 5.33333 15.325 6C16.2417 6.66667 16.7 7.59167 16.7 8.775C16.7 9.625 16.5083 10.2792 16.125 10.7375C15.7417 11.1958 15.3833 11.525 15.05 11.725C15.4667 11.9083 15.9292 12.25 16.4375 12.75C16.9458 13.25 17.2 14 17.2 15C17.2 16.4833 16.6583 17.5208 15.575 18.1125C14.4917 18.7042 13.475 19 12.525 19H6.8ZM9.825 16.2H12.425C13.225 16.2 13.7125 15.9958 13.8875 15.5875C14.0625 15.1792 14.15 14.8833 14.15 14.7C14.15 14.5167 14.0625 14.2208 13.8875 13.8125C13.7125 13.4042 13.2 13.2 12.35 13.2H9.825V16.2ZM9.825 10.5H12.15C12.7 10.5 13.1 10.3583 13.35 10.075C13.6 9.79167 13.725 9.475 13.725 9.125C13.725 8.725 13.5833 8.4 13.3 8.15C13.0167 7.9 12.65 7.775 12.2 7.775H9.825V10.5Z"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Italic icon. */
+export function IconItalic(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path fill="currentColor" d="M5 19V16.5H9L12 7.5H8V5H18V7.5H14.5L11.5 16.5H15V19H5Z" />
+        </LemonIconBase>
+    )
+}
+
 /** Material CellPhone icon. */
 export function IconPhone(props: LemonIconProps): JSX.Element {
     return (
@@ -2362,23 +2383,12 @@ export function IconDatabase(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconJournal(props: LemonIconProps): JSX.Element {
+export function IconPipeline(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
                 fill="currentColor"
-                d="M17,4V10L15,8L13,10V4H9V20H19V4H17M3,7V5H5V4C5,2.89 5.9,2 7,2H19C20.05,2 21,2.95 21,4V20C21,21.05 20.05,22 19,22H7C5.95,22 5,21.05 5,20V19H3V17H5V13H3V11H5V7H3M5,5V7H7V5H5M5,19H7V17H5V19M5,13H7V11H5V13Z"
-            />
-        </LemonIconBase>
-    )
-}
-
-export function IconJournalPlus(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                fill="currentColor"
-                d="M17 4V10L15 8L13 10V4H9V20H12.1C12.2 20.7 12.5 21.4 12.8 22H7C5.9 22 5 21 5 20V19H3V17H5V13H3V11H5V7H3V5H5V4C5 2.9 5.9 2 7 2H19C20 2 21 3 21 4V13.8C20.4 13.4 19.7 13.2 19 13.1V4H17M5 19H7V17H5V19M5 13H7V11H5V13M5 7H7V5H5V7M17 15V18H14V20H17V23H19V20H22V18H19V15H17Z"
+                d="M22,14H20V16H14V13H16V11H14V6A2,2 0 0,0 12,4H4V2H2V10H4V8H10V11H8V13H10V18A2,2 0 0,0 12,20H20V22H22"
             />
         </LemonIconBase>
     )
@@ -2458,6 +2468,39 @@ export function IconTarget(props: LemonIconProps): JSX.Element {
             <path
                 d="M11,2V4.07C7.38,4.53 4.53,7.38 4.07,11H2V13H4.07C4.53,16.62 7.38,19.47 11,19.93V22H13V19.93C16.62,19.47 19.47,16.62 19.93,13H22V11H19.93C19.47,7.38 16.62,4.53 13,4.07V2M11,6.08V8H13V6.09C15.5,6.5 17.5,8.5 17.92,11H16V13H17.91C17.5,15.5 15.5,17.5 13,17.92V16H11V17.91C8.5,17.5 6.5,15.5 6.08,13H8V11H6.09C6.5,8.5 8.5,6.5 11,6.08M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11Z"
                 fill={'currentColor'}
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconNotebook(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9 4h2v5l-1-.75L9 9V4zm9 16H6V4h1v9l3-2.25L13 13V4h5v16z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconCode(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconAdsClick(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M11.71,17.99C8.53,17.84,6,15.22,6,12c0-3.31,2.69-6,6-6c3.22,0,5.84,2.53,5.99,5.71l-2.1-0.63C15.48,9.31,13.89,8,12,8 c-2.21,0-4,1.79-4,4c0,1.89,1.31,3.48,3.08,3.89L11.71,17.99z M22,12c0,0.3-0.01,0.6-0.04,0.9l-1.97-0.59C20,12.21,20,12.1,20,12 c0-4.42-3.58-8-8-8s-8,3.58-8,8s3.58,8,8,8c0.1,0,0.21,0,0.31-0.01l0.59,1.97C12.6,21.99,12.3,22,12,22C6.48,22,2,17.52,2,12 C2,6.48,6.48,2,12,2S22,6.48,22,12z M18.23,16.26L22,15l-10-3l3,10l1.26-3.77l4.27,4.27l1.98-1.98L18.23,16.26z"
+                fill="currentColor"
             />
         </LemonIconBase>
     )

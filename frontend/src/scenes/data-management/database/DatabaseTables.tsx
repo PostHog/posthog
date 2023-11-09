@@ -1,6 +1,6 @@
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
-import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic, DatabaseTableListRow } from 'scenes/data-management/database/databaseTableListLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -12,8 +12,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DatabaseTablesContainer(): JSX.Element {
-    const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
-    const { toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
+    const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -21,7 +21,7 @@ export function DatabaseTablesContainer(): JSX.Element {
             <DatabaseTables
                 tables={filteredTables}
                 loading={databaseLoading}
-                renderRow={(row: DatabaseSceneRow) => {
+                renderRow={(row: DatabaseTableListRow) => {
                     return (
                         <div className="px-4 py-3">
                             <div className="mt-2">
@@ -33,7 +33,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                                             className="mt-2"
                                             type="primary"
                                             onClick={() => {
-                                                selectTable(row)
+                                                selectTableName(row.name)
                                                 toggleFieldModal()
                                             }}
                                         >
@@ -59,7 +59,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables<T extends DatabaseSceneRow>({
+export function DatabaseTables<T extends DatabaseTableListRow>({
     tables,
     loading,
     renderRow,
@@ -88,7 +88,9 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                               // TODO: Use `hogql` tag?
                                               query: `SELECT ${obj.columns
                                                   .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                                  .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                                                  .map(({ key }) => key)} FROM ${
+                                                  table === 'numbers' ? 'numbers(0, 10)' : table
+                                              } LIMIT 100`,
                                           },
                                       }
                                       return (

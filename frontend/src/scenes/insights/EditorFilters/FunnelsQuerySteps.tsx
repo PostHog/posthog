@@ -58,7 +58,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 seriesIndicatorType="numeric"
                 entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                 sortable
-                showNestedArrow={true}
+                showNestedArrow
                 propertiesTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,

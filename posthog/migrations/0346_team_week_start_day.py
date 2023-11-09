@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0345_view_link_and_s3_table_update"),
     ]

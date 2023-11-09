@@ -41,7 +41,17 @@ class TestPagingBreakdowns(APIBaseTest):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
-                    data={"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}], **extra}
+                    data={
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                        **extra,
+                    }
                 ),
                 self.team,
             )

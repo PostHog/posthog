@@ -8,8 +8,11 @@ import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { navigation3000Logic } from './navigationLogic'
 import clsx from 'clsx'
-import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SidePanel } from './sidepanel/SidePanel'
+import { GlobalModals } from '../GlobalModals'
 
 export function Navigation({
     children,
@@ -30,8 +33,9 @@ export function Navigation({
     return (
         <div className="Navigation3000">
             <Navbar />
-            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
-            <NotebookPopover />
+            <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
+                {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+            </FlaggedFeature>
             <main>
                 <Breadcrumbs />
                 <div
@@ -43,7 +47,9 @@ export function Navigation({
                     {children}
                 </div>
             </main>
+            <SidePanel />
             <CommandPalette />
+            <GlobalModals />
         </div>
     )
 }

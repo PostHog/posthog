@@ -1,18 +1,23 @@
+import gzip
 from datetime import timedelta, datetime, timezone
 from secrets import token_urlsafe
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
 from boto3 import resource
 from botocore.config import Config
 from freezegun import freeze_time
 
-from ee.session_recordings.session_recording_extensions import load_persisted_recording, persist_recording
+from ee.session_recordings.session_recording_extensions import (
+    load_persisted_recording,
+    persist_recording,
+    save_recording_with_new_content,
+)
+from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -41,93 +46,23 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    def create_snapshot(self, session_id, timestamp):
-        team_id = self.team.pk
-
-        snapshot = {
-            "timestamp": timestamp.timestamp() * 1000,
-            "has_full_snapshot": 1,
-            "type": 2,
-            "data": {"source": 0, "href": long_url},
-        }
-
-        # can't immediately switch playlists to replay table
-        create_session_recording_events(
-            team_id=team_id,
-            distinct_id="distinct_id_1",
-            timestamp=timestamp,
-            session_id=session_id,
-            window_id="window_1",
-            snapshots=[snapshot],
-            use_recording_table=True,
-            use_replay_table=False,
-        )
-
     def test_does_not_persist_too_recent_recording(self):
         recording = SessionRecording.objects.create(
-            team=self.team, session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}"
+            team=self.team,
+            session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}",
         )
-        self.create_snapshot(recording.session_id, recording.created_at)
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=recording.session_id,
+            distinct_id="distinct_id_1",
+            first_timestamp=recording.created_at,
+            last_timestamp=recording.created_at,
+        )
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
 
         assert not recording.object_storage_path
-
-    def test_persists_recording_with_original_version_when_not_in_blob_storage(self):
-        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
-        with freeze_time(two_minutes_ago):
-            recording = SessionRecording.objects.create(
-                team=self.team, session_id=f"test_persists_recording-s1-{uuid4()}"
-            )
-
-            self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
-            self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
-
-            produce_replay_summary(
-                session_id=recording.session_id,
-                team_id=self.team.pk,
-                first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
-                last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
-                distinct_id="distinct_id_1",
-                first_url="https://app.posthog.com/my-url",
-            )
-
-        persist_recording(recording.session_id, recording.team_id)
-        recording.refresh_from_db()
-
-        assert (
-            recording.object_storage_path
-            == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
-        )
-        assert recording.start_time == recording.created_at - timedelta(hours=48)
-        assert recording.end_time == recording.created_at - timedelta(hours=46)
-
-        assert recording.distinct_id == "distinct_id_1"
-        assert recording.duration == 7200
-        assert recording.click_count == 0
-        assert recording.keypress_count == 0
-        assert recording.start_url == "https://app.posthog.com/my-url"
-
-        assert load_persisted_recording(recording) == {
-            "version": "2022-12-22",
-            "distinct_id": "distinct_id_1",
-            "snapshot_data_by_window_id": {
-                "window_1": [
-                    {
-                        "timestamp": (recording.created_at - timedelta(hours=48)).timestamp() * 1000,
-                        "has_full_snapshot": 1,
-                        "type": 2,
-                        "data": {"source": 0, "href": long_url},
-                    },
-                    {
-                        "timestamp": (recording.created_at - timedelta(hours=46)).timestamp() * 1000,
-                        "has_full_snapshot": 1,
-                        "type": 2,
-                        "data": {"source": 0, "href": long_url},
-                    },
-                ]
-            },
-        }
 
     def test_can_build_different_object_storage_paths(self) -> None:
         produce_replay_summary(
@@ -135,7 +70,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
         recording: SessionRecording = SessionRecording.objects.create(
-            team=self.team, session_id="test_can_build_different_object_storage_paths-s1"
+            team=self.team,
+            session_id="test_can_build_different_object_storage_paths-s1",
         )
         assert (
             recording.build_object_storage_path("2022-12-22")
@@ -200,35 +136,37 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 f"{recording.build_object_storage_path('2023-08-01')}/c",
             ]
 
-    @patch("ee.session_recordings.session_recording_extensions.report_team_action")
-    def test_persist_tracks_correct_to_posthog(self, mock_capture):
-        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.write")
+    def test_can_save_content_to_new_location(self, mock_write: MagicMock):
+        # mute selected signals so the post create signal does not try to persist the recording
+        with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET), mute_selected_signals():
+            session_id = f"{uuid4()}"
 
-        with freeze_time(two_minutes_ago):
-            playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
             recording = SessionRecording.objects.create(
-                team=self.team, session_id=f"test_persist_tracks_correct_to_posthog-s1-{uuid4()}"
-            )
-            SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
-
-            self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
-            self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
-
-            produce_replay_summary(
-                session_id=recording.session_id,
-                team_id=self.team.pk,
-                first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
-                last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
-                distinct_id="distinct_id_1",
-                first_url="https://app.posthog.com/my-url",
+                team=self.team,
+                session_id=session_id,
+                start_time=datetime.fromtimestamp(12345),
+                end_time=datetime.fromtimestamp(12346),
+                object_storage_path="some_starting_value",
+                # None, but that would trigger the persistence behavior, and we don't want that
+                storage_version="None",
             )
 
-        persist_recording(recording.session_id, recording.team_id)
+            new_key = save_recording_with_new_content(recording, "the new content")
 
-        assert mock_capture.call_args_list[0][0][0] == recording.team
-        assert mock_capture.call_args_list[0][0][1] == "session recording persisted"
+            recording.refresh_from_db()
 
-        for x in [
-            "total_time_ms",
-        ]:
-            assert mock_capture.call_args_list[0][0][2][x] > 0
+            expected_path = f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
+            assert new_key == f"{expected_path}/12345000-12346000"
+
+            assert recording.object_storage_path == expected_path
+            assert recording.storage_version == "2023-08-01"
+
+            mock_write.assert_called_with(
+                f"{expected_path}/12345000-12346000",
+                gzip.compress("the new content".encode("utf-8")),
+                extras={
+                    "ContentEncoding": "gzip",
+                    "ContentType": "application/json",
+                },
+            )

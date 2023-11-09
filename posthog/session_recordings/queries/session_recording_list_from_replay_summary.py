@@ -3,22 +3,20 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
 
-from django.conf import settings
+from sentry_sdk import capture_exception
 
 from posthog.client import sync_execute
-from posthog.cloud_utils import is_cloud
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, AvailableFeature, PropertyOperatorType
-from posthog.models import Entity
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.models import Entity, Team
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import PersonOnEventsMode
-from posthog.models.team.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,6 +44,20 @@ def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter)
     return start_time_clause, start_time_params
 
 
+def _get_filter_by_log_text_session_ids_clause(
+    team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
+) -> Tuple[str, Dict[str, Any]]:
+    if not recording_filters.console_search_query:
+        return "", {}
+
+    log_query, log_params = LogQuery(team=team, filter=recording_filters).get_query()
+
+    # we return this _even_ if there are no matching ids since if there are no matching ids
+    # then no sessions can match...
+    # sorted so that snapshots are consistent
+    return f'AND "{column_name}" in ({log_query}) as log_text_matching', log_params
+
+
 def _get_filter_by_provided_session_ids_clause(
     recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> Tuple[str, Dict[str, Any]]:
@@ -55,20 +67,84 @@ def _get_filter_by_provided_session_ids_clause(
     return f'AND "{column_name}" in %(session_ids)s', {"session_ids": recording_filters.session_ids}
 
 
-def ttl_days(team: Team) -> int:
-    ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
-    if is_cloud():
-        # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
-        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
-        ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
+class LogQuery:
+    _filter: SessionRecordingsFilter
+    _team_id: int
+    _team: Team
 
-        # NOTE: The date we started reliably ingested data to blob storage
-        days_since_blob_ingestion = (datetime.now() - datetime(2023, 8, 1)).days
+    def __init__(
+        self,
+        team: Team,
+        filter: SessionRecordingsFilter,
+    ):
+        self._filter = filter
+        self._team = team
+        self._team_id = team.pk
 
-        if days_since_blob_ingestion < ttl_days:
-            ttl_days = days_since_blob_ingestion
+    _rawQuery = """
+    SELECT distinct log_source_id as session_id
+    FROM log_entries
+    PREWHERE team_id = %(team_id)s
+            AND timestamp >= %(clamped_to_storage_ttl)s
+            AND timestamp <= now()
+            {events_timestamp_clause}
+    WHERE 1=1
+    {console_log_clause}
+    AND positionCaseInsensitive(message, %(console_search_query)s) > 0
+    """
 
-    return ttl_days
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
+
+    # We want to select events beyond the range of the recording to handle the case where
+    # a recording spans the time boundaries
+    # TODO This is just copied from below
+    @cached_property
+    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+        timestamp_clause = ""
+        timestamp_params = {}
+        if self._filter.date_from:
+            timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
+            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(hours=12)
+        if self._filter.date_to:
+            timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
+            timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
+        return timestamp_clause, timestamp_params
+
+    @staticmethod
+    def _get_console_log_clause(
+        console_logs_filter: List[Literal["error", "warn", "log"]]
+    ) -> Tuple[str, Dict[str, Any]]:
+        return (
+            (
+                f"AND level in %(console_logs_levels)s",
+                {"console_logs_levels": console_logs_filter},
+            )
+            if console_logs_filter
+            else ("", {})
+        )
+
+    def get_query(self) -> Tuple[str, Dict]:
+        if not self._filter.console_search_query:
+            return "", {}
+
+        (
+            events_timestamp_clause,
+            events_timestamp_params,
+        ) = self._get_events_timestamp_clause
+        console_log_clause, console_log_params = self._get_console_log_clause(self._filter.console_logs_filter)
+
+        return self._rawQuery.format(
+            events_timestamp_clause=events_timestamp_clause,
+            console_log_clause=console_log_clause,
+        ), {
+            "team_id": self._team_id,
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
+            "console_search_query": self._filter.console_search_query,
+            **events_timestamp_params,
+            **console_log_params,
+        }
 
 
 class PersonsQuery(EventQuery):
@@ -190,6 +266,7 @@ class SessionIdEventsQuery(EventQuery):
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
+        {groups_query}
         -- sometimes we have to join on persons so we can access e.g. person_props in filters
         {persons_join}
         PREWHERE
@@ -248,9 +325,10 @@ class SessionIdEventsQuery(EventQuery):
                 if entity.id and entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
 
-            this_entity_condition_sql, this_entity_filter_params = self.format_event_filter(
-                entity, prepend=f"event_matcher_{index}", team_id=self._team_id
-            )
+            (
+                this_entity_condition_sql,
+                this_entity_filter_params,
+            ) = self.format_event_filter(entity, prepend=f"event_matcher_{index}", team_id=self._team_id)
             joining = "OR" if index > 0 else ""
             condition_sql += f"{joining} {this_entity_condition_sql}"
             # wrap in smooths to constrain the scope of the OR
@@ -276,6 +354,20 @@ class SessionIdEventsQuery(EventQuery):
             params=params,
         )
 
+    def _get_groups_query(self) -> Tuple[str, Dict]:
+        try:
+            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+        except ImportError:
+            # if EE not available then we use a no-op version
+            from posthog.queries.groups_join_query import GroupsJoinQuery
+
+        return GroupsJoinQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            person_on_events_mode=self._person_on_events_mode,
+        ).get_join_query()
+
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     @cached_property
@@ -300,13 +392,19 @@ class SessionIdEventsQuery(EventQuery):
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
-        provided_session_ids_clause, provided_session_ids_params = _get_filter_by_provided_session_ids_clause(
-            recording_filters=self._filter, column_name="$session_id"
-        )
+        (
+            provided_session_ids_clause,
+            provided_session_ids_params,
+        ) = _get_filter_by_provided_session_ids_clause(recording_filters=self._filter, column_name="$session_id")
 
         event_filters = self.build_event_filters
         event_filters_params = event_filters.params
-        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+        (
+            events_timestamp_clause,
+            events_timestamp_params,
+        ) = self._get_events_timestamp_clause
+
+        groups_query, groups_params = self._get_groups_query()
 
         # these will be applied to the events table,
         # so we only want property filters that make sense in that context
@@ -323,9 +421,11 @@ class SessionIdEventsQuery(EventQuery):
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
-        persons_join, persons_select_params, persons_sub_query = self._persons_join_or_subquery(
-            event_filters, prop_query
-        )
+        (
+            persons_join,
+            persons_select_params,
+            persons_sub_query,
+        ) = self._persons_join_or_subquery(event_filters, prop_query)
 
         return (
             self._raw_events_query.format(
@@ -338,6 +438,7 @@ class SessionIdEventsQuery(EventQuery):
                 provided_session_ids_clause=provided_session_ids_clause,
                 persons_join=persons_join,
                 persons_sub_query=persons_sub_query,
+                groups_query=groups_query,
             ),
             {
                 **base_params,
@@ -347,6 +448,7 @@ class SessionIdEventsQuery(EventQuery):
                 **event_filters_params,
                 **prop_params,
                 **persons_select_params,
+                **groups_params,
             },
         )
 
@@ -378,7 +480,7 @@ class SessionIdEventsQuery(EventQuery):
         return person_id_clause, person_id_params
 
     def matching_events(self) -> List[str]:
-        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
         query, query_params = self.get_query(select_event_ids=True)
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         results = [row[0] for row in query_results]
@@ -436,6 +538,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         {persons_sub_query}
         {events_sub_query}
     {provided_session_ids_clause}
+    {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
     ORDER BY start_time DESC
@@ -477,11 +580,16 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def run(self) -> SessionRecordingQueryResult:
-        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
-        query, query_params = self.get_query()
-        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
-        session_recordings = self._data_to_return(query_results)
-        return self._paginate_results(session_recordings)
+        try:
+            self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+            query, query_params = self.get_query()
+            query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+            session_recordings = self._data_to_return(query_results)
+            return self._paginate_results(session_recordings)
+        except Exception as ex:
+            # error here weren't making it to sentry, let's be explicit
+            capture_exception(ex, tags={"team_id": self._team.pk})
+            raise ex
 
     @property
     def limit(self):
@@ -498,9 +606,16 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
-        provided_session_ids_clause, provided_session_ids_params = _get_filter_by_provided_session_ids_clause(
-            recording_filters=self._filter
-        )
+        (
+            provided_session_ids_clause,
+            provided_session_ids_params,
+        ) = _get_filter_by_provided_session_ids_clause(recording_filters=self._filter)
+
+        (
+            log_matching_session_ids_clause,
+            log_matching_session_ids_params,
+        ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
+
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
@@ -524,6 +639,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 console_log_clause=console_log_clause,
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
+                log_matching_session_ids_clause=log_matching_session_ids_clause,
             ),
             {
                 **base_params,
@@ -532,11 +648,13 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 **duration_params,
                 **provided_session_ids_params,
                 **persons_select_params,
+                **log_matching_session_ids_params,
             },
         )
 
     def duration_clause(
-        self, duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"]
+        self,
+        duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"],
     ) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}

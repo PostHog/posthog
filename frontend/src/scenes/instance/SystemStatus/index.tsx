@@ -5,7 +5,7 @@ import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +17,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { KafkaInspectorTab } from './KafkaInspectorTab'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Link } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -33,7 +35,11 @@ export function SystemStatus(): JSX.Element {
     let tabs = [
         {
             key: 'overview',
-            label: 'System overview',
+            label: (
+                <Tooltip title={<>System overview is cached for 60 seconds</>}>
+                    System overview <IconInfo />
+                </Tooltip>
+            ),
             content: <OverviewTab />,
         },
     ] as LemonTab<InstanceStatusTabName>[]
@@ -88,13 +94,13 @@ export function SystemStatus(): JSX.Element {
                     <>
                         Here you can find all the critical runtime details and settings of your PostHog instance. You
                         have access to this because you're a <b>staff user</b>.{' '}
-                        <a
+                        <Link
                             target="_blank"
-                            style={{ display: 'inline-flex', alignItems: 'center' }}
-                            href="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
+                            targetBlankIcon
+                            to="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
                         >
-                            Learn more <IconOpenInNew style={{ marginLeft: 4 }} />
-                        </a>
+                            Learn more
+                        </Link>
                         .
                     </>
                 }
@@ -123,13 +129,13 @@ export function SystemStatus(): JSX.Element {
                             </b>
                             . In order for PostHog to work properly, please set this to the origin where your instance
                             is hosted.{' '}
-                            <a
+                            <Link
                                 target="_blank"
-                                rel="noopener"
-                                href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
+                                targetBlankIcon
+                                to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
                             >
-                                Learn more <IconOpenInNew />
-                            </a>
+                                Learn more
+                            </Link>
                         </>
                     }
                     showIcon

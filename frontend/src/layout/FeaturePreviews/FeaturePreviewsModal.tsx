@@ -37,10 +37,10 @@ export function FeaturePreviewsModal({
                         return false
                     }
                     return (
-                        <>
+                        <div key={feature.flagKey}>
                             {i > 0 && <LemonDivider className="my-4" />}
                             <FeaturePreview key={feature.flagKey} feature={feature} />
-                        </>
+                        </div>
                     )
                 })}
                 {rawEarlyAccessFeaturesLoading ? (

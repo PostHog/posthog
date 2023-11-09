@@ -454,7 +454,7 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                 },
                 aggregated_value: 0,
                 label: '$pageview - control',
-                count: 11.421053, // eslint-disable-line no-loss-of-precision
+                count: 11.421053,
                 data: [
                     2.4210526315789473, 1.4210526315789473, 3.4210526315789473, 0.4210526315789473, 3.4210526315789473,
                 ],
@@ -633,6 +633,14 @@ export function ExperimentsListPayGate(): JSX.Element {
 export function ViewExperimentPayGate(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
+    }, [])
+    return <App />
+}
+
+export function ExperimentNotFound(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
+    useEffect(() => {
+        router.actions.push(urls.experiment('1200000'))
     }, [])
     return <App />
 }

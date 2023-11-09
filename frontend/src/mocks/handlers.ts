@@ -57,6 +57,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/@current/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/@current/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/@current/plugins/repository/': [],
+        '/api/organizations/@current/plugins/unused/': [],
         '/api/plugin_config/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN_CONFIG]),
         [`/api/projects/${MOCK_TEAM_ID}/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
         '/api/projects/@current/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),

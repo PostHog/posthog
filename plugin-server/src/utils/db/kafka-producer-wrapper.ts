@@ -1,5 +1,5 @@
 import { Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka-acosom'
+import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
@@ -19,11 +19,9 @@ import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
-    private readonly waitForAck: boolean
 
-    constructor(producer: HighLevelProducer, waitForAck: boolean) {
+    constructor(producer: HighLevelProducer) {
         this.producer = producer
-        this.waitForAck = waitForAck
     }
 
     async produce({

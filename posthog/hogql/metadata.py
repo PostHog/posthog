@@ -1,9 +1,11 @@
+from django.conf import settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.models import Team
 from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
 from posthog.hogql import ast
@@ -25,10 +27,14 @@ def get_hogql_metadata(
 
     try:
         if isinstance(query.expr, str):
-            context = HogQLContext(team_id=team.pk)
-            translate_hogql(query.expr, context=context)
+            context = HogQLContext(team_id=team.pk, modifiers=create_default_modifiers_for_team(team))
+            translate_hogql(query.expr, context=context, table=query.table or "events")
         elif isinstance(query.select, str):
-            context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            context = HogQLContext(
+                team_id=team.pk,
+                modifiers=create_default_modifiers_for_team(team),
+                enable_select_queries=True,
+            )
 
             select_ast = parse_select(query.select)
             if query.filters:
@@ -53,14 +59,16 @@ def get_hogql_metadata(
             if "mismatched input '<EOF>' expecting" in error:
                 error = "Unexpected end of query"
             response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        else:
+        elif not settings.DEBUG:
             # We don't want to accidentally expose too much data via errors
-            response.errors.append(HogQLNotice(message=f"Unexpected f{e.__class__.__name__}"))
+            response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     return response
 
 
 def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
+    if not isinstance(select_query, ast.SelectQuery):
+        return False
     for field in select_query.select:
         if not isinstance(field, ast.Alias):
             return False

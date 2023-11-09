@@ -7,9 +7,13 @@ class GroupTypeMapping(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team", "group_type"], name="unique group types for team"),
-            models.UniqueConstraint(fields=["team", "group_type_index"], name="unique event column indexes for team"),
+            models.UniqueConstraint(
+                fields=["team", "group_type_index"],
+                name="unique event column indexes for team",
+            ),
             models.CheckConstraint(
-                check=models.Q(group_type_index__lte=5), name="group_type_index is less than or equal 5"
+                check=models.Q(group_type_index__lte=5),
+                name="group_type_index is less than or equal 5",
             ),
         ]
 

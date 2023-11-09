@@ -7,7 +7,6 @@ import posthog.models.team
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0141_events_created_at_index"),
     ]

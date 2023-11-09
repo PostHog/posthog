@@ -8,8 +8,10 @@ from django.core.management.base import BaseCommand
 
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.team.team import Team
 
-logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
+logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
 
 class Command(BaseCommand):
@@ -18,7 +20,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)"
+            "--now",
+            type=dt.datetime.fromisoformat,
+            help="Simulation 'now' datetime in ISO format (default: now)",
         )
         parser.add_argument(
             "--days-past",
@@ -32,22 +36,44 @@ class Command(BaseCommand):
             default=30,
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
-        parser.add_argument("--n-clusters", type=int, default=500, help="Number of clusters (default: 500)")
+        parser.add_argument(
+            "--n-clusters",
+            type=int,
+            default=500,
+            help="Number of clusters (default: 500)",
+        )
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
         parser.add_argument(
-            "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
+            "--team-id",
+            type=int,
+            default=None,
+            help="If specified, an existing project with this ID will be used, and no new user will be created. If the ID is 0, data will be generated for the master project (but insights etc. won't be created)",
         )
         parser.add_argument(
-            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)"
+            "--email",
+            type=str,
+            default="test@posthog.com",
+            help="Email of the demo user (default: test@posthog.com)",
         )
         parser.add_argument(
-            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)"
+            "--password",
+            type=str,
+            default="12345678",
+            help="Password of the demo user (default: 12345678)",
         )
 
     def handle(self, *args, **options):
         timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.timezone.utc)
+        existing_team_id = options.get("team_id")
+        if (
+            existing_team_id is not None
+            and existing_team_id != 0
+            and not Team.objects.filter(pk=existing_team_id).exists()
+        ):
+            print(f"Team with ID {options['team_id']} does not exist!")
+            return
         print("Instantiating the Matrix...")
         matrix = HedgeboxMatrix(
             seed,
@@ -55,27 +81,46 @@ class Command(BaseCommand):
             days_past=options["days_past"],
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
+            group_type_index_offset=GroupTypeMapping.objects.filter(team_id=existing_team_id).count()
+            if existing_team_id
+            else 0,
         )
         print("Running simulation...")
         matrix.simulate()
-        self.print_results(matrix, seed=seed, duration=monotonic() - timer, verbosity=options["verbosity"])
+        self.print_results(
+            matrix,
+            seed=seed,
+            duration=monotonic() - timer,
+            verbosity=options["verbosity"],
+        )
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
             try:
-                if options["reset_master"]:
-                    matrix_manager.reset_master()
+                if existing_team_id is not None:
+                    if existing_team_id == 0:
+                        matrix_manager.reset_master()
+                    else:
+                        team = Team.objects.get(pk=existing_team_id)
+                        existing_user = team.organization.members.first()
+                        matrix_manager.run_on_team(team, existing_user)
                 else:
                     matrix_manager.ensure_account_and_save(
-                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
+                        email,
+                        "Employee 427",
+                        "Hedgebox Inc.",
+                        password=password,
+                        disallow_collision=True,
                     )
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:
                 print(
-                    "Master project reset!"
-                    if options["reset_master"]
+                    "\nMaster project reset!\n"
+                    if existing_team_id == 0
+                    else f"\nDemo data ready for project {team.name}!\n"
+                    if existing_team_id is not None
                     else f"\nDemo data ready for {email}!\n\n"
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8000/login?email={email}\n"

@@ -5,18 +5,13 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import clsx from 'clsx'
 import { QueryTiming } from '~/queries/schema'
 
-function ElapsedTimeWithTimings({
-    elapsedTime,
-    hasError,
-    timings,
-}: {
-    elapsedTime: number
-    hasError: boolean
+export interface TimingsProps {
     timings: QueryTiming[]
-}): JSX.Element | null {
-    const [popoverVisible, setPopoverVisible] = useState(false)
+    elapsedTime: number
+}
 
-    const overlay = (
+export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | null {
+    return (
         <div className="space-y-2 p-2">
             {timings.map(({ k: key, t: time }) => (
                 <div
@@ -38,12 +33,24 @@ function ElapsedTimeWithTimings({
             ) : null}
         </div>
     )
+}
+
+function ElapsedTimeWithTimings({
+    elapsedTime,
+    hasError,
+    timings,
+}: {
+    elapsedTime: number
+    hasError: boolean
+    timings: QueryTiming[]
+}): JSX.Element | null {
+    const [popoverVisible, setPopoverVisible] = useState(false)
     return (
         <Popover
             onClickOutside={() => setPopoverVisible(false)}
             visible={popoverVisible}
             placement="bottom"
-            overlay={overlay}
+            overlay={<Timings timings={timings} elapsedTime={elapsedTime} />}
         >
             <div
                 onClick={() => setPopoverVisible((visible) => !visible)}

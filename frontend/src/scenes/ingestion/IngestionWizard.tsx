@@ -12,8 +12,8 @@ import { GeneratingDemoDataPanel } from './panels/GeneratingDemoDataPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
-import { InviteModal } from 'scenes/organization/Settings/InviteModal'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { InviteModal } from 'scenes/settings/organization/InviteModal'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
@@ -23,16 +23,25 @@ import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 import { SuperpowersPanel } from 'scenes/ingestion/panels/SuperpowersPanel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export function IngestionWizard(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (!platform) {
             reportIngestionLandingSeen()
         }
     }, [platform])
+
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] === 'test') {
+        router.actions.replace(urls.products())
+    }
 
     return (
         <IngestionContainer>

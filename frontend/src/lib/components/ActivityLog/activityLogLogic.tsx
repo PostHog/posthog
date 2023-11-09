@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, actions, reducers, selectors, listeners, events } from 'kea'
 import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
@@ -7,12 +8,11 @@ import {
     humanize,
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
@@ -46,52 +46,36 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
     }
 }
 
-export const activityLogLogic = kea<activityLogLogicType>({
-    path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
-    props: {} as ActivityLogProps,
-    key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
-    actions: {
+export type ActivityLogLogicProps = {
+    scope: ActivityScope
+    // if no id is provided, the list is not scoped by id and shows all activity ordered by time
+    id?: number | string
+}
+
+export const activityLogLogic = kea<activityLogLogicType>([
+    props({} as ActivityLogLogicProps),
+    key(({ scope, id }) => `activity/${scope}/${id || 'all'}`),
+    path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
+    actions({
         setPage: (page: number) => ({ page }),
-    },
-    loaders: ({ values, props }) => ({
-        nextPage: [
-            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
-            {
-                fetchNextPage: async () => await api.activity.list(props, values.page),
-            },
-        ],
-        previousPage: [
-            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
-            {
-                fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
-            },
-        ],
     }),
-    reducers: () => ({
+    loaders(({ values, props }) => ({
+        activity: [
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
+            {
+                fetchActivity: async () => await api.activity.list(props, values.page),
+            },
+        ],
+    })),
+    reducers(() => ({
         page: [
             1,
             {
                 setPage: (_, { page }) => page,
             },
         ],
-        humanizedActivity: [
-            [] as HumanizedActivityLogItem[],
-            {
-                fetchNextPageSuccess: (state, { nextPage }) =>
-                    nextPage ? humanize(nextPage.results, describerFor) : state,
-                fetchPreviousPageSuccess: (state, { previousPage }) =>
-                    previousPage ? humanize(previousPage.results, describerFor) : state,
-            },
-        ],
-        totalCount: [
-            null as number | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.total_count || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.total_count || null,
-            },
-        ],
-    }),
-    selectors: ({ actions }) => ({
+    })),
+    selectors(({ actions }) => ({
         pagination: [
             (s) => [s.page, s.totalCount],
             (page, totalCount): PaginationManual => {
@@ -100,19 +84,31 @@ export const activityLogLogic = kea<activityLogLogicType>({
                     pageSize: ACTIVITY_PAGE_SIZE,
                     currentPage: page,
                     entryCount: totalCount || 0,
-                    onBackward: actions.fetchPreviousPage,
-                    onForward: actions.fetchNextPage,
+                    onBackward: () => actions.setPage(page - 1),
+                    onForward: () => actions.setPage(page + 1),
                 }
             },
         ],
-    }),
-    listeners: ({ actions }) => ({
+        humanizedActivity: [
+            (s) => [s.activity],
+            (activity): HumanizedActivityLogItem[] => {
+                return activity.results ? humanize(activity.results, describerFor) : []
+            },
+        ],
+        totalCount: [
+            (s) => [s.activity],
+            (activity): number | null => {
+                return activity.total_count ?? null
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
         setPage: async (_, breakpoint) => {
             await breakpoint()
-            actions.fetchNextPage()
+            actions.fetchActivity()
         },
-    }),
-    urlToAction: ({ values, actions, props }) => {
+    })),
+    urlToAction(({ values, actions, props }) => {
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
@@ -158,10 +154,10 @@ export const activityLogLogic = kea<activityLogLogicType>({
             [urls.appHistory(':pluginConfigId')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN, true),
         }
-    },
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.fetchNextPage()
-        },
     }),
-})
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.fetchActivity()
+        },
+    })),
+])

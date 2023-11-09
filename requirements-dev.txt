@@ -47,8 +47,9 @@ charset-normalizer==2.1.0
     # via
     #   -c requirements.txt
     #   requests
-click==8.0.3
+click==8.1.7
     # via
+    #   -c requirements.txt
     #   black
     #   pip-tools
 colorama==0.4.4
@@ -271,7 +272,7 @@ ruamel-yaml-clib==0.2.7
     # via
     #   -c requirements.txt
     #   ruamel-yaml
-ruff==0.0.257
+ruff==0.1.2
     # via -r requirements-dev.in
 six==1.16.0
     # via
@@ -314,6 +315,8 @@ types-pyyaml==6.0.1
 types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
+    # via -r requirements-dev.in
+types-retry==0.9.9.4
     # via -r requirements-dev.in
 typing-extensions==4.7.1
     # via

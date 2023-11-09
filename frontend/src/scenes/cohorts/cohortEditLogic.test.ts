@@ -1,5 +1,4 @@
 import { initKeaTests } from '~/test/init'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { expectLogic, partial } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { mockCohort } from '~/test/mocks'
@@ -19,7 +18,7 @@ import {
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>

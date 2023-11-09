@@ -12,6 +12,8 @@ import {
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 
+import './SessionRecordingScene.scss'
+
 export const scene: SceneExport = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
@@ -23,13 +25,13 @@ export const scene: SceneExport = {
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
-        <div className="flex flex-col overflow-hidden h-screen">
+        <div className="SessionRecordingScene">
             <PageHeader title={<div>Recording</div>} />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <LemonBanner type="info">
                         Session recordings are currently disabled for this project. To use this feature, please go to
-                        your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and enable it.
+                        your <Link to={`${urls.settings('project')}#recordings`}>project settings</Link> and enable it.
                     </LemonBanner>
                 </div>
             ) : null}

@@ -5,6 +5,7 @@ import {
     BatchExportDestination,
     BatchExportDestinationBigQuery,
     BatchExportDestinationPostgres,
+    BatchExportDestinationRedshift,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
     Breadcrumb,
@@ -28,10 +29,11 @@ export type BatchExportConfigurationForm = Omit<
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
     Partial<BatchExportDestinationPostgres['config']> &
+    Partial<BatchExportDestinationRedshift['config']> &
     Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery'
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null
@@ -61,6 +63,21 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   has_self_signed_cert: false,
+                  exclude_events: '',
+                  include_events: '',
+              }
+            : destination === 'Redshift'
+            ? {
+                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                  host: !config.host ? 'This field is required' : '',
+                  port: !config.port ? 'This field is required' : '',
+                  database: !config.database ? 'This field is required' : '',
+                  schema: !config.schema ? 'This field is required' : '',
+                  table_name: !config.table_name ? 'This field is required' : '',
+                  properties_data_type: '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : destination === 'S3'
             ? {
@@ -73,6 +90,7 @@ const formFields = (
                   encryption: '',
                   kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
                   exclude_events: '',
+                  include_events: '',
               }
             : destination === 'BigQuery'
             ? {
@@ -90,6 +108,7 @@ const formFields = (
                   dataset_id: !config.dataset_id ? 'This field is required' : '',
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
+                  include_events: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -101,6 +120,8 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   role: '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : {}),
     }
@@ -137,6 +158,11 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'S3',
                               config: config,
                           } as unknown as BatchExportDestinationS3)
+                        : destination === 'Redshift'
+                        ? ({
+                              type: 'Redshift',
+                              config: config,
+                          } as unknown as BatchExportDestinationRedshift)
                         : destination === 'BigQuery'
                         ? ({
                               type: 'BigQuery',

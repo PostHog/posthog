@@ -81,7 +81,14 @@ def test_can_insert_person_overrides():
         assert results != []
         [result] = results
         created_at, *the_rest = result
-        assert the_rest == [1, old_person_id, override_person_id, oldest_event, merged_at, 2]
+        assert the_rest == [
+            1,
+            old_person_id,
+            override_person_id,
+            oldest_event,
+            merged_at,
+            2,
+        ]
         assert created_at > datetime.now(tz=ZoneInfo("UTC")) - timedelta(seconds=10)
     finally:
         producer.close()
@@ -124,7 +131,8 @@ def test_person_overrides_dict():
     sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     results = sync_execute(
-        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))",
+        values,
     )
 
     assert len(results) == 1
@@ -136,7 +144,8 @@ def test_person_overrides_dict():
     sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     new_results = sync_execute(
-        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))",
+        values,
     )
 
     assert len(new_results) == 1

@@ -5,6 +5,10 @@ from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
+from ..team import Team
+
+MAX_LIMIT_DISTINCT_IDS = 2500
+
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -66,7 +70,10 @@ class Person(models.Model):
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
 
-                from posthog.models.person.util import create_person, create_person_distinct_id
+                from posthog.models.person.util import (
+                    create_person,
+                    create_person_distinct_id,
+                )
 
                 create_person_distinct_id(
                     team_id=self.team_id,
@@ -75,7 +82,11 @@ class Person(models.Model):
                     is_deleted=False,
                     version=pdi.version,
                 )
-                create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
+                create_person(
+                    team_id=self.team_id,
+                    uuid=str(person.uuid),
+                    version=person.version or 0,
+                )
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
@@ -138,7 +149,10 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.UniqueConstraint(
+                fields=["team", "old_person_id"],
+                name="unique override per old_person_id",
+            ),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
@@ -163,3 +177,40 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
+    """_summary_
+    Fetching distinct_ids for a person from CH is slow, so we
+    fetch them from PG for certain queries. Therfore we need
+    to inline the ids in a `distinct_ids IN (...)` clause.
+
+    This can cause the query to explode for persons with many
+    ids. Thus we need to limit the amount of distinct_ids we
+    pass through.
+
+    The first distinct_ids should contain the real distinct_ids
+    for a person and later ones should be associated with current
+    events. Therefore we union from both sides.
+
+    Many ids are usually a sign of instrumentation issues
+    on the customer side.
+    """
+    first_ids_limit = 100
+    last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
+
+    if person is not None:
+        first_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("id")
+            .values_list("distinct_id", flat=True)[:first_ids_limit]
+        )
+        last_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("-id")
+            .values_list("distinct_id", flat=True)[:last_ids_limit]
+        )
+        distinct_ids = first_ids.union(last_ids)
+    else:
+        distinct_ids = []  # type: ignore
+    return list(map(str, distinct_ids))

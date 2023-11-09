@@ -191,6 +191,7 @@ const testCases: Record<string, NotebookType> = {
             },
         },
     ]),
+    'api/projects/:team_id/notebooks/empty': notebookTestTemplate('empty', []),
 }
 
 const meta: Meta = {
@@ -335,7 +336,6 @@ const meta: Meta = {
                                 uuid: '018a8a51-a3d3-0000-e8fa-94621f9ddd48',
                             },
                             storage: 'clickhouse',
-                            pinned_count: 0,
                         },
                     ],
                     has_next: false,
@@ -392,6 +392,13 @@ export function RecordingsPlaylist(): JSX.Element {
 export function TextOnlyNotebook(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebook('12345'))
+    }, [])
+    return <App />
+}
+
+export function EmptyNotebook(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('empty'))
     }, [])
     return <App />
 }

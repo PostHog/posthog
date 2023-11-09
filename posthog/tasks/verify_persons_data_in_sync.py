@@ -53,7 +53,9 @@ def verify_persons_data_in_sync(
     max_pk = Person.objects.filter(created_at__lte=now() - period_start).latest("id").id
     person_data = list(
         Person.objects.filter(
-            pk__lte=max_pk, pk__gte=max_pk - LIMIT * 5, created_at__gte=now() - period_end
+            pk__lte=max_pk,
+            pk__gte=max_pk - LIMIT * 5,
+            created_at__gte=now() - period_end,
         ).values_list("id", "uuid", "team_id")[:limit]
     )
     person_data.sort(key=lambda row: row[2])  # keep persons from same team together
@@ -94,11 +96,15 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
     )
 
     ch_persons = _index_by(
-        sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}), lambda row: row[0]
+        sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}),
+        lambda row: row[0],
     )
 
     ch_distinct_ids_mapping = _index_by(
-        sync_execute(GET_DISTINCT_IDS_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}),
+        sync_execute(
+            GET_DISTINCT_IDS_CH_QUERY,
+            {"person_ids": person_uuids, "team_ids": team_ids},
+        ),
         lambda row: row[1],
         flat=False,
     )

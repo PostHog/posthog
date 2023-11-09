@@ -2,6 +2,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
 from posthog.hogql.database.test.tables import (
     create_aapl_stock_table_view,
@@ -20,7 +21,12 @@ class TestSavedQuery(BaseTest):
         self.database.aapl_stock = create_aapl_stock_s3_table()
         self.database.aapl_stock_nested_view = create_nested_aapl_stock_view()
         self.database.aapl_stock_self = create_aapl_stock_table_self_referencing()
-        self.context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=self.database)
+        self.context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=self.database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
 
     def _select(self, query: str, dialect: str = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
@@ -29,7 +35,10 @@ class TestSavedQuery(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
         clickhouse = self._select(query="SELECT * FROM aapl_stock_view LIMIT 10", dialect="clickhouse")
 
@@ -42,9 +51,15 @@ class TestSavedQuery(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
-        clickhouse = self._select(query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10", dialect="clickhouse")
+        clickhouse = self._select(
+            query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10",
+            dialect="clickhouse",
+        )
 
         self.assertEqual(
             clickhouse,

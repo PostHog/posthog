@@ -1,4 +1,4 @@
-import { Assignment } from 'node-rdkafka-acosom'
+import { Assignment } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { countPartitionsPerTopic } from '../../../src/kafka/consumer'

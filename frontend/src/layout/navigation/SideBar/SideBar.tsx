@@ -7,7 +7,6 @@ import {
     IconApps,
     IconBarChart,
     IconCohort,
-    IconComment,
     IconDatabase,
     IconExperiment,
     IconFlag,
@@ -15,8 +14,8 @@ import {
     IconLive,
     IconMessages,
     IconOpenInApp,
-    IconPerson,
     IconPinOutline,
+    IconPipeline,
     IconPlus,
     IconRecording,
     IconRocketLaunch,
@@ -24,6 +23,7 @@ import {
     IconSurveys,
     IconTools,
     IconUnverifiedEvent,
+    IconWeb,
 } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
@@ -37,28 +37,26 @@ import { AvailableFeature } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { groupsModel } from '~/models/groupsModel'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
-import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
+import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
+import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { showGroupsOptions } = useValues(groupsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -149,6 +147,20 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
+                    <FlaggedFeature flag="notebooks">
+                        <PageButton
+                            icon={<IconNotebook />}
+                            identifier={Scene.Notebooks}
+                            to={urls.notebooks()}
+                            sideAction={{
+                                icon: <IconPlus />,
+                                to: urls.notebook('new'),
+                                tooltip: 'New notebook',
+                                identifier: Scene.Notebook,
+                                onClick: hideSideBarMobile,
+                            }}
+                        />
+                    </FlaggedFeature>
                     <PageButton
                         icon={<IconBarChart />}
                         identifier={Scene.SavedInsights}
@@ -161,36 +173,37 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
+                    <FlaggedFeature flag={FEATURE_FLAGS.WEB_ANALYTICS}>
+                        <PageButton
+                            icon={<IconWeb />}
+                            identifier={Scene.WebAnalytics}
+                            to={urls.webAnalytics()}
+                            highlight="beta"
+                        />
+                    </FlaggedFeature>
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
 
-                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
-                        <div className="SideBar__heading">Feature Management</div>
-                    )}
+                    <div className="SideBar__heading">Feature Management</div>
 
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
-                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
-                        <PageButton
-                            icon={<IconRocketLaunch />}
-                            identifier={Scene.EarlyAccessFeatures}
-                            title={'Early Access Management'}
-                            to={urls.earlyAccessFeatures()}
-                        />
-                    )}
-
-                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
-                        <PageButton
-                            icon={<IconSurveys />}
-                            identifier={Scene.Surveys}
-                            title={'Surveys'}
-                            to={urls.surveys()}
-                            highlight="beta"
-                        />
-                    )}
-
+                    <PageButton
+                        icon={<IconSurveys />}
+                        identifier={Scene.Surveys}
+                        title={'Surveys'}
+                        to={urls.surveys()}
+                        highlight="new"
+                    />
+                    <PageButton
+                        icon={<IconRocketLaunch />}
+                        identifier={Scene.EarlyAccessFeatures}
+                        title={'Early Access Management'}
+                        to={urls.earlyAccessFeatures()}
+                    />
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -205,12 +218,15 @@ function Pages(): JSX.Element {
                         to={urls.eventDefinitions()}
                     />
                     <PageButton
-                        icon={<IconPerson />}
-                        identifier={Scene.Persons}
+                        icon={<IconCohort />}
+                        identifier={Scene.PersonsManagement}
                         to={urls.persons()}
-                        title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
+                        title="People"
                     />
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
+                        <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
+                    </FlaggedFeature>
+                    <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                         <PageButton
                             icon={<IconDatabase />}
                             identifier={Scene.DataWarehouse}
@@ -218,9 +234,7 @@ function Pages(): JSX.Element {
                             to={urls.dataWarehouse()}
                             highlight="beta"
                         />
-                    )}
-                    <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                    <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
+                    </FlaggedFeature>
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>
@@ -228,7 +242,7 @@ function Pages(): JSX.Element {
                                 <PageButton
                                     title="Browse Apps"
                                     icon={<IconApps />}
-                                    identifier={Scene.Plugins}
+                                    identifier={Scene.Apps}
                                     to={urls.projectApps()}
                                 />
                             )}
@@ -236,9 +250,9 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.FEEDBACK_SCENE}>
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
+                    </FlaggedFeature>
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -257,11 +271,7 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <PageButton
-                        icon={<IconSettings />}
-                        identifier={Scene.ProjectSettings}
-                        to={urls.projectSettings()}
-                    />
+                    <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
                 </>
             )}
         </ul>

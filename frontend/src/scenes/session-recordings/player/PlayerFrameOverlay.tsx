@@ -1,18 +1,13 @@
 import { useActions, useValues } from 'kea'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingType } from '~/types'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionPlayerState } from '~/types'
 import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
-
-export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
-    nextSessionRecording?: Partial<SessionRecordingType>
-}
+import clsx from 'clsx'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 const PlayerFrameOverlayContent = ({
     currentPlayerState,
@@ -20,6 +15,10 @@ const PlayerFrameOverlayContent = ({
     currentPlayerState: SessionPlayerState
 }): JSX.Element | null => {
     let content = null
+    const pausedState =
+        currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
+    const isInExportContext = !!getCurrentExporterData()
+
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-bg-light rounded m-6 gap-2 max-w-120 shadow">
@@ -56,21 +55,27 @@ const PlayerFrameOverlayContent = ({
             <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
         )
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
+    if (pausedState) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     return content ? (
-        <div className="PlayerFrameOverlay__content" aria-busy={currentPlayerState === SessionPlayerState.BUFFER}>
+        <div
+            className={clsx(
+                'PlayerFrameOverlay__content',
+                pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
+            )}
+            aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
+        >
             {content}
         </div>
     ) : null
 }
 
 export function PlayerFrameOverlay(): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const [interrupted, setInterrupted] = useState(false)
@@ -83,7 +88,13 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
+            {playlistLogic ? (
+                <PlayerUpNext
+                    playlistLogic={playlistLogic}
+                    interrupted={interrupted}
+                    clearInterrupted={() => setInterrupted(false)}
+                />
+            ) : undefined}
         </div>
     )
 }

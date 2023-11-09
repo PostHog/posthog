@@ -12,9 +12,13 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+)
 from posthog.models.user import User
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -53,7 +57,10 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         }
 
     def test_creates_playlist(self):
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "test"},
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
             "id": response.json()["id"],
@@ -77,10 +84,14 @@ class TestSessionRecordingPlaylist(APILicensedTest):
                 limit = int(feature["limit"])
         for _ in range(limit):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"}
+                f"/api/projects/{self.team.id}/session_recording_playlists",
+                data={"name": "test"},
             )
             assert response.status_code == status.HTTP_201_CREATED
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "test"},
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_gets_individual_playlist_by_shortid(self):
@@ -166,28 +177,30 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
 
-    def test_get_pinned_recordings_for_playlist(self):
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
+        mock_copy_objects.return_value = 2
+
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
         three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
-        # can't immediately switch playlists to replay table
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=self.team.id,
-            distinct_id="123",
-            timestamp=three_days_ago,
             session_id=session_one,
-            window_id="1234",
+            distinct_id="123",
+            first_timestamp=three_days_ago,
+            last_timestamp=three_days_ago,
         )
 
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=self.team.id,
-            distinct_id="123",
-            timestamp=three_days_ago,
             session_id=session_two,
-            window_id="1234",
+            distinct_id="123",
+            first_timestamp=three_days_ago,
+            last_timestamp=three_days_ago,
         )
 
         # Create playlist items
@@ -207,7 +220,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
-        assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.list_objects")
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
@@ -230,14 +242,13 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
         three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
-        for id in [session_one, session_two]:
-            # can't immediately switch playlists to replay table
-            create_session_recording_events(
+        for session_id in [session_one, session_two]:
+            produce_replay_summary(
                 team_id=self.team.id,
+                session_id=session_id,
                 distinct_id="123",
-                timestamp=three_days_ago,
-                session_id=id,
-                window_id="1234",
+                first_timestamp=three_days_ago,
+                last_timestamp=three_days_ago,
             )
 
         self.client.post(
@@ -313,11 +324,9 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
         assert session_recording_obj_1
-        assert session_recording_obj_1.pinned_count == 1
 
         session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
         assert session_recording_obj_2
-        assert session_recording_obj_2.pinned_count == 2
 
         # Delete playlist items
         result = self.client.delete(

@@ -77,7 +77,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')

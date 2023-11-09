@@ -63,7 +63,7 @@
                   AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND ((event = 'sign up'
                 AND (pdi.person_id IN
@@ -560,7 +560,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND ((event = '$pageview'
              AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
@@ -575,7 +575,7 @@
                             AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
+                     AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
@@ -643,7 +643,7 @@
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                    HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -660,7 +660,7 @@
                                         AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
-                                 AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
+                                 AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
                  GROUP BY timestamp, person_id,
                                      breakdown_value) e
               WHERE e.timestamp <= d.timestamp
@@ -1065,7 +1065,7 @@
                   AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'event_name'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
@@ -1268,7 +1268,7 @@
                AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON pdi.person_id = person.id
+        AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -1344,7 +1344,7 @@
                            AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
-                    AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                    AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
@@ -1524,7 +1524,7 @@
                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
@@ -1587,7 +1587,7 @@
                                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                            GROUP BY id
                            HAVING max(is_deleted) = 0
-                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1625,7 +1625,7 @@
                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
        AND notEmpty(e.person_id)
@@ -1689,7 +1689,7 @@
                                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                            GROUP BY id
                            HAVING max(is_deleted) = 0
-                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -1736,7 +1736,7 @@
                   AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -1781,7 +1781,7 @@
                   AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -1853,7 +1853,7 @@
                   AND (has(['person1'], "pmat_name")) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -1925,7 +1925,7 @@
                   AND (has(['person1'], "pmat_name")) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -3338,7 +3338,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
-              OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))) person ON pdi.person_id = person.id
+              OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -3403,7 +3403,7 @@
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
-                    OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))) person ON person.id = pdi.person_id
+                    OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
@@ -3452,7 +3452,7 @@
         HAVING max(is_deleted) = 0
         AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
                AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))
-             AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
+             AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -3518,7 +3518,7 @@
               HAVING max(is_deleted) = 0
               AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
                      AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))
-                   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON person.id = pdi.person_id
+                   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
@@ -3596,7 +3596,7 @@
                   AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
@@ -3627,7 +3627,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
@@ -3682,7 +3682,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
@@ -4326,7 +4326,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = 'viewed video'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
@@ -4375,7 +4375,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'viewed video'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -4408,7 +4408,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
      WHERE e.team_id = 2
        AND event = 'viewed video'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
@@ -4451,7 +4451,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'viewed video'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
@@ -4577,7 +4577,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -4623,7 +4623,7 @@
            FROM person
            WHERE team_id = 2
            GROUP BY id
-           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         INNER JOIN
           (SELECT "$session_id",
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -5225,7 +5225,7 @@
                         AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
                  GROUP BY id
                  HAVING max(is_deleted) = 0
-                 AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                 AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
@@ -5286,7 +5286,7 @@
                         AND (has(['person-1', 'person-2'], "pmat_name")) )
                  GROUP BY id
                  HAVING max(is_deleted) = 0
-                 AND (has(['person-1', 'person-2'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+                 AND (has(['person-1', 'person-2'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')

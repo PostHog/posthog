@@ -80,6 +80,7 @@ describe('Insights', () => {
 
         it('can open event explorer as an insight', () => {
             cy.clickNavMenu('events')
+            cy.get('[data-attr="data-table-export-menu"]').click()
             cy.get('[data-attr="open-json-editor-button"]').click()
             cy.get('[data-attr="insight-json-tab"]').should('exist')
         })

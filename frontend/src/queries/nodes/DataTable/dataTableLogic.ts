@@ -6,9 +6,9 @@ import {
     EventsQuery,
     HogQLExpression,
     NodeKind,
-    QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
@@ -17,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 export interface DataTableLogicProps {
     vizKey: string
@@ -61,10 +62,17 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     selectors({
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
+        sourceFeatures: [(_, p) => [p.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
         orderBy: [
-            (_, p) => [p.query],
-            (query): string[] | null =>
-                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
+            (s, p) => [p.query, s.sourceFeatures],
+            (query, sourceFeatures): string[] | null =>
+                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                    ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
+                        ? (query.source as EventsQuery).orderBy ?? null
+                        : isEventsQuery(query.source)
+                        ? ['timestamp DESC']
+                        : null
+                    : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -130,9 +138,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     }))
                 }
 
-                return response && 'results' in response && Array.isArray(response.results)
-                    ? response.results.map((result: any) => ({ result })) ?? null
+                const results = !response
+                    ? null
+                    : 'results' in response && Array.isArray(response.results)
+                    ? response.results
+                    : 'result' in response && Array.isArray(response.result)
+                    ? response.result
                     : null
+
+                return results ? results.map((result: any) => ({ result })) ?? null : null
             },
         ],
         queryWithDefaults: [
@@ -150,6 +164,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ...sortedKeys({
                         ...rest,
                         full: query.full ?? false,
+
+                        // The settings under features.tsx override some of these
                         expandable: query.expandable ?? true,
                         embedded: query.embedded ?? false,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
@@ -180,8 +196,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
             },
         ],
         canSort: [
-            (s) => [s.queryWithDefaults],
-            (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
+            (s) => [s.queryWithDefaults, s.sourceFeatures],
+            (query: DataTableNode, sourceFeatures): boolean =>
+                sourceFeatures.has(QueryFeature.selectAndOrderByColumns) && !!query.allowSorting,
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

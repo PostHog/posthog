@@ -1,9 +1,9 @@
 import { randomString } from '../support/random'
 
 function visitNotebooksList(): void {
-    cy.clickNavMenu('dashboards')
-    cy.location('pathname').should('include', '/dashboard')
-    cy.get('h1').should('contain', 'Dashboards & Notebooks')
+    cy.clickNavMenu('notebooks')
+    cy.location('pathname').should('include', '/notebooks')
+    cy.get('h1').should('contain', 'Notebooks')
     cy.get('li').contains('Notebooks').should('exist').click()
 }
 

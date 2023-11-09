@@ -11,7 +11,7 @@
 
 -c requirements.txt
 
-ruff>=0.0.257
+ruff>=0.1.2
 pip-tools==6.13.0
 mypy==0.981
 mypy-extensions==0.4.3
@@ -30,6 +30,7 @@ types-freezegun==1.1.10
 types-python-dateutil>=2.8.3
 types-pytz==2021.3.2
 types-redis==4.3.20
+types-retry==0.9.9.4
 types-requests==2.26.1
 parameterized==0.9.0
 pytest==7.4.0

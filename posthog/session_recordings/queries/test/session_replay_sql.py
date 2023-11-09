@@ -1,11 +1,16 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
+from uuid import uuid4
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
+from posthog.kafka_client.topics import (
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_LOG_ENTRIES,
+)
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -106,16 +111,20 @@ def produce_replay_summary(
     console_log_count: Optional[int] = None,
     console_warn_count: Optional[int] = None,
     console_error_count: Optional[int] = None,
+    log_messages: Dict[str, List[str]] | None = None,
 ):
+    if log_messages is None:
+        log_messages = {}
 
     first_timestamp = _sensible_first_timestamp(first_timestamp, last_timestamp)
     last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
 
+    timestamp = format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))
     data = {
         "session_id": session_id or "1",
         "team_id": team_id,
         "distinct_id": distinct_id or "user",
-        "first_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp)),
+        "first_timestamp": timestamp,
         "last_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(last_timestamp)),
         "first_url": first_url,
         "click_count": click_count or 0,
@@ -128,4 +137,27 @@ def produce_replay_summary(
     }
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka
-    p.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, sql=INSERT_SINGLE_SESSION_REPLAY, data=data)
+    p.produce(
+        topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        sql=INSERT_SINGLE_SESSION_REPLAY,
+        data=data,
+    )
+
+    for level, messages in log_messages.items():
+        for message in messages:
+            p.produce(
+                topic=KAFKA_LOG_ENTRIES,
+                sql=INSERT_LOG_ENTRY_SQL,
+                data={
+                    "team_id": team_id,
+                    "message": message,
+                    "level": level,
+                    "log_source": "session_replay",
+                    "log_source_id": session_id,
+                    # TRICKY: this is a hack to make sure the log entry is unique
+                    # otherwise ClickHouse will assume that multiple entries
+                    # with the same timestamp can be ignored
+                    "instance_id": str(uuid4()),
+                    "timestamp": timestamp,
+                },
+            )

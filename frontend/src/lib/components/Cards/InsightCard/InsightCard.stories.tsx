@@ -3,21 +3,23 @@ import { useState } from 'react'
 import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
 import { InsightCard as InsightCardComponent } from './index'
 
-import EXAMPLE_TRENDS from '../../../../mocks/fixtures/api/projects/:team_id/insights/trendsLine.json'
-import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/:team_id/insights/trendsValue.json'
-import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/:team_id/insights/trendsTable.json'
-import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/:team_id/insights/trendsPie.json'
-import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/:team_id/insights/trendsWorldMap.json'
-import EXAMPLE_FUNNEL from '../../../../mocks/fixtures/api/projects/:team_id/insights/funnelLeftToRight.json'
-import EXAMPLE_RETENTION from '../../../../mocks/fixtures/api/projects/:team_id/insights/retention.json'
-import EXAMPLE_PATHS from '../../../../mocks/fixtures/api/projects/:team_id/insights/userPaths.json'
-import EXAMPLE_STICKINESS from '../../../../mocks/fixtures/api/projects/:team_id/insights/stickiness.json'
-import EXAMPLE_LIFECYCLE from '../../../../mocks/fixtures/api/projects/:team_id/insights/lifecycle.json'
-import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/:team_id/insights/dataTableHogQL.json'
-import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/:team_id/insights/dataTableEvents.json'
+import EXAMPLE_TRENDS from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import EXAMPLE_TRENDS_MULTI from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import EXAMPLE_FUNNEL from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import EXAMPLE_RETENTION from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import EXAMPLE_PATHS from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import EXAMPLE_STICKINESS from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import EXAMPLE_LIFECYCLE from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 
 const examples = [
     EXAMPLE_TRENDS,
+    EXAMPLE_TRENDS_MULTI,
     EXAMPLE_TRENDS_HORIZONTAL_BAR,
     EXAMPLE_TRENDS_TABLE,
     EXAMPLE_TRENDS_PIE,

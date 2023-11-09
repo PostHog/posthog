@@ -46,9 +46,19 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people, serialize_people
+from posthog.models.person.sql import (
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
+    PERSON_STATIC_COHORT_TABLE,
+)
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.queries.actor_base_query import (
+    ActorBaseQuery,
+    get_people,
+    serialize_people,
+)
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
@@ -221,7 +231,10 @@ class CohortSerializer(serializers.ModelSerializer):
         report_user_action(
             request.user,
             "cohort updated",
-            {**cohort.get_analytics_metadata(), "updated_by_creator": request.user == cohort.created_by},
+            {
+                **cohort.get_analytics_metadata(),
+                "updated_by_creator": request.user == cohort.created_by,
+            },
         )
 
         return cohort
@@ -237,7 +250,11 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -262,7 +279,11 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "name": f"{cohort.name} (static copy)",
                 "is_static": True,
             },
-            context={"request": request, "from_cohort_id": cohort.pk, "team_id": team.pk},
+            context={
+                "request": request,
+                "from_cohort_id": cohort.pk,
+                "team_id": team.pk,
+            },
         )
 
         cohort_serializer.is_valid(raise_exception=True)
@@ -273,7 +294,10 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(
         methods=["GET"],
         detail=True,
-        renderer_classes=[*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer],
+        renderer_classes=[
+            *api_settings.DEFAULT_RENDERER_CLASSES,
+            csvrenderers.PaginatedCSVRenderer,
+        ],
     )
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
@@ -313,7 +337,12 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             )
             persons = []
             for p in serialized_actors:
-                person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
+                person = Person(
+                    uuid=p[0],
+                    created_at=p[1],
+                    is_identified=p[2],
+                    properties=json.loads(p[3]),
+                )
                 person._distinct_ids = p[4]
                 persons.append(person)
 
@@ -334,8 +363,21 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             else None
         )
         if is_csv_request:
-            KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
-            DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
+            KEYS_ORDER = [
+                "id",
+                "email",
+                "name",
+                "created_at",
+                "properties",
+                "distinct_ids",
+            ]
+            DELETE_KEYS = [
+                "value_at_data_point",
+                "uuid",
+                "type",
+                "is_identified",
+                "matched_recordings",
+            ]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
                     actor["email"] = actor["properties"]["email"]
@@ -344,7 +386,8 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 {
                     k: v
                     for k, v in sorted(
-                        actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999
+                        actor.items(),
+                        key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999,
                     )
                     if k not in DELETE_KEYS
                 }
@@ -421,7 +464,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
             ORDER BY person_id
         """
-        params = {"team_id": cohort.team.pk, "from_cohort_id": existing_cohort.pk, "version": existing_cohort.version}
+        params = {
+            "team_id": cohort.team.pk,
+            "from_cohort_id": existing_cohort.pk,
+            "version": existing_cohort.version,
+        }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
         insight_type = filter_data.get("insight")

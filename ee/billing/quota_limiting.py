@@ -14,9 +14,9 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    convert_team_usage_rows_to_dict,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_recording_count_in_period,
-    convert_team_usage_rows_to_dict,
 )
 from posthog.utils import get_current_day
 
@@ -79,6 +79,9 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
 
     is_quota_limited = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+
+    if is_quota_limited and organization.never_drop_data:
+        return None
 
     if is_quota_limited and billing_period_end:
         return billing_period_end
@@ -201,7 +204,10 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     # Get the current quota limits so we can track to poshog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
+        "events": {},
+        "recordings": {},
+    }
 
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_tokens(QuotaResource(field))
@@ -230,7 +236,10 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         }
 
         report_organization_action(
-            orgs_by_id[org_id], "organization quota limits changed", properties=properties, group_properties=properties
+            orgs_by_id[org_id],
+            "organization quota limits changed",
+            properties=properties,
+            group_properties=properties,
         )
 
     if not dry_run:

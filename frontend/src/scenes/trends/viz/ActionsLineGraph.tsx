@@ -9,6 +9,13 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { combineUrl, router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -16,6 +23,8 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -24,7 +33,6 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        shownAs,
         showValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
@@ -77,29 +85,54 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
+                          const hogQLInsightsFlagEnabled = Boolean(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
+
+                          if (
+                              hogQLInsightsFlagEnabled &&
+                              isLifecycle &&
+                              query &&
+                              isInsightVizNode(query) &&
+                              isLifecycleQuery(query.source)
+                          ) {
+                              const newQuery: DataTableNode = {
+                                  kind: NodeKind.DataTableNode,
+                                  full: true,
+                                  source: {
+                                      kind: NodeKind.PersonsQuery,
+                                      source: {
+                                          kind: NodeKind.InsightPersonsQuery,
+                                          source: query.source,
+                                          day,
+                                          status: dataset.status,
+                                      },
+                                  },
+                              }
+                              router.actions.push(combineUrl(urls.persons(), undefined, { q: newQuery }).url)
+                              return
+                          }
+
                           if (!dataset) {
                               return
                           }
 
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const datasetUrls = urlsForDatasets(crossDataset, index)
 
-                          if (urls?.length) {
-                              const title =
-                                  shownAs === 'Stickiness' ? (
+                          if (datasetUrls?.length) {
+                              const title = isStickiness ? (
+                                  <>
+                                      <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                  </>
+                              ) : (
+                                  (label: string) => (
                                       <>
-                                          <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                          {label} on{' '}
+                                          <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
                                       </>
-                                  ) : (
-                                      (label: string) => (
-                                          <>
-                                              {label} on{' '}
-                                              <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
-                                          </>
-                                      )
                                   )
+                              )
 
                               openPersonsModal({
-                                  urls,
+                                  urls: datasetUrls,
                                   urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
                               })

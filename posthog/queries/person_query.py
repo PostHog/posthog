@@ -5,8 +5,14 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
+from posthog.models.cohort.sql import (
+    GET_COHORTPEOPLE_BY_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
+)
+from posthog.models.cohort.util import (
+    format_precalculated_cohort_query,
+    format_static_cohort_query,
+)
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -71,7 +77,8 @@ class PersonQuery:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
 
         properties = self._filter.property_groups.combine_property_group(
-            PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
+            PropertyOperatorType.AND,
+            self._entity.property_groups if self._entity else None,
         )
 
         self._inner_person_properties = self._column_optimizer.property_optimizer.parse_property_groups(
@@ -79,7 +86,10 @@ class PersonQuery:
         ).inner
 
     def get_query(
-        self, prepend: Optional[Union[str, int]] = None, paginate: bool = False, filter_future_persons: bool = False
+        self,
+        prepend: Optional[Union[str, int]] = None,
+        paginate: bool = False,
+        filter_future_persons: bool = False,
     ) -> Tuple[str, Dict]:
         prepend = str(prepend) if prepend is not None else ""
 
@@ -92,7 +102,10 @@ class PersonQuery:
             person_filters_finalization_condition,
             person_filters_params,
         ) = self._get_person_filter_clauses(prepend=prepend)
-        multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
+        (
+            multiple_cohorts_condition,
+            multiple_cohorts_params,
+        ) = self._get_multiple_cohorts_clause(prepend=prepend)
         single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
             order = "ORDER BY argMax(person.created_at, version) DESC, id DESC" if paginate else ""
@@ -100,9 +113,11 @@ class PersonQuery:
         else:
             order = ""
             limit_offset, limit_params = "", {}
-        search_prefiltering_condition, search_finalization_condition, search_params = self._get_search_clauses(
-            prepend=prepend
-        )
+        (
+            search_prefiltering_condition,
+            search_finalization_condition,
+            search_params,
+        ) = self._get_search_clauses(prepend=prepend)
         distinct_id_condition, distinct_id_params = self._get_distinct_id_clause()
         email_condition, email_params = self._get_email_clause()
         filter_future_persons_condition = (
@@ -144,6 +159,7 @@ class PersonQuery:
             {distinct_id_condition} {email_condition}
             {order}
             {limit_offset}
+            SETTINGS optimize_aggregation_in_order = 1
             """,
             {
                 **updated_after_params,
@@ -227,7 +243,11 @@ class PersonQuery:
             ) {self.COHORT_TABLE_ALIAS}
             ON {self.COHORT_TABLE_ALIAS}.person_id = person.id
             """,
-                {"team_id": self._team_id, "cohort_id": self._cohort.pk, "version": self._cohort.version},
+                {
+                    "team_id": self._team_id,
+                    "cohort_id": self._cohort.pk,
+                    "version": self._cohort.version,
+                },
             )
         else:
             return "", {}
@@ -255,7 +275,6 @@ class PersonQuery:
             return "", {}
 
     def _get_limit_offset_clause(self) -> Tuple[str, Dict]:
-
         if not isinstance(self._filter, Filter):
             return "", {}
 
@@ -301,7 +320,14 @@ class PersonQuery:
 
             prop_group = PropertyGroup(
                 type=PropertyOperatorType.AND,
-                values=[Property(key="email", operator="icontains", value=self._filter.search, type="person")],
+                values=[
+                    Property(
+                        key="email",
+                        operator="icontains",
+                        value=self._filter.search,
+                        type="person",
+                    )
+                ],
             )
             finalization_conditions_sql, params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
@@ -315,7 +341,10 @@ class PersonQuery:
             )
             finalization_sql = f"AND ({finalization_conditions_sql} OR {id_conditions_sql})"
 
-            prefiltering_conditions_sql, prefiltering_params = parse_prop_grouped_clauses(
+            (
+                prefiltering_conditions_sql,
+                prefiltering_params,
+            ) = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
                 prepend=f"search_pre_{prepend}",
@@ -360,7 +389,8 @@ class PersonQuery:
         GROUP BY person.*
         ORDER BY created_at desc, id desc
         """.format(
-                person_query=query, distinct_id_query=get_team_distinct_ids_query(self._team_id)
+                person_query=query,
+                distinct_id_query=get_team_distinct_ids_query(self._team_id),
             ),
             params,
         )
@@ -371,7 +401,9 @@ class PersonQuery:
 
         if self._filter.email:
             return prop_filter_json_extract(
-                Property(key="email", value=self._filter.email, type="person"), 0, prepend="_email"
+                Property(key="email", value=self._filter.email, type="person"),
+                0,
+                prepend="_email",
             )
         return "", {}
 

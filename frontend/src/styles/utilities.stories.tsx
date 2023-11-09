@@ -16,7 +16,7 @@ export const Overview = (): JSX.Element => {
                     <div className="text-lg font-bold">Hello there!</div>
                     <div className="text-sm">
                         I'm an example of how you can use utility classes to build a{' '}
-                        <span className="text-primary">complex component</span> without any custom CSS...
+                        <span className="text-link">complex component</span> without any custom CSS...
                     </div>
                 </div>
 

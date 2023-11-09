@@ -35,6 +35,7 @@ export function CopyToClipboardInline({
     const content = (
         <span
             className={isValueSensitive ? 'ph-no-capture' : ''}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 overflow: 'hidden',

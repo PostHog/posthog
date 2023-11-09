@@ -5,13 +5,14 @@
 # - `pip-compile --rebuild requirements-dev.in`
 #
 aiohttp>=3.8.4
-antlr4-python3-runtime==4.13.0
-amqp==2.6.0
-boto3==1.26.66
+aioboto3==11.1
+antlr4-python3-runtime==4.13.1
+amqp==5.1.1
+boto3==1.26.76
 boto3-stubs[s3]
 brotli==1.1.0
-celery==4.4.7
-celery-redbeat==2.0.0
+celery==5.3.4
+celery-redbeat==2.1.1
 clickhouse-driver==0.2.4
 clickhouse-pool==0.5.3
 cryptography==37.0.2
@@ -29,6 +30,7 @@ django-prometheus==2.2.0
 django-redis==5.2.0
 django-statsd==2.5.2
 django-structlog==2.1.3
+django-revproxy==0.12.0
 djangorestframework==3.14.0
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
@@ -42,11 +44,11 @@ google-cloud-bigquery==3.11.4
 google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
 idna==2.8
-importlib-metadata==1.6.0
+importlib-metadata==6.8.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
 kafka-python==2.0.2
 kafka-helper==0.2
-kombu==4.6.10
+kombu==5.3.2
 lzstring==1.0.4
 numpy==1.23.3
 parso==0.8.1
@@ -63,6 +65,7 @@ python-dateutil>=2.8.2
 python3-saml==1.12.0
 pytz==2021.1
 redis==4.5.4
+retry==0.9.2
 requests==2.28.1
 requests-oauthlib==1.3.0
 selenium==4.1.5
@@ -77,10 +80,12 @@ sqlparse==0.4.4
 temporalio==1.1.0
 token-bucket==0.3.0
 toronado==0.1.0
-webdriver_manager==3.8.5
+webdriver_manager==4.0.1
 whitenoise==6.5.0
 mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==0.27.8
+nh3==0.2.14
+hogql-parser==1.0.2

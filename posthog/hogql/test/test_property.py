@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any
+from typing import List, Union, cast, Optional, Dict, Any, Literal
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
@@ -12,7 +12,14 @@ from posthog.hogql.property import (
     tag_name_to_expr,
 )
 from posthog.hogql.visitor import clear_locations
-from posthog.models import Action, ActionStep, Cohort, Property, PropertyDefinition, Team
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    Property,
+    PropertyDefinition,
+    Team,
+)
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
@@ -26,8 +33,13 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 class TestProperty(BaseTest):
     maxDiff = None
 
-    def _property_to_expr(self, property: Union[PropertyGroup, Property, dict, list], team: Optional[Team] = None):
-        return clear_locations(property_to_expr(property, team=team or self.team))
+    def _property_to_expr(
+        self,
+        property: Union[PropertyGroup, Property, dict, list],
+        team: Optional[Team] = None,
+        scope: Optional[Literal["event", "person"]] = None,
+    ):
+        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -44,8 +56,14 @@ class TestProperty(BaseTest):
 
     def test_property_to_expr_hogql(self):
         self.assertEqual(self._property_to_expr({"type": "hogql", "key": "1"}), ast.Constant(value=1))
-        self.assertEqual(self._property_to_expr(Property(type="hogql", key="1")), ast.Constant(value=1))
-        self.assertEqual(self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")), ast.Constant(value=1))
+        self.assertEqual(
+            self._property_to_expr(Property(type="hogql", key="1")),
+            ast.Constant(value=1),
+        )
+        self.assertEqual(
+            self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")),
+            ast.Constant(value=1),
+        )
 
     def test_property_to_expr_event(self):
         self.assertEqual(
@@ -58,11 +76,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
-            self._parse_expr("properties.a is not null"),
+            self._parse_expr("properties.a != NULL"),
         )
         self.assertEqual(
+            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
-            self._parse_expr("properties.a is null"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
@@ -123,7 +141,10 @@ class TestProperty(BaseTest):
             property_type=PropertyType.String,
         )
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "boolean_prop", "value": "true"}, team=self.team),
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": "true"},
+                team=self.team,
+            ),
             self._parse_expr("properties.boolean_prop = true"),
         )
         self.assertEqual(
@@ -131,7 +152,10 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.string_prop = 'true'"),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "unknown_prop", "value": "true"}, team=self.team),
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": "true"},
+                team=self.team,
+            ),
             self._parse_expr("properties.unknown_prop = true"),
         )
 
@@ -142,7 +166,14 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a = 'b' or properties.a = 'c'"),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "icontains"}),
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": ["b", "c"],
+                    "operator": "icontains",
+                }
+            ),
             self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
         )
         self.assertEqual(
@@ -155,11 +186,25 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a != 'b' and properties.a != 'c'"),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_icontains"}),
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": ["b", "c"],
+                    "operator": "not_icontains",
+                }
+            ),
             self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_regex"}),
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": ["b", "c"],
+                    "operator": "not_regex",
+                }
+            ),
             self._parse_expr("not(match(properties.a, 'b')) and not(match(properties.a, 'c'))"),
         )
 
@@ -177,27 +222,69 @@ class TestProperty(BaseTest):
 
     def test_property_to_expr_element(self):
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "selector", "value": "div", "operator": "exact"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "selector",
+                    "value": "div",
+                    "operator": "exact",
+                }
+            ),
             self._selector_to_expr("div"),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "selector", "value": "div", "operator": "is_not"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "selector",
+                    "value": "div",
+                    "operator": "is_not",
+                }
+            ),
             clear_locations(not_call(self._selector_to_expr("div"))),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "tag_name", "value": "div", "operator": "exact"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "tag_name",
+                    "value": "div",
+                    "operator": "exact",
+                }
+            ),
             clear_locations(tag_name_to_expr("div")),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "tag_name", "value": "div", "operator": "is_not"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "tag_name",
+                    "value": "div",
+                    "operator": "is_not",
+                }
+            ),
             clear_locations(not_call(tag_name_to_expr("div"))),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "href", "value": "href-text.", "operator": "exact"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": "href-text.",
+                    "operator": "exact",
+                }
+            ),
             clear_locations(element_chain_key_filter("href", "href-text.", PropertyOperator.exact)),
         )
         self.assertEqual(
-            self._property_to_expr({"type": "element", "key": "text", "value": "text-text.", "operator": "regex"}),
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "text",
+                    "value": "text-text.",
+                    "operator": "regex",
+                }
+            ),
             clear_locations(element_chain_key_filter("text", "text-text.", PropertyOperator.regex)),
         )
 
@@ -254,7 +341,8 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(
                 PropertyGroup(
-                    type=PropertyOperatorType.OR, values=[Property(type="event", key="e", value="b", operator="exact")]
+                    type=PropertyOperatorType.OR,
+                    values=[Property(type="event", key="e", value="b", operator="exact")],
                 )
             ),
             self._parse_expr("properties.e = 'b'"),
@@ -272,8 +360,18 @@ class TestProperty(BaseTest):
                             PropertyGroup(
                                 type=PropertyOperatorType.OR,
                                 values=[
-                                    Property(type="person", key="a", value="b", operator="exact"),
-                                    Property(type="event", key="e", value="b", operator="exact"),
+                                    Property(
+                                        type="person",
+                                        key="a",
+                                        value="b",
+                                        operator="exact",
+                                    ),
+                                    Property(
+                                        type="event",
+                                        key="e",
+                                        value="b",
+                                        operator="exact",
+                                    ),
                                 ],
                             ),
                         ],
@@ -285,7 +383,8 @@ class TestProperty(BaseTest):
 
     def test_tag_name_to_expr(self):
         self.assertEqual(
-            clear_locations(tag_name_to_expr("a")), clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)"))
+            clear_locations(tag_name_to_expr("a")),
+            clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
 
     def test_selector_to_expr(self):
@@ -374,7 +473,12 @@ class TestProperty(BaseTest):
 
     def test_action_to_expr(self):
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(event="$autocapture", action=action1, selector="a.nav-link.active", tag_name="a")
+        ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            selector="a.nav-link.active",
+            tag_name="a",
+        )
         self.assertEqual(
             clear_locations(action_to_expr(action1)),
             self._parse_expr(
@@ -389,15 +493,30 @@ class TestProperty(BaseTest):
         )
 
         action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(event="$pageview", action=action2, url="https://example.com", url_matching="contains")
+        ActionStep.objects.create(
+            event="$pageview",
+            action=action2,
+            url="https://example.com",
+            url_matching="contains",
+        )
         self.assertEqual(
             clear_locations(action_to_expr(action2)),
             self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
         )
 
         action3 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(event="$pageview", action=action3, url="https://example2.com", url_matching="regex")
-        ActionStep.objects.create(event="custom", action=action3, url="https://example3.com", url_matching="exact")
+        ActionStep.objects.create(
+            event="$pageview",
+            action=action3,
+            url="https://example2.com",
+            url_matching="regex",
+        )
+        ActionStep.objects.create(
+            event="custom",
+            action=action3,
+            url="https://example3.com",
+            url_matching="exact",
+        )
         self.assertEqual(
             clear_locations(action_to_expr(action3)),
             self._parse_expr(
@@ -430,9 +549,35 @@ class TestProperty(BaseTest):
 
     def test_cohort_filter_dynamic(self):
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
+        )
+
+    def test_person_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "a", "value": "b", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("person.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "a", "value": "b", "operator": "exact"},
+                scope="person",
+            ),
+            self._parse_expr("properties.a = 'b'"),
+        )
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr(
+                {"type": "event", "key": "a", "value": "b", "operator": "exact"},
+                scope="person",
+            )
+        self.assertEqual(
+            str(e.exception),
+            "The 'event' property filter only works in 'event' scope, not in 'person' scope",
         )

@@ -22,7 +22,11 @@ class ClickhouseFunnelUnorderedActors(ClickhouseFunnelUnordered, ActorBaseQuery)
             return ", array() as matching_events"
         return ""
 
-    def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
+    def actor_query(
+        self,
+        limit_actors: Optional[bool] = True,
+        extra_fields: Optional[List[str]] = None,
+    ):
         extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return (
             FUNNEL_PERSONS_BY_STEP_SQL.format(

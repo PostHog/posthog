@@ -8,7 +8,10 @@ from freezegun import freeze_time
 from rest_framework.request import Request
 from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME
 from posthog.caching.insight_caching_state import InsightCachingState
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, should_refresh_insight
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    should_refresh_insight,
+)
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_insight
 
 
@@ -97,7 +100,9 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_insights_with_ranges_lower_than_7_days_can_be_refreshed_more_often(self):
         insight, _, _ = _create_insight(
-            self.team, {"events": [{"id": "$pageview"}], "interval": "day", "date_from": "-3d"}, {}
+            self.team,
+            {"events": [{"id": "$pageview"}], "interval": "day", "date_from": "-3d"},
+            {},
         )
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
@@ -116,7 +121,9 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_dashboard_filters_should_override_insight_filters_when_deciding_on_refresh_time(self):
         insight, _, dashboard_tile = _create_insight(
-            self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {"interval": "hour"}
+            self.team,
+            {"events": [{"id": "$pageview"}], "interval": "month"},
+            {"interval": "hour"},
         )
 
         should_refresh_now, refresh_frequency = should_refresh_insight(

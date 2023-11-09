@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import dataclasses
 import datetime
@@ -28,12 +29,14 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
 import pytz
-from zoneinfo import ZoneInfo
 import structlog
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -165,8 +168,12 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
-) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+    input: str,
+    timezone_info: ZoneInfo,
+    *,
+    always_truncate: bool = False,
+    now: Optional[datetime.datetime] = None,
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]], str | None]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
         try:
@@ -184,14 +191,14 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
         else:
             parsed_dt = parsed_dt.astimezone(timezone_info)
-        return parsed_dt, None
+        return parsed_dt, None, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return parsed_dt, delta_mapping
+        return parsed_dt, delta_mapping, None
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
@@ -237,11 +244,15 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return parsed_dt, delta_mapping
+    return parsed_dt, delta_mapping, match.group("position") or None
 
 
 def relative_date_parse(
-    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+    input: str,
+    timezone_info: ZoneInfo,
+    *,
+    always_truncate: bool = False,
+    now: Optional[datetime.datetime] = None,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
@@ -287,7 +298,11 @@ def get_js_url(request: HttpRequest) -> str:
 
 
 def render_template(
-    template_name: str, request: HttpRequest, context: Dict = {}, *, team_for_public_context: Optional["Team"] = None
+    template_name: str,
+    request: HttpRequest,
+    context: Dict = {},
+    *,
+    team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
     """Render Django template.
 
@@ -363,13 +378,17 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_serialized = UserSerializer(
-                request.user, context={"request": request, "user_permissions": user_permissions}, many=False
+                request.user,
+                context={"request": request, "user_permissions": user_permissions},
+                many=False,
             )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
             if user.team:
                 team_serialized = TeamSerializer(
-                    user.team, context={"request": request, "user_permissions": user_permissions}, many=False
+                    user.team,
+                    context={"request": request, "user_permissions": user_permissions},
+                    many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
@@ -445,8 +464,18 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
-        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
+        .filter(
+            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
+            pluginsourcefile__filename="frontend.tsx",
+        )
+        .values(
+            "pluginconfig__id",
+            "pluginconfig__config",
+            "config_schema",
+            "id",
+            "plugin_type",
+            "name",
+        )
         .all()
     )
 
@@ -647,7 +676,10 @@ def load_data_from_request(request):
     with configure_scope() as scope:
         if isinstance(data, dict):
             scope.set_context("data", data)
-        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag(
+            "origin",
+            request.headers.get("origin", request.headers.get("remote_host", "unknown")),
+        )
         scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
         scope.set_tag("library.version", request.GET.get("ver", "unknown"))
@@ -859,7 +891,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         None,
     ):
-        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.SOCIAL_SSO in license.available_features):
             output["google-oauth2"] = True
         else:
             logger.warning("You have Google login set up, but not the required license!")
@@ -876,7 +908,9 @@ def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
 
 
 def get_daterange(
-    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+    start_date: Optional[datetime.datetime],
+    end_date: Optional[datetime.datetime],
+    frequency: str,
 ) -> List[Any]:
     """
     Returns list of a fixed frequency Datetime objects between given bounds.
@@ -1177,12 +1211,45 @@ def get_week_start_for_country_code(country_code: str) -> int:
         "ZW",
     ]:
         return 0  # Sunday
-    if country_code in ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]:
+    if country_code in [
+        "AE",
+        "AF",
+        "BH",
+        "DJ",
+        "DZ",
+        "EG",
+        "IQ",
+        "IR",
+        "JO",
+        "KW",
+        "LY",
+        "OM",
+        "QA",
+        "SD",
+        "SY",
+    ]:
         return 6  # Saturday
     return 1  # Monday
 
 
-def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+def sleep_time_generator() -> Generator[float, None, None]:
+    # a generator that yield an exponential back off between 0.1 and 3 seconds
+    for _ in range(10):
+        yield 0.1  # 1 second in total
+    for _ in range(5):
+        yield 0.2  # 1 second in total
+    for _ in range(5):
+        yield 0.4  # 2 seconds in total
+    for _ in range(5):
+        yield 0.8  # 4 seconds in total
+    for _ in range(10):
+        yield 1.5  # 15 seconds in total
+    while True:
+        yield 3.0
+
+
+@async_to_sync
+async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
@@ -1192,10 +1259,38 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
 
     start_time = timezone.now()
 
+    sleep_generator = sleep_time_generator()
+
     while not task.ready():
         if timezone.now() - start_time > max_timeout:
+            child_states = []
+            child: AsyncResult
+            children = task.children or []
+            for child in children:
+                child_states.append(child.state)
+                # this child should not be retried...
+                if child.state in ["PENDING", "STARTED"]:
+                    # terminating here terminates the process not the task
+                    # but if the task is in PENDING or STARTED after 10 minutes
+                    # we have to assume the celery process isn't processing another task
+                    # see: https://docs.celeryq.dev/en/stable/userguide/workers.html#revoke-revoking-tasks
+                    # and: https://docs.celeryq.dev/en/latest/reference/celery.result.html
+                    # we terminate the process to avoid leaking an instance of Chrome
+                    child.revoke(terminate=True)
+
+            logger.error(
+                "Timed out waiting for celery task to finish",
+                ready=task.ready(),
+                successful=task.successful(),
+                failed=task.failed(),
+                task_state=task.state,
+                child_states=child_states,
+                timeout=max_timeout,
+                start_time=start_time,
+            )
             raise TimeoutError("Timed out waiting for celery task to finish")
-        time.sleep(0.1)
+
+        await asyncio.sleep(next(sleep_generator))
     return task
 
 

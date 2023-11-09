@@ -18,18 +18,33 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FunctionCallTable,
 )
+from posthog.hogql.database.schema.log_entries import (
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+    BatchExportLogEntriesTable,
+)
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
+from posthog.hogql.database.schema.person_distinct_ids import (
+    PersonDistinctIdsTable,
+    RawPersonDistinctIdsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
-from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
+from posthog.hogql.database.schema.person_overrides import (
+    PersonOverridesTable,
+    RawPersonOverridesTable,
+)
+from posthog.hogql.database.schema.session_replay_events import (
+    RawSessionReplayEventsTable,
+    SessionReplayEventsTable,
+)
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 
 class Database(BaseModel):
@@ -45,6 +60,9 @@ class Database(BaseModel):
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
+    log_entries: LogEntriesTable = LogEntriesTable()
+    console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
+    batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -63,10 +81,10 @@ class Database(BaseModel):
         "person",
         "person_distinct_id2",
         "person_overrides",
-        "session_recording_events",
         "session_replay_events",
         "cohortpeople",
         "person_static_cohort",
+        "log_entries",
     ]
 
     _timezone: Optional[str]
@@ -99,16 +117,43 @@ class Database(BaseModel):
             setattr(self, f_name, f_def)
 
 
-def create_hogql_database(team_id: int) -> Database:
+def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
+    from posthog.hogql.query import create_default_modifiers_for_team
+    from posthog.warehouse.models import (
+        DataWarehouseTable,
+        DataWarehouseSavedQuery,
+        DataWarehouseViewLink,
+    )
 
     team = Team.objects.get(pk=team_id)
+    modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
-    if team.person_on_events_mode != PersonOnEventsMode.DISABLED:
+
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled:
+        # no change
+        database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
+        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_mixed:
+        # person.id via a join, person.properties on events
+        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
+        database.events.fields["poe"].fields["created_at"] = FieldTraverser(chain=["..", "pdi", "person", "created_at"])
+        database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
+
+    elif (
+        modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled
+        or modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
+    ):
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    for mapping in GroupTypeMapping.objects.filter(team=team):
+        if database.events.fields.get(mapping.group_type) is None:
+            database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         table = database.get_table(view.table)
@@ -130,29 +175,6 @@ def create_hogql_database(team_id: int) -> Database:
     database.add_warehouse_tables(**tables)
 
     return database
-
-
-def determine_join_function(view):
-    def join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
-        from posthog.hogql import ast
-        from posthog.hogql.parser import parse_select
-
-        if not requested_fields:
-            raise HogQLException(f"No fields requested from {to_table}")
-
-        join_expr = ast.JoinExpr(table=parse_select(view.saved_query.query["query"]))
-        join_expr.join_type = "INNER JOIN"
-        join_expr.alias = to_table
-        join_expr.constraint = ast.JoinConstraint(
-            expr=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[from_table, view.from_join_key]),
-                right=ast.Field(chain=[to_table, view.to_join_key]),
-            )
-        )
-        return join_expr
-
-    return join_function
 
 
 class _SerializedFieldBase(TypedDict):

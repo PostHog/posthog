@@ -1,29 +1,51 @@
 import datetime as dt
 from typing import Any
 
+import posthoganalytics
+from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
+from rest_framework.exceptions import (
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
+from posthog.batch_exports.models import (
+    BATCH_EXPORT_INTERVALS,
+    BatchExportLogEntry,
+    BatchExportLogEntryLevel,
+    fetch_batch_export_log_entries,
+)
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
     backfill_export,
+    cancel_running_batch_export_backfill,
     delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
 )
-from django.db import transaction
-
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+    Team,
+    User,
+)
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.temporal.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -68,7 +90,11 @@ class RunsCursorPagination(CursorPagination):
 
 class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
 
@@ -78,7 +104,8 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSe
 
         if date_range:
             return self.queryset.filter(
-                batch_export_id=self.kwargs["parent_lookup_batch_export_id"], created_at__range=date_range
+                batch_export_id=self.kwargs["parent_lookup_batch_export_id"],
+                created_at__range=date_range,
             ).order_by("-created_at")
         else:
             return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
@@ -150,9 +177,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
 
+        if validated_data["interval"] not in ("hour", "day", "week"):
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
-
         sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():
@@ -183,7 +226,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
@@ -215,11 +262,13 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
+        team_id = request.user.current_team.id
+
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_export(temporal, str(batch_export.pk), start_at, end_at)
+        backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
 
-        return response.Response()
+        return response.Response({"backfill_id": backfill_id})
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -276,3 +325,54 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         delete_schedule(temporal, str(instance.pk))
         instance.save()
+
+        for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+            if backfill.status == BatchExportBackfill.Status.RUNNING:
+                cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+
+
+class BatchExportLogEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BatchExportLogEntry
+
+
+class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    serializer_class = BatchExportLogEntrySerializer
+
+    def get_queryset(self):
+        limit_raw = self.request.GET.get("limit")
+        limit: int | None
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ValidationError("Query param limit must be omitted or an integer!")
+        else:
+            limit = None
+
+        after_raw: str | None = self.request.GET.get("after")
+        after: dt.datetime | None = None
+        if after_raw is not None:
+            after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
+
+        before_raw: str | None = self.request.GET.get("before")
+        before: dt.datetime | None = None
+        if before_raw is not None:
+            before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
+
+        level_filter = [BatchExportLogEntryLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+        return fetch_batch_export_log_entries(
+            team_id=self.parents_query_dict["team_id"],
+            batch_export_id=self.parents_query_dict["batch_export_id"],
+            run_id=self.parents_query_dict.get("run_id", None),
+            after=after,
+            before=before,
+            search=self.request.GET.get("search"),
+            limit=limit,
+            level_filter=level_filter,
+        )

@@ -134,7 +134,9 @@ describe('Insights', () => {
     describe('view source', () => {
         it('can open the query editor', () => {
             insight.newInsight('TRENDS')
-            cy.get('[aria-label="View source (BETA)"]').click()
+            insight.save()
+            cy.get('[data-attr="more-button"]').click()
+            cy.get('[data-attr="show-insight-source"]').click()
             cy.get('[data-attr="query-editor"]').should('exist')
         })
     })

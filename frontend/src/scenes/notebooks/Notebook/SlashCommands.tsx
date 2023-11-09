@@ -4,7 +4,9 @@ import Suggestion from '@tiptap/suggestion'
 import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import {
+    IconBold,
     IconCohort,
+    IconItalic,
     IconRecording,
     IconTableChart,
     IconUploadFile,
@@ -18,20 +20,39 @@ import {
 } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { EditorCommands, EditorRange } from './utils'
-import { NotebookNodeType } from '~/types'
-import { examples } from '~/queries/examples'
+import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
+import NotebookIconHeading from './NotebookIconHeading'
+import { NodeKind } from '~/queries/schema'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 
-type SlashCommandsProps = {
-    mode: 'slash' | 'add'
+type SlashCommandConditionalProps =
+    | {
+          mode: 'add'
+          getPos: () => number
+          range?: never
+      }
+    | {
+          mode: 'slash'
+          getPos?: never
+          range: EditorRange
+      }
+
+type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
-    range?: EditorRange
     decorationNode?: any
+    onClose?: () => void
+}
+
+type SlashCommandsPopoverProps = SlashCommandsProps & {
+    visible: boolean
+    children?: JSX.Element
 }
 
 type SlashCommandsRef = {
@@ -42,28 +63,33 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
+    command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
-        title: 'H1',
+        title: 'h1',
+        icon: <NotebookIconHeading level={1} />,
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'H2',
+        title: 'h2',
+        icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'H3',
+        title: 'h3',
+        icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },
     {
-        title: 'B',
+        title: 'bold',
+        icon: <IconBold />,
         command: (chain) => chain.toggleBold(),
     },
     {
-        title: 'I',
+        title: 'italic',
+        icon: <IconItalic />,
         command: (chain) => chain.toggleItalic(),
     },
 ]
@@ -73,209 +99,222 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Trend',
         search: 'trend insight',
         icon: <InsightsTrendsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'TrendsQuery',
-                            filterTestAccounts: false,
-                            series: [
-                                {
-                                    kind: 'EventsNode',
-                                    event: '$pageview',
-                                    name: '$pageview',
-                                    math: 'total',
-                                },
-                            ],
-                            interval: 'day',
-                            trendsFilter: {
-                                display: 'ActionsLineGraph',
-                            },
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts: false,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            name: '$pageview',
+                            math: BaseMathType.TotalCount,
                         },
+                    ],
+                    interval: 'day',
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
                     },
-                },
-            }),
+                })
+            ),
     },
     {
         title: 'Funnel',
         search: 'funnel insight',
         icon: <InsightsFunnelsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'FunnelsQuery',
-                            series: [
-                                {
-                                    kind: 'EventsNode',
-                                    name: '$pageview',
-                                    event: '$pageview',
-                                },
-                                {
-                                    kind: 'EventsNode',
-                                    name: '$pageview',
-                                    event: '$pageview',
-                                },
-                            ],
-                            funnelsFilter: {
-                                funnel_viz_type: 'steps',
-                            },
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
                         },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.Steps,
                     },
-                },
-            }),
+                })
+            ),
     },
     {
         title: 'Retention',
         search: 'retention insight',
         icon: <InsightsRetentionIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'RetentionQuery',
-                            retentionFilter: {
-                                period: 'Day',
-                                total_intervals: 11,
-                                target_entity: {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: 'events',
-                                },
-                                returning_entity: {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: 'events',
-                                },
-                                retention_type: 'retention_first_time',
-                            },
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.RetentionQuery,
+                    retentionFilter: {
+                        period: RetentionPeriod.Day,
+                        total_intervals: 11,
+                        target_entity: {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
                         },
+                        returning_entity: {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                        },
+                        retention_type: 'retention_first_time',
                     },
-                },
-            }),
+                })
+            ),
     },
     {
         title: 'Paths',
         search: 'paths insight',
         icon: <InsightsPathsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'PathsQuery',
-                            pathsFilter: {
-                                include_event_types: ['$pageview'],
-                            },
-                        },
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.PathsQuery,
+                    pathsFilter: {
+                        include_event_types: [PathType.PageView],
                     },
-                },
-            }),
+                })
+            ),
     },
     {
         title: 'Stickiness',
         search: 'stickiness insight',
         icon: <InsightsStickinessIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'StickinessQuery',
-                            series: [
-                                {
-                                    kind: 'EventsNode',
-                                    name: '$pageview',
-                                    event: '$pageview',
-                                    math: 'total',
-                                },
-                            ],
-                            stickinessFilter: {},
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.StickinessQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
                         },
-                    },
-                },
-            }),
+                    ],
+                    stickinessFilter: {},
+                })
+            ),
     },
     {
         title: 'Lifecycle',
         search: 'lifecycle insight',
         icon: <InsightsLifecycleIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'LifecycleQuery',
-                            series: [
-                                {
-                                    kind: 'EventsNode',
-                                    name: '$pageview',
-                                    event: '$pageview',
-                                    math: 'total',
-                                },
-                            ],
-                            lifecycleFilter: {
-                                shown_as: 'Lifecycle',
-                            },
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
                         },
-                        full: true,
-                    },
-                },
-            }),
+                    ],
+                })
+            ),
     },
     {
         title: 'HogQL',
         search: 'sql',
         icon: <InsightSQLIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: `select event,
+        person.properties.email,
+        properties.$browser,
+        count()
+    from events
+    where {filters} -- replaced with global date and property filters
+    and person.properties.email is not null
+group by event,
+        properties.$browser,
+        person.properties.email
+order by count() desc
+    limit 100`,
+                        filters: {
+                            dateRange: {
+                                date_from: '-24h',
+                            },
+                        },
+                    },
+                })
+            ),
     },
     {
         title: 'Events',
         search: 'data explore',
         icon: <IconTableChart />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                        properties: [],
+                        after: '-24h',
+                        limit: 100,
+                    },
+                })
+            ),
     },
     {
         title: 'Persons',
         search: 'people users',
         icon: <IconCohort />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    columns: defaultDataTableColumns(NodeKind.PersonsNode),
+                    source: {
+                        kind: NodeKind.PersonsNode,
+                        properties: [],
+                    },
+                })
+            ),
     },
     {
         title: 'Session Replays',
         search: 'recordings video',
         icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
         search: 'picture',
         icon: <IconUploadFile />,
-        command: async (chain) => {
+        command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
                 const files = await selectFile({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
-                    return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
+                    return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
             } catch (e) {
                 lemonToast.error('Something went wrong when trying to select a file.')
@@ -287,7 +326,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range = { from: 0, to: 0 }, query },
+    { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -321,16 +360,31 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const onPressEnter = async (): Promise<void> => {
+    const execute = async (item: SlashCommandsItem): Promise<void> => {
         if (editor) {
-            const command =
-                selectedIndex === -1
-                    ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                    : filteredSlashCommands[selectedIndex].command
+            const selectedNode = editor.getSelectedNode()
+            const isTextNode = selectedNode === null || selectedNode.isText
+            const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
 
-            const partialCommand = await command(editor.deleteRange(range))
+            const position = mode === 'slash' ? range.from : getPos()
+            let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+
+            if (!isTextNode && isTextCommand) {
+                chain = chain.insertContentAt(position, { type: 'paragraph' })
+            }
+
+            const partialCommand = await item.command(chain, position)
             partialCommand.run()
+
+            onClose?.()
         }
+    }
+
+    const onPressEnter = async (): Promise<void> => {
+        const command =
+            selectedIndex === -1 ? TEXT_CONTROLS[selectedHorizontalIndex] : filteredSlashCommands[selectedIndex]
+
+        await execute(command)
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
@@ -392,7 +446,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="SlashCommands space-y-px">
+        <div className="space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
@@ -400,14 +454,13 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => (await item.command(editor.deleteRange(range))).run()}
-                    >
-                        {item.title}
-                    </LemonButton>
+                        onClick={async () => await execute(item)}
+                        icon={item.icon}
+                    />
                 ))}
             </div>
 
-            <LemonDivider className="my-2" />
+            <LemonDivider />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
@@ -416,7 +469,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                    onClick={async () => await execute(item)}
                 >
                     {item.title}
                 </LemonButton>
@@ -440,18 +493,25 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
-    props: SlashCommandsProps,
-    ref
-): JSX.Element | null {
-    return (
-        <Popover
-            overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
-            visible
-            referenceElement={props.decorationNode}
-        />
-    )
-})
+export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
+    function SlashCommandsPopover(
+        { visible = true, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
+        ref
+    ): JSX.Element | null {
+        return (
+            <Popover
+                placement="right-start"
+                fallbackPlacements={['left-start', 'right-end']}
+                overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
+                referenceElement={decorationNode}
+                visible={visible}
+                onClickOutside={onClose}
+            >
+                {children}
+            </Popover>
+        )
+    }
+)
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
@@ -468,7 +528,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props,
+                                props: { ...props, mode: 'slash' },
                                 editor: props.editor,
                             })
                         },

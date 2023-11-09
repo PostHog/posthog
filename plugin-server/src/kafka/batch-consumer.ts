@@ -1,15 +1,16 @@
-import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
+import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
-    commitOffsetsForMessages,
     consumeMessages,
     countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
+    storeOffsetsForMessages,
 } from './consumer'
 
 export interface BatchConsumer {
@@ -19,10 +20,14 @@ export interface BatchConsumer {
     isHealthy: () => boolean
 }
 
+const STATUS_LOG_INTERVAL_MS = 10000
+const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
     topic,
+    autoCommit,
     sessionTimeout,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
@@ -32,13 +37,12 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     topicCreationTimeoutMs,
     eachBatch,
-    autoCommit = true,
-    cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
+    autoCommit: boolean
     sessionTimeout: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
@@ -48,8 +52,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-    autoCommit?: boolean
-    cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -76,9 +78,8 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
-        // We disable auto commit and rather we commit after one batch has
-        // completed.
-        'enable.auto.commit': false,
+        'enable.auto.commit': autoCommit,
+        'enable.auto.offset.store': false,
         /**
          * max.partition.fetch.bytes
          * The maximum amount of data per-partition the server will return.
@@ -115,15 +116,15 @@ export const startBatchConsumer = async ({
         // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
-        'partition.assignment.strategy': cooperativeRebalance ? 'cooperative-sticky' : 'range,roundrobin',
+        'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
 
-    instrumentConsumerMetrics(consumer, groupId, cooperativeRebalance)
+    instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
-    let lastLoopTime = Date.now()
+    let lastConsumeTime = 0
 
     // Before subscribing, we need to ensure that the topic exists. We don't
     // currently have a way to manage topic creation elsewhere (we handle this
@@ -148,44 +149,52 @@ export const startBatchConsumer = async ({
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
-        // Start consuming in a loop, fetching a batch of a max of 500 messages then
-        // processing these with eachMessage, and finally calling
-        // consumer.offsetsStore. This will not actually commit offsets on the
-        // brokers, but rather just store the offsets locally such that when commit
-        // is called, either manually of via auto-commit, these are the values that
-        // will be used.
+        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize` messages then
+        // processing these with eachMessage, and finally calling consumer.offsetsStore. This will
+        // not actually commit offsets on the brokers, but rather just store the offsets locally
+        // such that when commit is called, either manually or via auto-commit, these are the values
+        // that will be used.
         //
-        // Note that we rely on librdkafka handling retries for any Kafka
-        // related operations, e.g. it will handle in the background rebalances,
-        // during which time consumeMessages will simply return an empty array.
-        // We also log the number of messages we have processed every 10
-        // seconds, which should give some feedback to the user that things are
-        // functioning as expected. You can increase the log level to debug to
-        // see each loop.
+        // Note that we rely on librdkafka handling retries for any Kafka related operations, e.g.
+        // it will handle in the background rebalances, during which time consumeMessages will
+        // simply return an empty array.
+        //
+        // We log the number of messages that have been processed every 10 seconds, which should
+        // give some feedback to the user that things are functioning as expected. If a single batch
+        // takes more than SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS we log it individually.
         let messagesProcessed = 0
-        const statusLogMilliseconds = 10000
+        let batchesProcessed = 0
         const statusLogInterval = setInterval(() => {
             status.info('🔁', 'main_loop', {
-                messagesPerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
-                lastLoopTime: new Date(lastLoopTime).toISOString(),
+                messagesPerSecond: messagesProcessed / (STATUS_LOG_INTERVAL_MS / 1000),
+                batchesProcessed: batchesProcessed,
+                lastConsumeTime: new Date(lastConsumeTime).toISOString(),
             })
 
             messagesProcessed = 0
-        }, statusLogMilliseconds)
+            batchesProcessed = 0
+        }, STATUS_LOG_INTERVAL_MS)
 
         try {
             while (!isShuttingDown) {
-                lastLoopTime = Date.now()
-
                 status.debug('🔁', 'main_loop_consuming')
-                const messages = await consumeMessages(consumer, fetchBatchSize)
-                if (!messages) {
-                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
-                    continue
-                }
+                const messages = await retryIfRetriable(async () => {
+                    return await consumeMessages(consumer, fetchBatchSize)
+                })
+
+                // It's important that we only set the `lastConsumeTime` after a successful consume
+                // call. Even if we received 0 messages, a successful call means we are actually
+                // subscribed and didn't receive, for example, an error about an inconsistent group
+                // protocol. If we never manage to consume, we don't want our health checks to pass.
+                lastConsumeTime = Date.now()
 
                 for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
                     kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                }
+
+                if (!messages) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    continue
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
@@ -193,6 +202,8 @@ export const startBatchConsumer = async ({
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     continue
                 }
+
+                const startProcessingTimeMs = new Date().valueOf()
 
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
@@ -204,9 +215,18 @@ export const startBatchConsumer = async ({
                 await eachBatch(messages)
 
                 messagesProcessed += messages.length
+                batchesProcessed += 1
+
+                const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
+                if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
+                    status.warn(
+                        '🕒',
+                        `Slow batch: ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
+                    )
+                }
 
                 if (autoCommit) {
-                    commitOffsetsForMessages(messages, consumer)
+                    storeOffsetsForMessages(messages, consumer)
                 }
             }
         } catch (error) {
@@ -214,14 +234,12 @@ export const startBatchConsumer = async ({
             throw error
         } finally {
             status.info('🔁', 'main_loop_stopping')
-
             clearInterval(statusLogInterval)
 
-            // Finally disconnect from the broker. I'm not 100% on if the offset
-            // commit is allowed to complete before completing, or if in fact
-            // disconnect itself handles committing offsets thus the previous
-            // `commit()` call is redundant, but it shouldn't hurt.
-            await Promise.all([disconnectConsumer(consumer)])
+            // Finally, disconnect from the broker. If stored offsets have changed via
+            // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
+            // as this consumer is still part of the group).
+            await disconnectConsumer(consumer)
         }
     }
 
@@ -230,7 +248,7 @@ export const startBatchConsumer = async ({
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
         // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastLoopTime < 60000
+        return Date.now() - lastConsumeTime < 60000
     }
 
     const stop = async () => {

@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructions'
 import { OPTIONS } from './FeatureFlagCodeOptions'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, SDKKey } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
@@ -79,7 +79,7 @@ const meta: Meta<typeof CodeInstructions> = {
     component: CodeInstructions,
     args: {
         options: OPTIONS,
-        selectedLanguage: 'JavaScript',
+        selectedLanguage: SDKKey.JS_WEB,
         featureFlag: REGULAR_FEATURE_FLAG,
         showLocalEval: false,
         showBootstrap: false,
@@ -99,11 +99,11 @@ export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Elem
 }
 
 export const CodeInstructionsReactNativeWithBootstrap = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="React Native" options={OPTIONS} showBootstrap={true} />
+    return <CodeInstructions selectedLanguage={SDKKey.REACT_NATIVE} options={OPTIONS} showBootstrap={true} />
 }
 
 export const CodeInstructionsPythonWithLocalEvaluation = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="Python" options={OPTIONS} showLocalEval={true} />
+    return <CodeInstructions selectedLanguage={SDKKey.PYTHON} options={OPTIONS} showLocalEval={true} />
 }
 
 export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element => {
@@ -119,7 +119,7 @@ export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element 
     })
     return (
         <CodeInstructions
-            selectedLanguage="Ruby"
+            selectedLanguage={SDKKey.RUBY}
             options={OPTIONS}
             showLocalEval={true}
             featureFlag={GROUP_FEATURE_FLAG}
@@ -128,7 +128,7 @@ export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element 
 }
 
 export const CodeInstructionsiOSWithMultivariateFlag = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="iOS" options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
+    return <CodeInstructions selectedLanguage={SDKKey.IOS} options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
 }
 
 export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): JSX.Element => {
@@ -144,7 +144,7 @@ export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): 
     })
     return (
         <CodeInstructions
-            selectedLanguage="Node.js"
+            selectedLanguage={SDKKey.NODE_JS}
             options={OPTIONS}
             showLocalEval={true}
             featureFlag={MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG}

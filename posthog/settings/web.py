@@ -112,6 +112,10 @@ if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+if DEBUG:
+    # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
+    INSTALLED_APPS.append("revproxy")
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig  # noqa: F401
@@ -179,7 +183,12 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "email_opt_in", "organization_name"]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
+    "invite_id",
+    "user_name",
+    "email_opt_in",
+    "organization_name",
+]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
 SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
@@ -218,7 +227,10 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "frontend/dist"),
+    os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
+]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
@@ -320,6 +332,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
                 "^/?api/projects/\\d+/query/?$",
+                "^/?api/instance_status/?$",
             ]
         ),
     )

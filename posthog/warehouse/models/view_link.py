@@ -1,3 +1,5 @@
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
 from django.db import models
 from posthog.models.team import Team
@@ -7,7 +9,6 @@ from posthog.hogql.errors import HogQLException
 
 
 class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     table: models.CharField = models.CharField(max_length=128)
     from_join_key: models.CharField = models.CharField(max_length=400)
@@ -16,7 +17,13 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def join_function(self):
-        def _join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+        def _join_function(
+            from_table: str,
+            to_table: str,
+            requested_fields: Dict[str, Any],
+            context: HogQLContext,
+            node: SelectQuery,
+        ):
             from posthog.hogql import ast
             from posthog.hogql.parser import parse_select
 

@@ -18,7 +18,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
-                sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
                 transpileFrontendApps: true,
                 preflightSchedules: true,
@@ -30,7 +29,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestion: true,
-                sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion_overflow:
@@ -49,11 +47,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestion: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.recordings_ingestion:
-            return {
-                sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion:

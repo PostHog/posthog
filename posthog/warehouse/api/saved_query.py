@@ -1,3 +1,4 @@
+from django.conf import settings
 from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
@@ -22,7 +23,15 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseSavedQuery
-        fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "query",
+            "created_by",
+            "created_at",
+            "columns",
+        ]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
@@ -64,13 +73,20 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         if not _is_valid_view:
             raise exceptions.ValidationError(detail="Ensure all fields are aliased")
         try:
-            print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
+            print_ast(
+                node=select_ast,
+                context=context,
+                dialect="clickhouse",
+                stack=None,
+                settings=None,
+            )
         except Exception as err:
             if isinstance(err, ValueError) or isinstance(err, HogQLException):
                 error = str(err)
                 raise exceptions.ValidationError(detail=f"Invalid query: {error}")
-            else:
-                raise exceptions.ValidationError(detail=f"Unexpected f{err.__class__.__name__}")
+            elif not settings.DEBUG:
+                # We don't want to accidentally expose too much data via errors
+                raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
 

@@ -2,9 +2,11 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
+from posthog.schema import HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
+    from posthog.hogql.ast import SelectQuery
 
 
 class FieldOrTable(BaseModel):
@@ -100,19 +102,19 @@ class Table(FieldOrTable):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any]], Any]
+    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
     join_table: Table
     from_field: str
 
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain])`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

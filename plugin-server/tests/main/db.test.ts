@@ -631,46 +631,6 @@ describe('DB', () => {
                 version: 2,
             })
         })
-
-        describe('with caching', () => {
-            it('insertGroup() and updateGroup() update cache', async () => {
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual(null)
-
-                await db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'val' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: true }
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'val' },
-                })
-
-                await db.updateGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newVal', prop2: 2 },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO(), prop2: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                    2
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'newVal', prop2: 2 },
-                })
-            })
-        })
     })
 
     describe('updateGroupCache()', () => {
@@ -885,7 +845,7 @@ describe('DB', () => {
         })
     })
 
-    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
+    describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
@@ -929,7 +889,7 @@ describe('DB', () => {
         })
 
         it("doesn't fail on empty data", async () => {
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
@@ -946,7 +906,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -987,7 +947,7 @@ describe('DB', () => {
                 hash_key: 'existing_override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -1022,7 +982,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 

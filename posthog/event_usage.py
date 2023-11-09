@@ -93,7 +93,8 @@ def report_user_joined_organization(organization: Organization, current_user: Us
 
 
 def report_user_logged_in(
-    user: User, social_provider: str = ""  # which third-party provider processed the login (empty = no third-party)
+    user: User,
+    social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
 ) -> None:
     """
     Reports that a user has logged in to PostHog.
@@ -125,7 +126,9 @@ def report_user_password_reset(user: User) -> None:
     Reports a user resetting their password.
     """
     posthoganalytics.capture(
-        user.distinct_id, "user password reset", groups=groups(user.current_organization, user.current_team)
+        user.distinct_id,
+        "user password reset",
+        groups=groups(user.current_organization, user.current_team),
     )
 
 
@@ -195,13 +198,19 @@ def report_bulk_invited(
 
 def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
-        user.distinct_id, event, properties=properties, groups=groups(user.current_organization, user.current_team)
+        user.distinct_id,
+        event,
+        properties=properties,
+        groups=groups(user.current_organization, user.current_team),
     )
 
 
 def report_organization_deleted(user: User, organization: Organization):
     posthoganalytics.capture(
-        user.distinct_id, "organization deleted", organization.get_analytics_metadata(), groups=groups(organization)
+        user.distinct_id,
+        "organization deleted",
+        organization.get_analytics_metadata(),
+        groups=groups(organization),
     )
 
 
@@ -219,7 +228,12 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
     return result
 
 
-def report_team_action(team: Team, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None):
+def report_team_action(
+    team: Team,
+    event: str,
+    properties: Dict = {},
+    group_properties: Optional[Dict] = None,
+):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
     """
@@ -230,13 +244,19 @@ def report_team_action(team: Team, event: str, properties: Dict = {}, group_prop
 
 
 def report_organization_action(
-    organization: Organization, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None
+    organization: Organization,
+    event: str,
+    properties: Dict = {},
+    group_properties: Optional[Dict] = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the organization instead
     """
     posthoganalytics.capture(
-        str(organization.id), event, properties=properties, groups=groups(organization=organization)
+        str(organization.id),
+        event,
+        properties=properties,
+        groups=groups(organization=organization),
     )
 
     if group_properties:

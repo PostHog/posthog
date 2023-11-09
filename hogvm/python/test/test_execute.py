@@ -81,7 +81,11 @@ class TestBytecodeExecute(BaseTest):
 
     def test_nested_value(self):
         my_dict = {
-            "properties": {"bla": "hello", "list": ["item1", "item2", "item3"], "tuple": ("item1", "item2", "item3")}
+            "properties": {
+                "bla": "hello",
+                "list": ["item1", "item2", "item3"],
+                "tuple": ("item1", "item2", "item3"),
+            }
         }
         chain = ["properties", "bla"]
         self.assertEqual(get_nested_value(my_dict, chain), "hello")

@@ -2,6 +2,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import HogQLException
@@ -12,7 +13,12 @@ class TestS3Table(BaseTest):
         self.database = create_hogql_database(self.team.pk)
         self.database.aapl_stock = create_aapl_stock_s3_table()
         self.database.aapl_stock_2 = create_aapl_stock_s3_table(name="aapl_stock_2")
-        self.context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=self.database)
+        self.context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=self.database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
 
     def _select(self, query: str, dialect: str = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
@@ -21,7 +27,10 @@ class TestS3Table(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
         clickhouse = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="clickhouse")
 
@@ -74,7 +83,8 @@ class TestS3Table(BaseTest):
             dialect="hogql",
         )
         self.assertEqual(
-            hogql, "SELECT a.High, a.Low FROM aapl_stock AS a JOIN aapl_stock AS b ON equals(a.High, b.High) LIMIT 10"
+            hogql,
+            "SELECT a.High, a.Low FROM aapl_stock AS a JOIN aapl_stock AS b ON equals(a.High, b.High) LIMIT 10",
         )
 
         clickhouse = self._select(
@@ -174,7 +184,8 @@ class TestS3Table(BaseTest):
         self._init_database()
 
         hogql = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="hogql"
+            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+            dialect="hogql",
         )
         self.assertEqual(
             hogql,
@@ -182,7 +193,8 @@ class TestS3Table(BaseTest):
         )
 
         clickhouse = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="clickhouse"
+            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+            dialect="clickhouse",
         )
 
         self.assertEqual(

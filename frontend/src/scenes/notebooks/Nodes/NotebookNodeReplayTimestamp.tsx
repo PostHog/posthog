@@ -1,47 +1,39 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType, NotebookTarget } from '~/types'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
-import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
-import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
 import { openNotebook } from '~/models/notebooksModel'
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    const { shortId, findNodeLogic } = useValues(notebookLogic)
-    const sessionRecordingId: string = props.node.attrs.sessionRecordingId
-    const playbackTime: number = props.node.attrs.playbackTime
+export interface NotebookNodeReplayTimestampAttrs {
+    playbackTime?: number
+    sessionRecordingId: string
+    sourceNodeId?: string
+}
 
-    const recordingNodeInNotebook = useMemo(() => {
-        return findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId, findNodeLogic, findNodeLogicById } = useValues(notebookLogic)
+    const { sessionRecordingId, playbackTime = 0, sourceNodeId } = props.node.attrs as NotebookNodeReplayTimestampAttrs
+
+    const relatedNodeInNotebook = useMemo(() => {
+        const logicById = sourceNodeId ? findNodeLogicById(sourceNodeId) : null
+
+        return logicById ?? findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
     }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
-        recordingNodeInNotebook?.actions.setExpanded(true)
+        // TODO: Figure out how to send this action info to the playlist OR the replay node...
 
-        // TODO: Move all of the above into the logic / Node context for the recording node
-        const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
-        const logic = sessionRecordingPlayerLogic(logicProps)
-
-        logic.actions.seekToTime(props.node.attrs.playbackTime)
-        logic.actions.setPlay()
-
-        const recordingNodePosition = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), {
-            id: sessionRecordingId,
+        relatedNodeInNotebook?.values.sendMessage('play-replay', {
+            sessionRecordingId,
+            time: playbackTime ?? 0,
         })
-
-        const domEl = props.editor.view.nodeDOM(recordingNodePosition) as HTMLElement
-        domEl.scrollIntoView()
     }
 
     return (
@@ -55,10 +47,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 type="secondary"
                 status="primary-alt"
                 onClick={
-                    recordingNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Popover)
+                    relatedNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Popover)
                 }
                 to={
-                    !recordingNodeInNotebook
+                    !relatedNodeInNotebook
                         ? urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`
                         : undefined
                 }
@@ -85,6 +77,7 @@ export const NotebookNodeReplayTimestamp = Node.create({
         return {
             playbackTime: { default: null, keepOnSplit: false },
             sessionRecordingId: { default: null, keepOnSplit: true, isRequired: true },
+            sourceNodeId: { default: null, keepOnSplit: true },
         }
     },
 
@@ -105,21 +98,13 @@ export function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
-export interface NotebookNodeReplayTimestampAttrs {
-    playbackTime: number | null
-    sessionRecordingId: string
-}
-
-export function buildTimestampCommentContent(
-    currentPlayerTime: number | null,
-    sessionRecordingId: string
-): JSONContent {
+export function buildTimestampCommentContent(attrs: NotebookNodeReplayTimestampAttrs): JSONContent {
     return {
         type: 'paragraph',
         content: [
             {
                 type: NotebookNodeType.ReplayTimestamp,
-                attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+                attrs,
             },
             { type: 'text', text: ' ' },
         ],

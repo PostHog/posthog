@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType, ExporterFormat } from '~/types'
@@ -9,20 +10,19 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 const POLL_TIMEOUT = 5000
 
-export const cohortsModel = kea<cohortsModelType>({
-    path: ['models', 'cohortsModel'],
-    connect: {
+export const cohortsModel = kea<cohortsModelType>([
+    path(['models', 'cohortsModel']),
+    connect({
         values: [teamLogic, ['currentTeam']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
-    }),
-
-    loaders: () => ({
+    })),
+    loaders(() => ({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
@@ -32,9 +32,8 @@ export const cohortsModel = kea<cohortsModelType>({
                 return response?.results?.map((cohort) => processCohort(cohort)) || []
             },
         },
-    }),
-
-    reducers: {
+    })),
+    reducers({
         pollTimeout: [
             null as number | null,
             {
@@ -61,18 +60,16 @@ export const cohortsModel = kea<cohortsModelType>({
                 return [...state].filter((c) => c.id !== cohort.id)
             },
         },
-    },
-
-    selectors: {
+    }),
+    selectors({
         cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
         cohortsById: [
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
                 Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])),
         ],
-    },
-
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating) {
@@ -85,7 +82,6 @@ export const cohortsModel = kea<cohortsModelType>({
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
-                    max_limit: 10000,
                 },
             }
             if (columns && columns.length > 0) {
@@ -100,9 +96,8 @@ export const cohortsModel = kea<cohortsModelType>({
                 callback: actions.loadCohorts,
             })
         },
-    }),
-
-    events: ({ actions, values }) => ({
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             if (isAuthenticatedTeam(values.currentTeam)) {
                 // Don't load on shared insights/dashboards
@@ -112,5 +107,5 @@ export const cohortsModel = kea<cohortsModelType>({
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout || undefined)
         },
-    }),
-})
+    })),
+])

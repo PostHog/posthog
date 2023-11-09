@@ -8,10 +8,17 @@ class UserScenePersonalisation(UUIDModel):
     dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
     user: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.CASCADE, null=True, blank=True, related_name="scene_personalisation"
+        "User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="scene_personalisation",
     )
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "user", "scene"], name="posthog_unique_scene_personalisation")
+            models.UniqueConstraint(
+                fields=["team", "user", "scene"],
+                name="posthog_unique_scene_personalisation",
+            )
         ]

@@ -1,5 +1,76 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`segmenter ends a segment if it is the last window 1`] = `
+[
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531200100,
+    "isActive": true,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+  {
+    "durationMs": 400,
+    "endTimestamp": 1672531200500,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200100,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 500,
+    "endTimestamp": "2023-01-01T00:00:01.000Z",
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200500,
+    "windowId": "B",
+  },
+]
+`;
+
+exports[`segmenter includes inactive events in the active segment until a threshold 1`] = `
+[
+  {
+    "durationMs": 600000,
+    "endTimestamp": 1672531800000,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+]
+`;
+
+exports[`segmenter inserts gaps inclusively 1`] = `
+[
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531200100,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+  {
+    "durationMs": 599800,
+    "endTimestamp": 1672531799900,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200100,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531800000,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531799900,
+    "windowId": "B",
+  },
+]
+`;
+
 exports[`segmenter matches snapshots 1`] = `
 [
   {

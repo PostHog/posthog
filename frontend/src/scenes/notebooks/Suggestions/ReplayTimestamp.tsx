@@ -22,7 +22,7 @@ const insertTimestamp = ({
             sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
                 .currentPlayerTime || 0
 
-        editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
+        editor.insertContent([buildTimestampCommentContent({ playbackTime: currentPlayerTime, sessionRecordingId })])
     }
 }
 

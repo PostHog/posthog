@@ -51,6 +51,7 @@ import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { InsightVizNode } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -78,7 +79,7 @@ export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -93,7 +94,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
-    }),
+    })),
 
     actions({
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode, clearInsightQuery?: boolean) => ({
@@ -540,6 +541,7 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
+        showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {

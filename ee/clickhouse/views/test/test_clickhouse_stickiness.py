@@ -4,13 +4,21 @@ from django.test.client import Client
 from freezegun.api import freeze_time
 
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
-from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
+from posthog.api.test.test_stickiness import (
+    get_stickiness_time_series_ok,
+    stickiness_test_factory,
+)
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group.util import create_group
 from posthog.queries.util import get_earliest_timestamp
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -29,26 +37,56 @@ def get_people_from_url_ok(client: Client, url: str):
     return response.json()["results"][0]["people"]
 
 
-class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action, get_earliest_timestamp)):  # type: ignore
+class TestClickhouseStickiness(
+    ClickhouseTestMixin,
+    stickiness_test_factory(
+        ClickhouseStickiness,
+        _create_event,
+        _create_person,
+        _create_action,
+        get_earliest_timestamp,
+    ),
+):  # type: ignore
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": "technology"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:1",
+            properties={"industry": "technology"},
         )
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:2", properties={"industry": "agriculture"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:2",
+            properties={"industry": "agriculture"},
         )
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:3", properties={"industry": "technology"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:3",
+            properties={"industry": "technology"},
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:4", properties={})
         create_group(
-            team_id=self.team.pk, group_type_index=1, group_key=f"company:1", properties={"industry": "technology"}
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key=f"company:1",
+            properties={"industry": "technology"},
         )
-        create_group(team_id=self.team.pk, group_type_index=1, group_key=f"instance:1", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key=f"instance:1",
+            properties={},
+        )
 
         p1, p2, p3, p4 = self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"}
+            period=timedelta(weeks=1),
+            event_properties=lambda i: {
+                "$group_0": f"org:{i}",
+                "$group_1": "instance:1",
+            },
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -60,7 +98,14 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     "date_from": "2020-01-01",
                     "date_to": "2020-02-15",
                     "events": [{"id": "watched movie"}],
-                    "properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}],
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "value": "technology",
+                            "type": "group",
+                            "group_type_index": 0,
+                        }
+                    ],
                     "interval": "week",
                 },
             )
@@ -81,16 +126,26 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
     @snapshot_clickhouse_queries
     def test_aggregate_by_groups(self):
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:0", properties={"industry": "technology"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:0",
+            properties={"industry": "technology"},
         )
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": "agriculture"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:1",
+            properties={"industry": "agriculture"},
         )
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:2", properties={"industry": "technology"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:2",
+            properties={"industry": "technology"},
         )
         self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"}
+            period=timedelta(weeks=1),
+            event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -101,7 +156,13 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
                     "date_to": "2020-02-15",
-                    "events": [{"id": "watched movie", "math": "unique_group", "math_group_type_index": 0}],
+                    "events": [
+                        {
+                            "id": "watched movie",
+                            "math": "unique_group",
+                            "math_group_type_index": 0,
+                        }
+                    ],
                     "interval": "week",
                 },
             )

@@ -49,7 +49,7 @@ export function Seekbar(): JSX.Element {
                         <div className="PlayerSeekbar__segments">
                             {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
                                 <div
-                                    key={`${segment.windowId}-${segment.startTimestamp}`}
+                                    key={`${segment.startTimestamp}-${segment.endTimestamp}`}
                                     className={clsx(
                                         'PlayerSeekbar__segments__item',
                                         segment.isActive && 'PlayerSeekbar__segments__item--active'
@@ -63,9 +63,9 @@ export function Seekbar(): JSX.Element {
                             ))}
                         </div>
 
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div
                             className="PlayerSeekbar__currentbar"
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
                         />
                         {/* eslint-disable-next-line react/forbid-dom-props */}

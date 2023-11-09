@@ -37,7 +37,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.fetch_from_cache import (
+    InsightResult,
+    fetch_cached_insight_result,
+    synchronously_update_cache,
+)
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
 from posthog.constants import (
@@ -51,7 +55,9 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import cached_by_filters
-from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.helpers.multi_property_breakdown import (
+    protect_old_clients_from_multi_property_default,
+)
 from posthog.hogql.errors import HogQLException
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
@@ -74,19 +80,30 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels import (
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+)
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
+from posthog.utils import (
+    DEFAULT_DATE_FROM_DAYS,
+    refresh_requested_by_client,
+    relative_date_parse,
+    str_to_bool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -138,7 +155,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.Model.model_validate(query)
+                schema.QuerySchema.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:
@@ -342,7 +359,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
             dashboards_before_change = sorted(
-                dashboards_before_change, key=lambda x: -1 if isinstance(x, str) else x["id"]
+                dashboards_before_change,
+                key=lambda x: -1 if isinstance(x, str) else x["id"],
             )
         except Insight.DoesNotExist:
             before_update = None
@@ -489,6 +507,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        representation["query"] = instance.dashboard_query(dashboard=dashboard)
 
         if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
@@ -505,7 +524,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
+            insight,
+            dashboard_tile,
+            request=self.context["request"],
+            is_shared=is_shared,
         )
         if refresh_insight_now:
             INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()

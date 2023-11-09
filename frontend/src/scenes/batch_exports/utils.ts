@@ -4,6 +4,7 @@ export function intervalToFrequency(interval: BatchExportConfiguration['interval
     return {
         day: 'daily',
         hour: 'hourly',
+        'every 5 minutes': 'every 5 minutes',
     }[interval]
 }
 

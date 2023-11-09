@@ -129,8 +129,15 @@ jobs:
 
             - name: Serve Storybook in the background
               run: |
-                  pnpm exec http-server storybook-static --port 6006 --silent &
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+                  retries=3
+                  while [ $retries -gt 0 ]; do
+                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      if pnpm wait-on http://127.0.0.1:6006 --timeout 60; then
+                          break
+                      fi
+                      retries=$((retries-1))
+                      echo "Failed to serve Storybook, retrying... ($retries retries left)"
+                  done
 
             - name: Run @storybook/test-runner
               env:
@@ -139,7 +146,14 @@ jobs:
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
               run: |
-                  pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  retries=3
+                  while [ $retries -gt 0 ]; do
+                      if pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT; then
+                          break
+                      fi
+                      retries=$((retries-1))
+                      echo "Failed @storybook/test-runner, retrying... ($retries retries left)"
+                  done
 
             - name: Run @playwright/test (legacy, Chromium-only)
               if: matrix.browser == 'chromium' && matrix.shard == 1

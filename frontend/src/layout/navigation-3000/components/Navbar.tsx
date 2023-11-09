@@ -1,7 +1,7 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconDarkMode, IconHelpOutline, IconLightMode, IconSettings, IconSync } from 'lib/lemon-ui/icons'
+import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,50 +9,58 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { useRef } from 'react'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
-    const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
-    const { showSidebar, hideSidebar } = useActions(navigation3000Logic)
+    const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
+    const { showSidebar, hideSidebar, toggleNavCollapsed } = useActions(navigation3000Logic)
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <IconDarkMode /> : <IconLightMode />
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
+
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
     return (
-        <nav className="Navbar3000">
+        <nav className="Navbar3000" ref={containerRef}>
             <div className="Navbar3000__content">
                 <div className="Navbar3000__top">
-                    {NAVBAR_ITEMS.map((section, index) => (
+                    {navbarItems.map((section, index) => (
                         <ul key={index}>
-                            {section.map((item) => (
-                                <NavbarButton
-                                    key={item.identifier}
-                                    title={item.label}
-                                    identifier={item.identifier}
-                                    icon={item.icon}
-                                    to={'to' in item ? item.to : undefined}
-                                    onClick={
-                                        'logic' in item
-                                            ? () => {
-                                                  if (activeNavbarItemId === item.identifier && isSidebarShown) {
-                                                      hideSidebar()
-                                                  } else {
-                                                      showSidebar(item.identifier)
+                            {section.map((item) =>
+                                item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                    <NavbarButton
+                                        key={item.identifier}
+                                        title={item.label}
+                                        identifier={item.identifier}
+                                        icon={item.icon}
+                                        tag={item.tag}
+                                        to={'to' in item ? item.to : undefined}
+                                        onClick={
+                                            'logic' in item
+                                                ? () => {
+                                                      if (activeNavbarItemId === item.identifier && isSidebarShown) {
+                                                          hideSidebar()
+                                                      } else {
+                                                          showSidebar(item.identifier)
+                                                      }
                                                   }
-                                              }
-                                            : undefined
-                                    }
-                                    active={activeNavbarItemId === item.identifier && isSidebarShown}
-                                />
-                            ))}
+                                                : undefined
+                                        }
+                                        active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                    />
+                                )
+                            )}
                         </ul>
                     ))}
                 </div>
@@ -63,7 +71,7 @@ export function Navbar(): JSX.Element {
                                 isThemeSyncedWithSystem ? (
                                     <div className="relative">
                                         {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconSync />} />
+                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
                                     </div>
                                 ) : (
                                     activeThemeIcon
@@ -79,23 +87,26 @@ export function Navbar(): JSX.Element {
                                     ? 'Switch to light mode'
                                     : 'Switch to dark mode'
                             }
+                            shortTitle="Toggle theme"
                             onClick={() => toggleTheme()}
                             persistentTooltip
                         />
                         <HelpButton
                             customComponent={
                                 <NavbarButton
-                                    icon={<IconHelpOutline />}
+                                    icon={<IconQuestion />}
                                     identifier="help-button"
                                     title="Need any help?"
+                                    shortTitle="Help"
                                 />
                             }
                             placement="right-end"
                         />
                         <NavbarButton
-                            icon={<IconSettings />}
-                            identifier={Scene.ProjectSettings}
-                            to={urls.projectSettings()}
+                            icon={<IconGear />}
+                            identifier={Scene.Settings}
+                            title="Project settings"
+                            to={urls.settings('project')}
                         />
                         <Popover
                             overlay={<SitePopoverOverlay />}
@@ -107,12 +118,20 @@ export function Navbar(): JSX.Element {
                                 icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
                                 identifier="me"
                                 title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
+                                shortTitle={user?.first_name || user?.email}
                                 onClick={toggleSitePopover}
                             />
                         </Popover>
                     </ul>
                 </div>
             </div>
+            <Resizer
+                placement={'right'}
+                containerRef={containerRef}
+                closeThreshold={100}
+                onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
+                onDoubleClick={() => toggleNavCollapsed()}
+            />
         </nav>
     )
 }

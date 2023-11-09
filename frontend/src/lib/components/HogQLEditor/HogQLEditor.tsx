@@ -5,10 +5,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { hogQLEditorLogic } from './hogQLEditorLogic'
+import { Link } from '@posthog/lemon-ui'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
     value: string | undefined
+    hogQLTable?: string
     disablePersonProperties?: boolean
     disableAutoFocus?: boolean
     disableCmdEnter?: boolean
@@ -20,6 +22,7 @@ let uniqueNode = 0
 export function HogQLEditor({
     onChange,
     value,
+    hogQLTable,
     disablePersonProperties,
     disableAutoFocus,
     disableCmdEnter,
@@ -28,7 +31,7 @@ export function HogQLEditor({
 }: HogQLEditorProps): JSX.Element {
     const [key] = useState(() => `HogQLEditor.${uniqueNode++}`)
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-    const logic = hogQLEditorLogic({ key, value, onChange, textareaRef })
+    const logic = hogQLEditorLogic({ key, value, onChange, hogQLTable, textareaRef })
     const { localValue, error, responseLoading } = useValues(logic)
     const { setLocalValue, submit } = useActions(logic)
 
@@ -53,7 +56,9 @@ export function HogQLEditor({
                 maxRows={6}
                 placeholder={
                     placeholder ??
-                    (disablePersonProperties
+                    (hogQLTable === 'persons'
+                        ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
+                        : disablePersonProperties
                         ? "Enter HogQL expression, such as:\n- properties.$current_url\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')"
                         : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")
                 }
@@ -89,9 +94,9 @@ export function HogQLEditor({
                         disablePersonProperties ? '' : 'w-full '
                     }text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 >
-                    <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                    <Link to="https://posthog.com/manual/hogql" target="_blank">
                         Learn more about HogQL
-                    </a>
+                    </Link>
                 </div>
             </div>
         </>

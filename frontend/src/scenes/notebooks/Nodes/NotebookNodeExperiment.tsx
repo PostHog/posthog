@@ -2,11 +2,11 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconFlag, IconExperiment } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
@@ -17,13 +17,16 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.attributes
-    const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning } = useValues(
+        experimentLogic({ experimentId: id })
+    )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
-    const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { expanded } = useValues(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     // experiment progress details
     const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
@@ -37,8 +40,20 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
     const entrants = results?.[0]?.count
 
     useEffect(() => {
+        setActions([
+            {
+                text: 'View feature flag',
+                icon: <IconFlag />,
+                onClick: () => insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new')),
+            },
+        ])
+
         loadExperiment()
     }, [id])
+
+    if (experimentMissing) {
+        return <NotFound object="experiment" />
+    }
 
     return (
         <div>
@@ -50,7 +65,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag />
+                            <StatusTag experiment={experiment} />
                             <ResultsTag />
                         </>
                     )}
@@ -92,25 +107,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                         )}
                     </>
                 ) : null}
-
-                <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        onClick={() => {
-                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
-                                insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
-                            }
-                        }}
-                        disabledReason={
-                            nextNode?.type.name === NotebookNodeType.FeatureFlag && 'Feature flag already exists below'
-                        }
-                    >
-                        View Feature Flag
-                    </LemonButton>
-                </div>
             </BindLogic>
         </div>
     )
@@ -122,7 +118,7 @@ type NotebookNodeExperimentAttributes = {
 
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
     nodeType: NotebookNodeType.Experiment,
-    title: 'Experiment',
+    titlePlaceholder: 'Experiment',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.experiment(attrs.id),

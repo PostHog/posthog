@@ -70,6 +70,7 @@ export const Template: Story = () => {
                     textTile={makeTextTile('showing handles')}
                 />
             </div>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className={'w-full'} style={{ height: '200px' }}>
                 <h5>Large Card</h5>
                 <TextCard

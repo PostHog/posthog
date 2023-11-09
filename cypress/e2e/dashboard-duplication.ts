@@ -6,6 +6,8 @@ describe('duplicating dashboards', () => {
     let dashboardName, insightName, expectedCopiedDashboardName, expectedCopiedInsightName
 
     beforeEach(() => {
+        cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
+
         dashboardName = randomString('dashboard-')
         expectedCopiedDashboardName = `${dashboardName} (Copy)`
 

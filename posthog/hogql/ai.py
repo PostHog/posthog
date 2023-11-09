@@ -7,6 +7,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from .database.database import create_hogql_database, serialize_database
 from posthog.utils import get_instance_region
+from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
     from posthog.models import User, Team
@@ -52,7 +53,12 @@ class PromptUnclear(Exception):
 
 def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
     database = create_hogql_database(team.pk)
-    context = HogQLContext(team_id=team.pk, enable_select_queries=True, database=database)
+    context = HogQLContext(
+        team_id=team.pk,
+        enable_select_queries=True,
+        database=database,
+        modifiers=create_default_modifiers_for_team(team),
+    )
     serialized_database = serialize_database(database)
     schema_description = "\n\n".join(
         (
@@ -79,7 +85,11 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     ]
     if current_query:
         messages.insert(
-            -1, {"role": "user", "content": CURRENT_QUERY_MESSAGE.format(current_query_input=current_query)}
+            -1,
+            {
+                "role": "user",
+                "content": CURRENT_QUERY_MESSAGE.format(current_query_input=current_query),
+            },
         )
 
     candidate_sql: Optional[str] = None
@@ -110,7 +120,12 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
         except HogQLException as e:
             messages.append({"role": "assistant", "content": candidate_sql})
-            messages.append({"role": "user", "content": f"That query has this problem: {e}. Return fixed query."})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"That query has this problem: {e}. Return fixed query.",
+                }
+            )
         else:
             generated_valid_hogql = True
             break

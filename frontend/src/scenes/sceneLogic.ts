@@ -1,5 +1,5 @@
-import { BuiltLogic, kea } from 'kea'
-import { router } from 'kea-router'
+import { BuiltLogic, kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,46 +13,48 @@ import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { appContextLogic } from './appContextLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Action]: Scene.DataManagement,
-    [Scene.Actions]: Scene.DataManagement,
-    [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.IngestionWarnings]: Scene.DataManagement,
-    [Scene.Person]: Scene.Persons,
-    [Scene.Cohort]: Scene.Cohorts,
-    [Scene.Groups]: Scene.Persons,
+    [Scene.Person]: Scene.PersonsManagement,
+    [Scene.Cohort]: Scene.PersonsManagement,
     [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.Persons,
+    [Scene.Group]: Scene.PersonsManagement,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
+    [Scene.SurveyTemplates]: Scene.Surveys,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Plugins,
+    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
+    [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
-export const sceneLogic = kea<sceneLogicType>({
-    props: {} as {
-        scenes?: Record<Scene, () => any>
-    },
-    connect: () => ({
+export const sceneLogic = kea<sceneLogicType>([
+    props(
+        {} as {
+            scenes?: Record<Scene, () => any>
+        }
+    ),
+    path(['scenes', 'sceneLogic']),
+    connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged']],
-    }),
-    path: ['scenes', 'sceneLogic'],
-    actions: {
+    })),
+    actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
-            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
         openScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
@@ -80,8 +82,8 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
-    },
-    reducers: {
+    }),
+    reducers({
         scene: [
             null as Scene | null,
             {
@@ -125,8 +127,8 @@ export const sceneLogic = kea<sceneLogicType>({
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         sceneConfig: [
             (s) => [s.scene],
             (scene: Scene): SceneConfig | null => {
@@ -164,38 +166,8 @@ export const sceneLogic = kea<sceneLogicType>({
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-    },
-    urlToAction: ({ actions }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
-                }
-            ) => any
-        > = {}
-
-        for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
-                const redirect = redirects[path]
-                router.actions.replace(
-                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
-                )
-            }
-        }
-        for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, { params, searchParams, hashParams }, method)
-        }
-
-        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
-
-        return mapping
-    },
-    listeners: ({ values, actions, props, selectors }) => ({
+    }),
+    listeners(({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -278,13 +250,28 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !location.pathname.startsWith('/onboarding') &&
+                        !location.pathname.startsWith('/products') &&
+                        !location.pathname.startsWith('/settings')
                     ) {
-                        console.warn('Ingestion tutorial not completed, redirecting to it')
-                        router.actions.replace(urls.ingestion())
-                        return
+                        if (
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===
+                                'test' &&
+                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
+                        ) {
+                            console.warn('No onboarding completed, redirecting to products')
+                            router.actions.replace(urls.products())
+                            return
+                        } else if (
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
+                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding
+                        ) {
+                            console.warn('Ingestion tutorial not completed, redirecting to it')
+                            router.actions.replace(urls.ingestion())
+                            return
+                        }
                     }
                 }
             }
@@ -392,5 +379,35 @@ export const sceneLogic = kea<sceneLogicType>({
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
+    })),
+    urlToAction(({ actions }) => {
+        const mapping: Record<
+            string,
+            (
+                params: Params,
+                searchParams: Params,
+                hashParams: Params,
+                payload: {
+                    method: string
+                }
+            ) => any
+        > = {}
+
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params, searchParams, hashParams) => {
+                const redirect = redirects[path]
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
+            }
+        }
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
+        }
+
+        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
+
+        return mapping
     }),
-})
+])

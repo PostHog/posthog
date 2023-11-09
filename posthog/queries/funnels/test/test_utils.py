@@ -1,6 +1,10 @@
 from posthog.constants import FunnelOrderType
 from posthog.models.filters import Filter
-from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
+from posthog.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelUnordered,
+)
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.test.base import BaseTest
 

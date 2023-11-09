@@ -3,7 +3,7 @@ import { InsightQueryNode } from '~/queries/schema'
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 import {
     filterForQuery,
-    filterPropertyForQuery,
+    filterKeyForQuery,
     isEventsNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
@@ -45,7 +45,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
 
     if (ignoreVisualizationOnlyChanges) {
         const insightFilter = filterForQuery(cleanedQuery)
-        const insightFilterKey = filterPropertyForQuery(cleanedQuery)
+        const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
             ...insightFilter,
             show_legend: undefined,

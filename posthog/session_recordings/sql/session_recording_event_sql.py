@@ -2,7 +2,11 @@ from django.conf import settings
 
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import (
+    Distributed,
+    ReplacingMergeTree,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
 
 SESSION_RECORDING_EVENTS_DATA_TABLE = lambda: "sharded_session_recording_events"
@@ -72,7 +76,9 @@ SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = ", " + ", ".join(
 
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    "session_recording_events",
+    ver="_timestamp",
+    replication_scheme=ReplicationScheme.SHARDED,
 )
 SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
@@ -101,7 +107,8 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     extra_fields="",
 )
 
-SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """
+SESSION_RECORDING_EVENTS_TABLE_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -117,9 +124,10 @@ _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
 """.format(
-    target_table="writable_session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table="writable_session_recording_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 
@@ -129,7 +137,10 @@ FROM {database}.kafka_session_recording_events
 WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(
+        data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(),
+        sharding_key="sipHash64(distinct_id)",
+    ),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
 )
@@ -138,7 +149,10 @@ WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_T
 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(
+        data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(),
+        sharding_key="sipHash64(distinct_id)",
+    ),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
 )

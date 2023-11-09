@@ -10,8 +10,16 @@ from posthog.models.filters import AnyFilter
 from posthog.models.filters.mixins.interval import IntervalMixin
 
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+from posthog.queries.util import (
+    TIME_IN_SECONDS,
+    get_earliest_timestamp,
+    get_start_of_interval_sql,
+)
+from posthog.utils import (
+    DEFAULT_DATE_FROM_DAYS,
+    relative_date_parse,
+    relative_date_parse_with_delta_mapping,
+)
 
 
 class QueryDateRange:
@@ -28,7 +36,13 @@ class QueryDateRange:
     _table: str
     _should_round: Optional[bool]
 
-    def __init__(self, filter: AnyFilter, team: Team, should_round: Optional[bool] = None, table="") -> None:
+    def __init__(
+        self,
+        filter: AnyFilter,
+        team: Team,
+        should_round: Optional[bool] = None,
+        table="",
+    ) -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
         self._team = team
@@ -39,9 +53,10 @@ class QueryDateRange:
     def date_to_param(self) -> datetime:
         date_to = self._now
         delta_mapping = None
+        position: str | None = None
         if isinstance(self._filter._date_to, str):
-            date_to, delta_mapping = relative_date_parse_with_delta_mapping(
-                self._filter._date_to, self._team.timezone_info, always_truncate=True
+            date_to, delta_mapping, position = relative_date_parse_with_delta_mapping(
+                self._filter._date_to, self._team.timezone_info
             )
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
@@ -50,7 +65,7 @@ class QueryDateRange:
         if not self._filter.use_explicit_dates:
             if not self.is_hourly(self._filter._date_to):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
-            elif is_relative:
+            elif is_relative and not position:
                 date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
@@ -97,7 +112,10 @@ class QueryDateRange:
         date_to_query = self.date_to_clause
         date_to = self.date_to_param
 
-        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
+        date_to_param = {
+            "date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": self._team.timezone,
+        }
 
         return date_to_query, date_to_param
 
@@ -106,7 +124,10 @@ class QueryDateRange:
         date_from_query = self.date_from_clause
         date_from = self.date_from_param
 
-        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
+        date_from_param = {
+            "date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": self._team.timezone,
+        }
 
         return date_from_query, date_from_param
 

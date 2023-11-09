@@ -21,6 +21,7 @@ export default meta
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
         <div className="flex">
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ width: 350 }}>
                 <CompactList
                     loading={loading}
@@ -43,6 +44,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     )}
                 />
             </div>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ width: 350, marginLeft: 30 }}>
                 <CompactList
                     loading={loading}

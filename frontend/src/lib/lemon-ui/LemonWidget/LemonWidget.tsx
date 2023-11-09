@@ -1,44 +1,26 @@
-import { useState } from 'react'
 import { LemonButton } from '../LemonButton'
-import { IconClose, IconUnfoldLess, IconUnfoldMore } from '../icons'
+import { IconClose } from '../icons'
 import './LemonWidget.scss'
 import clsx from 'clsx'
 
 export interface LemonWidgetProps {
     title: string
-    collapsible?: boolean
     onClose?: () => void
-    children: React.ReactChild
+    actions?: React.ReactNode
+    children: React.ReactNode
+    className?: string
 }
 
-export function LemonWidget({ title, collapsible = true, onClose, children }: LemonWidgetProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState<boolean>(true)
-
+export function LemonWidget({ title, onClose, actions, children, className }: LemonWidgetProps): JSX.Element {
     return (
-        <Widget>
+        <Widget className={className}>
             <Header>
-                {collapsible ? (
-                    <>
-                        <LemonButton
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            size="small"
-                            status="primary-alt"
-                            className="flex-1"
-                        >
-                            <span className="flex-1 cursor-pointer">{title}</span>
-                        </LemonButton>
-                        <LemonButton
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            size="small"
-                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                        />
-                    </>
-                ) : (
-                    <span className="flex-1 text-primary-alt px-2">{title}</span>
-                )}
+                <span className="flex-1 text-primary-alt px-2 truncate">{title}</span>
+                {actions}
+
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
             </Header>
-            {isExpanded && <Content>{children}</Content>}
+            <Content>{children}</Content>
         </Widget>
     )
 }
@@ -52,5 +34,5 @@ const Header = ({ children, className }: { children: React.ReactNode; className?
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    return <div className="border-t border-border">{children}</div>
+    return <div className="LemonWidget__content border-t border-border">{children}</div>
 }

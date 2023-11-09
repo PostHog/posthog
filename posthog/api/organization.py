@@ -115,7 +115,8 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         teams = cast(
-            List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
+            List[Dict[str, Any]],
+            TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data,
         )
         visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
         return [team for team in teams if team["id"] in visible_team_ids]
@@ -141,7 +142,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneded anyways because permissions are organization-based
-            return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
+            return [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    PremiumMultiorganizationPermissions,
+                ]
+            ]
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
@@ -170,11 +177,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # Once the organization is deleted, queue deletion of associated data
         AsyncDeletion.objects.bulk_create(
             [
-                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=user,
+                )
                 for team_id in team_ids
             ],
             ignore_conflicts=True,
         )
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
+        return {
+            **super().get_serializer_context(),
+            "user_permissions": UserPermissions(cast(User, self.request.user)),
+        }

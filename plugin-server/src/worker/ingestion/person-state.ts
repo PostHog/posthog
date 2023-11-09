@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -21,6 +20,18 @@ const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
     help: 'Number of person merge final failures.',
+})
+
+export const mergeTxnAttemptCounter = new Counter({
+    name: 'person_merge_txn_attempt_total',
+    help: 'Number of person merge attempts.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+})
+
+export const mergeTxnSuccessCounter = new Counter({
+    name: 'person_merge_txn_success_total',
+    help: 'Number of person merges that succeeded.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -143,8 +154,10 @@ export class PersonState {
         return await this.updatePersonProperties(person)
     }
 
+    /**
+     * @returns [Person, boolean that indicates if properties were already handled or not]
+     */
     private async createOrGetPerson(): Promise<[Person, boolean]> {
-        // returns: person, properties were already handled or not
         let person = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (person) {
             return [person, false]
@@ -204,11 +217,11 @@ export class PersonState {
     }
 
     private async updatePersonProperties(person: Person): Promise<Person> {
-        const update: Partial<Person> = {}
-        const updatedProperties = this.applyEventPropertyUpdates(person.properties || {})
+        person.properties ||= {}
 
-        if (!equal(person.properties, updatedProperties)) {
-            update.properties = updatedProperties
+        const update: Partial<Person> = {}
+        if (this.applyEventPropertyUpdates(person.properties)) {
+            update.properties = person.properties
         }
         if (this.updateIsIdentified && !person.is_identified) {
             update.is_identified = true
@@ -221,30 +234,39 @@ export class PersonState {
         return person
     }
 
-    private applyEventPropertyUpdates(personProperties: Properties): Properties {
-        const updatedProperties = { ...personProperties }
-
+    /**
+     * @param personProperties Properties of the person to be updated, these are updated in place.
+     * @returns true if the properties were changed, false if they were not
+     */
+    private applyEventPropertyUpdates(personProperties: Properties): boolean {
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
+        const unsetProps = this.eventProperties['$unset']
+        const unsetProperties: Array<string> = Array.isArray(unsetProps)
+            ? unsetProps
+            : Object.keys(unsetProps || {}) || []
 
-        // Figure out which properties we are actually setting
+        let updated = false
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
+            }
+        })
+        unsetProperties.forEach((propertyKey) => {
+            if (propertyKey in personProperties) {
+                updated = true
+                delete personProperties[propertyKey]
             }
         })
 
-        unsetProperties.forEach((propertyKey) => {
-            delete updatedProperties[propertyKey]
-        })
-
-        return updatedProperties
+        return updated
     }
 
     // Alias & merge
@@ -308,7 +330,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: mergeIntoDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: mergeIntoDistinctId,
                 otherDistinctId: otherPersonDistinctId,
                 eventUuid: this.event.uuid,
@@ -317,7 +339,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: otherPersonDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: otherPersonDistinctId,
                 otherDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
@@ -403,7 +425,7 @@ export class PersonState {
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             // TODO: add event UUID to the ingestion warning
-            captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
+            await captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
@@ -426,8 +448,8 @@ export class PersonState {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        properties = this.applyEventPropertyUpdates(properties)
+        const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        this.applyEventPropertyUpdates(properties)
 
         if (this.poEEmbraceJoin) {
             // Optimize merging persons to keep using the person id that has longer history,
@@ -459,35 +481,68 @@ export class PersonState {
         createdAt: DateTime,
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
-        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, 'mergePeople', async (tx) => {
-            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                mergeInto,
-                {
-                    created_at: createdAt,
-                    properties: properties,
-                    is_identified: true,
-                },
-                tx
-            )
+        mergeTxnAttemptCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(this.poEEmbraceJoin),
+            })
+            .inc()
 
-            // Merge the distinct IDs
-            // TODO: Doesn't this table need to add updates to CH too?
-            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, tx)
+        const result: [ProducerRecord[], Person] = await this.db.postgres.transaction(
+            PostgresUse.COMMON_WRITE,
+            'mergePeople',
+            async (tx) => {
+                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                    mergeInto,
+                    {
+                        created_at: createdAt,
+                        properties: properties,
+                        is_identified: true,
+                    },
+                    tx
+                )
 
-            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
+                // Merge the distinct IDs
+                // TODO: Doesn't this table need to add updates to CH too?
+                await this.db.updateCohortsAndFeatureFlagsForMerge(
+                    otherPerson.team_id,
+                    otherPerson.id,
+                    mergeInto.id,
+                    tx
+                )
 
-            const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
 
-            let personOverrideMessages: ProducerRecord[] = []
-            if (this.poEEmbraceJoin) {
-                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, tx)]
+                const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+
+                let personOverrideMessages: ProducerRecord[] = []
+                if (this.poEEmbraceJoin) {
+                    personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, tx)]
+                }
+
+                return [
+                    [
+                        ...personOverrideMessages,
+                        ...updatePersonMessages,
+                        ...distinctIdMessages,
+                        ...deletePersonMessages,
+                    ],
+                    person,
+                ]
             }
+        )
 
-            return [
-                [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
-                person,
-            ]
-        })
+        mergeTxnSuccessCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(this.poEEmbraceJoin),
+            })
+            .inc()
+        return result
     }
 
     private async addPersonOverride(
@@ -631,30 +686,12 @@ export class PersonState {
 
         return id
     }
-
-    private async handleTablesDependingOnPersonID(
-        sourcePerson: Person,
-        targetPerson: Person,
-        tx: TransactionClient
-    ): Promise<void> {
-        // When personIDs change, update places depending on a person_id foreign key
-
-        // For Cohorts
-        await this.db.postgres.query(
-            tx,
-            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-            [targetPerson.id, sourcePerson.id],
-            'updateCohortPeople'
-        )
-
-        // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(sourcePerson.team_id, sourcePerson.id, targetPerson.id, tx)
-    }
 }
 
 export function ageInMonthsLowCardinality(timestamp: DateTime): number {
     const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
-    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB:
+    // https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
     const ageLowCardinality = Math.min(ageInMonths, 50)
     return ageLowCardinality
 }

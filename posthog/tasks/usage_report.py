@@ -16,6 +16,7 @@ from typing import (
 )
 
 import requests
+from retry import retry
 import structlog
 from dateutil import parser
 from django.conf import settings
@@ -27,6 +28,7 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.celery import app
+from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -39,12 +41,27 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
-from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
+from posthog.utils import (
+    get_helm_info_env,
+    get_instance_realm,
+    get_instance_region,
+    get_machine_id,
+    get_previous_day,
+)
 
 logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionrecordingevent": int})
+
+
+CH_BILLING_SETTINGS = {
+    "max_execution_time": 5 * 60,  # 5 minutes
+}
+
+QUERY_RETRIES = 3
+QUERY_RETRY_DELAY = 1
+QUERY_RETRY_BACKOFF = 2
 
 
 @dataclasses.dataclass
@@ -90,6 +107,9 @@ class UsageReportCounters:
     event_explorer_api_bytes_read: int
     event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
+    # Surveys
+    survey_responses_count_in_period: int
+    survey_responses_count_in_month: int
 
 
 # Instance metadata to be included in oveall report
@@ -160,7 +180,10 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
     metadata = InstanceMetadata(
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
-        period={"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        period={
+            "start_inclusive": period_start.isoformat(),
+            "end_inclusive": period_end.isoformat(),
+        },
         site_url=settings.SITE_URL,
         product=get_product_name(realm, has_license),
         # Non-cloud vars
@@ -183,7 +206,12 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
         metadata.users_who_logged_in = [
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
-            else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
+            else {
+                "id": user.id,
+                "distinct_id": user.distinct_id,
+                "first_name": user.first_name,
+                "email": user.email,
+            }
             for user in User.objects.filter(is_active=True, last_login__gte=period_start, last_login__lte=period_end)
         ]
         metadata.users_who_logged_in_count = len(metadata.users_who_logged_in)
@@ -191,8 +219,17 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
         metadata.users_who_signed_up = [
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
-            else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-            for user in User.objects.filter(is_active=True, date_joined__gte=period_start, date_joined__lte=period_end)
+            else {
+                "id": user.id,
+                "distinct_id": user.distinct_id,
+                "first_name": user.first_name,
+                "email": user.email,
+            }
+            for user in User.objects.filter(
+                is_active=True,
+                date_joined__gte=period_start,
+                date_joined__lte=period_end,
+            )
         ]
         metadata.users_who_signed_up_count = len(metadata.users_who_signed_up)
 
@@ -229,7 +266,8 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
         user = membership.user
     else:
         capture_exception(
-            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}}
+            Exception("No user found for org while generating report"),
+            {"org": {"organization_id": organization_id}},
         )
     return user
 
@@ -274,7 +312,12 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
-        capture_event(pha_client, f"organization usage report to billing service failure", org_id, {"err": str(err)})
+        capture_event(
+            pha_client,
+            f"organization usage report to billing service failure",
+            org_id,
+            {"err": str(err)},
+        )
         raise err
 
 
@@ -314,18 +357,22 @@ def capture_event(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> List[Tuple[int, int]]:
@@ -348,11 +395,14 @@ def get_teams_with_billable_event_count_in_period(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -363,11 +413,14 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -377,11 +430,14 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
         GROUP BY lib, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -391,11 +447,14 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
         GROUP BY event, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
@@ -418,24 +477,30 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
         GROUP BY team_id
     """,
         {"previous_begin": previous_begin, "begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
         FROM session_replay_events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
@@ -460,12 +525,20 @@ def get_teams_with_hogql_metric(
           AND access_method = %(access_method)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+        {
+            "begin": begin,
+            "end": end,
+            "query_types": query_types,
+            "access_method": access_method,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> List[Tuple[int, int]]:
@@ -490,14 +563,40 @@ def get_teams_with_feature_flag_requests_count_in_period(
             "validity_token": validity_token,
             "target_event": target_event,
         },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_survey_responses_count_in_period(
+    begin: datetime,
+    end: datetime,
+) -> List[Tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, COUNT() as count
+        FROM events
+        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 @app.task(ignore_result=True, max_retries=0)
 def capture_report(
-    capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
+    capture_event_name: str,
+    org_id: str,
+    full_report_dict: Dict[str, Any],
+    at_date: Optional[datetime] = None,
 ) -> None:
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
@@ -518,6 +617,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.survey_responses_count_in_period > 0
     )
 
 
@@ -678,6 +778,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
+        teams_with_survey_responses_count_in_period=get_teams_with_survey_responses_count_in_period(
+            period_start, period_end
+        ),
+        teams_with_survey_responses_count_in_month=get_teams_with_survey_responses_count_in_period(
+            period_start.replace(day=1), period_end
+        ),
     )
 
 
@@ -746,11 +852,16 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+        survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+        survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
     )
 
 
 def _add_team_report_to_org_reports(
-    org_reports: Dict[str, OrgReport], team: Team, team_report: UsageReportCounters, period_start: datetime
+    org_reports: Dict[str, OrgReport],
+    team: Team,
+    team_report: UsageReportCounters,
+    period_start: datetime,
 ) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:

@@ -1,23 +1,25 @@
+import dataclasses
+
 from posthog.client import sync_execute
 
 
-def get_recording_count_month_to_date() -> int:
-    result = sync_execute(
-        """
-        SELECT count(distinct session_id) as freq
-        FROM session_recording_events
-        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now())
-    """
-    )[0][0]
-    return result
+@dataclasses.dataclass(frozen=True)
+class RecordingsSystemStatus:
+    count: int
+    events: str
+    size: int
 
 
-def get_recording_events_count_month_to_date() -> int:
+def get_recording_status_month_to_date() -> RecordingsSystemStatus:
     result = sync_execute(
         """
-        SELECT count() freq
-        FROM session_recording_events
-        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now())
+        SELECT count(distinct session_id), sum(event_count), sum(message_count), formatReadableSize(sum(size))
+        FROM session_replay_events
+        WHERE toStartOfMonth(min_first_timestamp) = toStartOfMonth(now())
     """
-    )[0][0]
-    return result
+    )[0]
+    return RecordingsSystemStatus(
+        count=result[0],
+        events=f"{result[1]:,} rrweb events in {result[2]:,} messages",
+        size=result[3],
+    )

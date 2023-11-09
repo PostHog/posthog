@@ -17,7 +17,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
@@ -39,13 +42,15 @@ class Migration(migrations.Migration):
                 (
                     "created_at",
                     models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExportDestination was created."
+                        auto_now_add=True,
+                        help_text="The timestamp at which this BatchExportDestination was created.",
                     ),
                 ),
                 (
                     "last_updated_at",
                     models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExportDestination was last updated."
+                        auto_now=True,
+                        help_text="The timestamp at which this BatchExportDestination was last updated.",
                     ),
                 ),
             ],
@@ -59,7 +64,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
@@ -70,7 +78,10 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("name", models.TextField(help_text="A human-readable name for this BatchExport.")),
+                (
+                    "name",
+                    models.TextField(help_text="A human-readable name for this BatchExport."),
+                ),
                 (
                     "destination",
                     models.ForeignKey(
@@ -88,21 +99,32 @@ class Migration(migrations.Migration):
                         max_length=64,
                     ),
                 ),
-                ("paused", models.BooleanField(default=False, help_text="Whether this BatchExport is paused or not.")),
+                (
+                    "paused",
+                    models.BooleanField(
+                        default=False,
+                        help_text="Whether this BatchExport is paused or not.",
+                    ),
+                ),
                 (
                     "deleted",
-                    models.BooleanField(default=False, help_text="Whether this BatchExport is deleted or not."),
+                    models.BooleanField(
+                        default=False,
+                        help_text="Whether this BatchExport is deleted or not.",
+                    ),
                 ),
                 (
                     "created_at",
                     models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExport was created."
+                        auto_now_add=True,
+                        help_text="The timestamp at which this BatchExport was created.",
                     ),
                 ),
                 (
                     "last_updated_at",
                     models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
+                        auto_now=True,
+                        help_text="The timestamp at which this BatchExport was last updated.",
                     ),
                 ),
             ],
@@ -116,7 +138,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
@@ -138,31 +163,52 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "records_completed",
-                    models.IntegerField(help_text="The number of records that have been exported.", null=True),
+                    models.IntegerField(
+                        help_text="The number of records that have been exported.",
+                        null=True,
+                    ),
                 ),
                 (
                     "latest_error",
-                    models.TextField(help_text="The latest error that occurred during this run.", null=True),
+                    models.TextField(
+                        help_text="The latest error that occurred during this run.",
+                        null=True,
+                    ),
                 ),
-                ("data_interval_start", models.DateTimeField(help_text="The start of the data interval.")),
-                ("data_interval_end", models.DateTimeField(help_text="The end of the data interval.")),
-                ("cursor", models.TextField(help_text="An opaque cursor that may be used to resume.", null=True)),
+                (
+                    "data_interval_start",
+                    models.DateTimeField(help_text="The start of the data interval."),
+                ),
+                (
+                    "data_interval_end",
+                    models.DateTimeField(help_text="The end of the data interval."),
+                ),
+                (
+                    "cursor",
+                    models.TextField(
+                        help_text="An opaque cursor that may be used to resume.",
+                        null=True,
+                    ),
+                ),
                 (
                     "created_at",
                     models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExportRun was created."
+                        auto_now_add=True,
+                        help_text="The timestamp at which this BatchExportRun was created.",
                     ),
                 ),
                 (
                     "finished_at",
                     models.DateTimeField(
-                        help_text="The timestamp at which this BatchExportRun finished, successfully or not.", null=True
+                        help_text="The timestamp at which this BatchExportRun finished, successfully or not.",
+                        null=True,
                     ),
                 ),
                 (
                     "last_updated_at",
                     models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExportRun was last updated."
+                        auto_now=True,
+                        help_text="The timestamp at which this BatchExportRun was last updated.",
                     ),
                 ),
                 (

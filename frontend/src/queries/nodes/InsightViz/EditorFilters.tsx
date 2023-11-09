@@ -46,14 +46,28 @@ export interface EditorFiltersProps {
     embedded: boolean
 }
 
-export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown, pathsFilter } =
-        useValues(insightVizDataLogic(insightProps))
+    const {
+        isTrends,
+        isFunnels,
+        isRetention,
+        isPaths,
+        isLifecycle,
+        isTrendsLike,
+        display,
+        breakdown,
+        pathsFilter,
+        querySource,
+    } = useValues(insightVizDataLogic(insightProps))
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+
+    if (!querySource) {
+        return null
+    }
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||

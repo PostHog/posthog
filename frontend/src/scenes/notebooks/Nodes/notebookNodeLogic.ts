@@ -19,50 +19,34 @@ import {
     CustomNotebookNodeAttributes,
     JSONContent,
     Node,
-    NotebookNode,
+    NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeWidget,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 
 export type NotebookNodeLogicProps = {
-    node: NotebookNode
-    nodeId: string
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
-    getPos: () => number
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
-    resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    widgets: NotebookNodeWidget[]
-    startExpanded: boolean
+    getPos?: () => number
+    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
+    Settings?: NotebookNodeSettings
+    messageListeners?: NotebookNodeMessagesListeners
+    startExpanded?: boolean
+    titlePlaceholder: string
 } & NotebookNodeAttributeProperties<any>
-
-async function renderTitle(
-    title: NotebookNodeLogicProps['title'],
-    attrs: NotebookNodeLogicProps['attributes']
-): Promise<string> {
-    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
-        return attrs.title
-    }
-
-    return title instanceof Function ? await title(attrs) : title
-}
-
-const computeResizeable = (
-    resizeable: NotebookNodeLogicProps['resizeable'],
-    attrs: NotebookNodeLogicProps['attributes']
-): boolean => (typeof resizeable === 'function' ? resizeable(attrs) : resizeable)
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodeLogic', key]),
-    key(({ nodeId }) => nodeId || 'no-node-id-set'),
+    key(({ attributes }) => attributes.nodeId || 'no-node-id-set'),
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
-        setTitle: (title: string) => ({ title }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
+        setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -70,27 +54,28 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             timestamp,
             sessionRecordingId,
         }),
+        insertOrSelectNextLine: true,
         setPreviousNode: (node: Node | null) => ({ node }),
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
+        selectNode: true,
+        toggleEditing: true,
+        scrollIntoView: true,
+        initializeNode: true,
+        setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
+        setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
-        actions: [props.notebookLogic, ['onUpdateEditor']],
-        values: [props.notebookLogic, ['editor']],
+        actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
+        values: [props.notebookLogic, ['editor', 'isEditable']],
     })),
 
     reducers(({ props }) => ({
         expanded: [
-            props.startExpanded,
+            props.startExpanded ?? true,
             {
                 setExpanded: (_, { expanded }) => expanded,
-            },
-        ],
-        title: [
-            '',
-            {
-                setTitle: (_, { title }) => title,
             },
         ],
         resizeable: [
@@ -111,47 +96,142 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setNextNode: (_, { node }) => node,
             },
         ],
+        actions: [
+            [] as NotebookNodeAction[],
+            {
+                setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
+            },
+        ],
+        messageListeners: [
+            props.messageListeners as NotebookNodeMessagesListeners,
+            {
+                setMessageListeners: (_, { listeners }) => listeners,
+            },
+        ],
+        titlePlaceholder: [
+            props.titlePlaceholder,
+            {
+                setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
+        Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
+
+        title: [
+            (s) => [s.titlePlaceholder, s.nodeAttributes],
+            (titlePlaceholder, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
+        ],
+        // TODO: Fix the typing of nodeAttributes
+        children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+
+        sendMessage: [
+            (s) => [s.messageListeners],
+            (messageListeners) => {
+                return <T extends keyof NotebookNodeMessages>(
+                    message: T,
+                    payload: NotebookNodeMessages[T]
+                ): boolean => {
+                    if (!messageListeners[message]) {
+                        return false
+                    }
+
+                    messageListeners[message]?.(payload)
+                    return true
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
         onUpdateEditor: async () => {
+            if (!props.getPos) {
+                return
+            }
             const editor = values.notebookLogic.values.editor
             if (editor) {
-                const pos = props.getPos()
-                const { previous, next } = editor.getAdjacentNodes(pos)
+                const { previous, next } = editor.getAdjacentNodes(props.getPos())
                 actions.setPreviousNode(previous)
                 actions.setNextNode(next)
             }
         },
 
         insertAfter: ({ content }) => {
+            if (!props.getPos) {
+                return
+            }
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
         },
 
         deleteNode: () => {
+            if (!props.getPos) {
+                // TODO: somehow make this delete from the parent
+                return
+            }
+
             const logic = values.notebookLogic
-            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
+            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
+            if (values.notebookLogic.values.editingNodeId === values.nodeId) {
+                values.notebookLogic.actions.setEditingNodeId(null)
+            }
+        },
+
+        selectNode: () => {
+            if (!props.getPos) {
+                return
+            }
+            const editor = values.notebookLogic.values.editor
+
+            if (editor) {
+                editor.setSelection(props.getPos())
+                editor.scrollToSelection()
+            }
+        },
+
+        scrollIntoView: () => {
+            if (!props.getPos) {
+                return
+            }
+            values.editor?.scrollToPosition(props.getPos())
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
+            if (!props.getPos) {
+                return
+            }
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
 
         insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            if (!props.getPos) {
+                return
+            }
             const insertionPosition = props.getPos()
-            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+            values.notebookLogic.actions.insertReplayCommentByTimestamp({
                 timestamp,
                 sessionRecordingId,
-                insertionPosition
-            )
+                knownStartingPosition: insertionPosition,
+                nodeId: values.nodeId,
+            })
+        },
+        insertOrSelectNextLine: () => {
+            if (!props.getPos || !values.isEditable) {
+                return
+            }
+
+            if (!values.nextNode || !values.nextNode.isTextblock) {
+                actions.insertAfter({
+                    type: 'paragraph',
+                })
+            } else {
+                actions.setTextSelection(props.getPos() + 1)
+            }
         },
 
         setExpanded: ({ expanded }) => {
@@ -166,19 +246,40 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
         },
+        toggleEditing: () => {
+            props.notebookLogic.actions.setEditingNodeId(
+                props.notebookLogic.values.editingNodeId === values.nodeId ? null : values.nodeId
+            )
+        },
+        initializeNode: () => {
+            const { __init } = values.nodeAttributes
+
+            if (__init) {
+                if (__init.expanded) {
+                    actions.setExpanded(true)
+                }
+                if (__init.showSettings) {
+                    actions.toggleEditing()
+                }
+                props.updateAttributes({ __init: null })
+            }
+        },
     })),
 
     afterMount(async (logic) => {
-        logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
-        logic.actions.setTitle(renderedTitle)
-        const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
-        logic.actions.setResizeable(resizeable)
-        logic.actions.updateAttributes({ title: renderedTitle })
+        const { props, actions, values } = logic
+        props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+
+        const isResizeable =
+            typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
+
+        actions.setResizeable(isResizeable)
+        actions.initializeNode()
     }),
 
-    beforeUnmount((logic) => {
-        logic.props.notebookLogic.actions.unregisterNodeLogic(logic as any)
+    beforeUnmount(({ props, values }) => {
+        // Note this doesn't work as there may be other places where this is used. The NodeWrapper should be in charge of somehow unmounting this
+        props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
 

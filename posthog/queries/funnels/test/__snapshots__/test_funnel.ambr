@@ -326,7 +326,7 @@
                                           AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')) )
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
-                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
+                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')) SETTINGS optimize_aggregation_in_order = 1)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -343,7 +343,7 @@
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                    HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -432,7 +432,7 @@
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                    HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -540,7 +540,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -643,7 +643,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -750,7 +750,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -857,7 +857,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -939,7 +939,7 @@
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                    HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')

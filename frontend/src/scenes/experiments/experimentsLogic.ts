@@ -10,6 +10,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTagType } from '@posthog/lemon-ui'
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -18,6 +19,17 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
         return ProgressStatus.Running
     }
     return ProgressStatus.Complete
+}
+
+export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
+    switch (status) {
+        case ProgressStatus.Draft:
+            return 'default'
+        case ProgressStatus.Running:
+            return 'success'
+        case ProgressStatus.Complete:
+            return 'completion'
+    }
 }
 
 export const experimentsLogic = kea<experimentsLogicType>([

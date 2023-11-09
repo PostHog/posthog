@@ -1260,6 +1260,59 @@
   OFFSET 0
   '
 ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_group_filter
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e
+          LEFT JOIN
+            (SELECT group_key,
+                    argMax(group_properties, _timestamp) AS group_properties_1
+             FROM groups
+             WHERE team_id = 2
+               AND group_type_index = 1
+             GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview'
+                 AND (has(['org one'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'name'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded
   '
   
@@ -1341,7 +1394,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -1371,7 +1424,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
@@ -1422,7 +1475,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -1451,7 +1504,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
@@ -1545,7 +1598,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -1574,7 +1627,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
@@ -1624,7 +1677,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -1652,7 +1705,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
@@ -1702,7 +1755,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -1723,7 +1776,7 @@
                 FROM person
                 WHERE team_id = 2
                 GROUP BY id
-                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
@@ -1780,7 +1833,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -1801,7 +1854,7 @@
                 FROM person
                 WHERE team_id = 2
                 GROUP BY id
-                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
@@ -2136,7 +2189,7 @@
                     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2371,7 +2424,7 @@
                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+             AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2406,7 +2459,7 @@
                             AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
@@ -2505,7 +2558,7 @@
                     AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+             AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2540,7 +2593,7 @@
                             AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                     AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
@@ -2640,6 +2693,339 @@
           AND hasAll(event_names, ['$pageview', '$pageleave'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in
+      (SELECT distinct log_source_id as session_id
+       FROM log_entries PREWHERE team_id = 2
+       AND timestamp >= '2020-12-31 20:00:00'
+       AND timestamp <= now()
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+       WHERE 1=1
+         AND level in ['warn', 'error']
+         AND positionCaseInsensitive(message, 'message 4') > 0 ) as log_text_matching
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0
+       OR console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in
+      (SELECT distinct log_source_id as session_id
+       FROM log_entries PREWHERE team_id = 2
+       AND timestamp >= '2020-12-31 20:00:00'
+       AND timestamp <= now()
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+       WHERE 1=1
+         AND level in ['warn', 'error']
+         AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0
+       OR console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in
+      (SELECT distinct log_source_id as session_id
+       FROM log_entries PREWHERE team_id = 2
+       AND timestamp >= '2020-12-31 20:00:00'
+       AND timestamp <= now()
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+       WHERE 1=1
+         AND level in ['warn', 'error']
+         AND positionCaseInsensitive(message, 'MESSAGE 5') > 0 ) as log_text_matching
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0
+       OR console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.3
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in
+      (SELECT distinct log_source_id as session_id
+       FROM log_entries PREWHERE team_id = 2
+       AND timestamp >= '2020-12-31 20:00:00'
+       AND timestamp <= now()
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+       WHERE 1=1
+         AND level in ['log']
+         AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.4
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in
+      (SELECT distinct log_source_id as session_id
+       FROM log_entries PREWHERE team_id = 2
+       AND timestamp >= '2020-12-31 20:00:00'
+       AND timestamp <= now()
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+       WHERE 1=1
+         AND level in ['log']
+         AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.5
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in ['with-warns-session']
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0
+       OR console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.6
+  '
+  
+  SELECT distinct log_source_id as session_id
+  FROM log_entries PREWHERE team_id = 2
+  AND timestamp >= '2020-12-31 20:00:00'
+  AND timestamp <= now()
+  AND timestamp >= '2021-01-13 12:00:00'
+  AND timestamp <= '2021-01-22 08:00:00'
+  WHERE 1=1
+    AND level in ['log']
+    AND positionCaseInsensitive(message, 'message 5') > 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.7
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in []
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.8
+  '
+  
+  SELECT distinct log_source_id as session_id
+  FROM log_entries PREWHERE team_id = 2
+  AND timestamp >= '2020-12-31 20:00:00'
+  AND timestamp <= now()
+  AND timestamp >= '2021-01-13 12:00:00'
+  AND timestamp <= '2021-01-22 08:00:00'
+  WHERE 1=1
+    AND level in ['log']
+    AND positionCaseInsensitive(message, 'message 5') > 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.9
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND "session_id" in []
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -3072,7 +3458,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3143,7 +3529,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3176,7 +3562,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                     AND (pdi.person_id IN
                            (SELECT DISTINCT person_id
@@ -3230,7 +3616,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3263,7 +3649,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                     AND (pdi.person_id IN
                            (SELECT DISTINCT person_id
@@ -3848,7 +4234,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -3940,7 +4326,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -4037,7 +4423,7 @@
                     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -4133,7 +4519,7 @@
                     AND (has(['bla'], "pmat_email")) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version)))) person ON person.id = pdi.person_id
+             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)

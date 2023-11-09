@@ -1,6 +1,6 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
@@ -15,7 +15,7 @@ import {
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
-        ip: event.ip,
+        ip: null, // deprecated : within properties[$ip] now
         team_id: event.teamId,
         event: event.event,
         properties: event.properties,
@@ -61,13 +61,24 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
             : null,
     }
 }
+export function convertToPostHogEvent(event: RawClickHouseEvent): PostHogEvent {
+    const properties = event.properties ? JSON.parse(event.properties) : {}
+    properties['$elements_chain'] = event.elements_chain // TODO: tests
+    return {
+        uuid: event.uuid,
+        event: event.event!,
+        team_id: event.team_id,
+        distinct_id: event.distinct_id,
+        properties,
+        timestamp: new Date(clickHouseTimestampToISO(event.timestamp)),
+    }
+}
 
 export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,
         event: event.event!,
-        ip: properties['$ip'],
         teamId: event.team_id,
         distinctId: event.distinct_id,
         properties,
@@ -95,6 +106,13 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     if (event['$set_once']) {
         properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
     }
+    if (!properties['$ip'] && event.ip) {
+        // if $ip wasn't sent with the event, then add what we got from capture
+        properties['$ip'] = event.ip
+    }
+    // For safety while PluginEvent still has an `ip` field
+    event.ip = null
+
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)
     }
@@ -113,7 +131,6 @@ export function formPipelineEvent(message: Message): PipelineEvent {
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,
-        ip: combinedEvent.ip || null,
     })
     return event
 }
@@ -122,7 +139,7 @@ export function formPluginEvent(event: RawClickHouseEvent): PluginEvent {
     const postIngestionEvent = convertToIngestionEvent(event)
     return {
         distinct_id: postIngestionEvent.distinctId,
-        ip: postIngestionEvent.properties['$ip'],
+        ip: null, // deprecated : within properties[$ip] now
         site_url: '',
         team_id: postIngestionEvent.teamId,
         now: DateTime.now().toISO(),

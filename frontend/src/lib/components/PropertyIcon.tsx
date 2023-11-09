@@ -20,7 +20,7 @@ import {
 import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
-import { ReactNode } from 'react'
+import { HTMLAttributes, ReactNode } from 'react'
 
 export const PROPERTIES_ICON_MAP = {
     $browser: {
@@ -61,7 +61,7 @@ interface PropertyIconProps {
     value?: string
     className?: string
     noTooltip?: boolean
-    onClick?: (property: string, value?: string) => void
+    onClick?: HTMLAttributes<HTMLDivElement>['onClick']
     tooltipTitle?: (property: string, value?: string) => ReactNode // Tooltip title will default to `value`
 }
 
@@ -87,15 +87,7 @@ export function PropertyIcon({
     }
 
     const content = (
-        <div
-            onClick={(e) => {
-                if (onClick) {
-                    e.stopPropagation()
-                    onClick(property, value)
-                }
-            }}
-            className={clsx('inline-flex items-center', className)}
-        >
+        <div onClick={onClick} className={clsx('inline-flex items-center', className)}>
             {icon}
         </div>
     )

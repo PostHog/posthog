@@ -17,8 +17,12 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -43,7 +47,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -68,8 +73,12 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -94,7 +103,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -119,8 +129,12 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -145,7 +159,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -170,8 +185,12 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -196,7 +215,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -221,8 +241,12 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -247,7 +271,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -279,6 +304,58 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  '
+---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value.1
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%red%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestDjangoPropertiesToQ.test_icontains_with_array_value.2
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (("posthog_person"."properties" -> '$key') > '["2"]'
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
+  '
+  SELECT (1) AS "a"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_person"."team_id" = 2
+         AND ("posthog_person"."properties" -> 'created_at') > '"2021-02-06T10:00:00+00:00"')
+  LIMIT 1
+  '
+---
+# name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.1
+  '
+  SELECT (1) AS "a"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_person"."team_id" = 2
+         AND "posthog_person"."id" = -1)
+  LIMIT 1
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts

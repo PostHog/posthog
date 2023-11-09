@@ -170,7 +170,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -242,7 +242,7 @@
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -326,7 +326,7 @@
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -410,7 +410,7 @@
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -494,7 +494,7 @@
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -594,7 +594,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -666,7 +666,7 @@
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -750,7 +750,7 @@
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -834,7 +834,7 @@
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -918,7 +918,7 @@
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')

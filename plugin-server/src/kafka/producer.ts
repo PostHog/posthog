@@ -6,39 +6,41 @@ import {
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
-} from 'node-rdkafka-acosom'
+} from 'node-rdkafka'
 
 import { getSpan } from '../sentry'
 import { status } from '../utils/status'
 
+export type KafkaProducerConfig = {
+    KAFKA_PRODUCER_LINGER_MS: number
+    KAFKA_PRODUCER_BATCH_SIZE: number
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
+}
+
 // Kafka production related functions using node-rdkafka.
-export const createKafkaProducer = async (config: ProducerGlobalConfig) => {
+export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, producerConfig: KafkaProducerConfig) => {
     const producer = new RdKafkaProducer({
-        // milliseconds to wait after the most recently added message before
-        // sending a batch. The default is 0, which means that messages are sent
-        // as soon as possible. This does not mean that there will only be one
-        // message per batch, as the producer will attempt to fill batches up to
-        // the batch size while the number of Kafka inflight requests is
-        // saturated, by default 5 inflight requests.
-        'linger.ms': 20,
-        // The default is 16kb. 1024kb also seems quite small for our use case
-        // but at least larger than the default.
-        'batch.size': 1024 * 1024,
+        // milliseconds to wait after the most recently added message before sending a batch. The
+        // default is 0, which means that messages are sent as soon as possible. This does not mean
+        // that there will only be one message per batch, as the producer will attempt to fill
+        // batches up to the batch size while the number of Kafka inflight requests is saturated, by
+        // default 5 inflight requests.
+        'linger.ms': producerConfig.KAFKA_PRODUCER_LINGER_MS,
+        'batch.size': producerConfig.KAFKA_PRODUCER_BATCH_SIZE,
+        'queue.buffering.max.messages': producerConfig.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
         'compression.codec': 'snappy',
-        // Ensure that librdkafka handled producer retries do not produce
-        // duplicates. Note this doesn't mean that if we manually retry a
-        // message that it will be idempotent. May reduce throughput. Note that
-        // at the time of writing the session recording events table in
-        // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of
-        // _timestamp i.e. when the event was added to the Kafka ingest topic.
-        // The sort key is `team_id, toHour(timestamp), session_id, timestamp,
-        // uuid` which means duplicate production of the same event _should_ be
-        // deduplicated when merges occur on the table. This isn't a guarantee
-        // on removing duplicates though and rather still requires deduplication
-        // either when querying the table or client side.
+        // Ensure that librdkafka handled producer retries do not produce duplicates. Note this
+        // doesn't mean that if we manually retry a message that it will be idempotent. May reduce
+        // throughput. Note that at the time of writing the session recording events table in
+        // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of _timestamp i.e. when
+        // the event was added to the Kafka ingest topic. The sort key is `team_id,
+        // toHour(timestamp), session_id, timestamp, uuid` which means duplicate production of the
+        // same event _should_ be deduplicated when merges occur on the table. This isn't a
+        // guarantee on removing duplicates though and rather still requires deduplication either
+        // when querying the table or client side.
         'enable.idempotence': true,
         dr_cb: true,
-        ...config,
+        ...globalConfig,
     })
 
     producer.on('event.log', function (log) {

@@ -37,6 +37,8 @@ export default defineConfig({
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {
+            config.env.E2E_TESTING = !!process.env.E2E_TESTING
+
             const options = {
                 webpackOptions: createEntry('cypress'),
                 watchOptions: {},

@@ -223,7 +223,7 @@ WithFooter.args = {
         <>
             <div className="flex items-center m-2">
                 <LemonButton center fullWidth>
-                    Load more button in the footer!
+                    Load more rows
                 </LemonButton>
             </div>
         </>

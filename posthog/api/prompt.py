@@ -46,7 +46,16 @@ class PromptSequenceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PromptSequence
-        fields = ["key", "path_match", "path_exclude", "requires_opt_in", "type", "status", "prompts", "autorun"]
+        fields = [
+            "key",
+            "path_match",
+            "path_exclude",
+            "requires_opt_in",
+            "type",
+            "status",
+            "prompts",
+            "autorun",
+        ]
 
 
 class UserPromptStateSerializer(serializers.ModelSerializer):
@@ -132,7 +141,10 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             sequence = state.sequence
             must_have_completed = sequence.must_have_completed.all()
             if len(must_have_completed) > 0:
-                current_state = next((s for s in up_to_date_states if s.sequence in must_have_completed), None)
+                current_state = next(
+                    (s for s in up_to_date_states if s.sequence in must_have_completed),
+                    None,
+                )
                 if not current_state or (current_state and not current_state.completed):
                     continue
             my_prompts["state"][sequence.key] = UserPromptStateSerializer(state).data
@@ -162,7 +174,15 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PromptSequence
-        fields = ["key", "path_match", "path_exclude", "type", "status", "requires_opt_in", "autorun"]
+        fields = [
+            "key",
+            "path_match",
+            "path_exclude",
+            "type",
+            "status",
+            "requires_opt_in",
+            "autorun",
+        ]
 
 
 @app.task(ignore_result=True)
@@ -177,7 +197,6 @@ def trigger_prompt_for_user(email: str, sequence_id: int):
 
 @csrf_exempt
 def prompt_webhook(request: request.Request):
-
     if request.method == "POST":
         data = json.loads(request.body)
     else:

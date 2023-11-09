@@ -7,6 +7,8 @@ import { PersonPreview } from './PersonPreview'
 import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
 import { asDisplay, asLink } from './person-utils'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { NotebookNodeType } from '~/types'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
@@ -15,15 +17,18 @@ type PersonPropType =
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
+    href?: string
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
+    isCentered?: boolean
 }
 
-export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink }: PersonDisplayProps): JSX.Element {
-    const href = asLink(person)
+export function PersonIcon({
+    person,
+    ...props
+}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'name' | 'email'>): JSX.Element {
     const display = asDisplay(person)
-    const [visible, setVisible] = useState(false)
 
     const email: string | undefined = useMemo(() => {
         // The email property could be correct but it could also be set strangely such as an array or not even a string
@@ -33,11 +38,26 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
+    return <ProfilePicture {...props} name={display} email={email} />
+}
+
+export function PersonDisplay({
+    person,
+    withIcon,
+    noEllipsis,
+    noPopover,
+    noLink,
+    isCentered,
+    href = asLink(person),
+}: PersonDisplayProps): JSX.Element {
+    const display = asDisplay(person)
+    const [visible, setVisible] = useState(false)
+
+    const notebookNode = useNotebookNode()
+
     let content = (
-        <span className="flex items-center">
-            {withIcon && (
-                <ProfilePicture name={display} email={email} size={typeof withIcon === 'string' ? withIcon : 'md'} />
-            )}
+        <span className={clsx('flex', 'items-center', isCentered && 'justify-center')}>
+            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
@@ -52,6 +72,19 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
                               router.actions.push(href)
                           } else {
                               setVisible(true)
+
+                              if (notebookNode && person) {
+                                  notebookNode.actions.updateAttributes({
+                                      children: [
+                                          {
+                                              type: NotebookNodeType.Person,
+                                              attrs: {
+                                                  id: person.distinct_id || person.distinct_ids?.[0],
+                                              },
+                                          },
+                                      ],
+                                  })
+                              }
                           }
                       }
                     : undefined
@@ -76,25 +109,26 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
         </span>
     )
 
-    content = noPopover ? (
-        content
-    ) : (
-        <Popover
-            overlay={
-                <PersonPreview
-                    distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                    onClose={() => setVisible(false)}
-                />
-            }
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-            placement="right"
-            fallbackPlacements={['bottom', 'top']}
-            showArrow
-        >
-            {content}
-        </Popover>
-    )
+    content =
+        noPopover || notebookNode ? (
+            content
+        ) : (
+            <Popover
+                overlay={
+                    <PersonPreview
+                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                        onClose={() => setVisible(false)}
+                    />
+                }
+                visible={visible}
+                onClickOutside={() => setVisible(false)}
+                placement="right"
+                fallbackPlacements={['bottom', 'top']}
+                showArrow
+            >
+                {content}
+            </Popover>
+        )
 
     return content
 }

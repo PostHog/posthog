@@ -6,7 +6,12 @@ from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view, OpenApiExample
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiParameter,
+    extend_schema_view,
+    OpenApiExample,
+)
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -26,7 +31,10 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
 
@@ -100,7 +108,10 @@ class NotebookSerializer(serializers.ModelSerializer):
 
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
-            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            team=team,
+            created_by=created_by,
+            last_modified_by=request.user,
+            **validated_data,
         )
 
         log_notebook_activity(
@@ -162,7 +173,10 @@ class NotebookSerializer(serializers.ModelSerializer):
         parameters=[
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
-                "created_by", OpenApiTypes.INT, description="The UUID of the Notebook's creator", required=False
+                "created_by",
+                OpenApiTypes.INT,
+                description="The UUID of the Notebook's creator",
+                required=False,
             ),
             OpenApiParameter(
                 "user",
@@ -208,7 +222,11 @@ class NotebookSerializer(serializers.ModelSerializer):
 class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
     serializer_class = NotebookSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     # TODO: Remove this once we have released notebooks
@@ -255,8 +273,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
-                    Q(title__search=request.GET["search"])
-                    | Q(text_content__search=request.GET["search"])
+                    Q(title__search=request.GET["search"]) | Q(text_content__search=request.GET["search"])
                 )
             elif key == "contains":
                 contains = request.GET["contains"]
@@ -276,11 +293,31 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                         nested_structure = basic_structure | List[Dict[str, basic_structure]]
 
                         presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
+
+                        try:
+                            # We try to parse the match as a number, as query params are always strings,
+                            # but an id could be an integer and wouldn't match
+                            if isinstance(match, str):  # because mypy
+                                match = int(match)
+                        except (ValueError, TypeError):
+                            pass
+
                         id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
                             id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                        elif target == "query":
+                            id_match_structure = [
+                                {
+                                    "attrs": {
+                                        "query": {
+                                            "kind": "SavedInsightNode",
+                                            "shortId": match,
+                                        }
+                                    }
+                                }
+                            ]
 
                         if match == "true" or match is None:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
@@ -298,4 +335,19 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        notebook = self.get_object()
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            scope="Notebook",
+            team_id=self.team_id,
+            item_id=notebook.id,
+            limit=limit,
+            page=page,
+        )
         return activity_page_response(activity_page, limit, page, request)

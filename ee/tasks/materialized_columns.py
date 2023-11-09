@@ -1,6 +1,10 @@
 from celery.utils.log import get_task_logger
 
-from ee.clickhouse.materialized_columns.columns import TRIM_AND_EXTRACT_PROPERTY, ColumnName, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import (
+    TRIM_AND_EXTRACT_PROPERTY,
+    ColumnName,
+    get_materialized_columns,
+)
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -12,7 +16,12 @@ def mark_all_materialized() -> None:
         logger.info("There are running mutations, skipping marking as materialized")
         return
 
-    for table, property_name, table_column, column_name in get_materialized_columns_with_default_expression():
+    for (
+        table,
+        property_name,
+        table_column,
+        column_name,
+    ) in get_materialized_columns_with_default_expression():
         updated_table = "sharded_events" if table == "events" else table
 
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯

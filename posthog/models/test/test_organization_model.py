@@ -29,16 +29,19 @@ class TestOrganization(BaseTest):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
-                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                    self.user,
+                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1)
         self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name,
+            "helloworldplugin",
         )
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
-            f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
+            f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip",
+            headers={},
         )
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
@@ -46,7 +49,8 @@ class TestOrganization(BaseTest):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
-                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                    self.user,
+                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)

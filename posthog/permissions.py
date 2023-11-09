@@ -119,7 +119,6 @@ class OrganizationAdminWritePermissions(BasePermission):
     message = "Your organization access level is insufficient."
 
     def has_permission(self, request: Request, view) -> bool:
-
         if request.method in SAFE_METHODS:
             return True
 
@@ -136,7 +135,6 @@ class OrganizationAdminWritePermissions(BasePermission):
         )
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-
         if request.method in SAFE_METHODS:
             return True
 
@@ -156,7 +154,7 @@ class TeamMemberAccessPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         try:
-            view.team
+            view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.current_team.effective_membership_level

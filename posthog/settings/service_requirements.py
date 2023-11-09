@@ -8,7 +8,9 @@ logger = structlog.get_logger(__name__)
 
 
 SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
-    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC or DEBUG, type_cast=str_to_bool
+    "SKIP_SERVICE_VERSION_REQUIREMENTS",
+    TEST or IS_COLLECT_STATIC or DEBUG,
+    type_cast=str_to_bool,
 )
 
 if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):

@@ -106,6 +106,8 @@ describe('PersonState.update()', () => {
                 event: '$pageview',
                 distinct_id: 'new-user',
                 uuid: event_uuid,
+                // `null_byte` validates that `sanitizeJsonbValue` is working as expected
+                properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
             await hub.db.kafkaProducer.flush()
 
@@ -113,7 +115,7 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: { $creator_event_uuid: event_uuid },
+                    properties: { $creator_event_uuid: event_uuid, null_byte: '\uFFFD' },
                     created_at: timestamp,
                     version: 0,
                     is_identified: false,
@@ -244,16 +246,24 @@ describe('PersonState.update()', () => {
 
     describe('on person update', () => {
         it('updates person properties', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, uuid.toString(), [
-                'new-user',
-            ])
+            await hub.db.createPerson(
+                timestamp,
+                { b: 3, c: 4, toString: {} },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['new-user']
+            )
 
             const person = await personState({
                 event: '$pageview',
                 distinct_id: 'new-user',
                 properties: {
                     $set_once: { c: 3, e: 4 },
-                    $set: { b: 4 },
+                    $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             }).updateProperties()
             await hub.db.kafkaProducer.flush()
@@ -262,7 +272,8 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: { b: 4, c: 4, e: 4 },
+                    // `null_byte` validates that `sanitizeJsonbValue` is working as expected
+                    properties: { b: 4, c: 4, e: 4, toString: 1, null_byte: '\uFFFD' },
                     created_at: timestamp,
                     version: 1,
                     is_identified: false,
