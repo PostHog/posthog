@@ -190,56 +190,6 @@
         justify-items: center;
     }
 
-    // LemonStealth has some specific styles
-    &.LemonButton--status-stealth {
-        font-weight: 400;
-        color: var(--default);
-
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            // background: var(--primary-highlight);
-            color: inherit; // Avoid links being colored on hover
-        }
-
-        &.LemonButton--active {
-            font-weight: 500;
-
-            // These buttons keep their font-weight when actve
-            &.LemonButtonWithSideAction,
-            &[role='menuitem'],
-            &[aria-haspopup='true'] {
-                font-weight: 400;
-            }
-        }
-
-        .LemonButton__icon {
-            color: var(--muted-alt);
-        }
-
-        // Secondary - outlined color style
-        &.LemonButton--secondary {
-            &:not([aria-disabled='true']):hover,
-            &.LemonButton--active {
-                // background: var(--primary-highlight);
-                // border-color: var(--primary);
-
-                .posthog-3000 & {
-                    background: transparent;
-                    border-color: transparent;
-
-                    > span {
-                        // background: var(--primary-highlight);
-                        // border-color: var(--primary);
-                    }
-                }
-            }
-
-            &:not([aria-disabled='true']):active {
-                border-color: var(--primary-dark);
-            }
-        }
-    }
-
     @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
