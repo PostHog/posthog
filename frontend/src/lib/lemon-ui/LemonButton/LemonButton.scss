@@ -254,7 +254,7 @@
                     }
                 }
                 &:not([aria-disabled='true']):active {
-                    background: var(--#{$status}-dark, var(--#{$status}));
+                    // background: var(--#{$status}-dark, var(--#{$status}));
                     color: #fff;
                     .LemonButton__icon {
                         // color: #fff;
@@ -389,8 +389,8 @@
 
         &.LemonButton--active {
             > span {
-                background: var(--secondary-3000-button-bg);
-                border-color: var(--secondary-3000-button-border-hover);
+                background: var(--secondary-3000-button-bg) !important;
+                border-color: var(--secondary-3000-button-border-hover) !important;
                 top: -1px !important;
             }
         }
