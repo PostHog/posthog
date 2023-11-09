@@ -204,6 +204,7 @@ module.exports = {
                 ],
             },
         ],
+        'no-constant-binary-expression': 'error',
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',

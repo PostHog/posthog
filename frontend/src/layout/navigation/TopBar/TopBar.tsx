@@ -14,8 +14,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
+import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
