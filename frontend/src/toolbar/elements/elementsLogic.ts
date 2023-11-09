@@ -384,7 +384,6 @@ export const elementsLogic = kea<elementsLogicType>([
             })
         },
         createAction: ({ element }) => {
-            actionsTabLogic.actions.showButtonActions()
             toolbarButtonLogic.actions.setVisibleMenu('actions')
             elementsLogic.actions.selectElement(null)
             actionsTabLogic.actions.newAction(element)
