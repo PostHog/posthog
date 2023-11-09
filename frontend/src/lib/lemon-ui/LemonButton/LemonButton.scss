@@ -389,8 +389,8 @@
 
         &.LemonButton--active {
             > span {
-                background: var(--secondary-3000-button-bg) !important;
-                border-color: var(--secondary-3000-button-border-hover) !important;
+                background: var(--secondary-3000-button-bg);
+                border-color: var(--secondary-3000-button-border-hover);
                 top: -1px !important;
 
                 &:not([aria-disabled='true']):hover {
@@ -406,6 +406,12 @@
                 top: 1px;
 
                 &:hover {
+                    border-color: transparent !important;
+                }
+            }
+
+            &:hover {
+                > span {
                     border-color: transparent !important;
                 }
             }
@@ -461,5 +467,14 @@
 
     .LemonButtonWithSideAction--small & {
         right: 0.375rem;
+    }
+}
+
+.Popover {
+    .LemonButton {
+        > span {
+            background: none !important;
+            border-color: transparent !important;
+        }
     }
 }
