@@ -157,7 +157,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         existing_flag.analytics_dashboards.set([analytics_dashboard])
-        usage_dashboard = Dashboard.objects.create(
+        usage_dashboard = existing_flag.usage_dashboard
             team=self.team,
             created_by=self.user,
         )
