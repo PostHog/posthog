@@ -357,7 +357,8 @@
             }
         }
 
-        &.LemonButton--secondary {
+        &.LemonButton--secondary,
+        &.LemonButton--active {
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
             border-radius: 6px;
@@ -378,6 +379,12 @@
                     color: var(--default);
                     opacity: 0.5;
                 }
+            }
+        }
+
+        &.LemonButton--active {
+            > span {
+                background: #fff;
             }
         }
     }
