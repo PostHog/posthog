@@ -1,11 +1,10 @@
-import { NotebookNodeType, PropertyDefinitionType } from '~/types'
+import { NotebookNodeProps, NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { useValues } from 'kea'
 import { personLogic } from 'scenes/persons/personLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
 import { NotFound } from 'lib/components/NotFound'
 import { notebookNodeLogic } from './notebookNodeLogic'
 

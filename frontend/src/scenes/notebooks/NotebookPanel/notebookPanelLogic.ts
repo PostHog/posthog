@@ -1,7 +1,7 @@
 import { actions, kea, reducers, path, listeners, selectors, connect } from 'kea'
 
 import { HTMLProps } from 'react'
-import { EditorFocusPosition } from '../Notebook/utils'
+import { EditorFocusPosition } from '../Notebook/types'
 
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
 import { NotebookNodeResource } from '~/types'

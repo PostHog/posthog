@@ -5,6 +5,8 @@ import {
     ReactNodeViewRenderer,
     NodeViewProps,
     getExtensionField,
+    Attribute,
+    ExtendedRegExpMatchArray,
 } from '@tiptap/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -23,22 +25,46 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
+import { NotebookNodeResource, NotebookNodeProps, CustomNotebookNodeAttributes, NotebookNodeAttributes } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../Notebook/utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
+
+let KNOWN_NODES: Record<string, any> = {}
+
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
+    NodeWrapperProps<T>,
+    'updateAttributes'
+> & {
+    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+    pasteOptions?: {
+        find: string
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+    }
+    attributes: Record<keyof T, Partial<Attribute>>
+    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
+}
+
+export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
+    NotebookNodeProps<T> & {
+        Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+
+        // View only props
+        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
+        expandable?: boolean
+        selected?: boolean
+        heightEstimate?: number | string
+        minHeight?: number | string
+        /** If true the metadata area will only show when hovered if in editing mode */
+        autoHideMetadata?: boolean
+        /** Expand the node if the component is clicked */
+        expandOnClick?: boolean
+    }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -279,6 +305,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 ): Node {
     const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
 
+    KNOWN_NODES = KNOWN_NODES || {}
     KNOWN_NODES[wrapperProps.nodeType] = options
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps

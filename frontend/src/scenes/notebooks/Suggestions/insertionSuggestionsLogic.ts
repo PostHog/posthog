@@ -3,13 +3,14 @@ import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicT
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
 import { InsertionSuggestion } from './InsertionSuggestion'
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { TipTapNode } from '../Notebook/types'
+import { NotebookEditor } from '~/types'
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
     actions({
         setEditor: (editor: NotebookEditor | null) => ({ editor }),
-        setPreviousNode: (node: Node | null) => ({ node }),
+        setPreviousNode: (node: TipTapNode | null) => ({ node }),
         setSuggestions: (suggestions: InsertionSuggestion[]) => ({ suggestions }),
         resetSuggestions: true,
         onTab: true,
@@ -23,7 +24,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as TipTapNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
@@ -38,7 +39,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     selectors({
         activeSuggestion: [
             (s) => [s.suggestions, s.previousNode],
-            (suggestions: InsertionSuggestion[], previousNode: Node): InsertionSuggestion =>
+            (suggestions: InsertionSuggestion[], previousNode: TipTapNode): InsertionSuggestion =>
                 suggestions.find(
                     ({ dismissed, shouldShow }) =>
                         !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)

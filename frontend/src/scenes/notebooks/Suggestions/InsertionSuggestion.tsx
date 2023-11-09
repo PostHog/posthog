@@ -1,20 +1,22 @@
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { NotebookEditor } from '~/types'
+import { TipTapNode } from '../Notebook/types'
 
 export type InsertionSuggestionViewProps = {
-    previousNode: Node | null
+    previousNode: TipTapNode | null
     editor: NotebookEditor
 }
 
 interface InsertionSuggestionConfig {
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean)
+    shouldShow: boolean | (({ previousNode }: { previousNode: TipTapNode | null }) => boolean)
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
-    onTab?: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void
+    onTab?: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: TipTapNode | null }) => void
 }
 
 export class InsertionSuggestion {
     dismissed = false
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean) = false
-    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void = () => {}
+    shouldShow: boolean | (({ previousNode }: { previousNode: TipTapNode | null }) => boolean) = false
+    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: TipTapNode | null }) => void =
+        () => {}
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
 
     constructor(config: InsertionSuggestionConfig) {

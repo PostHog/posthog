@@ -15,18 +15,18 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
+import { JSONContent, TipTapNode } from '../Notebook/types'
 import {
     CustomNotebookNodeAttributes,
-    JSONContent,
-    Node,
-    NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
+    NotebookNodeResource,
     NotebookNodeSettings,
-} from '../Notebook/utils'
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
+    NotebookNodeType,
+} from '~/types'
 import posthog from 'posthog-js'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import { LemonButtonProps } from '@posthog/lemon-ui'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
@@ -38,6 +38,11 @@ export type NotebookNodeLogicProps = {
     startExpanded?: boolean
     titlePlaceholder: string
 } & NotebookNodeAttributeProperties<any>
+
+export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
+    text: string
+    onClick: () => void
+}
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
@@ -55,8 +60,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             sessionRecordingId,
         }),
         insertOrSelectNextLine: true,
-        setPreviousNode: (node: Node | null) => ({ node }),
-        setNextNode: (node: Node | null) => ({ node }),
+        setPreviousNode: (node: TipTapNode | null) => ({ node }),
+        setNextNode: (node: TipTapNode | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
         toggleEditing: true,
@@ -85,13 +90,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as TipTapNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
         ],
         nextNode: [
-            null as Node | null,
+            null as TipTapNode | null,
             {
                 setNextNode: (_, { node }) => node,
             },

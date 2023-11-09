@@ -51,7 +51,6 @@ import {
     BatchExportConfiguration,
     BatchExportRun,
     UserBasicType,
-    NotebookNodeResource,
     ExternalDataStripeSourceCreatePayload,
     ExternalDataStripeSource,
 } from '~/types'

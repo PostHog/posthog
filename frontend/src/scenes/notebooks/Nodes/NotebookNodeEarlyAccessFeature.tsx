@@ -1,12 +1,12 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
+import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeProps, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { JSONContent } from '../Notebook/types'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,

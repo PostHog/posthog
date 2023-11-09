@@ -4,7 +4,7 @@ import { urlToAction } from 'kea-router'
 import { HTMLProps, RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
-import { EditorFocusPosition } from '../Notebook/utils'
+import { EditorFocusPosition } from '../Notebook/types'
 
 import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
 import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'

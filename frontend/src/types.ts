@@ -35,7 +35,13 @@ import type {
 } from './queries/schema'
 import { QueryContext } from '~/queries/types'
 
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import {
+    EditorCommands,
+    EditorFocusPosition,
+    EditorRange,
+    JSONContent,
+    TipTapNode,
+} from 'scenes/notebooks/Notebook/types'
 import { DashboardCompatibleScenes } from 'scenes/sceneTypes'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -3127,6 +3133,60 @@ export enum NotebookTarget {
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
 
 export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
+
+export type CustomNotebookNodeAttributes = Record<string, any>
+
+export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
+    nodeId: string
+    height?: string | number
+    title?: string
+    __init?: {
+        expanded?: boolean
+        showSettings?: boolean
+    }
+    // TODO: Type this more specifically to be our supported nodes only
+    children?: NotebookNodeResource[]
+}
+
+// NOTE: Pushes users to use the parsed "attributes" instead
+export type NotebookNode = Omit<TipTapNode, 'attrs'>
+
+export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttributes> = {
+    attributes: NotebookNodeAttributes<T>
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
+}
+
+export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
+
+export type NotebookNodeSettings =
+    // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
+    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
+
+export interface NotebookEditor {
+    getJSON: () => JSONContent
+    getText: () => string
+    getEndPosition: () => number
+    getSelectedNode: () => TipTapNode | null
+    getCurrentPosition: () => number
+    getAdjacentNodes: (pos: number) => { previous: TipTapNode | null; next: TipTapNode | null }
+    setEditable: (editable: boolean) => void
+    setContent: (content: JSONContent) => void
+    setSelection: (position: number) => void
+    setTextSelection: (position: number | EditorRange) => void
+    focus: (position?: EditorFocusPosition) => void
+    chain: () => EditorCommands
+    destroy: () => void
+    deleteRange: (range: EditorRange) => EditorCommands
+    insertContent: (content: JSONContent) => void
+    insertContentAfterNode: (position: number, content: JSONContent) => void
+    pasteContent: (position: number, text: string) => void
+    findNode: (position: number) => TipTapNode | null
+    findNodePositionByAttrs: (attrs: Record<string, any>) => any
+    nextNode: (position: number) => { node: TipTapNode; position: number } | null
+    hasChildOfType: (node: TipTapNode, type: string) => boolean
+    scrollToSelection: () => void
+    scrollToPosition: (position: number) => void
+}
 
 export interface DataWarehouseCredential {
     access_key: string

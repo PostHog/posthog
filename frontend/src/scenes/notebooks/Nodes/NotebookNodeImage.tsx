@@ -4,7 +4,7 @@ import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/types'
 
 const MAX_DEFAULT_HEIGHT = 1000
 

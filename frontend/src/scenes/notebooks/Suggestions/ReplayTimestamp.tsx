@@ -1,11 +1,11 @@
-import { NotebookNodeType } from '~/types'
+import { NotebookEditor, NotebookNodeType } from '~/types'
 import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useValues } from 'kea'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { TipTapNode } from '../Notebook/types'
 import { LemonButton } from '@posthog/lemon-ui'
 
 const insertTimestamp = ({
@@ -13,7 +13,7 @@ const insertTimestamp = ({
     previousNode,
 }: {
     editor: NotebookEditor | null
-    previousNode: Node | null
+    previousNode: TipTapNode | null
 }): void => {
     if (!!previousNode && !!editor) {
         const sessionRecordingId = getSessionRecordingId(previousNode)
@@ -59,12 +59,12 @@ export default InsertionSuggestion.create({
     Component,
 })
 
-function getSessionRecordingId(node: Node | null): string {
+function getSessionRecordingId(node: TipTapNode | null): string {
     return node?.type.name === NotebookNodeType.Recording
         ? node.attrs.id
         : getTimestampChildNode(node).attrs.sessionRecordingId
 }
 
-function getTimestampChildNode(node: Node | null): Node {
-    return firstChildOfType(node as Node, NotebookNodeType.ReplayTimestamp) as Node
+function getTimestampChildNode(node: TipTapNode | null): TipTapNode {
+    return firstChildOfType(node as TipTapNode, NotebookNodeType.ReplayTimestamp) as TipTapNode
 }

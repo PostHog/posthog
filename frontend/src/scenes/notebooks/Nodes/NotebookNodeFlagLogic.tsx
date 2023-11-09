@@ -1,5 +1,5 @@
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { JSONContent, Node } from '../Notebook/utils'
+import { JSONContent, TipTapNode } from '../Notebook/types'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { NotebookNodeType } from '~/types'
@@ -33,7 +33,7 @@ export const notebookNodeFlagLogic = kea<notebookNodeFlagLogicType>([
         shouldDisableInsertEarlyAccessFeature: [
             (s) => [s.featureFlag, s.hasEarlyAccessFeatures],
             (featureFlag, hasEarlyAccessFeatures) =>
-                (nextNode: Node | null): boolean => {
+                (nextNode: TipTapNode | null): boolean => {
                     return (
                         (nextNode?.type.name === NotebookNodeType.EarlyAccessFeature &&
                             hasEarlyAccessFeatures &&
@@ -46,7 +46,7 @@ export const notebookNodeFlagLogic = kea<notebookNodeFlagLogicType>([
         shouldDisableInsertSurvey: [
             (s) => [s.featureFlag, s.hasSurveys],
             (featureFlag, hasSurveys) =>
-                (nextNode: Node | null): boolean => {
+                (nextNode: TipTapNode | null): boolean => {
                     return (
                         (nextNode?.type.name === NotebookNodeType.Survey &&
                             hasSurveys &&
