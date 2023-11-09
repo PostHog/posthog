@@ -97,65 +97,7 @@ def postgres_config():
 
 
 @pytest_asyncio.fixture
-async def setup_test_db(postgres_config):
-    connection = await psycopg.AsyncConnection.connect(
-        user=postgres_config["user"],
-        password=postgres_config["password"],
-        host=postgres_config["host"],
-        port=postgres_config["port"],
-    )
-    await connection.set_autocommit(True)
-
-    async with connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
-            (postgres_config["database"],),
-        )
-
-        if await cursor.fetchone() is None:
-            await cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(postgres_config["database"])))
-
-    await connection.close()
-
-    # We need a new connection to connect to the database we just created.
-    connection = await psycopg.AsyncConnection.connect(
-        user=postgres_config["user"],
-        password=postgres_config["password"],
-        host=postgres_config["host"],
-        port=postgres_config["port"],
-        dbname=postgres_config["database"],
-    )
-    await connection.set_autocommit(True)
-
-    async with connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(postgres_config["schema"]))
-        )
-
-    yield
-
-    async with connection.cursor() as cursor:
-        await cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(postgres_config["schema"])))
-
-    await connection.close()
-
-    # We need a new connection to drop the database, as we cannot drop the current database.
-    connection = await psycopg.AsyncConnection.connect(
-        user=postgres_config["user"],
-        password=postgres_config["password"],
-        host=postgres_config["host"],
-        port=postgres_config["port"],
-    )
-    await connection.set_autocommit(True)
-
-    async with connection.cursor() as cursor:
-        await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
-
-    await connection.close()
-
-
-@pytest_asyncio.fixture
-async def postgres_connection(postgres_config, setup_test_db):
+async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
@@ -333,7 +275,7 @@ async def test_postgres_export_workflow(
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(postgres_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **postgres_batch_export.destination.config,
     )
