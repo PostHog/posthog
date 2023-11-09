@@ -16,7 +16,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from '@rrweb/types'
-import { PostHog } from 'posthog-js'
+import { PostHog, EarlyAccessFeature } from 'posthog-js'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -2240,7 +2240,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: EarlyAccessFeatureType[] | null
+    features: EarlyAccessFeature[] | null
     surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
@@ -2292,7 +2292,6 @@ export enum EarlyAccessFeatureTabs {
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
-    flagKey: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
