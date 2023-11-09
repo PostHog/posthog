@@ -157,7 +157,11 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         existing_flag.analytics_dashboards.set([analytics_dashboard])
-        usage_dashboard = existing_flag.usage_dashboard
+        usage_dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+        )
+        existing_flag.usage_dashboard = usage_dashboard
         existing_flag.save()
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
