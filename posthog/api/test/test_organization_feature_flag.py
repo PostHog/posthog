@@ -224,6 +224,96 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             set(flag_response.keys()),
         )
 
+    def test_copy_feature_flag_update_override_deleted(self):
+        target_project = self.team_2
+        rollout_percentage_existing = 99
+
+        existing_deleted_flag = FeatureFlag.objects.create(
+            team=target_project,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            name="Existing flag",
+            filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
+            rollout_percentage=rollout_percentage_existing,
+            ensure_experience_continuity=False,
+            deleted=True,
+        )
+
+        # The following instances must be overriden for a soft-deleted flag
+        Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=existing_deleted_flag.id)
+        Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_deleted_flag)
+
+        analytics_dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+        )
+        existing_deleted_flag.analytics_dashboards.set([analytics_dashboard])
+        usage_dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+        )
+
+        existing_deleted_flag.usage_dashboard = usage_dashboard
+        existing_deleted_flag.save()
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertIn("failed", response.json())
+
+        # Check copied flag in the response
+        expected_flag_response = {
+            "key": self.feature_flag_to_copy.key,
+            "name": self.feature_flag_to_copy.name,
+            "filters": self.feature_flag_to_copy.filters,
+            "active": self.feature_flag_to_copy.active,
+            "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+            "rollout_percentage": self.rollout_percentage_to_copy,
+            "deleted": False,
+            "created_by": self.user.id,
+            "is_simple_flag": True,
+            "rollback_conditions": None,
+            "performed_rollback": False,
+            "can_edit": True,
+            "has_enriched_analytics": False,
+            "tags": [],
+            "id": "__ignore__",
+            "created_at": "__ignore__",
+            "usage_dashboard": "__ignore__",
+            "experiment_set": "__ignore__",
+            "surveys": "__ignore__",
+            "features": "__ignore__",
+            "analytics_dashboards": "__ignore__",
+        }
+        flag_response = response.json()["success"][0]
+
+        for key, expected_value in expected_flag_response.items():
+            self.assertIn(key, flag_response)
+            if expected_value != "__ignore__":
+                if key == "created_by":
+                    self.assertEqual(flag_response[key]["id"], expected_value)
+                else:
+                    self.assertEqual(flag_response[key], expected_value)
+
+        # Linked instances must be overriden for a soft-deleted flag
+        self.assertEqual(flag_response["experiment_set"], [])
+        self.assertEqual(flag_response["surveys"], [])
+        self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
+        self.assertEqual(flag_response["analytics_dashboards"], [])
+
+        self.assertSetEqual(
+            set(expected_flag_response.keys()),
+            set(flag_response.keys()),
+        )
+
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data: Dict[str, Any] = {}
