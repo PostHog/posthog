@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 import { CorsPlugin } from '.'
 
 describe('CorsPlugin', () => {
