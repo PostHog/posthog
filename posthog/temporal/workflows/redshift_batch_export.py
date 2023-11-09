@@ -1,4 +1,5 @@
 import collections.abc
+import contextlib
 import datetime as dt
 import itertools
 import json
@@ -68,7 +69,7 @@ async def insert_records_to_redshift(
 
     redshift_connection.cursor_factory = psycopg.AsyncClientCursor
 
-    async with redshift_connection.cursor() as cursor:
+    async with async_client_cursor_from_connection(redshift_connection) as cursor:
         batch = [pre_query.as_string(cursor).encode("utf-8")]
 
         rows_exported = get_rows_exported_metric()
@@ -93,6 +94,27 @@ async def insert_records_to_redshift(
 
         if len(batch) > 0:
             await flush_to_redshift(batch[:-1])
+
+
+@contextlib.asynccontextmanager
+async def async_client_cursor_from_connection(
+    psycopg_connection: psycopg.AsyncConnection,
+) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
+    """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
+
+    Keeps track of the current cursor_factory to set it after we are done.
+    """
+    current_factory = psycopg_connection.cursor_factory
+    psycopg_connection.cursor_factory = psycopg.AsyncClientCursor
+
+    try:
+        async with psycopg_connection.cursor() as cursor:
+            # Not a fan of typing.cast, but we know this is an psycopg.AsyncClientCursor
+            # as we have just set cursor_factory.
+            cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
+            yield cursor
+    finally:
+        psycopg_connection.cursor_factory = current_factory
 
 
 @dataclass
