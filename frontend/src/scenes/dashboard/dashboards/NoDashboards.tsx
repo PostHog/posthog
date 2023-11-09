@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { Card } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { AppstoreAddOutlined } from '@ant-design/icons'
 
 export const NoDashboards = (): JSX.Element => {
@@ -21,7 +22,7 @@ export const NoDashboards = (): JSX.Element => {
                         })
                     }
                 >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
+                    <div className="text-4xl text-center">
                         <AppstoreAddOutlined />
                     </div>
                 </Card>
@@ -36,7 +37,7 @@ export const NoDashboards = (): JSX.Element => {
                         })
                     }
                 >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
+                    <div className="text-4xl text-center">
                         <AppstoreAddOutlined />
                     </div>
                 </Card>

@@ -1,9 +1,10 @@
-import { Dropdown, Menu, Tag } from 'antd'
+import { Dropdown, Menu } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PersonDisplay } from './PersonDisplay'
-import './Persons.scss'
+import './PersonScene.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
@@ -18,7 +19,7 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -75,10 +76,10 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                         }
                         trigger={['click']}
                     >
-                        <Tag className="extra-ids">
-                            +{person.distinct_ids.length - 1}
+                        <LemonTag className="extra-ids space-x-1">
+                            <div>+{person.distinct_ids.length - 1}</div>
                             <DownOutlined />
-                        </Tag>
+                        </LemonTag>
                     </Dropdown>
                 )}
             </div>
@@ -147,10 +148,8 @@ export function PersonScene(): JSX.Element | null {
                     <div className="flex gap-2">
                         <NotebookSelectButton
                             resource={{
-                                attrs: {
-                                    id: person?.distinct_ids[0],
-                                },
                                 type: NotebookNodeType.Person,
+                                attrs: { id: person?.distinct_ids[0] },
                             }}
                             type="secondary"
                         />
@@ -239,7 +238,7 @@ export function PersonScene(): JSX.Element | null {
                                         <LemonBanner type="info">
                                             Session recordings are currently disabled for this project. To use this
                                             feature, please go to your{' '}
-                                            <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link>{' '}
+                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>

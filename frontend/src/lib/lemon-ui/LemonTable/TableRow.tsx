@@ -56,6 +56,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 className={clsx(
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
+                    extraProps?.onClick ? 'hover:underline cursor-pointer hover:bg-primary-highlight' : undefined,
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

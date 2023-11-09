@@ -101,7 +101,6 @@ export function PropertyGroupFilters({
                                                             ? (group.values as AnyPropertyFilter[])
                                                             : null
                                                     }
-                                                    style={{ marginBottom: 0 }}
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}

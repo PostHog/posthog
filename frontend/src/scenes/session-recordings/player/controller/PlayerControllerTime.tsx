@@ -7,9 +7,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
+import { dayjs } from 'lib/dayjs'
+import { TZLabel } from '@posthog/apps-common'
 
 export function Timestamp(): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
+        useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
@@ -19,8 +22,10 @@ export function Timestamp(): JSX.Element {
 
     return (
         <div className="whitespace-nowrap mr-4">
-            {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-            {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
+            <TZLabel time={dayjs(currentTimestamp)} showSeconds>
+                <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+            </TZLabel>{' '}
+            / {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
         </div>
     )
 }

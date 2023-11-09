@@ -26,7 +26,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership)
-        requesting_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
             organization=organization,
         )
@@ -66,7 +66,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
-        requesting_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )

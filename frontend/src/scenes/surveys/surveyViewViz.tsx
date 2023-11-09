@@ -10,6 +10,8 @@ import {
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -63,7 +65,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
         <>
             {total > 0 && (
                 <div className="mb-8">
-                    <div className="w-full mx-auto h-10 mb-4">
+                    <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
                                 count: seen,
@@ -100,6 +102,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             >
                                 <div
                                     className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={style}
                                 >
                                     <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
@@ -119,6 +122,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 ({ count, label, style }) =>
                                     count > 0 && (
                                         <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <div className="w-3 h-3 rounded-full mr-2" style={style} />
                                             <span className="font-semibold text-muted-alt">{`${label} (${(
                                                 (count / total) *
@@ -194,7 +198,7 @@ export function RatingQuestionBarChart({
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className=" h-50 border rounded pt-6 pb-2">
+                    <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
@@ -343,9 +347,10 @@ export function SingleChoiceQuestionPieChart({
                                     >
                                         <div
                                             className="w-3 h-3 rounded-full mr-2"
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-30 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
                                         <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
                                     </div>
@@ -460,7 +465,14 @@ export function OpenTextViz({
                 <></>
             ) : (
                 <>
-                    <div className="font-semibold text-muted-alt">Open text</div>
+                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                        <div className="inline-flex gap-1">
+                            <div className="font-semibold text-muted-alt">Open text</div>
+                            <LemonDivider vertical className="my-1 mx-1" />
+                            <div className="font-semibold text-muted-alt">random selection</div>
+                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                        </div>
+                    </Tooltip>
                     <div className="text-xl font-bold mb-4">{question.question}</div>
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
@@ -474,7 +486,7 @@ export function OpenTextViz({
                                     <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
                                         {event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

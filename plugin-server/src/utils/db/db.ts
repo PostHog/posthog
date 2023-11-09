@@ -36,7 +36,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
-    PluginSourceFileStatus,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -71,6 +70,7 @@ import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
     safeClickhouseString,
+    sanitizeJsonbValue,
     shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
@@ -677,9 +677,9 @@ export class DB {
                 `SELECT * FROM inserted_person;`,
             [
                 createdAt.toISO(),
-                JSON.stringify(properties),
-                JSON.stringify(propertiesLastUpdatedAt),
-                JSON.stringify(propertiesLastOperation),
+                sanitizeJsonbValue(properties),
+                sanitizeJsonbValue(propertiesLastUpdatedAt),
+                sanitizeJsonbValue(propertiesLastOperation),
                 teamId,
                 isUserId,
                 isIdentified,
@@ -739,7 +739,7 @@ export class DB {
             return [person, []]
         }
 
-        const values = [...updateValues, person.id]
+        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
@@ -1530,39 +1530,5 @@ export class DB {
             'getPluginSource'
         )
         return rows[0]?.source ?? null
-    }
-
-    public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, transpiled = $5, error = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
-            'setPluginTranspiled'
-        )
-    }
-
-    public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, error = $5, transpiled = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
-            'setPluginTranspiledError'
-        )
-    }
-
-    public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
-        const response = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, NULL, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, updated_at = NOW() WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
-            'getPluginTranspilationLock'
-        )
-        return response.rowCount > 0
     }
 }

@@ -14,7 +14,9 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from temporalio import activity, workflow
+from prometheus_client import Counter
+from temporalio import activity, exceptions, workflow
+from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
     BatchExportsInputsProtocol,
@@ -44,6 +46,15 @@ SELECT_QUERY_TEMPLATE = Template(
     $order_by
     $format
     """
+)
+
+ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
+BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
+EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
+EXPORT_FINISHED = Counter(
+    "batch_export_finished",
+    "Number of batch exports finished, for any reason (including failure).",
+    labelnames=("destination", "status"),
 )
 
 
@@ -245,7 +256,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
             msg = (
                 "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+                "In the latter case, ensure '{Type}BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 
@@ -259,7 +270,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
         else:
             msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
                 f"of type '{type(data_interval_end_search_attr[0])}'."
             )
             raise TypeError(msg)
@@ -669,8 +680,8 @@ class CreateBatchExportBackfillInputs:
 async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
     """Activity that creates an BatchExportBackfill.
 
-    Intended to be used in all export workflows, usually at the start, to create a model
-    instance to represent them in our database.
+    Intended to be used in all batch export backfill workflows, usually at the start, to create a
+    model instance to represent them in our database.
     """
     logger = get_batch_exports_logger(inputs=inputs)
     logger.info(f"Creating BatchExportBackfill model instance in team {inputs.team_id}.")
@@ -702,6 +713,87 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )  # type: ignore
+    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore
+
+
+async def execute_batch_export_insert_activity(
+    activity,
+    inputs,
+    non_retryable_error_types: list[str],
+    update_inputs: UpdateBatchExportRunStatusInputs,
+    start_to_close_timeout_seconds: int = 3600,
+    heartbeat_timeout_seconds: int | None = 120,
+    maximum_attempts: int = 10,
+    initial_retry_interval_seconds: int = 10,
+    maximum_retry_interval_seconds: int = 120,
+) -> None:
+    """Execute the main insert activity of a batch export handling any errors.
+
+    All batch exports boil down to inserting some data somewhere, and they all follow the same error
+    handling patterns: logging and updating run status. For this reason, we have this function
+    to abstract executing the main insert activity of each batch export.
+
+    Args:
+        activity: The 'insert_into_*' activity function to execute.
+        inputs: The inputs to the activity.
+        non_retryable_error_types: A list of errors to not retry on when executing the activity.
+        update_inputs: Inputs to the update_export_run_status to run at the end.
+        start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
+        maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
+            Assuming the error that triggered the retry is not in non_retryable_error_types.
+        initial_retry_interval_seconds: When retrying, seconds until the first retry.
+        maximum_retry_interval_seconds: Maximum interval in seconds between retries.
+    """
+    logger = get_batch_exports_logger(inputs=inputs)
+    destination = workflow.info().workflow_type.lower()
+
+    retry_policy = RetryPolicy(
+        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+        maximum_attempts=maximum_attempts,
+        non_retryable_error_types=non_retryable_error_types,
+    )
+    try:
+        EXPORT_STARTED.labels(destination=destination).inc()
+        await workflow.execute_activity(
+            activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
+            retry_policy=retry_policy,
+        )
+    except exceptions.ActivityError as e:
+        if isinstance(e.cause, exceptions.CancelledError):
+            logger.error("BatchExport was cancelled.")
+            update_inputs.status = "Cancelled"
+        else:
+            logger.exception("BatchExport failed.", exc_info=e.cause)
+            update_inputs.status = "Failed"
+
+        update_inputs.latest_error = str(e.cause)
+        raise
+
+    except Exception as e:
+        logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
+        update_inputs.status = "Failed"
+        update_inputs.latest_error = "An unexpected error has ocurred"
+        raise
+
+    else:
+        logger.info(
+            "Successfully finished exporting batch %s - %s", inputs.data_interval_start, inputs.data_interval_end
+        )
+
+    finally:
+        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
+        await workflow.execute_activity(
+            update_export_run_status,
+            update_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
+        )

@@ -5,8 +5,7 @@ import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { isCloud } from '../../utils/env-utils'
-import { safeTrackedFetch, trackedFetch } from '../../utils/fetch'
+import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { AppMetrics } from './app-metrics'
@@ -259,9 +258,6 @@ export class HookCommander {
     appMetrics: AppMetrics
     statsd: StatsD | undefined
     siteUrl: string
-    /** null means that the hostname guard is enabled for everyone */
-    fetchHostnameGuardTeams: Set<number> | null
-
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT: number
 
@@ -269,7 +265,6 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        fetchHostnameGuardTeams: Set<number> | null = new Set(),
         appMetrics: AppMetrics,
         statsd: StatsD | undefined,
         timeout: number
@@ -277,7 +272,6 @@ export class HookCommander {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
@@ -373,13 +367,9 @@ export class HookCommander {
                 } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch =
-            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(team.id))
-                ? safeTrackedFetch
-                : trackedFetch
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await relevantFetch(webhookUrl, {
+                const request = await trackedFetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
@@ -455,12 +445,8 @@ export class HookCommander {
                 } team_id=${event.teamId} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch =
-            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(hook.team_id))
-                ? safeTrackedFetch
-                : trackedFetch
         try {
-            const request = await relevantFetch(hook.target, {
+            const request = await trackedFetch(hook.target, {
                 method: 'POST',
                 body: JSON.stringify(payload, undefined, 4),
                 headers: { 'Content-Type': 'application/json' },

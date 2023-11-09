@@ -103,6 +103,13 @@ class PostgresBatchExportInputs:
 
 
 @dataclass
+class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+    """Inputs for Redshift export workflow."""
+
+    properties_data_type: str = "varchar"
+
+
+@dataclass
 class BigQueryBatchExportInputs:
     """Inputs for BigQuery export workflow."""
 
@@ -135,6 +142,7 @@ DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
@@ -191,7 +199,7 @@ def unpause_batch_export(
     note: str | None = None,
     backfill: bool = False,
 ) -> None:
-    """Pause this BatchExport.
+    """Unpause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule. Additionally, we can trigger a backfill
     to backfill runs missed while paused.

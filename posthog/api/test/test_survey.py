@@ -6,7 +6,7 @@ import pytest
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
-from posthog.api.survey import nh3_clean_with_whitelist
+from posthog.api.survey import nh3_clean_with_allow_list
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -1232,4 +1232,4 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     ],
 )
 def test_nh3_clean_configuration(test_input, expected):
-    assert nh3_clean_with_whitelist(test_input).replace(" ", "") == expected.replace(" ", "")
+    assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")

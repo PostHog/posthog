@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { Popover } from './Popover/Popover'
 import { useState } from 'react'
 import { LemonTable } from './LemonTable'
-import clsx from 'clsx'
 
 const meta: Meta = {
     title: 'Lemon UI/Colors',
@@ -120,82 +119,72 @@ export function ColorPalette(): JSX.Element {
 
 export function AllPreThousandColorOptions(): JSX.Element {
     return (
-        <div className={clsx('flex flex-col gap-4 rounded-lg border px-4 py-2')}>
-            <h1>Pre-thousand colors</h1>
-            <LemonTable
-                dataSource={preThousand.map((color) => ({ name: color, color }))}
-                columns={[
-                    {
-                        title: 'Class name',
-                        key: 'name',
-                        dataIndex: 'name',
-                        render: function RenderName(name) {
-                            return name
-                        },
+        <LemonTable
+            dataSource={preThousand.map((color) => ({ name: color, color }))}
+            columns={[
+                {
+                    title: 'Class name',
+                    key: 'name',
+                    dataIndex: 'name',
+                    render: function RenderName(name) {
+                        return name
                     },
-                    {
-                        title: 'Color',
-                        key: 'color',
-                        dataIndex: 'color',
-                        render: function RenderColor(color) {
-                            return <div className={`bg-${color as string} flex-1 border rounded h-8 w-8`} />
-                        },
+                },
+                {
+                    title: 'Color',
+                    key: 'color',
+                    dataIndex: 'color',
+                    render: function RenderColor(color) {
+                        return <div className={`bg-${color as string} flex-1 border rounded h-8 w-8`} />
                     },
-                ]}
-            />
-        </div>
+                },
+            ]}
+        />
     )
 }
 
 export function AllThreeThousandColorOptions(): JSX.Element {
     return (
-        <div className={clsx('flex flex-col gap-4 rounded-lg border px-4 py-2 posthog-3000')}>
-            <h1>PostHog-3000 colors</h1>
-            <LemonTable
-                dataSource={threeThousand.map((color) => ({ name: color, color }))}
-                columns={[
-                    {
-                        title: 'Class name',
-                        key: 'name',
-                        dataIndex: 'name',
-                        render: function RenderName(name) {
-                            return name
-                        },
+        <LemonTable
+            dataSource={threeThousand.map((color) => ({ name: color, color }))}
+            columns={[
+                {
+                    title: 'Class name',
+                    key: 'name',
+                    dataIndex: 'name',
+                    render: function RenderName(name) {
+                        return name
                     },
-                    {
-                        title: 'Light mode',
-                        key: 'light',
-                        dataIndex: 'color',
-                        render: function RenderColor(color) {
-                            return (
-                                <div
-                                    className={
-                                        'bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16'
-                                    }
-                                >
-                                    <div className={`bg-${color as string}-light border rounded h-8 w-8`} />
-                                </div>
-                            )
-                        },
+                },
+                {
+                    title: 'Light mode',
+                    key: 'light',
+                    dataIndex: 'color',
+                    render: function RenderColor(color) {
+                        return (
+                            <div
+                                className={'bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16'}
+                            >
+                                <div className={`bg-${color as string}-light border rounded h-8 w-8`} />
+                            </div>
+                        )
                     },
-                    {
-                        title: 'Dark mode',
-                        key: 'dark',
-                        dataIndex: 'color',
-                        render: function RenderColor(color) {
-                            return (
-                                <div
-                                    className={
-                                        'bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16'
-                                    }
-                                >
-                                    <div className={`bg-${color as string}-dark border rounded h-8 w-8`} />
-                                </div>
-                            )
-                        },
+                },
+                {
+                    title: 'Dark mode',
+                    key: 'dark',
+                    dataIndex: 'color',
+                    render: function RenderColor(color) {
+                        return (
+                            <div
+                                className={'bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16'}
+                            >
+                                <div className={`bg-${color as string}-dark border rounded h-8 w-8`} />
+                            </div>
+                        )
                     },
-                ]}
-            />
-        </div>
+                },
+            ]}
+        />
     )
 }

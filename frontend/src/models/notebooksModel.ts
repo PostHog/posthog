@@ -8,7 +8,6 @@ import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 import type { notebooksModelType } from './notebooksModelType'
@@ -18,6 +17,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { router } from 'kea-router'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -28,19 +28,16 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 
 export const openNotebook = async (
     notebookId: string,
-    target: NotebookTarget = NotebookTarget.Auto,
+    target: NotebookTarget,
     focus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
-    const popoverLogic = notebookPopoverLogic.findMounted()
+    // TODO: We want a better solution than assuming it will always be mounted
+    const thePanelLogic = notebookPanelLogic.findMounted()
 
-    if (NotebookTarget.Popover === target) {
-        popoverLogic?.actions.setVisibility('visible')
-    }
-
-    if (popoverLogic?.values.visibility === 'visible') {
-        popoverLogic?.actions.selectNotebook(notebookId, focus)
+    if (thePanelLogic && target === NotebookTarget.Popover) {
+        notebookPanelLogic.actions.selectNotebook(notebookId, focus)
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
             router.actions.replace(urls.notebook(notebookId))
@@ -63,8 +60,8 @@ export const notebooksModel = kea<notebooksModelType>([
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
+            location: NotebookTarget,
             title?: string,
-            location: NotebookTarget = NotebookTarget.Auto,
             content?: JSONContent[],
             onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
         ) => ({
@@ -127,7 +124,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         callback: actions.loadNotebooks,
                     })
 
-                    notebookPopoverLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+                    notebookPanelLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },
@@ -189,7 +186,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
             }))
 
-            await actions.createNotebook(dashboard.name + ' (copied)', NotebookTarget.Auto, resources)
+            await actions.createNotebook(NotebookTarget.Scene, dashboard.name + ' (copied)', resources)
         },
     })),
 ])

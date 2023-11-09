@@ -91,6 +91,14 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                     </>
                 ) : (
                     <>
+                        {response?.error ? (
+                            <>
+                                <h2 className="text-danger">Error Running Query!</h2>
+                                <CodeSnippet language={Language.Text} wrap>
+                                    {response.error}
+                                </CodeSnippet>
+                            </>
+                        ) : null}
                         {response?.hogql ? (
                             <>
                                 <h2>Executed HogQL</h2>

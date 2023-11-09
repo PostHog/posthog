@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from temporalio import activity, exceptions, workflow
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
@@ -16,11 +16,13 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    execute_batch_export_insert_activity,
     get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    update_export_run_status,
+    ROWS_EXPORTED,
+    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -162,6 +164,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             )
 
             with BatchExportTemporaryFile() as jsonl_file:
+
+                def flush_to_bigquery():
+                    logger.info(
+                        "Copying %s records of size %s bytes to BigQuery",
+                        jsonl_file.records_since_last_reset,
+                        jsonl_file.bytes_since_last_reset,
+                    )
+                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    ROWS_EXPORTED.labels(destination="bigquery").inc(jsonl_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="bigquery").inc(jsonl_file.bytes_since_last_reset)
+
                 for result in results_iterator:
                     row = {
                         field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
@@ -173,26 +186,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Copying %s records of size %s bytes to BigQuery",
-                            jsonl_file.records_since_last_reset,
-                            jsonl_file.bytes_since_last_reset,
-                        )
-                        load_jsonl_file_to_bigquery_table(
-                            jsonl_file,
-                            bigquery_table,
-                            table_schema,
-                            bq_client,
-                        )
+                        flush_to_bigquery()
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    logger.info(
-                        "Copying %s records of size %s bytes to BigQuery",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
-                    )
-                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    flush_to_bigquery()
 
 
 @workflow.defn(name="bigquery-export")
@@ -259,59 +257,18 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
         )
 
-        try:
-            await workflow.execute_activity(
-                insert_into_bigquery_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[
-                        # Raised on missing permissions.
-                        "Forbidden",
-                        # Invalid token.
-                        "RefreshError",
-                        # Usually means the dataset or project doesn't exist.
-                        "NotFound",
-                    ],
-                ),
-            )
-
-        except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                logger.error("BigQuery BatchExport was cancelled.")
-                update_inputs.status = "Cancelled"
-            else:
-                logger.exception("BigQuery BatchExport failed.", exc_info=e.cause)
-                update_inputs.status = "Failed"
-
-            update_inputs.latest_error = str(e.cause)
-            raise
-
-        except Exception as e:
-            logger.exception("BigQuery BatchExport failed with an unexpected exception.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = "An unexpected error has ocurred"
-            raise
-
-        else:
-            logger.info(
-                "Successfully finished BigQuery export batch %s - %s",
-                data_interval_start,
-                data_interval_end,
-            )
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_bigquery_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # Raised on missing permissions.
+                "Forbidden",
+                # Invalid token.
+                "RefreshError",
+                # Usually means the dataset or project doesn't exist.
+                "NotFound",
+            ],
+            update_inputs=update_inputs,
+            # Disable heartbeat timeout until we add heartbeat support.
+            heartbeat_timeout_seconds=None,
+        )

@@ -204,7 +204,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id = self.instance.organization_id
             else:
                 organization_id = self.context["view"].organization
-            org_membership: (OrganizationMembership) = OrganizationMembership.objects.only("level").get(
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
                 organization_id=organization_id, user=request.user
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:

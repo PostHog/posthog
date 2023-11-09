@@ -522,12 +522,6 @@ input::-ms-clear {
     }
 }
 
-.lemonade-tag {
-    color: var(--primary-alt) !important;
-    background-color: var(--mid) !important;
-    border-color: var(--border) !important;
-}
-
 // Main app/body styles
 
 .fullscreen-scroll {
@@ -625,7 +619,6 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
-        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
         * > {
             ::-webkit-scrollbar {
@@ -708,6 +701,19 @@ body {
     }
     .ant-select-dropdown {
         z-index: var(--z-ant-select-dropdown);
+        background-color: var(--bg-3000);
+
+        .ant-select-item.ant-select-item-option {
+            background-color: var(--bg-3000);
+
+            &.ant-select-item-option-active {
+                background-color: var(--border-3000);
+            }
+        }
+    }
+
+    .ant-input-number-group-addon {
+        background: var(--bg-3000);
     }
 
     .ant-picker-dropdown {

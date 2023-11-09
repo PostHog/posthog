@@ -559,6 +559,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     (response as any).result.length > 0 ||
                                     !responseLoading) && <LoadNext query={query.source} />
                             }
+                            onRow={context?.rowProps}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}

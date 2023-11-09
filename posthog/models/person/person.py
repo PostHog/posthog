@@ -5,6 +5,10 @@ from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
+from ..team import Team
+
+MAX_LIMIT_DISTINCT_IDS = 2500
+
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -173,3 +177,40 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
+    """_summary_
+    Fetching distinct_ids for a person from CH is slow, so we
+    fetch them from PG for certain queries. Therfore we need
+    to inline the ids in a `distinct_ids IN (...)` clause.
+
+    This can cause the query to explode for persons with many
+    ids. Thus we need to limit the amount of distinct_ids we
+    pass through.
+
+    The first distinct_ids should contain the real distinct_ids
+    for a person and later ones should be associated with current
+    events. Therefore we union from both sides.
+
+    Many ids are usually a sign of instrumentation issues
+    on the customer side.
+    """
+    first_ids_limit = 100
+    last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
+
+    if person is not None:
+        first_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("id")
+            .values_list("distinct_id", flat=True)[:first_ids_limit]
+        )
+        last_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("-id")
+            .values_list("distinct_id", flat=True)[:last_ids_limit]
+        )
+        distinct_ids = first_ids.union(last_ids)
+    else:
+        distinct_ids = []  # type: ignore
+    return list(map(str, distinct_ids))

@@ -105,7 +105,8 @@ KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABL
 )
 
 
-SESSION_REPLAY_EVENTS_TABLE_MV_SQL = lambda: """
+SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -139,9 +140,10 @@ max(_timestamp) as _timestamp
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
-    target_table="writable_session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table="writable_session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 

@@ -6,12 +6,14 @@ import {
     FilterType,
     InsightShortId,
     ReplayTabs,
+    PipelineTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
 import { toParams } from 'lib/utils'
+import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
  * To add a new URL to the front end:
@@ -93,7 +95,8 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipeline: (): string => '/pipeline',
+    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}`,
+    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}/new`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -109,13 +112,14 @@ export const urls = {
     surveys: (): string => '/surveys',
     survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (): string => '/warehouse',
-    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
+    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
-    annotations: (): string => '/annotations',
-    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
+    dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    annotations: (): string => '/data-management/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
@@ -131,9 +135,8 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
-    projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
-    mySettings: (): string => '/me/settings',
-    organizationSettings: (): string => '/organization/settings',
+    settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
+        combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',

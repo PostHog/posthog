@@ -8,7 +8,7 @@ import { KeyMapping, UserBasicType, PropertyDefinition } from '~/types'
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { Divider, DividerProps, Select } from 'antd'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -70,12 +70,12 @@ function Header({
                         {!hideEdit &&
                             isViewable &&
                             (hasTaxonomyFeatures ? (
-                                <a onClick={onEdit}>Edit</a>
+                                <Link onClick={onEdit}>Edit</Link>
                             ) : (
                                 <Tooltip title="Creating and editing definitions require a premium license">
-                                    <a onClick={onEdit} className="definition-popover-disabled-button">
+                                    <Link onClick={onEdit} className="definition-popover-disabled-button">
                                         Edit
-                                    </a>
+                                    </Link>
                                 </Tooltip>
                             ))}
                         {!hideView && isViewable && (
