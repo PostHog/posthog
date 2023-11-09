@@ -48,7 +48,7 @@ declare module '@storybook/types' {
     }
 }
 
-const RETRY_TIMES = 5
+const RETRY_TIMES = 3
 const LOADER_SELECTORS = [
     '.ant-skeleton',
     '.Spinner',
