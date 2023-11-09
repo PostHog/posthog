@@ -3,14 +3,17 @@ import {
     AnyPartialFilterType,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CohortType,
     EntityFilter,
     EntityTypes,
+    EventType,
     InsightModel,
     InsightShortId,
     InsightType,
     PathsFilterType,
     PathType,
+    TrendsFilterType,
 } from '~/types'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
