@@ -146,6 +146,10 @@ module.exports = {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
+                    {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
+                    },
                 ],
             },
         ],
@@ -204,6 +208,7 @@ module.exports = {
                 ],
             },
         ],
+        'no-constant-binary-expression': 'error',
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',

@@ -6,7 +6,11 @@ import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFi
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
-import { webAnalyticsDataTableQueryContext, WebStatsTableTile } from 'scenes/web-analytics/WebAnalyticsDataTable'
+import {
+    webAnalyticsDataTableQueryContext,
+    WebStatsTableTile,
+    WebStatsTrendTile,
+} from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -114,6 +118,9 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} />
+    }
+    if (query.kind === NodeKind.InsightVizNode) {
+        return <WebStatsTrendTile query={query} />
     }
 
     return <Query query={query} readOnly={true} context={webAnalyticsDataTableQueryContext} />

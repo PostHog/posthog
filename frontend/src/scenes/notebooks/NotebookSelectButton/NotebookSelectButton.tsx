@@ -99,8 +99,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
 
         createNotebook(
-            title,
             NotebookTarget.Popover,
+            title,
             notebookResource ? [notebookResource] : undefined,
             (theNotebookLogic) => {
                 props.onNotebookOpened?.(theNotebookLogic)

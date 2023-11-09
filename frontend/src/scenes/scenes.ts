@@ -189,11 +189,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Homepage',
     },
-    [Scene.ProjectSettings]: {
-        projectBased: true,
-        hideProjectNotice: true,
-        name: 'Project settings',
-    },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations Redirect',
     },
@@ -225,9 +220,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreationConfirm]: {
         name: 'Confirm organization creation',
         onlyUnauthenticated: true,
-    },
-    [Scene.OrganizationSettings]: {
-        organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
@@ -267,10 +259,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.DeadLetterQueue]: {
         instanceLevel: true,
     },
-    // Personal routes
-    [Scene.MySettings]: {
-        personal: true,
-    },
     // Cloud-only routes
     [Scene.Billing]: {
         hideProjectNotice: true,
@@ -304,6 +292,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Canvas',
         layout: 'app-raw',
     },
+    [Scene.Settings]: {
+        projectBased: true,
+        name: 'Settings',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -322,7 +314,7 @@ export const redirects: Record<
     '/plugins': urls.projectApps(),
     '/project/plugins': urls.projectApps(),
     '/actions': urls.actions(),
-    '/organization/members': urls.organizationSettings(),
+    '/organization/members': urls.settings('organization'),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
@@ -362,6 +354,10 @@ export const redirects: Record<
     },
     '/replay': urls.replay(),
     '/exports': urls.batchExports(),
+    '/settings': urls.settings(),
+    '/project/settings': urls.settings('project'),
+    '/organization/settings': urls.settings('organization'),
+    '/me/settings': urls.settings('user'),
 }
 
 export const routes: Record<string, Scene> = {
@@ -435,7 +431,6 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
-    [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Apps,
     [urls.projectApp(':id')]: Scene.Apps,
     [urls.projectAppLogs(':id')]: Scene.Apps,
@@ -446,7 +441,6 @@ export const routes: Record<string, Scene> = {
     [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
-    [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
@@ -459,7 +453,6 @@ export const routes: Record<string, Scene> = {
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
-    [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
@@ -485,4 +478,5 @@ export const routes: Record<string, Scene> = {
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
+    [urls.settings(':section' as any)]: Scene.Settings,
 }

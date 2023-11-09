@@ -23,6 +23,7 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -42,7 +43,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
-                    <LemonButton icon={<IconSettings />} size="small" to={urls.projectSettings('timezone')} />
+                    <LemonButton icon={<IconSettings />} size="small" to={urls.settings('project', 'date-and-time')} />
                 </span>
             </div>
 
@@ -88,6 +89,7 @@ function TZLabelRaw({
     showPopover = true,
     noStyles = false,
     className,
+    children,
     ...dropdownProps
 }: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
@@ -110,7 +112,7 @@ function TZLabelRaw({
         return () => clearInterval(interval)
     }, [parsedTime, format])
 
-    const innerContent = (
+    const innerContent = children ?? (
         <span
             className={
                 !noStyles ? clsx('whitespace-nowrap', showPopover && 'border-dotted border-b', className) : className

@@ -84,6 +84,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
+                // eslint-disable-next-line no-constant-binary-expression
                 const index = windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
 
                 return index === -1 ? 0 : index

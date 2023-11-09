@@ -20,6 +20,8 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    ROWS_EXPORTED,
+    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -174,6 +176,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
             result = None
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
+            rows_in_file = 0
+
+            def flush_to_snowflake(lrf: tempfile._TemporaryFileWrapper, rows_in_file: int):
+                lrf.flush()
+                put_file_to_snowflake_table(cursor, lrf.name, inputs.table_name)
+                ROWS_EXPORTED.labels(destination="snowflake").inc(rows_in_file)
+                BYTES_EXPORTED.labels(destination="snowflake").inc(lrf.tell())
+
             try:
                 while True:
                     try:
@@ -212,6 +222,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     # Write the results to a local file
                     local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
+                    rows_in_file += 1
 
                     # Write results to Snowflake when the file reaches 50MB and
                     # reset the file, or if there is nothing else to write.
@@ -222,16 +233,15 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         logger.info("Uploading to Snowflake")
 
                         # Flush the file to make sure everything is written
-                        local_results_file.flush()
-                        put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
+                        flush_to_snowflake(local_results_file, rows_in_file)
 
                         # Delete the temporary file and create a new one
                         local_results_file.close()
                         local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
+                        rows_in_file = 0
 
                 # Flush the file to make sure everything is written
-                local_results_file.flush()
-                put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
+                flush_to_snowflake(local_results_file, rows_in_file)
 
                 # We don't need the file anymore, close (and delete) it.
                 local_results_file.close()
