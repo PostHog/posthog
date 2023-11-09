@@ -1,4 +1,4 @@
-import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -842,10 +842,14 @@ export function StatusTag({ experiment }: { experiment: Experiment }): JSX.Eleme
 export function ResultsTag(): JSX.Element {
     const { experiment, experimentResults, areResultsSignificant } = useValues(experimentLogic)
     if (experimentResults && experiment.end_date) {
+        const result: { color: LemonTagType; label: string } = areResultsSignificant
+            ? { color: 'success', label: 'Significant Results' }
+            : { color: 'primary', label: 'Results not significant' }
+
         return (
-            <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
-                <b className="uppercase">{areResultsSignificant ? 'Significant Results' : 'Results not significant'}</b>
-            </Tag>
+            <LemonTag type={result.color}>
+                <b className="uppercase">{result.label}</b>
+            </LemonTag>
         )
     }
 
