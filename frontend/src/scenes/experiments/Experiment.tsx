@@ -4,7 +4,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, Experiment, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -830,7 +830,7 @@ export function Experiment(): JSX.Element {
     )
 }
 
-export function StatusTag({ experiment }: { experiment: Experiment }): JSX.Element {
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
     const status = getExperimentStatus(experiment)
     return (
         <LemonTag type={getExperimentStatusColor(status)}>
