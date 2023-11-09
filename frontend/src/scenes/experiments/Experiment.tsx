@@ -673,27 +673,31 @@ export function Experiment(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experiment.end_date && (
-                            <Row align="top" className="feature-flag-mods">
-                                <Col span={23} style={{ fontWeight: 500 }}>
-                                    <strong>Your experiment is complete, but the feature flag is still enabled.</strong>{' '}
-                                    We recommend removing the feature flag from your code completely, instead of relying
-                                    on this distribution.{' '}
-                                    <Link
-                                        to={
-                                            experiment.feature_flag
-                                                ? urls.featureFlag(experiment.feature_flag.id)
-                                                : undefined
-                                        }
-                                    >
-                                        <b>Adjust feature flag distribution</b>
-                                    </Link>
-                                </Col>
-                                <Col span={1}>
-                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                </Col>
-                            </Row>
-                        )}
+                        {showWarning &&
+                            experiment.end_date &&
+                            (!experiment.feature_flag?.deleted || !experiment.feature_flag.active) && (
+                                <Row align="top" className="feature-flag-mods">
+                                    <Col span={23} style={{ fontWeight: 500 }}>
+                                        <strong>
+                                            Your experiment is complete, but the feature flag is still enabled.
+                                        </strong>{' '}
+                                        We recommend removing the feature flag from your code completely, instead of
+                                        relying on this distribution.{' '}
+                                        <Link
+                                            to={
+                                                experiment.feature_flag
+                                                    ? urls.featureFlag(experiment.feature_flag.id)
+                                                    : undefined
+                                            }
+                                        >
+                                            <b>Adjust feature flag distribution</b>
+                                        </Link>
+                                    </Col>
+                                    <Col span={1}>
+                                        <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                    </Col>
+                                </Row>
+                            )}
                     </Row>
                     <Row>
                         <LemonCollapse
