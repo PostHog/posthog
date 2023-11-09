@@ -524,7 +524,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: [
+        relatedInsights: [
             [] as InsightModel[],
             {
                 loadRelatedInsights: async () => {
