@@ -49,7 +49,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
-    [Scene.Annotations]: () => import('./annotations/Annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
