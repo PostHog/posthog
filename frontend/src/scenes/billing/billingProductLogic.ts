@@ -207,6 +207,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
+            actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
             posthog.capture('survey dismissed', {

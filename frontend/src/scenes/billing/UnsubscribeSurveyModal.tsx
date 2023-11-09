@@ -6,9 +6,7 @@ import { billingLogic } from './billingLogic'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
-    const { setSurveyResponse, reportSurveySent, reportSurveyDismissed, setSurveyID } = useActions(
-        billingProductLogic({ product })
-    )
+    const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
@@ -84,8 +82,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                             status={textAreaNotEmpty ? 'primary' : 'muted'}
                             onClick={() => {
-                                textAreaNotEmpty && reportSurveySent(surveyID, surveyResponse)
-                                setSurveyID('')
+                                textAreaNotEmpty
+                                    ? reportSurveySent(surveyID, surveyResponse)
+                                    : reportSurveyDismissed(surveyID)
                                 deactivateProduct(product.type)
                             }}
                         >
