@@ -184,7 +184,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         deviceTab: [
-            DeviceTab.BROWSER as string,
+            DeviceTab.DEVICE_TYPE as string,
             {
                 setDeviceTab: (_, { tab }) => tab,
             },
@@ -450,6 +450,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
+                                id: DeviceTab.DEVICE_TYPE,
+                                title: 'Top Device Types',
+                                linkText: 'Device Type',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        breakdown: { breakdown: '$device_type', breakdown_type: 'event' },
+                                        dateRange,
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueUsers,
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            display: ChartDisplayType.ActionsPie,
+                                            show_labels_on_series: true,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    hidePersonsModal: true,
+                                    vizSpecificOptions: {
+                                        [ChartDisplayType.ActionsPie]: {
+                                            disableHoverOffset: true,
+                                            hideAggregation: true,
+                                        },
+                                    },
+                                },
+                            },
+                            {
                                 id: DeviceTab.BROWSER,
                                 title: 'Top browsers',
                                 linkText: 'Browser',
@@ -475,21 +508,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.OS,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                            {
-                                id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top device types',
-                                linkText: 'Device type',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.DeviceType,
                                         dateRange,
                                     },
                                 },

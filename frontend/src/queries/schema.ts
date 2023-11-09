@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -403,6 +404,10 @@ export interface VizSpecificOptions {
         hideSizeColumn?: boolean
         useSmallLayout?: boolean
     }
+    [ChartDisplayType.ActionsPie]?: {
+        disableHoverOffset?: true
+        hideAggregation?: true
+    }
 }
 
 export interface InsightVizNode extends Node, InsightVizNodeViewProps {
@@ -424,7 +429,6 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
-
     vizSpecificOptions?: VizSpecificOptions
 }
 
