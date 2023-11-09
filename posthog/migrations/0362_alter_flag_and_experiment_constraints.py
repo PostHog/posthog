@@ -65,7 +65,7 @@ class Migration(migrations.Migration):
             """SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
             ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";
             ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" DROP NOT NULL;
-            ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;
+            ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
             """,
             reverse_sql="""
                 SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
