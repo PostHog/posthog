@@ -368,5 +368,5 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
     }),
-    permanentlyMount,
+    permanentlyMount(),
 ])

@@ -58,5 +58,5 @@ export const actionsModel = kea<actionsModelType>([
             }
         },
     })),
-    permanentlyMount,
+    permanentlyMount(),
 ])

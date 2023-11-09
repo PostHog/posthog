@@ -126,5 +126,5 @@ export const annotationsModel = kea<annotationsModelType>([
             actions.loadAnnotations()
         }
     }),
-    permanentlyMount,
+    permanentlyMount(),
 ])
