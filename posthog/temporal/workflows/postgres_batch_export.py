@@ -1,14 +1,13 @@
-import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
 import json
+import typing
 from dataclasses import dataclass
 
-import psycopg2
-import psycopg2.extensions
+import psycopg
 from django.conf import settings
-from psycopg2 import sql
+from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -29,13 +28,13 @@ from posthog.temporal.workflows.logger import bind_batch_exports_logger
 from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
-@contextlib.contextmanager
-def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.connection]:
+@contextlib.asynccontextmanager
+async def postgres_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
     """Manage a Postgres connection."""
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=inputs.user,
         password=inputs.password,
-        database=inputs.database,
+        dbname=inputs.database,
         host=inputs.host,
         port=inputs.port,
         # The 'hasSelfSignedCert' parameter in the postgres-plugin was provided mainly
@@ -48,17 +47,17 @@ def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.
     try:
         yield connection
     except Exception:
-        connection.rollback()
+        await connection.rollback()
         raise
     else:
-        connection.commit()
+        await connection.commit()
     finally:
-        connection.close()
+        await connection.close()
 
 
 async def copy_tsv_to_postgres(
     tsv_file,
-    postgres_connection: psycopg2.extensions.connection,
+    postgres_connection: psycopg.AsyncConnection,
     schema: str,
     table_name: str,
     schema_columns: list[str],
@@ -67,36 +66,37 @@ async def copy_tsv_to_postgres(
 
     Arguments:
         tsv_file: A file-like object to interpret as TSV to copy its contents.
-        postgres_connection: A connection to Postgres as setup by psycopg2.
+        postgres_connection: A connection to Postgres as setup by psycopg.
         schema: An existing schema where to create the table.
         table_name: The name of the table to create.
         schema_columns: A list of column names.
     """
     tsv_file.seek(0)
 
-    with postgres_connection.cursor() as cursor:
+    async with postgres_connection.cursor() as cursor:
         if schema:
-            cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-        await asyncio.to_thread(
-            cursor.copy_from,
-            tsv_file,
-            table_name,
-            null="",
-            columns=schema_columns,
-        )
+            await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
+            async with cursor.copy(
+                sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH DELIMITER AS '\t'").format(
+                    table_name=sql.Identifier(table_name),
+                    fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                )
+            ) as copy:
+                while data := tsv_file.read():
+                    await copy.write(data)
 
 
 Field = tuple[str, str]
 Fields = collections.abc.Iterable[Field]
 
 
-def create_table_in_postgres(
-    postgres_connection: psycopg2.extensions.connection, schema: str | None, table_name: str, fields: Fields
+async def create_table_in_postgres(
+    postgres_connection: psycopg.AsyncConnection, schema: str | None, table_name: str, fields: Fields
 ) -> None:
     """Create a table in a Postgres database if it doesn't exist already.
 
     Arguments:
-        postgres_connection: A connection to Postgres as setup by psycopg2.
+        postgres_connection: A connection to Postgres as setup by psycopg.
         schema: An existing schema where to create the table.
         table_name: The name of the table to create.
         fields: An iterable of (name, type) tuples representing the fields of the table.
@@ -106,8 +106,8 @@ def create_table_in_postgres(
     else:
         table_identifier = sql.Identifier(table_name)
 
-    with postgres_connection.cursor() as cursor:
-        cursor.execute(
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(
             sql.SQL(
                 """
                 CREATE TABLE IF NOT EXISTS {table} (
@@ -117,7 +117,13 @@ def create_table_in_postgres(
             ).format(
                 table=table_identifier,
                 fields=sql.SQL(",").join(
-                    sql.SQL("{field} {type}").format(field=sql.Identifier(field), type=sql.SQL(field_type))
+                    # typing.LiteralString is not available in Python 3.10.
+                    # So, we ignore it for now.
+                    # This is safe as we are hardcoding the type values anyways.
+                    sql.SQL("{field} {type}").format(
+                        field=sql.Identifier(field),
+                        type=sql.SQL(field_type),  # type: ignore
+                    )
                     for field, field_type in fields
                 ),
             )
@@ -184,8 +190,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
         )
-        with postgres_connection(inputs) as connection:
-            create_table_in_postgres(
+        async with postgres_connection(inputs) as connection:
+            await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
@@ -219,10 +225,16 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         ]
         json_columns = ("properties", "elements", "set", "set_once")
 
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
+
         with BatchExportTemporaryFile() as pg_file:
-            with postgres_connection(inputs) as connection:
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
+            async with postgres_connection(inputs) as connection:
+                for result in results_iterator:
+                    row = {
+                        key: json.dumps(result[key]) if key in json_columns else result[key] for key in schema_columns
+                    }
+                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                 async def flush_to_postgres():
                     logger.debug(

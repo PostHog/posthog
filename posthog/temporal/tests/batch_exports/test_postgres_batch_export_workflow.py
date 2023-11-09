@@ -4,12 +4,12 @@ import json
 from random import randint
 from uuid import uuid4
 
-import psycopg2
+import psycopg
+import psycopg.sql
 import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
-from psycopg2 import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -35,15 +35,19 @@ pytestmark = [
 ]
 
 
-def assert_events_in_postgres(connection, schema, table_name, events, exclude_events: list[str] | None = None):
+async def assert_events_in_postgres(connection, schema, table_name, events, exclude_events: list[str] | None = None):
     """Assert provided events written to a given Postgres table."""
     inserted_events = []
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name)))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            psycopg.sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(
+                psycopg.sql.Identifier(schema, table_name)
+            )
+        )
         columns = [column.name for column in cursor.description]
 
-        for row in cursor.fetchall():
+        for row in await cursor.fetchall():
             event = dict(zip(columns, row))
             event["timestamp"] = dt.datetime.fromisoformat(event["timestamp"].isoformat())
             inserted_events.append(event)
@@ -61,12 +65,12 @@ def assert_events_in_postgres(connection, schema, table_name, events, exclude_ev
             "distinct_id": event.get("distinct_id"),
             "elements": json.dumps(elements_chain),
             "event": event.get("event"),
-            "ip": properties.get("$ip", None) if properties else None,
+            "ip": properties.get("$ip", "") if properties else "",
             "properties": event.get("properties"),
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
-            "site_url": None,
+            "site_url": "",
             # For compatibility with CH which doesn't parse timezone component, so we add it here assuming UTC.
             "timestamp": dt.datetime.fromisoformat(event.get("timestamp") + "+00:00"),
             "team_id": event.get("team_id"),
@@ -94,75 +98,83 @@ def postgres_config():
     }
 
 
-@pytest.fixture
-def setup_test_db(postgres_config):
-    connection = psycopg2.connect(
+@pytest_asyncio.fixture
+async def setup_test_db(postgres_config):
+    connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
-    connection.set_session(autocommit=True)
+    await connection.set_autocommit(True)
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            psycopg.sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
             (postgres_config["database"],),
         )
 
-        if cursor.fetchone() is None:
-            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(postgres_config["database"])))
+        if await cursor.fetchone() is None:
+            await cursor.execute(
+                psycopg.sql.SQL("CREATE DATABASE {}").format(psycopg.sql.Identifier(postgres_config["database"]))
+            )
 
-    connection.close()
+    await connection.close()
 
     # We need a new connection to connect to the database we just created.
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
-        database=postgres_config["database"],
+        dbname=postgres_config["database"],
     )
-    connection.set_session(autocommit=True)
+    await connection.set_autocommit(True)
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(postgres_config["schema"])))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            psycopg.sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psycopg.sql.Identifier(postgres_config["schema"]))
+        )
 
     yield
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(postgres_config["schema"])))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            psycopg.sql.SQL("DROP SCHEMA {} CASCADE").format(psycopg.sql.Identifier(postgres_config["schema"]))
+        )
 
-    connection.close()
+    await connection.close()
 
     # We need a new connection to drop the database, as we cannot drop the current database.
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
-    connection.set_session(autocommit=True)
+    await connection.set_autocommit(True)
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            psycopg.sql.SQL("DROP DATABASE {}").format(psycopg.sql.Identifier(postgres_config["database"]))
+        )
 
-    connection.close()
+    await connection.close()
 
 
-@pytest.fixture
-def postgres_connection(postgres_config, setup_test_db):
-    connection = psycopg2.connect(
+@pytest_asyncio.fixture
+async def postgres_connection(postgres_config, setup_test_db):
+    connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
-        database=postgres_config["database"],
+        dbname=postgres_config["database"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
 
     yield connection
 
-    connection.close()
+    await connection.close()
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -241,7 +253,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
-    assert_events_in_postgres(
+    await assert_events_in_postgres(
         connection=postgres_connection,
         schema=postgres_config["schema"],
         table_name="test_table",
@@ -362,7 +374,7 @@ async def test_postgres_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_postgres(
+    await assert_events_in_postgres(
         postgres_connection,
         postgres_config["schema"],
         table_name,
