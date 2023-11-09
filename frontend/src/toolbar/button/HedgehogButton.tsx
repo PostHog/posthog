@@ -31,13 +31,6 @@ export function HedgehogButton(): JSX.Element {
                 <HedgehogBuddy
                     onClose={() => {}}
                     actorRef={actorRef}
-                    onClick={() => {
-                        // if (isAuthenticated) {
-                        //     setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
-                        // } else {
-                        //     authenticate()
-                        // }
-                    }}
                     isDarkModeOn={theme === 'dark'}
                     onPositionChange={(actor) => {
                         saveDragPosition(actor.x + SPRITE_SIZE * 0.5, -actor.y - SPRITE_SIZE * 0.5)

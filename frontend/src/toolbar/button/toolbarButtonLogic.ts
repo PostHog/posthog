@@ -31,12 +31,8 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         toggleWidth: true,
         setMenuPlacement: (placement: 'top' | 'bottom') => ({ placement }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
-        setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
-        saveActionsPosition: (x: number, y: number) => ({ x, y }),
-        saveFlagsPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
         setBoundingRect: (boundingRect: DOMRect) => ({ boundingRect }),
         setVisibleMenu: (visibleMenu: MenuState) => ({
@@ -74,12 +70,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 toggleTheme: (state) => (state === 'light' ? 'dark' : 'light'),
             },
         ],
-        extensionPercentage: [
-            0,
-            {
-                setExtensionPercentage: (_, { percentage }) => percentage,
-            },
-        ],
         lastDragPosition: [
             null as null | {
                 x: number
@@ -88,30 +78,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             { persist: true },
             {
                 setDragPosition: (_, { x, y }) => ({ x, y }),
-            },
-        ],
-        heatmapPosition: [
-            { x: 100, y: 100 },
-            {
-                saveHeatmapPosition: (_, { x, y }) => ({ x, y }),
-            },
-        ],
-        actionsPosition: [
-            { x: 120, y: 100 } as {
-                x: number
-                y: number
-            },
-            {
-                saveActionsPosition: (_, { x, y }) => ({ x, y }),
-            },
-        ],
-        flagsPosition: [
-            { x: 140, y: 100 } as {
-                x: number
-                y: number
-            },
-            {
-                saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
         hedgehogMode: [
@@ -166,17 +132,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 }
             },
         ],
-        toolbarListVerticalPadding: [
-            (s) => [s.dragPosition, s.windowHeight],
-            ({ y }, windowHeight) => {
-                if (y < 90) {
-                    return -60 + 90 - y
-                } else if (y > windowHeight - 160) {
-                    return -60 - (160 - (windowHeight - y))
-                }
-                return -60
-            },
-        ],
         helpButtonOnTop: [(s) => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
         side: [
             (s) => [s.dragPosition, s.windowWidth],
@@ -197,26 +152,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         closeRotation: [
             (s) => [s.dragPosition, s.windowWidth],
             ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
-        ],
-        inspectExtensionPercentage: [
-            (s) => [elementsLogic.selectors.inspectEnabled, s.extensionPercentage],
-            (inspectEnabled, extensionPercentage) =>
-                inspectEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
-        ],
-        heatmapExtensionPercentage: [
-            (s) => [heatmapLogic.selectors.heatmapEnabled, s.extensionPercentage],
-            (heatmapEnabled, extensionPercentage) =>
-                heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
-        ],
-        actionsExtensionPercentage: [
-            (s) => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
-            (buttonActionsVisible, extensionPercentage) =>
-                buttonActionsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
-        ],
-        featureFlagsExtensionPercentage: [
-            (s) => [s.visibleMenu, s.extensionPercentage],
-            (visibleMenu, extensionPercentage) =>
-                visibleMenu === 'flags' ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     }),
     listeners(({ actions, values }) => ({
