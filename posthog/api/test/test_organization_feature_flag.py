@@ -152,11 +152,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             team=self.team,
             feature_flag=existing_flag,
         )
-        dashboard = Dashboard.objects.create(
+        analytics_dashboard = Dashboard.objects.create(
             team=self.team,
             created_by=self.user,
         )
-        existing_flag.analytics_dashboards.set([dashboard])
+        existing_flag.analytics_dashboards.set([analytics_dashboard])
+        usage_dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+        )
+        existing_flag.usage_dashboard = usage_dashboard
+        existing_flag.save()
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 
@@ -210,7 +216,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(experiment.id, flag_response["experiment_set"][0])
         self.assertEqual(str(survey.id), flag_response["surveys"][0]["id"])
         self.assertEqual(str(feature.id), flag_response["features"][0]["id"])
-        self.assertEqual(dashboard.id, flag_response["analytics_dashboards"][0])
+        self.assertEqual(analytics_dashboard.id, flag_response["analytics_dashboards"][0])
+        self.assertEqual(usage_dashboard.id, flag_response["usage_dashboard"])
 
         self.assertSetEqual(
             set(expected_flag_response.keys()),
