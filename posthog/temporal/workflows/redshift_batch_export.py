@@ -1,10 +1,12 @@
 import collections.abc
 import datetime as dt
+import itertools
 import json
 import typing
 from dataclasses import dataclass
 
 import psycopg
+from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -54,29 +56,32 @@ async def insert_records_to_redshift(
             make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
             can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
-    batch = [next(records)]
+    first_record = next(records)
+    columns = first_record.keys()
 
-    columns = batch[0].keys()
+    pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
+        table=sql.Identifier(schema, table),
+        fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
+    )
+    template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
+
+    redshift_connection.cursor_factory = psycopg.AsyncClientCursor
 
     async with redshift_connection.cursor() as cursor:
-        query = psycopg.sql.SQL("INSERT INTO {table} ({fields}) VALUES {placeholder}").format(
-            table=psycopg.sql.Identifier(schema, table),
-            fields=psycopg.sql.SQL(", ").join(map(psycopg.sql.Identifier, columns)),
-            placeholder=psycopg.sql.Placeholder(),
-        )
-        template = psycopg.sql.SQL("({})").format(psycopg.sql.SQL(", ").join(map(psycopg.sql.Placeholder, columns)))
+        batch = [pre_query.as_string(cursor).encode("utf-8")]
 
-        for record in records:
-            batch.append(record)
+        for record in itertools.chain([first_record], records):
+            batch.append(cursor.mogrify(template, record).encode("utf-8"))
 
             if len(batch) < batch_size:
+                batch.append(b",")
                 continue
 
-            await cursor.execute_many(cursor, query, batch, template)
-            batch = []
+            await cursor.execute(b"".join(batch))
+            batch = [pre_query.as_string(cursor).encode("utf-8")]
 
         if len(batch) > 0:
-            await cursor.execute_many(cursor, query, batch, template)
+            await cursor.execute(b"".join(batch[:-1]))
 
 
 @dataclass
@@ -148,7 +153,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
         async with postgres_connection(inputs) as connection:
-            create_table_in_postgres(
+            await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
