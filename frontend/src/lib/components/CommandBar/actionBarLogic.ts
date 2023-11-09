@@ -19,7 +19,10 @@ export const actionBarLogic = kea([
             commandPaletteLogic,
             ['showPalette', 'hidePalette', 'setInput', 'executeResult'],
         ],
-        values: [commandPaletteLogic, ['commandRegistrations', 'commandSearchResults', 'commandSearchResultsGrouped']],
+        values: [
+            commandPaletteLogic,
+            ['commandRegistrations', 'commandSearchResults', 'commandSearchResultsGrouped', 'activeFlow'],
+        ],
     }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -42,7 +45,13 @@ export const actionBarLogic = kea([
         ],
     }),
     reducers({
-        searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { query }) => query,
+                activateFlow: () => '',
+            },
+        ],
         // keyboardResultIndex: [
         //     0,
         //     {

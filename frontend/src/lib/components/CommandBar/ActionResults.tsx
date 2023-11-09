@@ -8,6 +8,7 @@ import ActionResult from './ActionResult'
 
 const ActionResults = (): JSX.Element => {
     const { searchResults } = useValues(actionBarLogic)
+    console.debug('searchResults', searchResults)
 
     return (
         <div className="grow overscroll-none overflow-y-auto">

@@ -5,9 +5,11 @@ import SearchBarTab from './SearchBarTab'
 import { ResultType } from './types'
 
 const ActionTabs = (): JSX.Element | null => {
-    const { commandSearchResultsGrouped, activeTab } = useValues(actionBarLogic)
+    const { commandSearchResultsGrouped, commandSearchResults, activeFlow, activeTab } = useValues(actionBarLogic)
 
+    console.debug('commandSearchResults', commandSearchResults)
     console.debug('commandSearchResultsGrouped', commandSearchResultsGrouped)
+    console.debug('activeFlow', activeFlow)
 
     return (
         <div className="flex items-center border-t space-x-3 px-2">

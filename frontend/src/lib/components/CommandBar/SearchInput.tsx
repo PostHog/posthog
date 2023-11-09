@@ -14,7 +14,7 @@ const SearchInput = (): JSX.Element => {
             <LemonInput
                 type="search"
                 size="small"
-                className="CommandBar__search-input"
+                className="CommandBar__input"
                 fullWidth
                 suffix={<KeyboardShortcut escape muted />}
                 autoFocus

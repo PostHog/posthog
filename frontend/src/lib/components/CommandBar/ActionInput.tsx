@@ -12,9 +12,8 @@ const ActionInput = (): JSX.Element => {
     return (
         <div className="border-b">
             <LemonInput
-                type="search"
                 size="small"
-                className="command-bar__search-input"
+                className="CommandBar__input"
                 fullWidth
                 suffix={<KeyboardShortcut escape muted />}
                 autoFocus
