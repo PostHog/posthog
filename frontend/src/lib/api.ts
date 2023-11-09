@@ -56,13 +56,13 @@ import {
     ExternalDataStripeSource,
 } from '~/types'
 
-import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+    LOGS_PORTION_LIMIT,
 } from './constants'
 import { decompressSync, strFromU8 } from 'fflate'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
