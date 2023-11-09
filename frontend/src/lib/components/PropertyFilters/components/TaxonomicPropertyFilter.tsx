@@ -22,7 +22,7 @@ import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonTag } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 let uniqueMemoizedIndex = 0
@@ -148,7 +148,7 @@ export function TaxonomicPropertyFilter({
                                             <span>where</span>
                                         </>
                                     ) : (
-                                        <span className="stateful-badge and text-xs">AND</span>
+                                        <LemonTag type="highlight">AND</LemonTag>
                                     )}
                                 </div>
                             )}
