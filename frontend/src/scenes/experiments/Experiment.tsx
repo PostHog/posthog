@@ -1,4 +1,4 @@
-import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Popconfirm, Progress, Row, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useMemo, useState } from 'react'
@@ -21,7 +21,15 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
-import { LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTagType,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Form, Group } from 'kea-forms'
@@ -145,7 +153,7 @@ export function Experiment(): JSX.Element {
     }
 
     if (experimentLoading) {
-        return <Skeleton active />
+        return <LoadingState />
     }
 
     if (experimentMissing) {
@@ -823,7 +831,7 @@ export function Experiment(): JSX.Element {
                     <ExperimentResult />
                 </div>
             ) : (
-                <Skeleton active />
+                <LoadingState />
             )}
         </>
     )
@@ -866,4 +874,15 @@ export function ResultsTag(): JSX.Element {
     }
 
     return <></>
+}
+
+function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3" />
+        </div>
+    )
 }
