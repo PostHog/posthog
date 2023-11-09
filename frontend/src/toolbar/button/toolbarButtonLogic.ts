@@ -5,7 +5,6 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
-import { posthog } from '~/toolbar/posthog'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -132,62 +131,26 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 }
             },
         ],
-        helpButtonOnTop: [(s) => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
-        side: [
-            (s) => [s.dragPosition, s.windowWidth],
-            ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right'),
-        ],
-        hedgehogModeDistance: [
-            (s) => [s.dragPosition, s.windowWidth],
-            ({ x, y }, windowWidth) => 90 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
-        ],
-        hedgehogModeRotation: [
-            (s) => [s.dragPosition, s.windowWidth],
-            ({ x, y }, windowWidth) => -68 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
-        ],
-        closeDistance: [
-            (s) => [s.dragPosition, s.windowWidth],
-            ({ x, y }, windowWidth) => 58 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
-        ],
-        closeRotation: [
-            (s) => [s.dragPosition, s.windowWidth],
-            ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
-        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
+                values.hedgehogActor?.setAnimation('heatmaps')
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
+                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
-                // purposefully blank
+                values.hedgehogActor?.setAnimation('flag')
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
+                values.hedgehogActor?.setAnimation('inspect')
             } else {
                 actions.disableInspect()
                 actions.disableHeatmap()
                 actions.hideButtonActions()
+                actionsTabLogic.actions.selectAction(null)
             }
-        },
-        showFlags: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
-            values.hedgehogActor?.setAnimation('flag')
-        },
-        hideFlags: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
-        },
-        showHeatmapInfo: () => {
-            values.hedgehogActor?.setAnimation('heatmaps')
-        },
-        showButtonActions: () => {
-            values.hedgehogActor?.setAnimation('action')
-        },
-        hideActionsInfo: () => {
-            actionsTabLogic.actions.selectAction(null)
-        },
-        enableInspect: () => {
-            values.hedgehogActor?.setAnimation('inspect')
         },
         saveDragPosition: ({ x, y }) => {
             const { windowWidth, windowHeight } = values
