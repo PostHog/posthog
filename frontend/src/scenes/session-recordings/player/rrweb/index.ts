@@ -30,7 +30,15 @@ export const CorsPlugin: ReplayPlugin & {
 
         if (node.nodeName === 'LINK') {
             const linkElement = node as HTMLLinkElement
-            linkElement.href = CorsPlugin._replaceFontUrl(linkElement.href)
+            const href = linkElement.href
+            if (!href) {
+                return
+            }
+            if (linkElement.getAttribute('rel') == 'modulepreload') {
+                linkElement.href = CorsPlugin._replaceJSUrl(href)
+            } else {
+                linkElement.href = CorsPlugin._replaceFontUrl(href)
+            }
         }
 
         if (node.nodeName === 'SCRIPT') {
