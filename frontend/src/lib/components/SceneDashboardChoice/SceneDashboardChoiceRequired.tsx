@@ -1,9 +1,6 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import {
-    DashboardCompatibleScenes,
-    sceneDescription,
-} from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { sceneDescription } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { DashboardCompatibleScenes, Scene } from 'scenes/sceneTypes'
 import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
 
 export function SceneDashboardChoiceRequired(props: {

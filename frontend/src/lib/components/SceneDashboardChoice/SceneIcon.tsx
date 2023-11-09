@@ -1,5 +1,4 @@
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { DashboardCompatibleScenes, Scene } from 'scenes/sceneTypes'
 import { IconCottage, IconPerson } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 

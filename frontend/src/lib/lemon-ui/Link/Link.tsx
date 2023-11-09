@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+// import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 // import { useActions } from 'kea'
 // import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
@@ -77,9 +77,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
-        const { elementProps: draggableProps } = useNotebookDrag({
-            href: typeof to === 'string' ? to : undefined,
-        })
+        // const { elementProps: draggableProps } = useNotebookDrag({
+        //     href: typeof to === 'string' ? to : undefined,
+        // })
 
         const docsPanelEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
         const is3000 = useFeatureFlag('POSTHOG_3000')
@@ -128,7 +128,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 target={target}
                 rel={target === '_blank' ? rel : undefined}
                 {...props}
-                {...draggableProps}
+                // {...draggableProps}
             >
                 {children}
                 {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}

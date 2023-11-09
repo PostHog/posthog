@@ -4,12 +4,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { posthog } from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
+import { DashboardCompatibleScenes, Scene } from 'scenes/sceneTypes'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
 import { userLogic } from 'scenes/userLogic'
-
-export type DashboardCompatibleScenes = Scene.ProjectHomepage | Scene.Person | Scene.Group
 
 export interface SceneDashboardChoiceModalProps {
     scene: DashboardCompatibleScenes

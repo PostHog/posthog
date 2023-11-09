@@ -1,14 +1,15 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import type { userLogicType } from './userLogicType'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
 import posthog from 'posthog-js'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
+
 import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { DashboardCompatibleScenes } from './sceneTypes'
+import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
     first_name: string

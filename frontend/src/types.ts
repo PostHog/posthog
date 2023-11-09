@@ -36,7 +36,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { DashboardCompatibleScenes } from 'scenes/sceneTypes'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 

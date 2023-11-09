@@ -134,3 +134,5 @@ export interface SceneConfig {
     /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
 }
+
+export type DashboardCompatibleScenes = Scene.ProjectHomepage | Scene.Person | Scene.Group
