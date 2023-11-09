@@ -1,6 +1,6 @@
 from django.conf import settings
 import datetime
-from posthog.models import Team, Organization
+from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
@@ -88,7 +88,7 @@ def check_external_data_source_billing_limit_by_team(team_id):
     from posthog.warehouse.external_data_source.connection import deactivate_connection_by_id, activate_connection_by_id
 
     team = Team.objects.get(pk=team_id)
-    all_active_connections = ExternalDataSource.objects.filter(team=team, status="active")
+    all_active_connections = ExternalDataSource.objects.filter(team=team, status__in=["running", "succeeded"])
     all_inactive_connections = ExternalDataSource.objects.filter(team=team, status="inactive")
 
     _usage_limit = _get_data_warehouse_usage_limit(team_id)
@@ -102,7 +102,7 @@ def check_external_data_source_billing_limit_by_team(team_id):
     else:
         for connection in all_inactive_connections:
             activate_connection_by_id(connection.connection_id)
-            connection.status = "active"
+            connection.status = "running"
             connection.save()
 
 
@@ -111,7 +111,8 @@ def _get_data_warehouse_usage_limit(team_id):
     from ee.billing.billing_manager import BillingManager
 
     license = get_cached_instance_license()
-    org = Organization.objects.get(pk=team_id)
+    team = Team.objects.get(pk=team_id)
+    org = team.organization
 
     response = BillingManager(license).get_billing(org, None)
     try:
