@@ -55,7 +55,6 @@ const LOADER_SELECTORS = [
     '.LemonSkeleton',
     '.LemonTableLoader',
     '[aria-busy="true"]',
-    '[aria-label="Content is loading..."]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
 ]
