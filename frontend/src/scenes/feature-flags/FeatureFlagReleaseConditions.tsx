@@ -323,7 +323,8 @@ export function FeatureFlagReleaseConditions({
             return <></>
         }
 
-        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f) => f.flagKey === featureFlag.key)
+        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
+        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
 
         return (
             <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
