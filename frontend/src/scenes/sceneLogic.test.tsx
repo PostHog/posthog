@@ -16,7 +16,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: logic } 
 
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
-    [Scene.MySettings]: sceneImport,
+    [Scene.Settings]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -45,9 +45,9 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.DataManagement,
         })
-        router.actions.push(urls.mySettings())
+        router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.MySettings,
+            scene: Scene.Settings,
         })
     })
 
@@ -60,28 +60,31 @@ describe('sceneLogic', () => {
             lastTouch: expect.any(Number),
         })
 
-        const expectedMySettings = partial({
-            name: Scene.MySettings,
+        const expectedSettings = partial({
+            name: Scene.Settings,
             component: expect.any(Function),
-            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            sceneParams: {
+                hashParams: {},
+                params: {
+                    section: 'user',
+                },
+                searchParams: {},
+            },
+            logic: expect.any(Function),
             lastTouch: expect.any(Number),
         })
 
-        await expectLogic(logic)
-            .delay(1)
-            .toMatchValues({
-                loadedScenes: partial({
-                    [Scene.DataManagement]: expectedAnnotation,
-                }),
-            })
-        router.actions.push(urls.mySettings())
-        await expectLogic(logic)
-            .delay(1)
-            .toMatchValues({
-                loadedScenes: partial({
-                    [Scene.DataManagement]: expectedAnnotation,
-                    [Scene.MySettings]: expectedMySettings,
-                }),
-            })
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.loadedScenes).toMatchObject({
+            [Scene.DataManagement]: expectedAnnotation,
+        })
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.loadedScenes).toMatchObject({
+            [Scene.DataManagement]: expectedAnnotation,
+            [Scene.Settings]: expectedSettings,
+        })
     })
 })

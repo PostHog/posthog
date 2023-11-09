@@ -11,8 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { InviteModal } from 'scenes/organization/Settings/InviteModal'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { InviteModal } from 'scenes/settings/organization/InviteModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
