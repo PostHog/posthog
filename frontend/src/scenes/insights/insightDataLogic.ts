@@ -15,9 +15,9 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,

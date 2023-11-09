@@ -19,7 +19,7 @@ describe('a11y', () => {
         'personsmanagement',
         'apps',
         'toolbarlaunch',
-        'projectsettings',
+        'settings',
     ]
 
     sidebarItems.forEach((sideBarItem) => {

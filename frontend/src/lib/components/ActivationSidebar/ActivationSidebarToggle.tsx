@@ -8,6 +8,7 @@ const ActivationSidebarToggle = (): JSX.Element | null => {
     const { mobileLayout } = useValues(navigationLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
     const { activeTasks, completionPercent, isReady, hasCompletedAllTasks } = useValues(activationLogic)
+
     if (!isReady || hasCompletedAllTasks) {
         return null
     }

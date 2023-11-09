@@ -76,7 +76,7 @@ function CurrentProjectButton(): JSX.Element | null {
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
-                    push(urls.projectSettings())
+                    push(urls.settings('project'))
                 },
             }}
             title={`Switch to project ${currentTeam.name}`}
@@ -103,7 +103,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
-                    updateCurrentTeam(team.id, '/project/settings')
+                    updateCurrentTeam(team.id, '/settings')
                 },
             }}
             title={`Switch to project ${team.name}`}

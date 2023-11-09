@@ -271,11 +271,7 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <PageButton
-                        icon={<IconSettings />}
-                        identifier={Scene.ProjectSettings}
-                        to={urls.projectSettings()}
-                    />
+                    <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
                 </>
             )}
         </ul>

@@ -12,8 +12,8 @@ import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
+} from './settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -113,7 +113,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconSettings />}
-                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        to={`${urls.settings('organization')}?tab=role_based_access`}
                                         status="stealth"
                                         targetBlank
                                         size="small"
@@ -241,7 +241,7 @@ function OrganizationResourcePermissionLabel({
                 icon={
                     <LemonButton
                         icon={<IconSettings />}
-                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        to={`${urls.settings('organization')}?tab=role_based_access`}
                         status="stealth"
                         targetBlank
                         size="small"
