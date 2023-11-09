@@ -1,4 +1,7 @@
-import { urls } from 'scenes/urls'
+/**
+ * WARNING: Be careful importing things here.
+ * This file is imported a lot which can lead to circular dependencies.
+ */
 import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
@@ -46,6 +49,8 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
+
+export type EitherMembershipLevel = OrganizationMembershipLevel | TeamMembershipLevel
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
@@ -235,10 +240,6 @@ export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     gitlab: 'GitLab',
     saml: 'Single sign-on (SAML)',
 }
-
-// TODO: Remove UPGRADE_LINK, as the billing page is now universal
-export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
-    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
 
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi

@@ -278,6 +278,8 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
     effective_level: OrganizationMembershipLevel
 }
 
+export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
+
 /**
  * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
  * this interface is only used in the frontend for fusing the data from these models together.

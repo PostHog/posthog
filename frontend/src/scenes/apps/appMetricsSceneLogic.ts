@@ -12,28 +12,14 @@ import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-job
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
 import { router } from 'kea-router'
+import { AppMetricsTab, AppMetricsUrlParams } from './types'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
     pluginConfigId: number
 }
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
-export const TabsWithMetrics = [
+const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
     AppMetricsTab.ExportEvents,

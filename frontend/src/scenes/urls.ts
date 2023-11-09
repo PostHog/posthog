@@ -10,10 +10,10 @@ import {
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
-import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
 import { toParams } from 'lib/utils'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { AppMetricsUrlParams } from './apps/types'
 
 /**
  * To add a new URL to the front end:

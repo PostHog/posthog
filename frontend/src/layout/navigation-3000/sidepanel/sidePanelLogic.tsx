@@ -4,6 +4,7 @@ import type { sidePanelLogicType } from './sidePanelLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
@@ -23,6 +24,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['isCloudOrDev']],
+        logic: [activationLogic],
     }),
 
     reducers(() => ({
