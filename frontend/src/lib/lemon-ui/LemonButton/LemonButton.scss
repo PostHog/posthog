@@ -237,7 +237,7 @@
 
                 .posthog-3000 & {
                     > span {
-                        padding: 0.25rem 0.75rem;
+                        padding: 0.25rem 0.5rem;
                     }
                 }
 
@@ -392,6 +392,10 @@
                 background: var(--secondary-3000-button-bg) !important;
                 border-color: var(--secondary-3000-button-border-hover) !important;
                 top: -1px !important;
+
+                &:not([aria-disabled='true']):hover {
+                    border-color: var(--secondary-3000-button-border-hover) !important;
+                }
             }
         }
 
