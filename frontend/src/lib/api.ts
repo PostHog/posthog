@@ -1,4 +1,7 @@
 import posthog from 'posthog-js'
+import { decompressSync, strFromU8 } from 'fflate'
+import { encodeParams } from 'kea-router'
+
 import {
     ActionType,
     BatchExportLogEntry,
@@ -55,8 +58,6 @@ import {
     ExternalDataStripeSourceCreatePayload,
     ExternalDataStripeSource,
 } from '~/types'
-
-import { toParams } from 'lib/utils'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -64,13 +65,17 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
-import { decompressSync, strFromU8 } from 'fflate'
+import { toParams } from 'lib/utils'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { QuerySchema } from '~/queries/schema'
+import type { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import type { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import type { QuerySchema } from '~/queries/schema'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { encodeParams } from 'kea-router'
+
+/**
+ * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+ * Preferably create a dedicated file in utils/..
+ */
 
 type CheckboxValueType = string | number | boolean
 
