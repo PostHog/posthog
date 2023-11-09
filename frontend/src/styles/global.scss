@@ -618,6 +618,12 @@ body {
         --bg-light: var(--accent-3000);
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
 
+        --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+        --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
+        --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+        --primary-3000-button-border: var(--primary-3000-button-border-dark);
+        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+
         --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
         --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
         --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);

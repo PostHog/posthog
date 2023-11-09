@@ -315,7 +315,7 @@
             }
 
             .LemonButton__icon {
-                color: var(--default);
+                // color: var(--default);
             }
         }
 
@@ -340,9 +340,10 @@
             padding-bottom: 1px;
 
             > span {
-                color: var(--default);
                 background: var(--primary-3000-button-bg);
                 border-color: var(--primary-3000-button-border);
+                color: #111;
+                font-weight: 600;
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
@@ -351,7 +352,7 @@
                     border-color: var(--primary-3000-button-border-hover);
                 }
                 .LemonButton__icon {
-                    color: var(--default);
+                    color: #111;
                     opacity: 0.5;
                 }
             }
