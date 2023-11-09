@@ -675,7 +675,7 @@ export function Experiment(): JSX.Element {
                         )}
                         {showWarning &&
                             experiment.end_date &&
-                            (!experiment.feature_flag?.deleted || !experiment.feature_flag.active) && (
+                            (!experiment.feature_flag?.deleted || experiment.feature_flag?.active) && (
                                 <Row align="top" className="feature-flag-mods">
                                     <Col span={23} style={{ fontWeight: 500 }}>
                                         <strong>
