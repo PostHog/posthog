@@ -4,6 +4,7 @@ import type { sidePanelLogicType } from './sidePanelLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
@@ -44,8 +45,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [s.featureFlags, s.isCloudOrDev],
-            (featureFlags, isCloudOrDev) => {
+            (s) => [
+                s.featureFlags,
+                s.isCloudOrDev,
+                activationLogic.selectors.isReady,
+                activationLogic.selectors.hasCompletedAllTasks,
+            ],
+            (featureFlags, isCloudOrDev, activationIsReady, activationHasCompletedAllTasks) => {
                 const tabs: SidePanelTab[] = []
 
                 if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
@@ -60,8 +66,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Docs)
                 }
 
-                tabs.push(SidePanelTab.Activation)
                 tabs.push(SidePanelTab.Settings)
+
+                if (activationIsReady && !activationHasCompletedAllTasks) {
+                    tabs.push(SidePanelTab.Activation)
+                }
 
                 return tabs
             },

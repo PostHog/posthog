@@ -1,6 +1,7 @@
 import { Link } from 'lib/lemon-ui/Link'
 import { Radio } from 'antd'
-import { deleteWithUndo, stripHTTP } from 'lib/utils'
+import { stripHTTP } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from '../../actions/NewActionButton'

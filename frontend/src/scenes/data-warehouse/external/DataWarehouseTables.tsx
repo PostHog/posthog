@@ -4,7 +4,7 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from '@posthog/lemon-ui'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { DataWarehouseSceneRow } from '../types'
 
