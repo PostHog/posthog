@@ -1,7 +1,7 @@
 import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AvailableFeature, FunnelStep, InsightType } from '~/types'
@@ -21,7 +21,7 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
-import { LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Form, Group } from 'kea-forms'
@@ -829,22 +829,29 @@ export function Experiment(): JSX.Element {
     )
 }
 
+type ExperimentStatus = 'running' | 'draft' | 'complete'
+
 export function StatusTag(): JSX.Element {
     const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const status = (): string => {
+    const statusColors: Record<ExperimentStatus, LemonTagType> = {
+        running: 'success',
+        draft: 'default',
+        complete: 'completion',
+    }
+
+    const status: ExperimentStatus = useMemo(() => {
         if (!isExperimentRunning) {
             return 'draft'
         } else if (!experiment?.end_date) {
             return 'running'
         }
         return 'complete'
-    }
+    }, [isExperimentRunning, experiment.end_date])
 
     return (
-        <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-            <b className="uppercase">{status()}</b>
-        </Tag>
+        <LemonTag type={statusColors[status]}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
     )
 }
 

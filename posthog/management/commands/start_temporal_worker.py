@@ -7,6 +7,8 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
     from django.conf import settings
 
+from prometheus_client import start_http_server
+
 from posthog.temporal.worker import start_worker
 
 
@@ -15,12 +17,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--temporal_host",
+            "--temporal-host",
             default=settings.TEMPORAL_HOST,
             help="Hostname for Temporal Scheduler",
         )
         parser.add_argument(
-            "--temporal_port",
+            "--temporal-port",
             default=settings.TEMPORAL_PORT,
             help="Port for Temporal Scheduler",
         )
@@ -49,6 +51,11 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_CLIENT_KEY,
             help="Optional client key",
         )
+        parser.add_argument(
+            "--metrics-port",
+            default=settings.PROMETHEUS_METRICS_EXPORT_PORT,
+            help="Port to export Prometheus metrics on",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -62,6 +69,9 @@ class Command(BaseCommand):
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
         logging.info(f"Starting Temporal Worker with options: {options}")
+
+        metrics_port = int(options["metrics_port"])
+        start_http_server(port=metrics_port)
 
         asyncio.run(
             start_worker(

@@ -8,14 +8,16 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
 import { trendsDataLogic } from './trendsDataLogic'
+import { QueryContext } from '~/queries/types'
 
 interface Props {
     view: InsightType
+    context?: QueryContext
 }
 
-export function TrendInsight({ view }: Props): JSX.Element {
+export function TrendInsight({ view, context }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, showPersonsModal } = useValues(insightLogic)
 
     const { display, series, breakdown, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
@@ -30,10 +32,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             display === ChartDisplayType.ActionsAreaGraph ||
             display === ChartDisplayType.ActionsBar
         ) {
-            return <ActionsLineGraph />
+            return <ActionsLineGraph showPersonsModal={showPersonsModal} context={context} />
         }
         if (display === ChartDisplayType.BoldNumber) {
-            return <BoldNumber />
+            return <BoldNumber showPersonsModal={showPersonsModal} context={context} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             const ActionsTable = InsightsTable
@@ -47,13 +49,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            return <ActionsPie />
+            return <ActionsPie showPersonsModal={showPersonsModal} context={context} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return <ActionsHorizontalBar />
+            return <ActionsHorizontalBar showPersonsModal={showPersonsModal} context={context} />
         }
         if (display === ChartDisplayType.WorldMap) {
-            return <WorldMap />
+            return <WorldMap showPersonsModal={showPersonsModal} context={context} />
         }
     }
 
