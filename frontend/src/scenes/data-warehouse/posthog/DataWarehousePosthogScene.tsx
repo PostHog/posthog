@@ -1,7 +1,7 @@
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -12,7 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: DataWarehousePosthogScene,
-    logic: databaseSceneLogic,
+    logic: databaseTableListLogic,
 }
 
 export function DataWarehousePosthogScene(): JSX.Element {

@@ -1,5 +1,4 @@
 import { useValues, useActions } from 'kea'
-import { LoadingOutlined } from '@ant-design/icons'
 import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -18,7 +17,7 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: PreflightCheck,
@@ -27,7 +26,7 @@ export const scene: SceneExport = {
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
     if (loading) {
-        return <LoadingOutlined style={{ color: 'var(--primary)' }} />
+        return <Spinner textColored className="text-primary" />
     }
     if (status === 'validated') {
         return <IconCheckCircleOutline />

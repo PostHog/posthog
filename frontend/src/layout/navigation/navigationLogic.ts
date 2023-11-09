@@ -8,7 +8,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -35,10 +35,6 @@ export const navigationLogic = kea<navigationLogicType>([
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
-        showCreateOrganizationModal: true,
-        hideCreateOrganizationModal: true,
-        showCreateProjectModal: true,
-        hideCreateProjectModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
@@ -93,20 +89,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 openSitePopover: () => true,
                 closeSitePopover: () => false,
                 toggleSitePopover: (state) => !state,
-            },
-        ],
-        isCreateOrganizationModalShown: [
-            false,
-            {
-                showCreateOrganizationModal: () => true,
-                hideCreateOrganizationModal: () => false,
-            },
-        ],
-        isCreateProjectModalShown: [
-            false,
-            {
-                showCreateProjectModal: () => true,
-                hideCreateProjectModal: () => false,
             },
         ],
         isProjectSwitcherShown: [

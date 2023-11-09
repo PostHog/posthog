@@ -2251,6 +2251,18 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
 }
 
+export interface OrganizationFeatureFlagsCopyBody {
+    feature_flag_key: FeatureFlagType['key']
+    from_project: TeamType['id']
+    target_project_ids: TeamType['id'][]
+}
+
+export type OrganizationFeatureFlags = {
+    flag_id: FeatureFlagType['id']
+    team_id: TeamType['id']
+    active: FeatureFlagType['active']
+}[]
+
 export interface FeatureFlagRollbackConditions {
     threshold: number
     threshold_type: string
@@ -3075,6 +3087,7 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
+    Mention = 'ph-mention',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
