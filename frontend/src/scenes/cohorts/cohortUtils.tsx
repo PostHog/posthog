@@ -240,8 +240,8 @@ export function validateGroup(
                     BehavioralLifecycleType.StopPerformEvent,
                     BehavioralEventType.PerformSequenceEvents,
                 ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
-                    ? calculateDays(Number(c.seq_time_value) ?? 0, c.seq_time_interval ?? TimeUnitType.Day) >
-                      calculateDays(Number(c.time_value) ?? 0, c.time_interval ?? TimeUnitType.Day)
+                    ? calculateDays(Number(c.seq_time_value ?? 0), c.seq_time_interval ?? TimeUnitType.Day) >
+                      calculateDays(Number(c.time_value ?? 0), c.time_interval ?? TimeUnitType.Day)
                         ? {
                               id: CohortClientErrors.SequentialTimeMismatch,
                               seq_time_value: CohortClientErrors.SequentialTimeMismatch,
