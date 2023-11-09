@@ -4,10 +4,7 @@ import json
 import typing
 from dataclasses import dataclass
 
-import psycopg2
-import psycopg2.extensions
-import psycopg2.extras
-from psycopg2 import sql
+import psycopg
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -31,9 +28,9 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 
 
-def insert_records_to_redshift(
+async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
-    redshift_connection: psycopg2.extensions.connection,
+    redshift_connection: psycopg.AsyncConnection,
     schema: str,
     table: str,
     batch_size: int = 100,
@@ -61,13 +58,13 @@ def insert_records_to_redshift(
 
     columns = batch[0].keys()
 
-    with redshift_connection.cursor() as cursor:
-        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES {placeholder}").format(
-            table=sql.Identifier(schema, table),
-            fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
-            placeholder=sql.Placeholder(),
+    async with redshift_connection.cursor() as cursor:
+        query = psycopg.sql.SQL("INSERT INTO {table} ({fields}) VALUES {placeholder}").format(
+            table=psycopg.sql.Identifier(schema, table),
+            fields=psycopg.sql.SQL(", ").join(map(psycopg.sql.Identifier, columns)),
+            placeholder=psycopg.sql.Placeholder(),
         )
-        template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
+        template = psycopg.sql.SQL("({})").format(psycopg.sql.SQL(", ").join(map(psycopg.sql.Placeholder, columns)))
 
         for record in records:
             batch.append(record)
@@ -75,11 +72,11 @@ def insert_records_to_redshift(
             if len(batch) < batch_size:
                 continue
 
-            psycopg2.extras.execute_values(cursor, query, batch, template)
+            await cursor.execute_many(cursor, query, batch, template)
             batch = []
 
         if len(batch) > 0:
-            psycopg2.extras.execute_values(cursor, query, batch, template)
+            await cursor.execute_many(cursor, query, batch, template)
 
 
 @dataclass
@@ -150,7 +147,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
-        with postgres_connection(inputs) as connection:
+        async with postgres_connection(inputs) as connection:
             create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
@@ -192,8 +189,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                 for key in schema_columns
             }
 
-        with postgres_connection(inputs) as connection:
-            insert_records_to_redshift(
+        async with postgres_connection(inputs) as connection:
+            await insert_records_to_redshift(
                 (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
             )
 
