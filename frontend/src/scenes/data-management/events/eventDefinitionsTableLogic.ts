@@ -4,10 +4,11 @@ import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogi
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/taxonomy'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
-import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string

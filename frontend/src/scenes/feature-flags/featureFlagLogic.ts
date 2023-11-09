@@ -24,7 +24,7 @@ import {
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
-import { convertPropertyGroupToProperties, sum, toParams } from 'lib/utils'
+import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
@@ -45,6 +45,7 @@ import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',

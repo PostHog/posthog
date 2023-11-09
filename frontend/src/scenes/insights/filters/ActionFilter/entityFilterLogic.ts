@@ -2,7 +2,8 @@ import { kea, props, key, path, connect, actions, reducers, selectors, listeners
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import type { entityFilterLogicType } from './entityFilterLogicType'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
-import { convertPropertyGroupToProperties, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 
 export type LocalFilter = ActionFilter & {
     order: number

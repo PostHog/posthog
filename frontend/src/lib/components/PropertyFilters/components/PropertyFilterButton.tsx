@@ -5,10 +5,11 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatPropertyLabel, midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import React from 'react'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { formatPropertyLabel } from '../utils'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void

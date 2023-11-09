@@ -64,11 +64,11 @@ import {
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
 } from './constants'
+import { decompressSync, strFromU8 } from 'fflate'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { QuerySchema } from '~/queries/schema'
-import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
 

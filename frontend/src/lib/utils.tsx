@@ -1,20 +1,10 @@
 import { CSSProperties } from 'react'
 import {
-    ActionFilter,
     ActionType,
     ActorType,
-    AnyFilterLike,
-    AnyPropertyFilter,
-    CohortType,
     DateMappingOption,
-    EmptyPropertyFilter,
     EventType,
-    FilterLogicalOperator,
     GroupActorType,
-    KeyMappingInterface,
-    PropertyFilterValue,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -26,14 +16,7 @@ import { WEBHOOK_SERVICES } from 'lib/constants'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-
-import {
-    isHogQLPropertyFilter,
-    isPropertyFilterWithOperator,
-    isValidPropertyFilter,
-} from './components/PropertyFilters/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -321,50 +304,6 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
         operator
     )
-}
-
-export function formatPropertyLabel(
-    item: Record<string, any>,
-    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    keyMapping: KeyMappingInterface,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
-): string {
-    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
-        return extractExpressionComment(item.key)
-    }
-    const { value, key, operator, type } = item
-    return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
-        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
-              (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
-}
-
-/** Format a label that gets returned from the /insights api */
-export function formatLabel(label: string, action: ActionFilter): string {
-    if (action.math === 'dau') {
-        label += ` (Unique users) `
-    } else if (action.math === 'hogql') {
-        label += ` (${action.math_hogql})`
-    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
-        label += ` (${action.math} of ${action.math_property}) `
-    }
-    if (action.properties?.length) {
-        label += ` (${action.properties
-            .map(
-                (property) =>
-                    `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[
-                            (isPropertyFilterWithOperator(property) && property.operator) || 'exact'
-                        ].split(' ')[0]
-                    } ${property.value}`
-            )
-            .join(', ')})`
-    }
-    return label.trim()
 }
 
 /** Compare objects deeply. */
@@ -1428,64 +1367,6 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
-}
-
-export function isPropertyGroup(
-    properties:
-        | PropertyGroupFilter
-        | PropertyGroupFilterValue
-        | AnyPropertyFilter[]
-        | AnyPropertyFilter
-        | Record<string, any>
-        | null
-        | undefined
-): properties is PropertyGroupFilter {
-    return (
-        (properties as PropertyGroupFilter)?.type !== undefined &&
-        (properties as PropertyGroupFilter)?.values !== undefined
-    )
-}
-
-export function flattenPropertyGroup(
-    flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
-): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
-    Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k]
-    })
-    if (isValidPropertyFilter(obj)) {
-        flattenedProperties.push(obj)
-    }
-    if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
-    }
-    return flattenedProperties
-}
-
-export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
-): PropertyGroupFilter {
-    if (isPropertyGroup(properties)) {
-        return properties
-    }
-    if (properties && properties.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
-    }
-    return { type: FilterLogicalOperator.And, values: [] }
-}
-
-/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
-export function convertPropertyGroupToProperties(
-    properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): AnyPropertyFilter[] | undefined {
-    if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
-    }
-    if (properties) {
-        return properties.filter(isValidPropertyFilter)
-    }
-    return properties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
