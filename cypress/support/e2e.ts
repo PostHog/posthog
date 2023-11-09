@@ -67,7 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(function () {
-    const { state, duration, fullTitle, title } = this.currentTest
+    const { state, duration, titlePath, title } = this.currentTest
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
@@ -76,7 +76,8 @@ afterEach(function () {
 
             if (state === 'failed') {
                 const replayUrl = (win as any).posthog?.get_session_replay_url() || ''
-                const filePath = `./cypress/${fullTitle()
+                const filePath = `./cypress/${titlePath()
+                    .join('-')
                     .trim()
                     .replace(/ +/g, '-')
                     .toLowerCase()
