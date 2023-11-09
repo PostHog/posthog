@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo, permanentlyMountLogic } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import type { annotationsModelType } from './annotationsModelType'
 import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
@@ -120,10 +121,10 @@ export const annotationsModel = kea<annotationsModelType>([
         },
     })),
     afterMount(({ values, actions }) => {
-        permanentlyMountLogic(annotationsModel)
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
             actions.loadAnnotations()
         }
     }),
+    permanentlyMount,
 ])

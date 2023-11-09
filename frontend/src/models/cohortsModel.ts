@@ -1,13 +1,14 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, events, afterMount, beforeUnmount } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo, permanentlyMountLogic, processCohort } from 'lib/utils'
+import { deleteWithUndo, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import Fuse from 'fuse.js'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 const POLL_TIMEOUT = 5000
 
@@ -110,16 +111,14 @@ export const cohortsModel = kea<cohortsModelType>([
             })
         },
     })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            permanentlyMountLogic(cohortsModel)
-            if (isAuthenticatedTeam(values.currentTeam)) {
-                // Don't load on shared insights/dashboards
-                actions.loadCohorts()
-            }
-        },
-        beforeUnmount: () => {
-            clearTimeout(values.pollTimeout || undefined)
-        },
-    })),
+    afterMount(({ actions, values }) => {
+        if (isAuthenticatedTeam(values.currentTeam)) {
+            // Don't load on shared insights/dashboards
+            actions.loadCohorts()
+        }
+    }),
+    beforeUnmount(({ values }) => {
+        clearTimeout(values.pollTimeout || undefined)
+    }),
+    permanentlyMount,
 ])

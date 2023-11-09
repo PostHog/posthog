@@ -49,7 +49,6 @@ import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
-import { LogicWrapper } from 'kea'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1827,14 +1826,4 @@ export function shouldCancelQuery(error: any): boolean {
     // We cancel queries "manually" when the request times out or is aborted since in these cases
     // the query will continue running in ClickHouse
     return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
-}
-/**
- * Some kea logics are used heavily across multiple areas so we keep it mounted once loaded with this trick.
- */
-export function permanentlyMountLogic(logic: LogicWrapper): void {
-    const mountedLogic = logic.findMounted()
-    if (mountedLogic && !mountedLogic.cache._permanentMount) {
-        mountedLogic.cache._permanentMount = true
-        logic.mount()
-    }
 }
