@@ -4,7 +4,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { themeLogicType } from './themeLogicType'
-import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 export const themeLogic = kea<themeLogicType>([
