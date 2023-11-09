@@ -23,9 +23,10 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    children?: JSX.Element
 }
 
-const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
+export const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
 }: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
@@ -88,6 +89,7 @@ function TZLabelRaw({
     showPopover = true,
     noStyles = false,
     className,
+    children,
     ...dropdownProps
 }: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
@@ -110,7 +112,7 @@ function TZLabelRaw({
         return () => clearInterval(interval)
     }, [parsedTime, format])
 
-    const innerContent = (
+    const innerContent = children ?? (
         <span
             className={
                 !noStyles ? clsx('whitespace-nowrap', showPopover && 'border-dotted border-b', className) : className
