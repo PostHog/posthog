@@ -10,6 +10,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -384,8 +385,7 @@ export const elementsLogic = kea<elementsLogicType>([
         },
         createAction: ({ element }) => {
             actionsTabLogic.actions.showButtonActions()
-            // TODO what's going on here?
-            //toolbarButtonLogic.actions.showActionsInfo()
+            toolbarButtonLogic.actions.setVisibleMenu('actions')
             elementsLogic.actions.selectElement(null)
             actionsTabLogic.actions.newAction(element)
         },

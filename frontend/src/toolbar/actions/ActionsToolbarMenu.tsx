@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
+import { Link } from 'lib/lemon-ui/Link'
 
 const ListMenuHeader = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)
@@ -58,9 +59,9 @@ const ListMenuFooter = (): JSX.Element => {
 
     return (
         <div className="w-full text-right mt-4 pr-2">
-            <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
+            <Link to={`${apiURL}${urls.actions()}`} target="_blank">
                 View &amp; edit all actions <IconOpenInNew />
-            </a>
+            </Link>
         </div>
     )
 }
