@@ -11,6 +11,7 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { Link } from 'lib/lemon-ui/Link'
 
 const MenuHeader = (): JSX.Element => {
     const { searchTerm } = useValues(featureFlagsLogic)
@@ -46,17 +47,16 @@ const MenuBody = (): JSX.Element => {
                             )}
                         >
                             <div className="flex-1 truncate">
-                                <a
+                                <Link
                                     className="text-text-3000 flex flex-row items-center"
-                                    href={`${apiURL}${
+                                    to={`${apiURL}${
                                         feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
                                     }`}
                                     target="_blank"
-                                    rel="noopener noreferrer"
                                 >
                                     {feature_flag.key}
                                     <IconOpenInNew />
-                                </a>
+                                </Link>
                             </div>
 
                             <LemonSwitch
