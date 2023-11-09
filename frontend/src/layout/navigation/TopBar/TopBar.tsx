@@ -15,11 +15,8 @@ import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
-<<<<<<< HEAD
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
-=======
 import { GlobalModals } from '~/layout/GlobalModals'
->>>>>>> master
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
