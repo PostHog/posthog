@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'

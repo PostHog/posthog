@@ -43,10 +43,8 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
 
                 <NotebookSelectButton
                     resource={{
-                        attrs: {
-                            id: person?.distinct_ids[0],
-                        },
                         type: NotebookNodeType.Person,
+                        attrs: { id: person?.distinct_ids[0] },
                     }}
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"

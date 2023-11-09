@@ -1,6 +1,7 @@
 import './index.scss'
 import { useActions, useValues } from 'kea'
-import { ProjectOutlined, LaptopOutlined, GlobalOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { ProjectOutlined, LaptopOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -8,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
+import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
@@ -67,7 +68,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 {currentTeam?.timezone !== 'UTC' && (
                     <div className="TZLabelPopover__row">
                         <div>
-                            <GlobalOutlined /> UTC
+                            <IconWeb /> UTC
                         </div>
                         <div />
                         <div>{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>

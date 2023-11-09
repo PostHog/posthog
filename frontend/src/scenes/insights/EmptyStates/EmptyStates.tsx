@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, ThunderboltFilled, WarningOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
 import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
@@ -21,6 +22,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SupportModal } from 'lib/components/Support/SupportModal'
+import { IconWarning } from '@posthog/icons'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -240,7 +242,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <WarningOutlined />
+                    <IconWarning />
                 </div>
                 <h2>Invalid exclusion filters</h2>
                 <p>

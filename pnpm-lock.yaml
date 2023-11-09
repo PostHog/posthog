@@ -36,8 +36,8 @@ dependencies:
     specifier: 4.4.6
     version: 4.4.6(monaco-editor@0.39.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/icons':
-    specifier: 0.1.25
-    version: 0.1.25(react-dom@18.2.0)(react@18.2.0)
+    specifier: ^0.1.31
+    version: 0.1.33(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -216,8 +216,8 @@ dependencies:
     specifier: ^2.11.0
     version: 2.11.0
   posthog-js:
-    specifier: 1.88.2
-    version: 1.88.2
+    specifier: 1.88.3
+    version: 1.88.3
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -3357,8 +3357,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.1.25(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-ISDPLehrNPx5b1HYlTJZsS2kK7wC1tRmt2dobwfPeH1UuxC+aUoqspFv+PvVsYgrmz+iYRp8oPrg+4lS9PmRnQ==}
+  /@posthog/icons@0.1.33(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-VjQXuy48kcBXhgNN7vAuvEiM/fQULTIzWs4ntGZ6PqAbL95GGsGJAcDWZ+aoHLPOGqhfE+gM7vpWm8MUNduq1A==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -15527,8 +15527,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.88.2:
-    resolution: {integrity: sha512-lwYQMIvOmC1K+Y+8lMF+QnGIPMZsVvtZ28YxZrRlDrTlwVGt+/Is5BtD/25AUuU7KE1zNIBxmrXSEiNJrN1OiA==}
+  /posthog-js@1.88.3:
+    resolution: {integrity: sha512-6BLFTSWK8GrWfl5j9Ib+2w8YZKZfz2GqLMS7q4I93hbkknEMH5f1KaKDqPsGmGOM3SLQV0Cwd6nuCdFdqANS1w==}
     dependencies:
       fflate: 0.4.8
     dev: false

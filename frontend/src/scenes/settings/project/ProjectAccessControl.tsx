@@ -1,6 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
-import { CloseCircleOutlined, LogoutOutlined, CrownFilled, LockOutlined, UnlockOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { FusedTeamMemberType, AvailableFeature } from '~/types'
@@ -20,6 +21,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 
 function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -218,7 +220,7 @@ export function ProjectAccessControl(): JSX.Element {
                     <>
                         This project is{' '}
                         <b>
-                            <LockOutlined style={{ color: 'var(--warning)', marginRight: 5 }} />
+                            <IconLock style={{ color: 'var(--warning)', marginRight: 5 }} />
                             private
                         </b>
                         . Only members listed below are allowed to access it.
@@ -227,7 +229,7 @@ export function ProjectAccessControl(): JSX.Element {
                     <>
                         This project is{' '}
                         <b>
-                            <UnlockOutlined style={{ marginRight: 5 }} />
+                            <IconLockOpen style={{ marginRight: 5 }} />
                             open
                         </b>
                         . Any member of the organization can access it. To enable granular access control, make it

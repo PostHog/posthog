@@ -3,12 +3,11 @@ import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, Popconfirm, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -817,7 +816,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 <div>
                                                     {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
                                                         <Link to={upgradeLink} target="_blank">
-                                                            <LockOutlined
+                                                            <IconLock
                                                                 style={{
                                                                     marginRight: 4,
                                                                     color: 'var(--warning)',

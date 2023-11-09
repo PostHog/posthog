@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
+import { globalModalsLogic } from '../GlobalModals'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -25,7 +26,8 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
+    const { hideProjectSwitcher } = useActions(navigationLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
 
     return (
         <div className="project-switcher-container">

@@ -950,7 +950,7 @@ class WebAnalyticsQueryBase(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
 
 
 class WebOverviewQuery(BaseModel):
@@ -959,7 +959,7 @@ class WebOverviewQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
 
 
@@ -970,7 +970,7 @@ class WebStatsTableQuery(BaseModel):
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
 
 
@@ -980,7 +980,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
 
 
