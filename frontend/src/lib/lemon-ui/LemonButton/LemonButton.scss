@@ -35,11 +35,15 @@
 
     &:not(.LemonButton--small):not(.LemonButton--large) {
         .posthog-3000 & {
+            min-height: 2rem;
+
             > span {
                 border-radius: 6px;
                 font-size: 0.875rem;
                 gap: 0.25rem;
                 margin: 0 -1px;
+                min-height: 2rem;
+                padding: 0.25rem 0.75rem;
                 top: -1px;
             }
         }
@@ -90,11 +94,11 @@
     }
 
     &.LemonButton--small {
-        min-height: 2rem;
         padding: 0.125rem 0.5rem;
         gap: 0.25rem;
 
         .posthog-3000 & {
+            min-height: 1.8rem;
             padding: 0;
 
             > span {
@@ -102,6 +106,7 @@
                 font-size: 0.813rem;
                 gap: 0.25rem;
                 margin: 0 -1px;
+                min-height: 1.8rem;
                 padding: 0.25rem 0.5rem;
                 top: -1px;
             }
@@ -121,13 +126,17 @@
     }
 
     &.LemonButton--large {
-        min-height: 3.5rem;
-        padding: 0.5rem 1rem;
-        gap: 0.75rem;
-        font-size: 1rem;
-
         .posthog-3000 & {
+            border-radius: 6px;
+            font-size: 0.933rem;
+            gap: 0.25rem;
+            margin: 0 -1px;
+            min-height: 2.5rem;
+            padding: 0.25rem 0.5rem;
+            top: -1px;
+
             > span {
+                min-height: 2.5rem;
                 padding: 0.5rem 1rem;
             }
         }
@@ -273,6 +282,7 @@
         border-width: 1px;
         border-style: solid;
         border-color: transparent;
+        min-height: 2em;
         padding: 0;
         position: relative;
 
@@ -290,15 +300,9 @@
             gap: 0.5rem;
             justify-content: flex-start;
             line-height: 1.5rem;
+            min-height: 2em;
             position: relative;
             text-align: left;
-
-            // small
-            border-radius: 6px;
-            font-size: 0.875rem;
-            margin: 0 -1px;
-            padding: 0.25rem 0.75rem;
-            top: -1px;
         }
 
         .LemonButton__icon {
@@ -386,6 +390,18 @@
         &.LemonButton--active {
             > span {
                 background: #fff;
+            }
+        }
+
+        &.LemonButton--tertiary {
+            > span {
+                background: transparent;
+                border-color: transparent;
+                top: 1px;
+
+                &:hover {
+                    border-color: transparent !important;
+                }
             }
         }
     }
