@@ -1,6 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import {
     AnyCohortCriteriaType,
@@ -27,7 +27,6 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { processCohort } from 'lib/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

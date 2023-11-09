@@ -1,11 +1,12 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
+import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { insightUrlForEvent } from 'scenes/insights/utils'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent

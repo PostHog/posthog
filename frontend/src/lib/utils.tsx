@@ -3,39 +3,30 @@ import {
     ActionFilter,
     ActionType,
     ActorType,
-    AnyCohortCriteriaType,
     AnyFilterLike,
-    AnyFilterType,
     AnyPropertyFilter,
-    BehavioralCohortType,
-    BehavioralEventType,
-    ChartDisplayType,
-    CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
     EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
-    FunnelVizType,
     GroupActorType,
     KeyMappingInterface,
-    InsightType,
-    IntervalType,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
-    TrendsFilterType,
 } from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
+
 import {
     isHogQLPropertyFilter,
     isPropertyFilterWithOperator,
@@ -43,10 +34,7 @@ import {
 } from './components/PropertyFilters/utils'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { urls } from 'scenes/urls'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
@@ -1225,46 +1213,6 @@ export function midEllipsis(input: string, maxLength: number): string {
     return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
 }
 
-export const disableHourFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': false,
-    '-14d': false,
-    '-30d': false,
-    '-90d': true,
-    mStart: false,
-    '-1mStart': false,
-    yStart: true,
-    all: true,
-    other: false,
-}
-
-export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
-    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
-        // Non-time-series insights should not have an interval
-        return undefined
-    }
-    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
-        // Only trend funnels support intervals
-        return undefined
-    }
-    if (!filters.interval) {
-        return 'day'
-    }
-
-    // @ts-expect-error - Old legacy interval support
-    const minute_disabled = filters.interval === 'minute'
-    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
-
-    if (minute_disabled) {
-        return 'hour'
-    } else if (hour_disabled) {
-        return 'day'
-    } else {
-        return filters.interval
-    }
-}
-
 export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
@@ -1678,41 +1626,6 @@ export function range(startOrEnd: number, end?: number): number[] {
     return Array.from({ length }, (_, i) => i + start)
 }
 
-export function processCohort(cohort: CohortType): CohortType {
-    return {
-        ...cohort,
-        ...{
-            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-            filters: {
-                properties: {
-                    ...cohort.filters.properties,
-                    values: (cohort.filters.properties?.values?.map((group) =>
-                        'values' in group
-                            ? {
-                                  ...group,
-                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      c.type &&
-                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                                      !('value_property' in c)
-                                          ? {
-                                                ...c,
-                                                value_property: c.value,
-                                                value:
-                                                    c.type === BehavioralFilterKey.Cohort
-                                                        ? BehavioralCohortType.InCohort
-                                                        : BehavioralEventType.HaveProperty,
-                                            }
-                                          : c
-                                  ),
-                              }
-                            : group
-                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                },
-            },
-        },
-    }
-}
-
 export function interleave(arr: any[], delimiter: any): any[] {
     return arr.flatMap((item, index, _arr) =>
         _arr.length - 1 !== index // check for the last item
@@ -1738,51 +1651,6 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
-}
-
-export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
-    if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
-        }
-    } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
-        }
-    }
-
-    return insightParams ? urls.insightNew(insightParams) : undefined
 }
 
 export function inStorybookTestRunner(): boolean {
