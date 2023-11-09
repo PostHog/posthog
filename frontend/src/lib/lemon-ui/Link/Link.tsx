@@ -6,7 +6,7 @@ import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useActions } from 'kea'
+// import { useActions } from 'kea'
 
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 // import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
