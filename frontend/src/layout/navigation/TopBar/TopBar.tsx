@@ -83,7 +83,6 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
-            <GlobalModals />
         </>
     )
 }

@@ -27,6 +27,7 @@ import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
+import { GlobalModals } from '~/layout/GlobalModals'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
@@ -182,27 +183,7 @@ function AppScene(): JSX.Element | null {
                 {wrappedSceneElement}
             </Navigation>
             {toastContainer}
-            <FeaturePreviewsModal />
-            <UpgradeModal />
-            {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
-                <LemonModal title="Set up 2FA" closable={false}>
-                    <p>
-                        <b>Your organization requires you to set up 2FA.</b>
-                    </p>
-                    <p>
-                        <b>
-                            Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.
-                        </b>
-                    </p>
-                    <Setup2FA
-                        onSuccess={() => {
-                            userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
-                        }}
-                    />
-                </LemonModal>
-            )}
-            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
+            <GlobalModals />
         </>
     )
 }

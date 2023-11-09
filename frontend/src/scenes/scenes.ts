@@ -278,6 +278,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
+        layout: 'app-raw',
     },
     [Scene.DebugQuery]: {
         projectBased: true,

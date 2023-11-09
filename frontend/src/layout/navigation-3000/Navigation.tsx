@@ -30,6 +30,9 @@ export function Navigation({
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
+    if (sceneConfig?.layout === 'plain') {
+        return <>{children}</>
+    }
     return (
         <div className="Navigation3000">
             <Navbar />
@@ -49,7 +52,6 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandPalette />
-            <GlobalModals />
         </div>
     )
 }
