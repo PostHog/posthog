@@ -7,8 +7,8 @@ import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useActions } from 'kea'
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
+// import { useActions } from 'kea'
+// import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
 
@@ -83,7 +83,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
         const docsPanelEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
         const is3000 = useFeatureFlag('POSTHOG_3000')
-        const { openDocsPage } = useActions(sidePanelDocsLogic)
+        // const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -100,7 +100,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (typeof to === 'string' && is3000 && docsPanelEnabled && isPostHogComDomain(to)) {
                 event.preventDefault()
-                openDocsPage(to)
+                // openDocsPage(to)
                 return
             }
 

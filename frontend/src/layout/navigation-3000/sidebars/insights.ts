@@ -9,10 +9,10 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import type { insightsSidebarLogicType } from './insightsType'
 import { findSearchTermInItemName } from './utils'
-import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { api } from '@posthog/apps-common'
 import { insightsModel } from '~/models/insightsModel'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'insightsSidebarLogic']),

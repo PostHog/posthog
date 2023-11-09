@@ -1,6 +1,6 @@
 import { Link } from 'lib/lemon-ui/Link'
 import { Radio } from 'antd'
-import { deleteWithUndo, stripHTTP } from 'lib/utils'
+import { stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from '../../actions/NewActionButton'
@@ -22,6 +22,7 @@ import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

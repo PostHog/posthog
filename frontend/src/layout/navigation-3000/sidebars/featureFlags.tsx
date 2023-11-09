@@ -10,12 +10,13 @@ import type { featureFlagsSidebarLogicType } from './featureFlagsType'
 import Fuse from 'fuse.js'
 import { FeatureFlagType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
-import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { navigation3000Logic } from '../navigationLogic'
 import { FuseSearchMatch } from './utils'
 import { groupsModel } from '~/models/groupsModel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     // Note: For feature flags `name` is the description field

@@ -2,13 +2,56 @@ import { loaders } from 'kea-loaders'
 import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
-import { CohortType, ExporterFormat } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralCohortType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
+    CohortType,
+    ExporterFormat,
+} from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 const POLL_TIMEOUT = 5000
+
+export function processCohort(cohort: CohortType): CohortType {
+    return {
+        ...cohort,
+        ...{
+            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+            filters: {
+                properties: {
+                    ...cohort.filters.properties,
+                    values: (cohort.filters.properties?.values?.map((group) =>
+                        'values' in group
+                            ? {
+                                  ...group,
+                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
+                                      c.type &&
+                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                                      !('value_property' in c)
+                                          ? {
+                                                ...c,
+                                                value_property: c.value,
+                                                value:
+                                                    c.type === BehavioralFilterKey.Cohort
+                                                        ? BehavioralCohortType.InCohort
+                                                        : BehavioralEventType.HaveProperty,
+                                            }
+                                          : c
+                                  ),
+                              }
+                            : group
+                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                },
+            },
+        },
+    }
+}
 
 export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),

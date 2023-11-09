@@ -6,7 +6,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
-import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import { isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -46,6 +46,7 @@ import {
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void

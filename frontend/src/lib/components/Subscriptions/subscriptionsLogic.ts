@@ -4,11 +4,10 @@ import { SubscriptionType } from '~/types'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
-import { deleteWithUndo } from 'lib/utils'
-
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps } from './utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionsLogic']),

@@ -1,5 +1,10 @@
 import { actions, kea, key, connect, propsChanged, listeners, path, props, reducers, selectors } from 'kea'
-import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
+import {
+    BehavioralFilterKey,
+    CohortFieldLogicProps,
+    FieldOptionsType,
+    FieldValues,
+} from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
@@ -10,15 +15,6 @@ import { actionsModel } from '~/models/actionsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-
-export interface CohortFieldLogicProps {
-    cohortFilterLogicKey: string
-    fieldKey: keyof AnyCohortCriteriaType
-    criteria: AnyCohortCriteriaType
-    onChange?: (newField: AnyCohortCriteriaType) => void
-    /* Only used for selector fields */
-    fieldOptionGroupTypes?: FieldOptionsType[]
-}
 
 export const cohortFieldLogic = kea<cohortFieldLogicType>([
     path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),

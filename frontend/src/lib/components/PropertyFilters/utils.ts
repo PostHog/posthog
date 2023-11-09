@@ -3,6 +3,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     ElementPropertyFilter,
+    EmptyPropertyFilter,
     EventDefinition,
     EventPropertyFilter,
     FeaturePropertyFilter,
@@ -19,7 +20,6 @@ import {
     SessionPropertyFilter,
 } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 import { BreakdownFilter } from '~/queries/schema'
 
 /** Make sure unverified user property filter input has at least a "type" */
@@ -31,6 +31,64 @@ export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPr
         }
     }
     return propertyFilter
+}
+
+function isPropertyGroup(
+    properties:
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | AnyPropertyFilter[]
+        | AnyPropertyFilter
+        | Record<string, any>
+        | null
+        | undefined
+): properties is PropertyGroupFilter {
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
+}
+
+function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
+    }
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
+}
+
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties && properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
+export function convertPropertyGroupToProperties(
+    properties?: PropertyGroupFilter | AnyPropertyFilter[]
+): AnyPropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
 }
 
 export function parseProperties(

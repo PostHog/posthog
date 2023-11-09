@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionStepType, ActionType } from '~/types'
@@ -14,6 +14,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { tagsModel } from '~/models/tagsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>

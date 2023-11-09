@@ -18,7 +18,6 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
@@ -29,6 +28,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import clsx from 'clsx'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export enum Language {
     Text = 'text',

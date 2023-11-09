@@ -1,10 +1,10 @@
-import { cohortFieldLogic, CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { groupsModel } from '~/models/groupsModel'
 import { MOCK_GROUP_TYPES } from 'lib/api.mock'
-import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortFieldLogicProps, FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 
 describe('cohortFieldLogic', () => {

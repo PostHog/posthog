@@ -2,14 +2,14 @@ import { EventType } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
-import { urls } from 'scenes/urls'
+import { insightUrlForEvent, urls } from 'scenes/urls'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 interface EventActionProps {
     event: EventType

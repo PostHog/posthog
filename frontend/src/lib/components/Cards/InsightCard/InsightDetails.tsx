@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { allOperatorsMapping, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
+import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
@@ -32,6 +32,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,

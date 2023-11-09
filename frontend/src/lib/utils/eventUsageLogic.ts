@@ -31,7 +31,6 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlatformType, Framework } from 'scenes/ingestion/types'
 import { now } from 'lib/dayjs'
@@ -43,7 +42,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
 
