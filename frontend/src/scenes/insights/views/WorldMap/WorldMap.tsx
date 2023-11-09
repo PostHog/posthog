@@ -205,8 +205,7 @@ export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX
     const { insightProps } = useValues(insightLogic)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
-    const { chartRenderingMetadata } = context
-    const renderingMetadata = chartRenderingMetadata?.[ChartDisplayType.WorldMap]
+    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
 
