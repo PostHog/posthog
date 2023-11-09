@@ -3,7 +3,7 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import type { dateFilterLogicType } from './dateFilterLogicType'
 import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDate } from 'lib/utils'
 import { DateMappingOption } from '~/types'
-import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import { CUSTOM_OPTION_VALUE, DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),

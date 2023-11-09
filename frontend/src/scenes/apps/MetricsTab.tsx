@@ -1,4 +1,4 @@
-import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
+import { AppErrorSummary, AppMetrics, appMetricsSceneLogic } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { AppMetricsTab } from '~/types'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
