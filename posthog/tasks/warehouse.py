@@ -80,6 +80,7 @@ def sync_resource(resource_id):
 
 
 DEFAULT_USAGE_LIMIT = 1000000
+ROWS_PER_DOLLAR = 66666  # 1 million rows per $15
 
 
 @app.task(ignore_result=True, max_retries=2)
@@ -93,7 +94,7 @@ def check_external_data_source_billing_limit_by_team(team_id):
     _usage_limit = _get_data_warehouse_usage_limit(team_id)
 
     # TODO: consider more boundaries
-    if _usage_limit and team.external_data_workspace_rows_synced_in_month >= _usage_limit:
+    if _usage_limit and team.external_data_workspace_rows_synced_in_month >= (_usage_limit * ROWS_PER_DOLLAR):
         for connection in all_active_connections:
             deactivate_connection_by_id(connection.connection_id)
             connection.status = "inactive"
