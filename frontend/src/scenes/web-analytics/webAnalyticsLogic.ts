@@ -186,7 +186,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         dateTo: [
-            '-0d' as string | null,
+            null as string | null,
             {
                 setDates: (_, { dateTo }) => dateTo,
             },
