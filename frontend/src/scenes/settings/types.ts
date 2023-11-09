@@ -1,5 +1,4 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-import { EitherMembershipLevel } from 'lib/utils/permissioning'
+import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
 export type SettingLevelId = 'user' | 'project' | 'organization'
 export const SettingLevelIds: SettingLevelId[] = ['project', 'organization', 'user']
