@@ -31,7 +31,6 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
-    console.log('spy', persistedFlags, availableFlags, appContext?.preflight)
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
             {},
@@ -86,9 +85,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        posthog.onFeatureFlags((flags, variants) => {
-            console.log('Set feature flags', flags, variants)
-            actions.setFeatureFlags(flags, variants)
-        })
+        posthog.onFeatureFlags(actions.setFeatureFlags)
     }),
 ])
