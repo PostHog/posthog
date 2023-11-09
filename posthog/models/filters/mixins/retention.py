@@ -76,10 +76,16 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         if self.period == "Hour":
             return self.date_to - tdelta
         elif self.period == "Week":
-            date_from = self.date_to - tdelta
-            return date_from - timedelta(days=date_from.isoweekday() % 7)
+            date_from: datetime = self.date_to - tdelta
+            week_start_alignment_days = date_from.isoweekday() % 7
+            if team := getattr(self, "team", None):
+                from posthog.models.team.team import WeekStartDay
+
+                if team.week_start_day == WeekStartDay.MONDAY:
+                    week_start_alignment_days = date_from.weekday()
+            return date_from - timedelta(days=week_start_alignment_days)
         else:
-            date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_to: datetime = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
             return date_to - tdelta
 
     @cached_property

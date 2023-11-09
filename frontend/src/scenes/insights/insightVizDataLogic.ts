@@ -50,7 +50,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
@@ -171,7 +171,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
-
+        shouldShowSessionAnalysisWarning: [
+            (s) => [s.isUsingSessionAnalysis, s.query],
+            (isUsingSessionAnalysis, query) =>
+                isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
+        ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),

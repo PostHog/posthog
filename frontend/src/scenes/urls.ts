@@ -13,6 +13,7 @@ import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
 import { toParams } from 'lib/utils'
+import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
  * To add a new URL to the front end:
@@ -117,8 +118,8 @@ export const urls = {
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
     dataWarehouseSettings: (): string => '/data-warehouse/settings',
-    annotations: (): string => '/annotations',
-    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
+    annotations: (): string => '/data-management/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
@@ -134,9 +135,8 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
-    projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
-    mySettings: (): string => '/me/settings',
-    organizationSettings: (): string => '/organization/settings',
+    settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
+        combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',

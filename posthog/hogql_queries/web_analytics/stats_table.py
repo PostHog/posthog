@@ -92,19 +92,19 @@ LIMIT 10
             case WebStatsBreakdown.Page:
                 return ast.Field(chain=["properties", "$pathname"])
             case WebStatsBreakdown.InitialPage:
-                return ast.Field(chain=["properties", "$client_session_initial_pathname"])
+                return ast.Field(chain=["person", "properties", "$initial_pathname"])
             case WebStatsBreakdown.InitialReferringDomain:
-                return ast.Field(chain=["properties", "$client_session_initial_referring_domain"])
+                return ast.Field(chain=["person", "properties", "$initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return ast.Field(chain=["properties", "$client_session_initial_utm_source"])
+                return ast.Field(chain=["person", "properties", "$initial_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return ast.Field(chain=["properties", "$client_session_initial_utm_campaign"])
+                return ast.Field(chain=["person", "properties", "$initial_utm_campaign"])
             case WebStatsBreakdown.InitialUTMMedium:
-                return ast.Field(chain=["properties", "$client_session_initial_utm_medium"])
+                return ast.Field(chain=["person", "properties", "$initial_utm_medium"])
             case WebStatsBreakdown.InitialUTMTerm:
-                return ast.Field(chain=["properties", "$client_session_initial_utm_term"])
+                return ast.Field(chain=["person", "properties", "$initial_utm_term"])
             case WebStatsBreakdown.InitialUTMContent:
-                return ast.Field(chain=["properties", "$client_session_initial_utm_content"])
+                return ast.Field(chain=["person", "properties", "$initial_utm_content"])
             case WebStatsBreakdown.Browser:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
@@ -126,37 +126,9 @@ LIMIT 10
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
                 # use initial pathname for bounce rate
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_pathname"])])
-            case WebStatsBreakdown.InitialPage:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_pathname"])])
-            case WebStatsBreakdown.InitialReferringDomain:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_referring_domain"])])
-            case WebStatsBreakdown.InitialUTMSource:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_source"])])
-            case WebStatsBreakdown.InitialUTMCampaign:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])])
-            case WebStatsBreakdown.InitialUTMMedium:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_medium"])])
-            case WebStatsBreakdown.InitialUTMTerm:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_term"])])
-            case WebStatsBreakdown.InitialUTMContent:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_content"])])
-            case WebStatsBreakdown.Browser:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$browser"])])
-            case WebStatsBreakdown.OS:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$os"])])
-            case WebStatsBreakdown.DeviceType:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$device_type"])])
-            case WebStatsBreakdown.Country:
-                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$geoip_country_code"])])
-            case WebStatsBreakdown.Region:
-                return parse_expr(
-                    "any(tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name))"
-                )
-            case WebStatsBreakdown.City:
-                return parse_expr("any(tuple(properties.$geoip_country_code, properties.$geoip_city_name))")
+                return ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
             case _:
-                raise NotImplementedError("Breakdown not implemented")
+                return ast.Call(name="any", args=[self.counts_breakdown()])
 
     def where_breakdown(self):
         match self.query.breakdownBy:

@@ -224,6 +224,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         </div>
                     }
                     onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    checked={appearance?.whiteLabel}
                     disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
                 />
             </div>
@@ -603,7 +604,7 @@ export function SurveyMultipleChoiceAppearance({
                                 name="choice"
                                 value={choice}
                             />
-                            <label style={{ color: textColor }}>{choice}</label>
+                            <label>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}

@@ -38,6 +38,7 @@ export type NotebookLogicMode = 'notebook' | 'canvas'
 export type NotebookLogicProps = {
     shortId: string
     mode?: NotebookLogicMode
+    target?: NotebookTarget
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
@@ -293,7 +294,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    await openNotebook(response.short_id, NotebookTarget.Auto)
+                    await openNotebook(response.short_id, props.target ?? NotebookTarget.Scene)
 
                     return response
                 },

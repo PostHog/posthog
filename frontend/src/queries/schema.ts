@@ -11,12 +11,12 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
     PathsFilterType,
+    PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -397,6 +397,8 @@ interface InsightVizNodeViewProps {
     showResults?: boolean
     /** Query is embedded inside another bordered component */
     embedded?: boolean
+    suppressSessionAnalysisWarning?: boolean
+    hidePersonsModal?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -575,8 +577,8 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-
-export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange

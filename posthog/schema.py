@@ -481,6 +481,7 @@ class SavedInsightNode(BaseModel):
     full: Optional[bool] = Field(
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
+    hidePersonsModal: Optional[bool] = None
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
@@ -514,6 +515,7 @@ class SavedInsightNode(BaseModel):
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
+    suppressSessionAnalysisWarning: Optional[bool] = None
 
 
 class SessionPropertyFilter(BaseModel):
@@ -950,7 +952,7 @@ class WebAnalyticsQueryBase(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
 
 
 class WebOverviewQuery(BaseModel):
@@ -959,7 +961,7 @@ class WebOverviewQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
 
 
@@ -970,7 +972,7 @@ class WebStatsTableQuery(BaseModel):
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
 
 
@@ -980,7 +982,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
-    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
 
 
@@ -1712,6 +1714,7 @@ class InsightVizNode(BaseModel):
     full: Optional[bool] = Field(
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
+    hidePersonsModal: Optional[bool] = None
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
     showFilters: Optional[bool] = None
@@ -1721,6 +1724,7 @@ class InsightVizNode(BaseModel):
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    suppressSessionAnalysisWarning: Optional[bool] = None
 
 
 class InsightPersonsQuery(BaseModel):

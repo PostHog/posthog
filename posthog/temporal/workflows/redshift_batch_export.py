@@ -22,6 +22,7 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    ROWS_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.postgres_batch_export import (
@@ -69,17 +70,24 @@ def insert_records_to_redshift(
         )
         template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
 
+        def flush_to_redshift():
+            psycopg2.extras.execute_values(cursor, query, batch, template)
+            ROWS_EXPORTED.labels(destination="redshift").inc(len(batch))
+            # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
+            # the byte size of each batch the way things are currently written. We can revisit this
+            # in the future if we decide it's useful enough.
+
         for record in records:
             batch.append(record)
 
             if len(batch) < batch_size:
                 continue
 
-            psycopg2.extras.execute_values(cursor, query, batch, template)
+            flush_to_redshift()
             batch = []
 
         if len(batch) > 0:
-            psycopg2.extras.execute_values(cursor, query, batch, template)
+            flush_to_redshift()
 
 
 @dataclass

@@ -6,13 +6,10 @@ import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
@@ -34,12 +31,6 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
         'data-attr': 'event-type-option-event-posthog',
     },
 ]
-
-export const scene: SceneExport = {
-    component: EventDefinitionsTable,
-    logic: eventDefinitionsTableLogic,
-    paramsToProps: () => ({ syncWithUrl: true }),
-}
 
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
@@ -124,14 +115,6 @@ export function EventDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-
-            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
-
             <LemonBanner className="mb-4" type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
