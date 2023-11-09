@@ -38,6 +38,8 @@ export enum TeamMembershipLevel {
     Admin = 8,
 }
 
+export type EitherMembershipLevel = OrganizationMembershipLevel | TeamMembershipLevel
+
 /** See posthog/api/organization.py for details. */
 export enum PluginsAccessLevel {
     None = 0,
