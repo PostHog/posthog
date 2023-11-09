@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'

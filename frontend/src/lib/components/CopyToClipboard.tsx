@@ -1,5 +1,5 @@
 import { HTMLProps } from 'react'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

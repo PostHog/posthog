@@ -7,7 +7,7 @@ import { SettingSection, Setting, SettingSectionId, SettingLevelId, SettingId } 
 
 import type { settingsLogicType } from './settingsLogicType'
 import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export type SettingsLogicProps = {
     logicKey?: string

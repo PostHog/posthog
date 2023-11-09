@@ -32,10 +32,13 @@ import {
     isPropertyFilterWithOperator,
     isValidPropertyFilter,
 } from './components/PropertyFilters/utils'
-import { IconCopy } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+
+/**
+ * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+ * Preferably create a dedicated file in utils/..
+ */
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1021,38 +1024,6 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
         return response.startOf('day')
     }
     return response
-}
-
-export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
-    if (!navigator.clipboard) {
-        lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
-        return false
-    }
-
-    try {
-        await navigator.clipboard.writeText(value)
-        lemonToast.info(`Copied ${description} to clipboard`, {
-            icon: <IconCopy />,
-        })
-        return true
-    } catch (e) {
-        // If the Clipboard API fails, fallback to textarea method
-        try {
-            const textArea = document.createElement('textarea')
-            textArea.value = value
-            document.body.appendChild(textArea)
-            textArea.select()
-            document.execCommand('copy')
-            document.body.removeChild(textArea)
-            lemonToast.info(`Copied ${description} to clipboard`, {
-                icon: <IconCopy />,
-            })
-            return true
-        } catch (err) {
-            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
-            return false
-        }
-    }
 }
 
 export function clamp(value: number, min: number, max: number): number {

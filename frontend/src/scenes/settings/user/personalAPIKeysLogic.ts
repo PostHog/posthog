@@ -3,7 +3,7 @@ import { kea, path, listeners } from 'kea'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([

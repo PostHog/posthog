@@ -5,7 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, PathsFilterType } from '~/types'
 import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { pageUrl, PathNodeData } from './pathUtils'
 import { pathsDataLogicType } from './pathsDataLogicType'

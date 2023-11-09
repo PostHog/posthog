@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 
