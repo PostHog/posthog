@@ -792,12 +792,14 @@ body {
     }
 }
 
-.posthog-3000[theme='dark'] {
+.posthog-3000 {
     .ant-radio-button-wrapper {
         background: var(--secondary-3000);
         border-color: transparent;
     }
+}
 
+.posthog-3000[theme='dark'] {
     .ant-empty-img-simple-path {
         fill: var(--bg-light);
     }
@@ -807,6 +809,6 @@ body {
     }
 
     .ant-empty-img-simple-g {
-        stroke: var(--secondary-3000);
+        stroke: var(--border-3000);
     }
 }
