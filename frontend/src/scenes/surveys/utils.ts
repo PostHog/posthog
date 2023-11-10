@@ -1,7 +1,7 @@
-import { sanitize } from 'dompurify'
+import purify from 'dompurify'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
 export function sanitizeHTML(html: string): string {
-    return sanitize(html, sanitizeConfig)
+    return purify.sanitize(html, sanitizeConfig)
 }
