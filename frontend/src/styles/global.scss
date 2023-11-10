@@ -801,14 +801,10 @@ body {
 
 .posthog-3000[theme='dark'] {
     .ant-empty-img-simple-path {
-        fill: var(--bg-light);
+        fill: var(--border-3000);
     }
 
     .ant-empty-img-simple-ellipse {
         fill: var(--border-3000);
-    }
-
-    .ant-empty-img-simple-g {
-        stroke: var(--border-3000);
     }
 }
