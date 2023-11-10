@@ -23,7 +23,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
-import { sanitize } from 'dompurify'
+import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -733,16 +733,16 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
         return surveyPayload
     }
 
-    const sanitizedThankYouHeader = sanitize(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitize(surveyPayload.appearance?.thankYouMessageDescription || '')
+    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
+    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
 
     return {
         ...surveyPayload,
         questions: surveyPayload.questions?.map((rawQuestion) => {
             return {
                 ...rawQuestion,
-                description: sanitize(rawQuestion.description || ''),
-                question: sanitize(rawQuestion.question || ''),
+                description: sanitizeHTML(rawQuestion.description || ''),
+                question: sanitizeHTML(rawQuestion.question || ''),
             }
         }),
         appearance: {
