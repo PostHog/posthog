@@ -20,8 +20,13 @@
     user-select: none;
     -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
+    body:not(.posthog-3000) & {
+        min-height: 2.5rem;
+    }
+
     > span {
         display: flex;
+        flex: 1;
         gap: 0.5rem;
     }
 
