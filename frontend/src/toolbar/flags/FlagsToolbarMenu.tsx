@@ -24,7 +24,7 @@ const MenuHeader = (): JSX.Element => {
             fullWidth
             type={'search'}
             value={searchTerm}
-            className={clsx('rounded-b-0')}
+            rounded={'top'}
             onChange={(s) => setSearchTerm(s)}
         />
     )

@@ -18,7 +18,7 @@ const MenuHeader = (): JSX.Element => {
 
     return (
         <div>
-            <LemonInput value={wildcardHref} onChange={setWildcardHref} />
+            <LemonInput value={wildcardHref} onChange={setWildcardHref} rounded={'top'} />
             <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
         </div>
     )

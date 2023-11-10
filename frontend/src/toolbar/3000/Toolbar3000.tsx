@@ -171,7 +171,7 @@ export function Toolbar3000(): JSX.Element {
             {!minimizedWidth && <ToolbarInfoMenu />}
             <div
                 className={clsx(
-                    'Toolbar3000 px-1 h-10 rounded-lg flex flex-row items-center floating-toolbar-button',
+                    'Toolbar3000 pl-1 h-10 rounded-lg flex flex-row items-center floating-toolbar-button',
                     minimizedWidth ? 'Toolbar3000--minimized-width' : ''
                 )}
             >
@@ -251,6 +251,7 @@ export function Toolbar3000(): JSX.Element {
                             e.stopPropagation()
                             toggleWidth()
                         }}
+                        className={'rounded-l-none'}
                     />
                 </Tooltip>
             </div>

@@ -59,3 +59,12 @@ Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
 
 export const Small: Story = Template.bind({})
 Small.args = { allowClear: true, size: 'small' }
+
+export const RoundedTop: Story = Template.bind({})
+Small.args = { rounded: 'top' }
+
+export const RoundedBottom: Story = Template.bind({})
+Small.args = { rounded: 'bottom' }
+
+export const RoundedNone: Story = Template.bind({})
+Small.args = { rounded: 'none' }
