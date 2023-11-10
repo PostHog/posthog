@@ -6,6 +6,7 @@ import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
@@ -125,4 +126,5 @@ export const annotationsModel = kea<annotationsModelType>([
             actions.loadAnnotations()
         }
     }),
+    permanentlyMount(),
 ])

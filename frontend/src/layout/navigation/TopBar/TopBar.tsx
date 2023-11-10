@@ -16,7 +16,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
-import { GlobalModals } from '~/layout/GlobalModals'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
@@ -83,7 +82,6 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
-            <GlobalModals />
         </>
     )
 }

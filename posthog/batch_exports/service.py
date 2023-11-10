@@ -199,7 +199,7 @@ def unpause_batch_export(
     note: str | None = None,
     backfill: bool = False,
 ) -> None:
-    """Pause this BatchExport.
+    """Unpause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule. Additionally, we can trigger a backfill
     to backfill runs missed while paused.

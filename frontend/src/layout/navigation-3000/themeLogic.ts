@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { themeLogicType } from './themeLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
@@ -32,8 +33,17 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [s.darkModeSavedPreference, s.darkModeSystemPreference, featureFlagLogic.selectors.featureFlags],
-            (darkModeSavedPreference, darkModeSystemPreference, featureFlags) => {
+            (s) => [
+                s.darkModeSavedPreference,
+                s.darkModeSystemPreference,
+                featureFlagLogic.selectors.featureFlags,
+                sceneLogic.selectors.sceneConfig,
+            ],
+            (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
+                // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
+                if (sceneConfig?.layout === 'plain' || sceneConfig?.allowUnauthenticated) {
+                    return false
+                }
                 // Dark mode is a PostHog 3000 feature
                 // User-saved preference is used when set, oterwise we fall back to the system value
                 return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
