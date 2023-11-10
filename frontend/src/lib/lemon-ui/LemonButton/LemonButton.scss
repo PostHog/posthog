@@ -467,15 +467,15 @@
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            color: var(--default);
-            background: var(--border);
+            // color: var(--default);
+            // background: var(--border);
             .LemonButton__icon {
                 color: var(--default);
             }
         }
 
         &:not([aria-disabled='true']):active {
-            transform: scale(calc(35 / 36));
+            // transform: scale(calc(35 / 36));
         }
     }
 }
