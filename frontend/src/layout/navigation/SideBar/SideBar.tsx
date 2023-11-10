@@ -51,7 +51,10 @@ import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { PostHog3000OptIn, PostHog3000OptInButton } from 'lib/components/PostHog3000OptIn/PostHog3000OptIn'
+import {
+    PostHog3000OptInSidebarNotice,
+    PostHog3000OptInSidebarButton,
+} from 'lib/components/PostHog3000OptIn/PostHog3000OptIn'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -268,9 +271,7 @@ function Pages(): JSX.Element {
                         }}
                     />
                     <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
-                    <li>
-                        <PostHog3000OptInButton center={false} />
-                    </li>
+                    <PostHog3000OptInSidebarButton />
                 </>
             )}
         </ul>
@@ -287,7 +288,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                 <div className="SideBar__slider__content">
                     <Pages />
                     <DebugNotice />
-                    <PostHog3000OptIn />
+                    <PostHog3000OptInSidebarNotice />
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
