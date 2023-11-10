@@ -78,28 +78,24 @@ export function RollingDateRangeFilter({
                         +
                     </span>
                 </div>
-                <div>
-                    <span>
-                        <LemonSelect
-                            className="RollingDateRangeFilter__select"
-                            data-attr="rolling-date-range-date-options-selector"
-                            id="rolling-date-range-date-options-selector"
-                            value={dateOption}
-                            onChange={(newValue): void => setDateOption(newValue as string)}
-                            onClick={(e): void => {
-                                e.stopPropagation()
-                                toggleDateOptionsSelector()
-                            }}
-                            dropdownMatchSelectWidth={false}
-                            options={dateOptions}
-                            menu={{
-                                ...popover,
-                                className: 'RollingDateRangeFilter__popover',
-                            }}
-                            size="small"
-                        />
-                    </span>
-                </div>
+                <LemonSelect
+                    className="RollingDateRangeFilter__select"
+                    data-attr="rolling-date-range-date-options-selector"
+                    id="rolling-date-range-date-options-selector"
+                    value={dateOption}
+                    onChange={(newValue): void => setDateOption(newValue as string)}
+                    onClick={(e): void => {
+                        e.stopPropagation()
+                        toggleDateOptionsSelector()
+                    }}
+                    dropdownMatchSelectWidth={false}
+                    options={dateOptions}
+                    menu={{
+                        ...popover,
+                        className: 'RollingDateRangeFilter__popover',
+                    }}
+                    size="small"
+                />
             </LemonButton>
         </Tooltip>
     )
