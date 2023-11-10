@@ -14,6 +14,7 @@ export const streamModalLogic = kea<streamModalLogicType>([
         }),
         toggleStream: (streamId: string) => ({ streamId }),
         loadStreamOptions: (sourceId: string) => ({ sourceId }),
+        updateStreamOption: (streamName: string, selected: boolean) => ({ streamName, selected }),
     }),
     loaders(({ values }) => ({
         streamOptions: [
@@ -48,12 +49,47 @@ export const streamModalLogic = kea<streamModalLogicType>([
                 toggleStreamModal: (_, { selectedSource }) => selectedSource,
             },
         ],
+        streamOptions: [
+            {
+                available_streams_for_connection: [],
+                current_connection_streams: [],
+            } as ExternalDataSourceStreamOptions,
+            {
+                updateStreamOption: (state, { streamName, selected }) => {
+                    if (selected) {
+                        return {
+                            ...state,
+                            available_streams_for_connection: state.available_streams_for_connection.filter(
+                                (stream) => stream.streamName !== streamName
+                            ),
+                            current_connection_streams: [...state.current_connection_streams, { streamName }],
+                        }
+                    } else {
+                        return {
+                            ...state,
+                            available_streams_for_connection: [
+                                ...state.available_streams_for_connection,
+                                { streamName },
+                            ],
+                            current_connection_streams: state.current_connection_streams.filter(
+                                (stream) => stream.streamName !== streamName
+                            ),
+                        }
+                    }
+                },
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         toggleStreamModal: ({ visible, selectedSource }) => {
             if (visible && selectedSource) {
                 actions.loadStreamOptions(selectedSource.id)
             }
+        },
+        updateStreamOption: async () => {
+            const streamNames = values.streamOptions.current_connection_streams.map((stream) => stream.streamName)
+            values.selectedStream &&
+                (await api.externalDataSources.streams.update(values.selectedStream.id, streamNames))
         },
     })),
     selectors({
@@ -69,7 +105,7 @@ export const streamModalLogic = kea<streamModalLogicType>([
                         streamName: stream.streamName,
                         selected: false,
                     })),
-                ]
+                ].sort((a, b) => a.streamName.localeCompare(b.streamName))
             },
         ],
     }),

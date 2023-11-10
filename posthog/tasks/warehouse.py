@@ -4,6 +4,7 @@ from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.external_data_source.connection import get_active_connection_streams_by_id
 from posthog.warehouse.external_data_source.connection import retrieve_sync
 from urllib.parse import urlencode
 from posthog.ph_client import get_ph_client
@@ -25,6 +26,7 @@ def sync_resources():
         sync_resource.delay(resource.pk)
 
 
+# TODO: this only runs on the first successful sync, but we should run it periodically
 @app.task(ignore_result=True)
 def sync_resource(resource_id):
     resource = ExternalDataSource.objects.get(pk=resource_id)
@@ -51,15 +53,25 @@ def sync_resource(resource_id):
             access_secret=settings.AIRBYTE_BUCKET_SECRET,
         )
 
-        data = {
-            "credential": credential,
-            "name": "stripe_customers",
-            "format": "Parquet",
-            "url_pattern": f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/airbyte/{resource.team.pk}/customers/*.parquet",
-            "team_id": resource.team.pk,
-        }
+        streams = get_active_connection_streams_by_id(resource.connection_id)
 
-        table = DataWarehouseTable(**data)
+        # TODO: optimize
+        for stream in streams:
+            stream_name = stream["name"]
+            does_stream_exist = DataWarehouseTable.objects.filter(name=stream_name, team_id=resource.team.pk).exists()
+
+            if not does_stream_exist:
+                data = {
+                    "credential": credential,
+                    "name": stream_name,
+                    "format": "Parquet",
+                    "url_pattern": f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/airbyte/{resource.team.pk}/{stream_name}/*.parquet",
+                    "team_id": resource.team.pk,
+                }
+
+                table = DataWarehouseTable(**data)
+            else:
+                table = DataWarehouseTable.objects.get(name=stream_name, team_id=resource.team.pk)
         try:
             table.columns = table.get_columns()
         except Exception as e:

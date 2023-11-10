@@ -1631,6 +1631,16 @@ const api = {
             async list(sourceId: ExternalDataSource['id']): Promise<ExternalDataSourceStreamOptions> {
                 return await new ApiRequest().externalDataSource(sourceId).withAction('streams').get()
             },
+            async update(sourceId: ExternalDataSource['id'], activeStreams: string[]): Promise<void> {
+                await new ApiRequest()
+                    .externalDataSource(sourceId)
+                    .withAction('active_streams')
+                    .update({
+                        data: {
+                            streams: activeStreams,
+                        },
+                    })
+            },
         },
     },
 

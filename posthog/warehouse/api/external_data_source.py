@@ -13,6 +13,7 @@ from posthog.warehouse.external_data_source.connection import (
     start_sync,
     get_connection_streams_by_external_data_source,
     get_active_connection_streams_by_id,
+    update_connection_stream,
 )
 from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
 from posthog.tasks.warehouse import sync_resource
@@ -160,3 +161,9 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "current_connection_streams": [{"streamName": stream["name"]} for stream in current_connection_streams],
             },
         )
+
+    @action(methods=["PATCH"], detail=True)
+    def active_streams(self, request: Request, *args: Any, **kwargs: Any):
+        instance = self.get_object()
+        update_connection_stream(instance.connection_id, request.data["streams"])
+        return Response(status=status.HTTP_200_OK)
