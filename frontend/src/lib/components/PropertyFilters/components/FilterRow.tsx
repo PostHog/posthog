@@ -7,7 +7,7 @@ import './FilterRow.scss'
 import clsx from 'clsx'
 import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from '@posthog/lemon-ui'
+import { OperandTag } from './OperandTag'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -100,7 +100,7 @@ export const FilterRow = React.memo(function FilterRow({
                         )}
                     </Popover>
                 )}
-                {key && showConditionBadge && index + 1 < totalCount && <LemonTag type="highlight">AND</LemonTag>}
+                {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}
             </div>
             {errorMessage}
         </>

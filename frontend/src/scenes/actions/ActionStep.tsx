@@ -3,7 +3,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Radio, RadioChangeEvent } from 'antd'
 import { ActionStepType, StringMatching } from '~/types'
-import { LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import './ActionStep.scss'
+import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -34,9 +35,9 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     return (
         <div className="ActionStep rounded border p-4 relative h-full">
             {index > 0 && !(index % 2 === 0) && (
-                <LemonTag type="completion" className="ActionStep__or-tag">
-                    OR
-                </LemonTag>
+                <div className="ActionStep__or-tag">
+                    <OperandTag operand="or" />
+                </div>
             )}
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -184,7 +185,7 @@ function Option({
 const AndSeparator = (): JSX.Element => {
     return (
         <div className="flex w-full justify-center">
-            <LemonTag type="highlight">AND</LemonTag>
+            <OperandTag operand="and" />
         </div>
     )
 }
