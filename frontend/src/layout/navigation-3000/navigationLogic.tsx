@@ -339,7 +339,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Web analytics',
                                   icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                                  tag: 'alpha' as const,
+                                  tag: 'beta' as const,
                               }
                             : null,
                         {

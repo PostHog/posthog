@@ -21,6 +21,8 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    ROWS_EXPORTED,
+    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -162,6 +164,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             )
 
             with BatchExportTemporaryFile() as jsonl_file:
+
+                def flush_to_bigquery():
+                    logger.info(
+                        "Copying %s records of size %s bytes to BigQuery",
+                        jsonl_file.records_since_last_reset,
+                        jsonl_file.bytes_since_last_reset,
+                    )
+                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    ROWS_EXPORTED.labels(destination="bigquery").inc(jsonl_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="bigquery").inc(jsonl_file.bytes_since_last_reset)
+
                 for result in results_iterator:
                     row = {
                         field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
@@ -173,26 +186,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Copying %s records of size %s bytes to BigQuery",
-                            jsonl_file.records_since_last_reset,
-                            jsonl_file.bytes_since_last_reset,
-                        )
-                        load_jsonl_file_to_bigquery_table(
-                            jsonl_file,
-                            bigquery_table,
-                            table_schema,
-                            bq_client,
-                        )
+                        flush_to_bigquery()
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    logger.info(
-                        "Copying %s records of size %s bytes to BigQuery",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
-                    )
-                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    flush_to_bigquery()
 
 
 @workflow.defn(name="bigquery-export")

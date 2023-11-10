@@ -34,14 +34,14 @@ class BreakdownValues:
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
-    def get_breakdown_values(self) -> List[str]:
+    def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
             return [int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
                 alias="value",
-                expr=parse_expr(self.breakdown_field),
+                expr=parse_expr(str(self.breakdown_field)),
             )
         else:
             select_field = ast.Alias(

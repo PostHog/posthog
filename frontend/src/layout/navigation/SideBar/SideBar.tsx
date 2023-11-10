@@ -178,7 +178,7 @@ function Pages(): JSX.Element {
                             icon={<IconWeb />}
                             identifier={Scene.WebAnalytics}
                             to={urls.webAnalytics()}
-                            highlight="alpha"
+                            highlight="beta"
                         />
                     </FlaggedFeature>
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />

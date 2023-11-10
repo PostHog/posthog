@@ -23,6 +23,8 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    ROWS_EXPORTED,
+    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -218,29 +220,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         with BatchExportTemporaryFile() as pg_file:
             with postgres_connection(inputs) as connection:
-                for result in results_iterator:
-                    row = {
-                        key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
-                        for key in schema_columns
-                    }
-                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
-                    if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Copying %s records of size %s bytes to Postgres",
-                            pg_file.records_since_last_reset,
-                            pg_file.bytes_since_last_reset,
-                        )
-                        copy_tsv_to_postgres(
-                            pg_file,
-                            connection,
-                            inputs.schema,
-                            inputs.table_name,
-                            schema_columns,
-                        )
-                        pg_file.reset()
-
-                if pg_file.tell() > 0:
+                def flush_to_postgres():
                     logger.info(
                         "Copying %s records of size %s bytes to Postgres",
                         pg_file.records_since_last_reset,
@@ -253,6 +234,22 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         inputs.table_name,
                         schema_columns,
                     )
+                    ROWS_EXPORTED.labels(destination="postgres").inc(pg_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="postgres").inc(pg_file.bytes_since_last_reset)
+
+                for result in results_iterator:
+                    row = {
+                        key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
+                        for key in schema_columns
+                    }
+                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
+
+                    if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
+                        flush_to_postgres()
+                        pg_file.reset()
+
+                if pg_file.tell() > 0:
+                    flush_to_postgres()
 
 
 @workflow.defn(name="postgres-export")
