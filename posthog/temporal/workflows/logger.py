@@ -261,6 +261,7 @@ class KafkaLogProducerFromQueue:
                 api_version="2.5.0",
             )
         )
+        self.logger = structlog.get_logger()
 
     async def listen(self):
         """Listen to messages in queue and produce them to Kafka as they come.
@@ -275,13 +276,29 @@ class KafkaLogProducerFromQueue:
                 await self.produce(msg)
 
         finally:
-            await self.producer.flush()
+            await self.flush()
             await self.producer.stop()
 
-    async def produce(self, msg):
+    async def produce(self, msg: bytes):
+        """Produce messages to configured topic and key.
+
+        We catch any exceptions so as to continue processing the queue even if the broker is unavailable
+        or we fail to produce for whatever other reason. We log the failure to not fail silently.
+        """
         fut = await self.producer.send(self.topic, msg, key=self.key)
         fut.add_done_callback(self.mark_queue_done)
-        await fut
+
+        try:
+            await fut
+        except Exception:
+            await self.logger.aexception("Failed to produce log to Kafka topic %s", self.topic)
+            await self.logger.adebug("Message that couldn't be produced: %s", msg)
+
+    async def flush(self):
+        try:
+            await self.producer.flush()
+        except Exception:
+            await self.logger.aexception("Failed to flush producer")
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
