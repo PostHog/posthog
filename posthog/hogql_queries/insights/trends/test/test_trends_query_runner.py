@@ -284,7 +284,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_trends_query_labels_hour(self):
         self._create_test_events()
 
-        response = self._run_trends_query(self.default_date_from, self.default_date_from, IntervalType.hour)
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_from,
+            IntervalType.hour,
+            [EventsNode(event="$pageview")],
+        )
 
         self.assertEqual(
             [
