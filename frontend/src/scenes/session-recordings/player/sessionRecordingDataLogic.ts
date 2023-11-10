@@ -632,7 +632,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                return everyWindowMissingFullSnapshot || anyWindowMissingFullSnapshot
+                return everyWindowMissingFullSnapshot
             },
         ],
 

@@ -44,6 +44,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
+import { subscriptions } from 'kea-subscriptions'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -331,6 +332,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
     })),
+    subscriptions(({ actions }) => ({
+        snapshotsInvalid: (value) => {
+            if (value) {
+                actions.setErrorPlayerState(true)
+            }
+        },
+    })),
     selectors({
         // Prop references for use by other logics
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
@@ -346,7 +354,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
                 s.sessionPlayerSnapshotDataLoading,
-                s.snapshotsInvalid,
             ],
             (
                 playingState,
@@ -355,13 +362,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 isScrubbing,
                 isSkippingInactivity,
                 snapshotsLoaded,
-                snapshotsLoading,
-                snapshotsInvalid
+                snapshotsLoading
             ) => {
-                if (snapshotsInvalid) {
-                    return SessionPlayerState.ERROR
-                }
-
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
