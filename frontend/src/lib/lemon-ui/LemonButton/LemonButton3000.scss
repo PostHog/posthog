@@ -1,0 +1,265 @@
+.posthog-3000 {
+    .LemonButton {
+        &:not(.LemonButton--no-padding) {
+            > span {
+                padding: 0.25rem 0.5rem;
+            }
+        }
+
+        &:not(.LemonButton--small):not(.LemonButton--large) {
+            min-height: 2rem;
+
+            > span {
+                border-radius: 6px;
+                font-size: 0.875rem;
+                gap: 0.25rem;
+                margin: 0 -1px;
+                min-height: 2rem;
+                padding: 0.25rem 0.75rem;
+                top: -1px;
+            }
+        }
+
+        &.LemonButton--small {
+            padding: 0;
+            min-height: 1.8rem;
+
+            > span {
+                border-radius: 6px;
+                font-size: 0.813rem;
+                gap: 0.25rem;
+                margin: 0 -1px;
+                min-height: 1.8rem;
+                padding: 0.25rem 0.5rem;
+                top: -1px;
+            }
+        }
+
+        &.LemonButton--large {
+            border-radius: 6px;
+            font-size: 0.933rem;
+            gap: 0.25rem;
+            margin: 0 -1px;
+            min-height: 2.5rem;
+            padding: 0.25rem 0.5rem;
+            top: -1px;
+
+            > span {
+                min-height: 2.5rem;
+                padding: 0.5rem 1rem;
+            }
+
+            &.LemonButton--has-icon:not(.LemonButton--no-padding),
+            &.LemonButton--no-content:not(.LemonButton--no-padding),
+            &.LemonButton--has-side-icon:not(.LemonButton--no-padding) {
+                padding-right: 0;
+
+                > span {
+                    padding-right: 0.75rem;
+                }
+            }
+        }
+
+        &.LemonButton--no-padding {
+            > span {
+                padding: 0;
+                padding-left: 0;
+                padding-right: 0;
+            }
+        }
+
+        @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
+            &.LemonButton--status-#{$status} {
+                > span {
+                    color: var(--#{$status}, var(--primary));
+                }
+
+                &:not([aria-disabled='true']):hover,
+                &.LemonButton--active {
+                    .LemonButton__icon {
+                        opacity: 0.8;
+                    }
+                }
+
+                // Primary - blocked color style
+                &.LemonButton--primary {
+                    > span {
+                        padding: 0.25rem 0.5rem;
+                    }
+                }
+            }
+        }
+
+        font-size: 0.8125rem;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+        min-height: 2em;
+        padding: 0;
+        position: relative;
+
+        > span {
+            align-items: center;
+            background: none;
+            border-width: 1px;
+            border-style: solid;
+            border-color: transparent;
+            cursor: pointer;
+            display: flex;
+            flex-direction: row;
+            flex-shrink: 0;
+            font-weight: 500;
+            gap: 0.5rem;
+            justify-content: flex-start;
+            line-height: 1.5rem;
+            min-height: 2em;
+            position: relative;
+            text-align: left;
+        }
+
+        .LemonButton__icon {
+            color: var(--muted);
+        }
+
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            > span {
+                top: -1.5px;
+            }
+        }
+
+        &:not([aria-disabled='true']):active {
+            > span {
+                top: -0.5px;
+            }
+        }
+
+        &.LemonButton--status-primary {
+            color: var(--muted);
+        }
+
+        &.LemonButton--status-stealth {
+            color: var(--default);
+        }
+
+        &.LemonButton--primary {
+            background: var(--primary-3000-frame-bg);
+            border-color: var(--primary-3000-frame-border);
+            border-radius: 6px;
+            padding-bottom: 1px;
+
+            > span {
+                background: var(--primary-3000-button-bg);
+                border-color: var(--primary-3000-button-border);
+                color: #111;
+                font-weight: 600;
+
+                &:not([aria-disabled='true']):hover,
+                &.LemonButton--active {
+                    border-color: var(--primary-3000-button-border-hover);
+                }
+                .LemonButton__icon {
+                    color: #111;
+                    opacity: 0.5;
+                }
+            }
+        }
+
+        &.LemonButton--secondary,
+        &.LemonButton--active {
+            background: var(--secondary-3000-frame-bg);
+            border-color: var(--secondary-3000-frame-border);
+            border-radius: 6px;
+            padding-bottom: 1px;
+
+            > span {
+                color: var(--default);
+                background: var(--secondary-3000-button-bg);
+                border-color: var(--secondary-3000-button-border);
+
+                &:not([aria-disabled='true']):hover,
+                &.LemonButton--active {
+                    border-color: var(--secondary-3000-button-border-hover);
+                }
+                .LemonButton__icon {
+                    color: var(--default);
+                    opacity: 0.5;
+                }
+            }
+        }
+
+        &.LemonButton--active {
+            > span {
+                background: var(--secondary-3000-button-bg);
+                border-color: var(--secondary-3000-button-border-hover);
+                top: -1px !important;
+
+                &:not([aria-disabled='true']):hover {
+                    border-color: var(--secondary-3000-button-border-hover) !important;
+                }
+            }
+        }
+
+        &.LemonButton--tertiary {
+            > span {
+                background: transparent;
+                border-color: transparent;
+                top: 1px;
+
+                &:hover {
+                    border-color: transparent !important;
+                }
+            }
+
+            &:hover {
+                > span {
+                    border-color: transparent !important;
+                }
+            }
+        }
+    }
+
+    .LemonButtonWithSideAction__spacer {
+        height: 1.25rem;
+        width: 1.25rem;
+
+        &.LemonButtonWithSideAction__spacer--divider {
+            margin-left: 0.25rem;
+            padding: 0;
+
+            > span {
+                padding-left: 0.25rem;
+            }
+        }
+    }
+
+    // SideAction buttons are buttons next to other buttons in the DOM but layered on top. since they're on another button, we don't want them to look like buttons.
+    .LemonButtonWithSideAction__side-button {
+        button {
+            background: none !important;
+            border: none !important;
+
+            span {
+                background: none !important;
+                border: none !important;
+                padding: 0 !important;
+            }
+        }
+
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            .LemonButton__icon {
+                color: var(--default);
+            }
+        }
+    }
+
+    .Popover {
+        .LemonButton {
+            > span {
+                background: none !important;
+                border-color: transparent !important;
+            }
+        }
+    }
+}
