@@ -16,7 +16,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for BatchExports."""
     if not structlog.is_configured():
-        await configure_logger()
+        configure_logger()
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -24,7 +24,7 @@ async def bind_batch_exports_logger(team_id: int, destination: str | None = None
     return logger.new(team_id=team_id, destination=destination, **temporal_context)
 
 
-async def configure_logger(
+def configure_logger(
     logger_factory=structlog.PrintLoggerFactory,
     extra_processors: list[structlog.types.Processor] | None = None,
     queue: asyncio.Queue | None = None,

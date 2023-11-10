@@ -138,7 +138,7 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    tasks = await configure_logger(
+    tasks = configure_logger(
         extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
     )
     yield tasks
