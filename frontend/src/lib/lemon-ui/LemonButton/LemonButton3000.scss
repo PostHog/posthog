@@ -121,16 +121,18 @@
             color: var(--muted);
         }
 
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            > span {
-                top: -1.5px;
+        &.LemonButton--with-motion {
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                > span {
+                    top: -1.5px;
+                }
             }
-        }
 
-        &:not([aria-disabled='true']):active {
-            > span {
-                top: -0.5px;
+            &:not([aria-disabled='true']):active {
+                > span {
+                    top: -0.5px;
+                }
             }
         }
 
