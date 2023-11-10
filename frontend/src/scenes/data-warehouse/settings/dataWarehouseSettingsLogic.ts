@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { ExternalDataStripeSource, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
+import { streamModalLogic } from './streamModalLogic'
 
 export interface DataWarehouseSource {}
 
@@ -14,6 +15,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
         loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+    }),
+    connect({
+        values: [streamModalLogic, ['isStreamModalVisible']],
+        actions: [streamModalLogic, ['toggleStreamModal']],
     }),
     loaders({
         dataWarehouseSources: [

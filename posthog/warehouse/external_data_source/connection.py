@@ -1,9 +1,11 @@
 from pydantic import BaseModel
 from posthog.warehouse.external_data_source.client import send_request
+from posthog.warehouse.models import ExternalDataSource
 import structlog
 
 AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
+AIRBYTE_STREAMS_URL = "https://api.airbyte.com/v1/streams"
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +39,17 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
     )
 
 
+def get_active_connection_streams_by_id(connection_id: str):
+    connection_streams = get_connection_by_id(connection_id)["configurations"]["streams"]
+    return connection_streams
+
+
+def get_connection_by_id(connection_id: str):
+    connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
+    response = send_request(connection_id_url, method="GET")
+    return response
+
+
 def update_connection_stream(connection_id: str):
     connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
 
@@ -52,6 +65,22 @@ def update_connection_stream(connection_id: str):
 
 def delete_connection(connection_id: str) -> None:
     send_request(AIRBYTE_CONNECTION_URL + "/" + connection_id, method="DELETE")
+
+
+def get_connection_streams_by_external_data_source(external_data_source: ExternalDataSource):
+    return get_connection_streams_by_ids(external_data_source.source_id, external_data_source.destination_id)
+
+
+def get_connection_streams_by_ids(source_id: str, destination_id: str):
+    streams_url = f"{AIRBYTE_STREAMS_URL}"
+
+    params = {
+        "destinationId": destination_id,
+        "sourceId": source_id,
+    }
+    response = send_request(streams_url, method="GET", params=params)
+
+    return response["streams"]
 
 
 # Fire and forget

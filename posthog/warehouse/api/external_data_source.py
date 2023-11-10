@@ -8,7 +8,12 @@ from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.external_data_source.workspace import get_or_create_workspace
 from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
-from posthog.warehouse.external_data_source.connection import create_connection, start_sync
+from posthog.warehouse.external_data_source.connection import (
+    create_connection,
+    start_sync,
+    get_connection_streams_by_external_data_source,
+    get_active_connection_streams_by_id,
+)
 from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
 from posthog.warehouse.sync_resource import sync_resource
 from posthog.api.routing import StructuredViewSetMixin
@@ -27,8 +32,18 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "source_id", "created_at", "created_by", "status", "client_secret", "account_id", "source_type"]
-        read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type"]
+        fields = [
+            "id",
+            "source_id",
+            "destination_id",
+            "created_at",
+            "created_by",
+            "status",
+            "client_secret",
+            "account_id",
+            "source_type",
+        ]
+        read_only_fields = ["id", "source_id", "destination_id", "created_by", "created_at", "status", "source_type"]
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -116,3 +131,16 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         sync_resource(instance.id)
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True)
+    def streams(self):
+        instance = self.get_object()
+        available_streams_for_connection = get_connection_streams_by_external_data_source(instance)
+        current_connection_streams = get_active_connection_streams_by_id(instance.connection_id)
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "available_streams_for_connection": available_streams_for_connection,
+                "current_connection_streams": current_connection_streams,
+            },
+        )
