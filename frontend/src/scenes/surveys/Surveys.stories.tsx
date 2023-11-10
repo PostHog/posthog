@@ -3,7 +3,14 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    FeatureFlagBasicType,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -103,26 +110,6 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     archived: false,
 }
 
-// const MOCK_SURVEY_DISMISSED = {
-//     "clickhouse": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
-//     "columns": [
-//         "survey dismissed"
-//     ],
-//     "hogql": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(event, 'survey dismissed'), equals(properties.$survey_id, '0188e637-3b72-0000-f407-07a338652af9')) LIMIT 100",
-//     "query": "select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '0188e637-3b72-0000-f407-07a338652af9'",
-//     "results": [
-//         [
-//             0
-//         ]
-//     ],
-//     "types": [
-//         [
-//             "survey dismissed",
-//             "UInt64"
-//         ]
-//     ]
-// }
-
 const MOCK_SURVEY_SHOWN = {
     clickhouse:
         "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
@@ -170,13 +157,21 @@ const meta: Meta = {
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag]),
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
-                    if ((req.body as any).kind == 'EventsQuery') {
-                        return MOCK_SURVEY_RESULTS
+                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                    const body = await req.json()
+                    if (body.kind == 'EventsQuery') {
+                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                    } else {
+                        return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
-                    return MOCK_SURVEY_SHOWN
                 },
             },
         }),

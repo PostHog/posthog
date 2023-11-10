@@ -134,7 +134,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         actions.reportSurveyViewed(survey)
                         return survey
                     } catch (error: any) {
-                        actions.setSurveyMissing()
+                        if (error.status === 404) {
+                            actions.setSurveyMissing()
+                            return { ...NEW_SURVEY }
+                        }
                         throw error
                     }
                 }
