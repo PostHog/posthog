@@ -20,8 +20,8 @@ const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null 
 }
 
 const ActionInput = (): JSX.Element => {
-    const { input, searchQuery, activeFlow } = useValues(actionBarLogic)
-    const { setInput, setSearchQuery } = useActions(actionBarLogic)
+    const { input, activeFlow } = useValues(actionBarLogic)
+    const { setInput } = useActions(actionBarLogic)
 
     return (
         <div className="border-b">

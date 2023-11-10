@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from 'react'
-import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+import { useActions } from 'kea'
 
 import { actionBarLogic } from './actionBarLogic'
 import { getNameFromActionScope } from './utils'
@@ -7,43 +7,14 @@ import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
 type SearchResultProps = {
     result: CommandResultDisplayable
-    resultIndex: number
     focused: boolean
-    keyboardFocused: boolean
 }
 
-const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    // const { scrolling } = useValues(actionBarLogic)
-    const {
-        // onMouseEnterResult,
-        // onMouseLeaveResult,
-
-        // setScrolling,
-        executeResult,
-    } = useActions(actionBarLogic)
+const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
+    const { executeResult } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
     const isExecutable = !!result.executor
-
-    // useLayoutEffect(() => {
-    //     if (keyboardFocused) {
-    //         // :HACKY: This uses the non-standard scrollIntoViewIfNeeded api
-    //         // to improve scroll behaviour. Change to scrollIntoView({ scrollMode: 'if-needed' })
-    //         // once available.
-    //         if ((ref.current as any)?.scrollIntoViewIfNeeded) {
-    //             ;(ref.current as any).scrollIntoViewIfNeeded(false)
-    //         } else {
-    //             ref.current?.scrollIntoView()
-    //         }
-
-    //         // set scrolling state to prevent mouse enter/leave events during
-    //         // keyboard navigation
-    //         setScrolling(true)
-    //         setTimeout(() => {
-    //             setScrolling(false)
-    //         }, 50)
-    //     }
-    // }, [keyboardFocused])
 
     return (
         <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
@@ -51,18 +22,6 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 className={`w-full pl-3 pr-2 ${
                     focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
                 } border-b cursor-pointer`}
-                // onMouseEnter={() => {
-                //     if (scrolling) {
-                //         return
-                //     }
-                //     onMouseEnterResult(resultIndex)
-                // }}
-                // onMouseLeave={() => {
-                //     if (scrolling) {
-                //         return
-                //     }
-                //     onMouseLeaveResult()
-                // }}
                 onClick={() => {
                     if (isExecutable) {
                         executeResult(result)

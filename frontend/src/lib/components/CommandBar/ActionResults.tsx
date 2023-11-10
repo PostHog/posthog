@@ -1,11 +1,9 @@
 import { useValues } from 'kea'
 
-import { Command, CommandResult, CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
-import { DetectiveHog } from '../hedgehogs'
+import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
 import { actionBarLogic } from './actionBarLogic'
 import ActionResult from './ActionResult'
-import { ResultsGroup } from 'lib/components/CommandPalette/CommandResults'
 import { getNameFromActionScope } from 'lib/components/CommandBar/utils'
 
 type ResultsGroupProps = {
@@ -22,7 +20,6 @@ const ResultsGroup = ({ scope, results, activeResultIndex }: ResultsGroupProps):
                 <ActionResult
                     key={`command_result_${result.index}`}
                     result={result}
-                    resultIndex={result.index}
                     focused={result.index === activeResultIndex}
                 />
             ))}

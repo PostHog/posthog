@@ -262,11 +262,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 activeFlow: CommandFlow | null,
                 isSqueak: boolean
             ) => {
-                console.group('commandSearchResults')
-                console.debug('isPaletteShown', isPaletteShown)
-                console.debug('activeFlow', activeFlow)
-                console.debug('argument', argument)
-                console.groupEnd()
                 if (!isPaletteShown || isSqueak) {
                     return []
                 }
