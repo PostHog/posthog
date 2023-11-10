@@ -19,8 +19,9 @@ async def bind_batch_exports_logger(team_id: int, destination: str | None = None
         await configure_logger()
 
     logger = structlog.get_logger()
+    temporal_context = get_temporal_context()
 
-    return logger.new(team_id=team_id, destination=destination)
+    return logger.new(team_id=team_id, destination=destination, **temporal_context)
 
 
 async def configure_logger(
@@ -53,7 +54,6 @@ async def configure_logger(
         structlog.processors.format_exc_info,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
         structlog.stdlib.PositionalArgumentsFormatter(),
-        add_batch_export_context,
         put_in_queue,
         EventRenamer("msg"),
         structlog.processors.JSONRenderer(),
@@ -124,19 +124,20 @@ class PutInBatchExportsLogQueueProcessor:
         return event_dict
 
 
-def add_batch_export_context(logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict):
-    """A StructLog processor to populate event dict with batch export context variables.
+def get_temporal_context() -> dict[str, str | int]:
+    """Return batch export context variables from Temporal.
 
-    More specifically, the batch export context variables are coming from Temporal:
-    * workflow_run_id: The ID of the Temporal Workflow Execution running the batch export.
-    * workflow_id: The ID of the Temporal Workflow running the batch export.
+    More specifically, the batch export context variables coming from Temporal are:
     * attempt: The current attempt number of the Temporal Workflow.
-    * log_source_id: The batch export ID.
     * log_source: Either "batch_exports" or "batch_exports_backfill".
+    * log_source_id: The batch export ID.
+    * workflow_id: The ID of the Temporal Workflow running the batch export.
+    * workflow_run_id: The ID of the Temporal Workflow Execution running the batch export.
+    * workflow_type: The name of the Temporal Workflow.
 
     We attempt to fetch the context from the activity information, and then from the workflow
-    information. If both are undefined, nothing is populated. When running this processor in
-    an activity or a workflow, at least one will be defined.
+    information. If both are undefined, an empty dict is returned. When running this in
+    an activity or a workflow, at least one context will be defined.
     """
     activity_info = attempt_to_fetch_activity_info()
     workflow_info = attempt_to_fetch_workflow_info()
@@ -144,7 +145,7 @@ def add_batch_export_context(logger: logging.Logger, method_name: str, event_dic
     info = activity_info or workflow_info
 
     if info is None:
-        return event_dict
+        return {}
 
     workflow_id, workflow_type, workflow_run_id, attempt = info
 
@@ -159,14 +160,14 @@ def add_batch_export_context(logger: logging.Logger, method_name: str, event_dic
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "batch_exports"
 
-    event_dict["workflow_id"] = workflow_id
-    event_dict["workflow_type"] = workflow_type
-    event_dict["log_source_id"] = log_source_id
-    event_dict["log_source"] = log_source
-    event_dict["workflow_run_id"] = workflow_run_id
-    event_dict["attempt"] = attempt
-
-    return event_dict
+    return {
+        "attempt": attempt,
+        "log_source": log_source,
+        "log_source_id": log_source_id,
+        "workflow_id": workflow_id,
+        "workflow_run_id": workflow_run_id,
+        "workflow_type": workflow_type,
+    }
 
 
 Info = tuple[str, str, str, int]
