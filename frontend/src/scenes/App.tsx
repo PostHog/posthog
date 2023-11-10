@@ -5,7 +5,6 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { appLogicType } from './AppType'
-import { models } from '~/models'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
@@ -67,8 +66,6 @@ export const appLogic = kea<appLogicType>([
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    const { user } = useValues(userLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
@@ -83,7 +80,6 @@ export function App(): JSX.Element | null {
     if (showApp) {
         return (
             <>
-                {user && currentTeamId ? <Models /> : null}
                 <LoadedSceneLogics />
                 <AppScene />
             </>
@@ -112,12 +108,6 @@ function LoadedSceneLogics(): JSX.Element {
                 ))}
         </>
     )
-}
-
-/** Loads every logic in the "src/models" folder */
-function Models(): null {
-    useMountedLogic(models)
-    return null
 }
 
 function AppScene(): JSX.Element | null {
