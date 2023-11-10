@@ -1,5 +1,5 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount, afterMount } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType, ExporterFormat } from '~/types'
@@ -114,10 +114,12 @@ export const cohortsModel = kea<cohortsModelType>([
     beforeUnmount(({ values }) => {
         clearTimeout(values.pollTimeout || undefined)
     }),
-    permanentlyMount(({ actions, values }) => {
+
+    afterMount(({ actions, values }) => {
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
             actions.loadCohorts()
         }
     }),
+    permanentlyMount(),
 ])
