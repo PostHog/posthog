@@ -35,6 +35,9 @@
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
         cursor: not-allowed;
+        > span {
+            cursor: not-allowed;
+        }
         opacity: var(--opacity-disabled);
     }
 
@@ -54,7 +57,10 @@
     }
 
     &.LemonButton--centered {
-        justify-content: center;
+        > span {
+            justify-content: center !important; // important is just a specifity problem. Can be removed post 3000 cleanup
+        }
+
         .LemonButton__content {
             flex: initial;
             text-align: center;
@@ -106,7 +112,7 @@
     }
 
     &.LemonButton--no-padding {
-        min-height: 0 !important;
+        min-height: 0 !important; // important is just a specifity problem. Can be removed post 3000 cleanup
         height: auto;
         width: auto;
         padding: 0;
