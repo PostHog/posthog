@@ -1,5 +1,5 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
@@ -322,9 +322,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
     })),
-    permanentlyMount(({ actions }) => {
+    afterMount(({ actions }) => {
         actions.loadDashboards()
     }),
+    permanentlyMount(),
 ])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
