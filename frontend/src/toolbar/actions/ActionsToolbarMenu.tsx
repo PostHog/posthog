@@ -25,8 +25,8 @@ const ListMenuHeader = (): JSX.Element => {
                 placeholder="Search"
                 type={'search'}
                 value={searchTerm}
-                rounded={'top'}
                 onChange={(s) => setSearchTerm(s)}
+                className={'Toolbar3000__top_input'}
             />
         </>
     )
