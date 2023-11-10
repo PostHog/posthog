@@ -1203,7 +1203,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics"
   FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."key" = 'copied-flag-key'
+  WHERE (NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."key" = 'copied-flag-key'
          AND "posthog_featureflag"."team_id" = 2)
   ORDER BY "posthog_featureflag"."id" ASC
   LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/

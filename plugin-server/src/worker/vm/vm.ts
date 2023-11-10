@@ -183,6 +183,7 @@ export function createPluginConfigVM(
                 exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents'), 'exportEvents'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
+                composeWebhook: __bindMeta('composeWebhook'),
                 getSettings: __bindMeta('getSettings'),
             };
 
