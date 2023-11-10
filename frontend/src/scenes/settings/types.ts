@@ -1,5 +1,15 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
+export type SettingsLogicProps = {
+    logicKey?: string
+    // Optional - if given, renders only the given level
+    settingLevelId?: SettingLevelId
+    // Optional - if given, renders only the given section
+    sectionId?: SettingSectionId
+    // Optional - if given, renders only the given setting
+    settingId?: SettingId
+}
+
 export type SettingLevelId = 'user' | 'project' | 'organization'
 export const SettingLevelIds: SettingLevelId[] = ['project', 'organization', 'user']
 

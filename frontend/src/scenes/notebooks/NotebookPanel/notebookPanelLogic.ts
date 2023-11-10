@@ -4,24 +4,29 @@ import { HTMLProps } from 'react'
 import { EditorFocusPosition } from '../Notebook/utils'
 
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
-import { NotebookNodeResource } from '~/types'
-import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { NotebookNodeResource, SidePanelTab } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
     connect({
         values: [
-            sidePanelLogic,
+            sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
             featureFlagLogic,
             ['featureFlags'],
             notebookPopoverLogic,
             ['popoverVisibility'],
         ],
-        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel'], notebookPopoverLogic, ['setPopoverVisibility']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel'],
+            notebookPopoverLogic,
+            ['setPopoverVisibility'],
+        ],
     }),
     actions({
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),

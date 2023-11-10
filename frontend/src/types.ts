@@ -3355,3 +3355,11 @@ export enum AppMetricsTab {
     HistoricalExports = 'historical_exports',
     History = 'history',
 }
+
+export enum SidePanelTab {
+    Notebooks = 'notebook',
+    Feedback = 'feedback',
+    Docs = 'docs',
+    Activation = 'activation',
+    Settings = 'settings',
+}

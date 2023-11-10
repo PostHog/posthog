@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
-import { SidePanelTab, sidePanelLogic } from './sidePanelLogic'
+import { sidePanelLogic } from './sidePanelLogic'
 import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
@@ -12,6 +12,8 @@ import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelTab } from '~/types'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -43,8 +45,9 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 }
 
 export function SidePanel(): JSX.Element | null {
-    const { selectedTab, sidePanelOpen, enabledTabs } = useValues(sidePanelLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelLogic)
+    const { enabledTabs } = useValues(sidePanelLogic)
+    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
