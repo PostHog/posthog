@@ -15,38 +15,33 @@ export enum DashboardsTabs {
 }
 ```
 
-2. Update the url in `frontend/src/scenes/urls.ts` to handle tabs:
+2. Update the URL in `frontend/src/scenes/urls.ts` to handle tabs:
 
 ```ts title="frontend/src/scenes/urls.ts"
-dashboards: (tab?: DashboardsTabs): string => `/dashboards/${tab ? tab : DashboardsTabs.First}`
+dashboards: (tab: DashboardsTabs = DashboardsTabs.First): string => `/dashboards/${tab}`
 ```
 
 3. Add entries to routes per tab in `frontend/src/scenes/scenes.ts`:
 
 ```ts title="frontend/src/scenes/scenes.ts"
      // One entry for every available tab
-    ...Object.values(DashboardsTabs).reduce((acc, tab) => {
-        acc[urls.dashboards(tab)] = Scene.Dashboards
-        return acc
-    }, {} as Record<string, Scene>),
+    ...Object.fromEntries(
+        Object.values(DashboardsTabs).map((tab) => [urls.dashboards(tab), Scene.Dashboards])
+    ) as Record<string, Scene>,
 ```
 
 4. Update `dashboardsLogic` to handle tab changes in `frontend/src/scenes/dashboards/dashboardsLogic.ts`:
 
 ```ts title="frontend/src/scenes/dashboards/dashboardsLogic.ts"
 import { kea, reducers, path, actions, selectors } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
 
 import { Breadcrumb, DashboardsTabs } from '~/types'
-import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
-export const humanFriendlyTabName = (tab: DashboardsTabs): string => {
-    switch (tab) {
-        case DashboardsTabs.First:
-            return 'First Tab'
-        case DashboardsTabs.Second:
-            return 'Second Tab'
-    }
+export const DASHBOARDS_TAB_TO_NAME: Record<DashboardsTabs, string> = {
+    [DashboardsTabs.First]: 'First',
+    [DashboardsTabs.Second]: 'Second',
 }
 
 export const dashboardsLogic = kea([
@@ -63,12 +58,13 @@ export const dashboardsLogic = kea([
         ],
     }),
     selectors(() => ({
-        breadcrumbs: [  // Optional if you'd like the breadcrumbs to show the current tab
+        breadcrumbs: [
+            // Optional if you'd like the breadcrumbs to show the current tab
             (s) => [s.currentTab],
             (tab): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = [{ name: 'Dashboards' }]
                 breadcrumbs.push({
-                    name: humanFriendlyTabName(tab),
+                    name: DASHBOARDS_TAB_TO_NAME[tab],
                 })
 
                 return breadcrumbs
@@ -93,37 +89,41 @@ export const dashboardsLogic = kea([
 5. Update `frontend/src/scenes/dashboards/Dashboards.tsx` to render the tabs:
 
 ```tsx title="frontend/src/scenes/dashboards/Dashboards.tsx"
-import { dashboardsLogic, humanFriendlyTabName } from './dashboardsLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
+import { DashboardsTabs } from '~/types'
+import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { DashboardsTabs } from '~/types'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { dashboardsLogic, humanFriendlyTabName } from './dashboardsLogic'
+
+const DASHBOARDS_TAB_TO_CONTENT: Record<DashboardsTabs, JSX.Element> = {
+    [DashboardsTabs.First]: <div>First tab content</div>,
+    [DashboardsTabs.Second]: <div>Second tab content</div>,
+}
 
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
 }
-export function Dashboards (): JSX.Element {
+
+export function Dashboards(): JSX.Element {
     const { currentTab } = useValues(dashboardsLogic)
 
     return (
-        <div className='dashboard-scene'>
+        <div>
             <PageHeader title="Dashboards" />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.dashboards(tab as DashboardsTabs))}
                 tabs={Object.values(DashboardsTabs).map((tab) => ({
-                    label: humanFriendlyTabName(tab),
+                    label: DASHBOARDS_TAB_TO_NAME[tab],
                     key: tab,
+                    content: DASHBOARDS_TAB_TO_CONTENT[tab],
                 }))}
             />
-            {currentTab === DashboardsTabs.First && <div>First tab content</div>}
-            {currentTab === DashboardsTabs.Second && <div>Second tab content</div>}
         </div>
     )
 }
 ```
-
