@@ -7,7 +7,6 @@ import { actionBarLogic } from './actionBarLogic'
 import ActionResult from './ActionResult'
 import { ResultsGroup } from 'lib/components/CommandPalette/CommandResults'
 import { getNameFromActionScope } from 'lib/components/CommandBar/utils'
-import { useEventListener } from 'lib/hooks/useEventListener'
 
 type ResultsGroupProps = {
     scope: string

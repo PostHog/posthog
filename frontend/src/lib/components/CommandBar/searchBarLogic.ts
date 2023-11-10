@@ -8,12 +8,12 @@ import { InsightShortId } from '~/types'
 import { commandBarLogic } from './commandBarLogic'
 
 import type { searchBarLogicType } from './searchBarLogicType'
-import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
+import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
-        actions: [commandBarLogic, ['hideCommandBar']],
+        actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar']],
     }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -110,6 +110,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             } else if (event.key === 'ArrowUp') {
                 event.preventDefault()
                 actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+            } else if (event.key === 'Escape') {
+                actions.hideCommandBar()
+            } else if (event.key === '>') {
+                if (values.searchQuery.length === 0) {
+                    event.preventDefault()
+                    actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                }
             }
         }
         window.addEventListener('keydown', cache.onKeyDown)

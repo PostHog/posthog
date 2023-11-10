@@ -8,7 +8,7 @@ import { InsightShortId } from '~/types'
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import { commandBarLogic } from './commandBarLogic'
 
-import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
+import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
 import type { actionBarLogicType } from './actionBarLogicType'
 
@@ -17,9 +17,9 @@ export const actionBarLogic = kea<actionBarLogicType>([
     connect({
         actions: [
             commandBarLogic,
-            ['hideCommandBar'],
+            ['hideCommandBar', 'setCommandBar'],
             commandPaletteLogic,
-            ['showPalette', 'hidePalette', 'setInput', 'executeResult', 'onArrowUp', 'onArrowDown'],
+            ['showPalette', 'hidePalette', 'setInput', 'executeResult', 'backFlow', 'onArrowUp', 'onArrowDown'],
         ],
         values: [
             commandPaletteLogic,
@@ -30,7 +30,6 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 'commandSearchResults',
                 'commandSearchResultsGrouped',
                 'activeFlow',
-                'isSqueak',
             ],
         ],
     }),
@@ -113,6 +112,24 @@ export const actionBarLogic = kea<actionBarLogicType>([
             } else if (event.key === 'ArrowUp') {
                 event.preventDefault()
                 actions.onArrowUp()
+            } else if (event.key === 'Escape') {
+                event.preventDefault()
+                // Return to previous flow
+                if (values.activeFlow) {
+                    actions.backFlow()
+                }
+                // If no flow, erase input
+                else if (values.input) {
+                    actions.setInput('')
+                }
+                // Lastly hide palette
+                else {
+                    actions.hidePalette()
+                }
+            } else if (event.key === 'Backspace') {
+                if (values.input.length === 0) {
+                    actions.setCommandBar(BarStatus.SHOW_SEARCH)
+                }
             }
         }
         window.addEventListener('keydown', cache.onKeyDown)
