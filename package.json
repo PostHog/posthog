@@ -303,8 +303,7 @@
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "ruff format",
             "ruff check"
-        ],
-        "!(HogQL*)*.{c,cpp,h,hpp}": "clang-format -i"
+        ]
     },
     "browserslist": {
         "development": [
