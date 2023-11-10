@@ -5,9 +5,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
-import { SettingsLogicProps } from 'scenes/settings/types'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+import { SettingsLogicProps } from 'scenes/settings/settingsLogic'
 
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
