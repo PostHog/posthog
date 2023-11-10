@@ -15,7 +15,7 @@ from posthog.warehouse.external_data_source.connection import (
     get_active_connection_streams_by_id,
 )
 from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
-from posthog.warehouse.sync_resource import sync_resource
+from posthog.tasks.warehouse import sync_resource
 from posthog.api.routing import StructuredViewSetMixin
 from rest_framework.decorators import action
 
