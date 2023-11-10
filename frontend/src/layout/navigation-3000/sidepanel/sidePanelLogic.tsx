@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { SidePanelTab } from '~/types'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -15,14 +16,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [
-                s.featureFlags,
-                s.isCloudOrDev,
-                // TODO: This is disabled for now until we can solve the circular dependency problem
-                activationLogic.selectors.isReady,
-                activationLogic.selectors.hasCompletedAllTasks,
-            ],
-            (featureFlags, isCloudOrDev, activationIsReady, activationHasCompletedAllTasks) => {
+            (s) => [s.featureFlags, s.isCloudOrDev],
+            (featureFlags, isCloudOrDev) => {
                 const tabs: SidePanelTab[] = []
 
                 if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
@@ -38,12 +33,43 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
 
                 tabs.push(SidePanelTab.Settings)
-
-                if (activationIsReady && !activationHasCompletedAllTasks) {
-                    tabs.push(SidePanelTab.Activation)
-                }
+                tabs.push(SidePanelTab.Activation)
 
                 return tabs
+            },
+        ],
+
+        visibleTabs: [
+            (s) => [
+                s.enabledTabs,
+                sidePanelStateLogic.selectors.selectedTab,
+                sidePanelStateLogic.selectors.sidePanelOpen,
+                activationLogic.selectors.isReady,
+                activationLogic.selectors.hasCompletedAllTasks,
+            ],
+            (
+                enabledTabs,
+                selectedTab,
+                sidePanelOpen,
+                activationIsReady,
+                activationHasCompletedAllTasks
+            ): SidePanelTab[] => {
+                return enabledTabs.filter((tab: any) => {
+                    if (tab === selectedTab && sidePanelOpen) {
+                        return true
+                    }
+
+                    // Hide certain tabs unless they are selected
+                    if ([SidePanelTab.Settings].includes(tab)) {
+                        return false
+                    }
+
+                    if (tab === SidePanelTab.Activation && (!activationIsReady || activationHasCompletedAllTasks)) {
+                        return false
+                    }
+
+                    return true
+                })
             },
         ],
     }),
