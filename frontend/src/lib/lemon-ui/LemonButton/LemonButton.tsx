@@ -65,8 +65,6 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
-    /** Decides if the button should move on hover or interaction */
-    motion?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -89,7 +87,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 loading,
                 type = 'tertiary',
                 status = 'primary',
-                motion = true,
                 icon,
                 sideIcon,
                 fullWidth,
@@ -174,7 +171,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
-                        motion && 'LemonButton--with-motion',
+                        type != 'tertiary' && 'LemonButton--with-motion',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}

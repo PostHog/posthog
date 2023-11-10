@@ -95,7 +95,6 @@ export function SidePanel(): JSX.Element | null {
                                 }
                                 data-attr={`sidepanel-tab-${tab}`}
                                 active={activeTab === tab}
-                                motion={false}
                             >
                                 {label}
                             </LemonButton>
