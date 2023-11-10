@@ -23,7 +23,15 @@ export const actionBarLogic = kea<actionBarLogicType>([
         ],
         values: [
             commandPaletteLogic,
-            ['commandRegistrations', 'commandSearchResults', 'commandSearchResultsGrouped', 'activeFlow'],
+            [
+                'input',
+                'activeResultIndex',
+                'commandRegistrations',
+                'commandSearchResults',
+                'commandSearchResultsGrouped',
+                'activeFlow',
+                'isSqueak',
+            ],
         ],
     }),
     actions({
@@ -118,7 +126,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.setSearchQuery('')
+        // actions.setSearchQuery('')
         actions.showPalette()
     }),
     beforeUnmount(({ actions }) => {

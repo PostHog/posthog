@@ -21,9 +21,11 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
         // onMouseLeaveResult,
         openResult,
         // setScrolling,
+        executeResult,
     } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
+    const isExecutable = !!result.executor
 
     // useLayoutEffect(() => {
     //     if (keyboardFocused) {
@@ -46,32 +48,38 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
     // }, [keyboardFocused])
 
     return (
-        <div
-            className={`w-full pl-3 pr-2 ${
-                focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
-            } border-b cursor-pointer`}
-            // onMouseEnter={() => {
-            //     if (scrolling) {
-            //         return
-            //     }
-            //     onMouseEnterResult(resultIndex)
-            // }}
-            // onMouseLeave={() => {
-            //     if (scrolling) {
-            //         return
-            //     }
-            //     onMouseLeaveResult()
-            // }}
-            onClick={() => {
-                openResult(resultIndex)
-            }}
-            ref={ref}
-        >
-            <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                {result.source.scope && (
-                    <span className="text-muted-3000 text-xs">{getNameFromActionScope(result.source.scope)}</span>
-                )}
-                <span className="text-text-3000">{result.display}</span>
+        <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
+            <div
+                className={`w-full pl-3 pr-2 ${
+                    focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
+                } border-b cursor-pointer`}
+                // onMouseEnter={() => {
+                //     if (scrolling) {
+                //         return
+                //     }
+                //     onMouseEnterResult(resultIndex)
+                // }}
+                // onMouseLeave={() => {
+                //     if (scrolling) {
+                //         return
+                //     }
+                //     onMouseLeaveResult()
+                // }}
+                onClick={() => {
+                    // openResult(resultIndex)
+                    console.debug('click', result)
+                    if (isExecutable) {
+                        executeResult(result)
+                    }
+                }}
+                ref={ref}
+            >
+                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+                    {result.source.scope && (
+                        <span className="text-muted-3000 text-xs">{getNameFromActionScope(result.source.scope)}</span>
+                    )}
+                    <span className="text-text-3000">{result.display}</span>
+                </div>
             </div>
         </div>
     )
