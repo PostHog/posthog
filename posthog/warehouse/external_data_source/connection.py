@@ -58,6 +58,7 @@ def update_connection_stream(connection_id: str):
         "configurations": {"streams": [{"name": "customers", "syncMode": "full_refresh_overwrite"}]},
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
         "namespaceFormat": None,
+        "prefix": "stripe_",
     }
 
     send_request(connection_id_url, method="PATCH", payload=payload)
