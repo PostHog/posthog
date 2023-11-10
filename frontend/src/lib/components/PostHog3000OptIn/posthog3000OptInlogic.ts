@@ -38,12 +38,15 @@ export const posthog3000OptInlogic = kea<posthog3000OptInlogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(() => ({
         optIn: () => {
             posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.POSTHOG_3000, true)
         },
         optOut: () => {
             posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.POSTHOG_3000, false)
+
+            // TODO: Swap this out for `posthog.startSurvey()` once it's available
+            document.body.classList.add('posthog-3000-opt-out')
         },
     })),
 ])
