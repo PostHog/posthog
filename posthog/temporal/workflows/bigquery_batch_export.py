@@ -165,7 +165,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
             with BatchExportTemporaryFile() as jsonl_file:
 
-                async def flush_to_bigquery():
+                def flush_to_bigquery():
                     logger.debug(
                         "Loading %s records of size %s bytes",
                         jsonl_file.records_since_last_reset,
@@ -186,11 +186,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_bigquery()
+                        flush_to_bigquery()
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    await flush_to_bigquery()
+                    flush_to_bigquery()
 
 
 @workflow.defn(name="bigquery-export")
