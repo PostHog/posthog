@@ -3154,18 +3154,27 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface ExternalDataStripeSourceCreatePayload {
+export interface ExternalDataSourceCreatePayload {
     account_id: string
     client_secret: string
 }
 
-export interface ExternalDataStripeSource {
+export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
     destination_id: string
     status: string
     source_type: string
+    stream_count: number
+}
+
+export interface ExternalDataSourceStream {
+    streamName: string
+}
+export interface ExternalDataSourceStreamOptions {
+    available_streams_for_connection: ExternalDataSourceStream[]
+    current_connection_streams: ExternalDataSourceStream[]
 }
 
 export type BatchExportDestinationS3 = {

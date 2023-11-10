@@ -1,140 +1,40 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
 import type { streamModalLogicType } from './streamModalLogicType'
-import { ExternalDataStripeSource } from '~/types'
-
-const TEST_DATA = [
-    {
-        streamName: 'test',
-        streamId: '1',
-        selected: true,
-    },
-    {
-        streamName: 'test2',
-        streamId: '2',
-        selected: false,
-    },
-    {
-        streamName: 'test3',
-        streamId: '3',
-        selected: false,
-    },
-    {
-        streamName: 'test4',
-        streamId: '4',
-        selected: false,
-    },
-    {
-        streamName: 'test5',
-        streamId: '5',
-        selected: false,
-    },
-    {
-        streamName: 'test6',
-        streamId: '6',
-        selected: false,
-    },
-    {
-        streamName: 'test7',
-        streamId: '7',
-        selected: false,
-    },
-    {
-        streamName: 'test8',
-        streamId: '8',
-        selected: false,
-    },
-    {
-        streamName: 'test9',
-        streamId: '9',
-        selected: false,
-    },
-    {
-        streamName: 'test10',
-        streamId: '10',
-        selected: false,
-    },
-    {
-        streamName: 'test11',
-        streamId: '11',
-        selected: false,
-    },
-    {
-        streamName: 'test12',
-        streamId: '12',
-        selected: false,
-    },
-    {
-        streamName: 'test13',
-        streamId: '13',
-        selected: false,
-    },
-    {
-        streamName: 'test14',
-        streamId: '14',
-        selected: false,
-    },
-    {
-        streamName: 'test15',
-        streamId: '15',
-        selected: false,
-    },
-    {
-        streamName: 'test16',
-        streamId: '16',
-        selected: false,
-    },
-    {
-        streamName: 'test17',
-        streamId: '17',
-        selected: false,
-    },
-    {
-        streamName: 'test18',
-        streamId: '18',
-        selected: false,
-    },
-    {
-        streamName: 'test19',
-        streamId: '19',
-        selected: false,
-    },
-    {
-        streamName: 'test20',
-        streamId: '20',
-        selected: false,
-    },
-    {
-        streamName: 'test21',
-        streamId: '21',
-        selected: false,
-    },
-    {
-        streamName: 'test22',
-        streamId: '22',
-        selected: false,
-    },
-    {
-        streamName: 'test23',
-        streamId: '23',
-        selected: false,
-    },
-    {
-        streamName: 'test24',
-        streamId: '24',
-        selected: false,
-    },
-]
+import { ExternalDataSource, ExternalDataSourceStreamOptions } from '~/types'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 export const streamModalLogic = kea<streamModalLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'streamModalLogic']),
     actions({
-        toggleStreamModal: (visible: boolean, selectedSource?: ExternalDataStripeSource) => ({
+        toggleStreamModal: (visible: boolean, selectedSource?: ExternalDataSource) => ({
             visible,
             selectedSource: selectedSource || null,
         }),
         toggleStream: (streamId: string) => ({ streamId }),
+        loadStreamOptions: (sourceId: string) => ({ sourceId }),
     }),
+    loaders(({ values }) => ({
+        streamOptions: [
+            {
+                available_streams_for_connection: [],
+                current_connection_streams: [],
+            } as ExternalDataSourceStreamOptions,
+            {
+                loadStreamOptions: async ({ sourceId }) => {
+                    if (values.selectedStream) {
+                        return await api.externalDataSources.streams.list(sourceId)
+                    } else {
+                        return {
+                            available_streams_for_connection: [],
+                            current_connection_streams: [],
+                        }
+                    }
+                },
+            },
+        ],
+    })),
     reducers({
         isStreamModalVisible: [
             false,
@@ -143,13 +43,34 @@ export const streamModalLogic = kea<streamModalLogicType>([
             },
         ],
         selectedStream: [
-            null as ExternalDataStripeSource | null,
+            null as ExternalDataSource | null,
             {
                 toggleStreamModal: (_, { selectedSource }) => selectedSource,
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        toggleStreamModal: ({ visible, selectedSource }) => {
+            if (visible && selectedSource) {
+                actions.loadStreamOptions(selectedSource.id)
+            }
+        },
+    })),
     selectors({
-        streamOptions: [() => [], () => TEST_DATA],
+        formattedStreamOptions: [
+            (s) => [s.streamOptions],
+            (streamOptions) => {
+                return [
+                    ...streamOptions.current_connection_streams.map((stream) => ({
+                        streamName: stream.streamName,
+                        selected: true,
+                    })),
+                    ...streamOptions.available_streams_for_connection.map((stream) => ({
+                        streamName: stream.streamName,
+                        selected: false,
+                    })),
+                ]
+            },
+        ],
     }),
 ])

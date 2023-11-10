@@ -52,8 +52,9 @@ import {
     BatchExportRun,
     UserBasicType,
     NotebookNodeResource,
-    ExternalDataStripeSourceCreatePayload,
-    ExternalDataStripeSource,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSource,
+    ExternalDataSourceStreamOptions,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -589,7 +590,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
-    public externalDataSource(sourceId: ExternalDataStripeSource['id'], teamId?: TeamType['id']): ApiRequest {
+    public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
@@ -1614,19 +1615,22 @@ const api = {
     },
 
     externalDataSources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+        async list(): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get()
         },
-        async create(
-            data: Partial<ExternalDataStripeSourceCreatePayload>
-        ): Promise<ExternalDataStripeSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSource>): Promise<ExternalDataSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
-        async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async delete(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).delete()
         },
-        async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+        streams: {
+            async list(sourceId: ExternalDataSource['id']): Promise<ExternalDataSourceStreamOptions> {
+                return await new ApiRequest().externalDataSource(sourceId).withAction('streams').get()
+            },
         },
     },
 

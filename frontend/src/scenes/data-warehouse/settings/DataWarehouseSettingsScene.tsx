@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { IconEdit } from 'lib/lemon-ui/icons'
 import StreamModal from './StreamModal'
+import { pluralize } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -23,7 +24,7 @@ const StatusTagSetting = {
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById, isStreamModalVisible } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource, toggleStreamModal } = useActions(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
@@ -89,7 +90,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         render: function RenderStreams(_, source) {
                             return (
                                 <div className="flex flex-row gap-1">
-                                    2 streams selected
+                                    {pluralize(source.stream_count, 'stream')} selected
                                     <LemonButton
                                         size="small"
                                         icon={<IconEdit />}
@@ -149,7 +150,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                 ]}
             />
             <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
-            <StreamModal isOpen={true} onClose={() => toggleStreamModal(false)} />
+            <StreamModal isOpen={isStreamModalVisible} onClose={() => toggleStreamModal(false)} />
         </div>
     )
 }

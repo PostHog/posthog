@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { ExternalDataStripeSource, Breadcrumb } from '~/types'
+import { ExternalDataSource, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
 import { streamModalLogic } from './streamModalLogic'
 
@@ -12,9 +12,9 @@ export interface DataWarehouseSource {}
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
     actions({
-        deleteSource: (source: ExternalDataStripeSource) => ({ source }),
-        reloadSource: (source: ExternalDataStripeSource) => ({ source }),
-        loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
+        loadingFinished: (source: ExternalDataSource) => ({ source }),
     }),
     connect({
         values: [streamModalLogic, ['isStreamModalVisible']],
@@ -22,7 +22,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     }),
     loaders({
         dataWarehouseSources: [
-            null as PaginatedResponse<ExternalDataStripeSource> | null,
+            null as PaginatedResponse<ExternalDataSource> | null,
             {
                 loadSources: async () => {
                     return api.externalDataSources.list()

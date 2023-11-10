@@ -29,6 +29,7 @@ logger = structlog.get_logger(__name__)
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
+    stream_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ExternalDataSource
@@ -42,8 +43,21 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_secret",
             "account_id",
             "source_type",
+            "stream_count",
         ]
-        read_only_fields = ["id", "source_id", "destination_id", "created_by", "created_at", "status", "source_type"]
+        read_only_fields = [
+            "id",
+            "source_id",
+            "destination_id",
+            "created_by",
+            "created_at",
+            "status",
+            "source_type",
+            "stream_count",
+        ]
+
+    def get_stream_count(self, obj):
+        return len(get_active_connection_streams_by_id(obj.connection_id))
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -133,14 +147,16 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=True)
-    def streams(self):
+    def streams(self, *args: Any, **kwargs: Any):
         instance = self.get_object()
         available_streams_for_connection = get_connection_streams_by_external_data_source(instance)
         current_connection_streams = get_active_connection_streams_by_id(instance.connection_id)
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "available_streams_for_connection": available_streams_for_connection,
-                "current_connection_streams": current_connection_streams,
+                "available_streams_for_connection": [
+                    {"streamName": stream["streamName"]} for stream in available_streams_for_connection
+                ],
+                "current_connection_streams": [{"streamName": stream["name"]} for stream in current_connection_streams],
             },
         )

@@ -2,7 +2,7 @@ import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea
 
 import type { sourceModalLogicType } from './sourceModalLogicType'
 import { forms } from 'kea-forms'
-import { ExternalDataStripeSourceCreatePayload } from '~/types'
+import { ExternalDataSourceCreatePayload } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
@@ -79,14 +79,14 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     forms(() => ({
         externalDataSource: {
-            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeSourceCreatePayload,
+            defaults: { account_id: '', client_secret: '' } as ExternalDataSourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
                     client_secret: !client_secret && 'Please enter a client secret.',
                 }
             },
-            submit: async (payload: ExternalDataStripeSourceCreatePayload) => {
+            submit: async (payload: ExternalDataSourceCreatePayload) => {
                 const newResource = await api.externalDataSources.create(payload)
                 return newResource
             },

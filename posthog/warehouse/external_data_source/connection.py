@@ -80,7 +80,7 @@ def get_connection_streams_by_ids(source_id: str, destination_id: str):
     }
     response = send_request(streams_url, method="GET", params=params)
 
-    return response["streams"]
+    return response
 
 
 # Fire and forget
