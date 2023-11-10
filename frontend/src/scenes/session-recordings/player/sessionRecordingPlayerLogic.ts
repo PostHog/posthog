@@ -44,7 +44,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
-import { subscriptions } from 'kea-subscriptions'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -105,7 +104,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
-                'snapshotsInvalid',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -331,13 +329,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
-    })),
-    subscriptions(({ actions }) => ({
-        snapshotsInvalid: (value) => {
-            if (value) {
-                actions.setErrorPlayerState(true)
-            }
-        },
     })),
     selectors({
         // Prop references for use by other logics
