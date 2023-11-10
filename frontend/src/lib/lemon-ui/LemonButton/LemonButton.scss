@@ -189,7 +189,7 @@
             }
 
             &:not([aria-disabled='true']):active {
-                border-color: var(--primary-dark);
+                border-color: var(--primary-3000-active);
             }
         }
     }
@@ -203,9 +203,9 @@
                 background: var(--#{$status}-highlight, var(--primary-highlight));
             }
             &:not([aria-disabled='true']):active {
-                color: var(--#{$status}-dark, var(--primary-dark));
+                color: var(--#{$status}-dark, var(--primary-3000-active));
                 .LemonButton__icon {
-                    color: var(--#{$status}-dark, var(--primary-dark));
+                    color: var(--#{$status}-dark, var(--primary-3000-active));
                 }
             }
 

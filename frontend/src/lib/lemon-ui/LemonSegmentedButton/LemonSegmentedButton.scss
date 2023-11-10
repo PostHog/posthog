@@ -63,10 +63,10 @@
     }
     &:not(.LemonSegmentedButton__option--disabled):not(.LemonSegmentedButton__option--selected) {
         &:hover .LemonButton {
-            outline-color: var(--primary);
+            outline-color: var(--primary-3000-hover);
         }
         &:active .LemonButton {
-            outline-color: var(--primary-dark);
+            outline-color: var(--primary-3000-active);
         }
     }
     &.LemonSegmentedButton__option--selected {

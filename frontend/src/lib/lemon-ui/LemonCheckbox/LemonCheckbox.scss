@@ -67,7 +67,7 @@
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--primary-dark);
+        --box-color: var(--primary-3000-active);
     }
 
     &.LemonCheckbox--full-width label {
