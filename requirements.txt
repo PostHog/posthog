@@ -147,6 +147,7 @@ django==3.2.19
     #   django-revproxy
     #   django-structlog
     #   django-two-factor-auth
+    #   django-vite
     #   djangorestframework
     #   djangorestframework-dataclasses
     #   drf-spectacular
@@ -187,6 +188,8 @@ django-statsd==2.5.2
 django-structlog==2.1.3
     # via -r requirements.in
 django-two-factor-auth==1.14.0
+    # via -r requirements.in
+django-vite==2.1.3
     # via -r requirements.in
 djangorestframework==3.14.0
     # via

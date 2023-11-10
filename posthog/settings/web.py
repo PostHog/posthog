@@ -47,6 +47,7 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
+    "django_vite",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -140,7 +141,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
+        "DIRS": ["frontend/src", "posthog/templates", "posthog/year_in_posthog"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -227,10 +228,14 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
+DJANGO_VITE_ASSETS_PATH = os.path.join(BASE_DIR, "frontend/dist")
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "frontend/dist"),
+    DJANGO_VITE_ASSETS_PATH,
     os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
+# DJANGO_VITE_DEV_SERVER_PORT = 3000
+DJANGO_VITE_DEV_MODE = DEBUG
+
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"

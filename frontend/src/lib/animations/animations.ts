@@ -1,6 +1,6 @@
-import laptophog from './laptophog.lottie'
-import musichog from './musichog.lottie'
-import sportshog from './sportshog.lottie'
+// import laptophog from './laptophog.lottie'
+// import musichog from './musichog.lottie'
+// import sportshog from './sportshog.lottie'
 
 /**
  * We're keeping lottiefiles in this folder.
@@ -18,9 +18,9 @@ export enum AnimationType {
 }
 
 export const animations: Record<AnimationType, { url: string; width: number; height: number }> = {
-    laptophog: { url: laptophog, width: 800, height: 800 },
-    musichog: { url: musichog, width: 800, height: 800 },
-    sportshog: { url: sportshog, width: 800, height: 800 },
+    laptophog: { url: 'laptophog', width: 800, height: 800 },
+    musichog: { url: 'musichog', width: 800, height: 800 },
+    sportshog: { url: 'sportshog', width: 800, height: 800 },
 }
 
 const animationCache: Record<string, Record<string, any>> = {}

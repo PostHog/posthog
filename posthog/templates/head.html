@@ -1,3 +1,4 @@
+{% load django_vite %}
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
@@ -15,7 +16,6 @@
 <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
-
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
         window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
@@ -45,3 +45,14 @@
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
 </script>
+
+<script type="module">
+  import RefreshRuntime from 'http://localhost:3000/@react-refresh'
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+</script>
+
+{% vite_hmr_client %}
+{% vite_asset 'index.tsx' %}
