@@ -24,6 +24,8 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    ROWS_EXPORTED,
+    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -425,6 +427,22 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
+
+                async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
+                    logger.info(
+                        "Uploading %spart %s containing %s records with size %s bytes to S3",
+                        "last " if last else "",
+                        s3_upload.part_number + 1,
+                        local_results_file.records_since_last_reset,
+                        local_results_file.bytes_since_last_reset,
+                    )
+
+                    await s3_upload.upload_part(local_results_file)
+                    ROWS_EXPORTED.labels(destination="s3").inc(local_results_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="s3").inc(local_results_file.bytes_since_last_reset)
+
+                    activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+
                 for result in results_iterator:
                     record = {
                         "created_at": result["created_at"],
@@ -442,32 +460,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.write_records_to_jsonl([record])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Uploading part %s containing %s records with size %s bytes to S3",
-                            s3_upload.part_number + 1,
-                            local_results_file.records_since_last_reset,
-                            local_results_file.bytes_since_last_reset,
-                        )
-
-                        await s3_upload.upload_part(local_results_file)
-
                         last_uploaded_part_timestamp = result["inserted_at"]
-                        activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
-
+                        await flush_to_s3(last_uploaded_part_timestamp)
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    logger.info(
-                        "Uploading last part %s containing %s records with size %s bytes to S3",
-                        s3_upload.part_number + 1,
-                        local_results_file.records_since_last_reset,
-                        local_results_file.bytes_since_last_reset,
-                    )
-
-                    await s3_upload.upload_part(local_results_file)
-
                     last_uploaded_part_timestamp = result["inserted_at"]
-                    activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+                    await flush_to_s3(last_uploaded_part_timestamp, last=True)
 
             await s3_upload.complete()
 

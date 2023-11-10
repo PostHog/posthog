@@ -47,7 +47,9 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
         return (pluginCapabilities.jobs || []).length > 0
     }
     if (serverCapability === 'processAsyncOnEventHandlers') {
-        return pluginCapabilities.methods?.some((method) => ['onEvent', 'exportEvents'].includes(method))
+        return pluginCapabilities.methods?.some((method) =>
+            ['onEvent', 'exportEvents', 'composeWebhook'].includes(method)
+        )
     }
 
     return false

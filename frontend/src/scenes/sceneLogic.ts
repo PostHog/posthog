@@ -253,7 +253,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/onboarding') &&
                         !location.pathname.startsWith('/products') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !location.pathname.startsWith('/settings')
                     ) {
                         if (
                             featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===

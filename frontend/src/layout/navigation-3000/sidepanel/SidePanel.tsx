@@ -6,10 +6,12 @@ import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
+import { IconNotebook, IconQuestion, IconInfo, IconGear } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
+import { SidePanelSettings } from './panels/SidePanelSettings'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -26,6 +28,17 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
+    },
+
+    [SidePanelTab.Activation]: {
+        label: 'Quick start',
+        Icon: SidePanelActivationIcon,
+        Content: SidePanelActivation,
+    },
+    [SidePanelTab.Settings]: {
+        label: 'Settings',
+        Icon: IconGear,
+        Content: SidePanelSettings,
     },
 }
 

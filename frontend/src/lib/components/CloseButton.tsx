@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import { CloseOutlined } from '@ant-design/icons'
 
 // TODO: Remove, but de-ant PropertyFilterButton and SelectGradientOverflow first

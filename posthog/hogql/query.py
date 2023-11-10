@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import HogQLException
@@ -143,16 +144,27 @@ def execute_hogql_query(
             timings=timings_dict,
         )
 
-        results, types = sync_execute(
-            clickhouse_sql,
-            clickhouse_context.values,
-            with_column_types=True,
-            workload=workload,
-            team_id=team.pk,
-            readonly=True,
-        )
+        error = None
+        try:
+            results, types = sync_execute(
+                clickhouse_sql,
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=workload,
+                team_id=team.pk,
+                readonly=True,
+            )
+        except Exception as e:
+            if explain:
+                results, types = None, None
+                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                    error = str(e)
+                else:
+                    error = "Unknown error"
+            else:
+                raise e
 
-    if explain:
+    if explain and error is None:  # If the query errored, explain will fail as well.
         with timings.measure("explain"):
             explain_results = sync_execute(
                 f"EXPLAIN {clickhouse_sql}",
@@ -170,6 +182,7 @@ def execute_hogql_query(
         query=query,
         hogql=hogql,
         clickhouse=clickhouse_sql,
+        error=error,
         timings=timings.to_list(),
         results=results,
         columns=print_columns,

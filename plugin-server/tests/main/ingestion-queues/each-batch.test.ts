@@ -14,6 +14,7 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
+    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
@@ -173,8 +174,8 @@ describe('eachBatchX', () => {
         })
         it('parses elements when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 33 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -193,8 +194,8 @@ describe('eachBatchX', () => {
         })
         it('skips elements parsing when not useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 100 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
