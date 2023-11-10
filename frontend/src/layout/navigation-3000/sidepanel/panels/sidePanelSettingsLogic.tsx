@@ -1,18 +1,19 @@
 import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { SidePanelTab, sidePanelLogic } from '../sidePanelLogic'
-import { SettingsLogicProps } from 'scenes/settings/settingsLogic'
+import { Settings } from 'scenes/settings/Settings'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from '@posthog/lemon-ui'
-import { Settings } from 'scenes/settings/Settings'
 
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
+import { SettingsLogicProps } from 'scenes/settings/types'
+import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
 
     actions({
