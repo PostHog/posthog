@@ -27,7 +27,7 @@
     }
 
     &:focus:not(:disabled) {
-        border: 1px solid var(--primary);
+        border: 1px solid var(--primary-3000);
     }
 
     .Field--error & {

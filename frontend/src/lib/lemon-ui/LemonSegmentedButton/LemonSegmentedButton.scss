@@ -27,7 +27,7 @@
     height: calc(100% + 2px); // 1px of border (top + bottom)
     width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
     transform: translateX(var(--lemon-segmented-button-slider-offset));
-    background: var(--primary);
+    background: var(--primary-3000);
     &.LemonSegmentedButton__slider--first {
         border-top-left-radius: var(--radius);
         border-bottom-left-radius: var(--radius);

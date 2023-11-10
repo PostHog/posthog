@@ -65,11 +65,11 @@
     transition: background-color 200ms ease, border 200ms ease;
 
     &--active {
-        border-left-color: var(--primary);
+        border-left-color: var(--primary-3000);
     }
 
     &:hover {
-        background-color: var(--primary-highlight);
+        background-color: var(--primary-3000-highlight);
     }
 
     .SessionRecordingPreview__property-icon:hover {

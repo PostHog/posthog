@@ -13,7 +13,7 @@
 
     label {
         --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
-        --box-color: var(--primary);
+        --box-color: var(--primary-3000);
         display: flex;
         align-items: center;
         cursor: pointer;

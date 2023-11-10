@@ -9,8 +9,8 @@
     z-index: 3;
     background: var(--bg-light);
     &--highlighted {
-        border-color: var(--primary);
-        outline: 1px solid var(--primary);
+        border-color: var(--primary-3000);
+        outline: 1px solid var(--primary-3000);
     }
     .ant-alert {
         margin: 1rem;
@@ -145,7 +145,7 @@
             width: 1rem;
             border-radius: 0.25rem;
             margin-right: 0.25rem;
-            background: var(--primary);
+            background: var(--primary-3000);
             color: var(--bg-light);
             line-height: 1rem;
             font-size: 0.625rem;

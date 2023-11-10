@@ -11,7 +11,7 @@
     align-items: center;
 
     .edit-icon {
-        color: var(--primary);
+        color: var(--primary-3000);
         cursor: pointer;
         font-size: 1rem;
     }
@@ -20,7 +20,7 @@
         &.editable {
             cursor: pointer;
             .EntityFilterInfo {
-                color: var(--primary);
+                color: var(--primary-3000);
                 font-weight: 500;
             }
         }

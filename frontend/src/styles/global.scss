@@ -390,7 +390,7 @@ input::-ms-clear {
         cursor: pointer;
 
         div:nth-child(1) {
-            background: var(--primary);
+            background: var(--primary-3000);
         }
 
         div:nth-child(2) {
@@ -560,6 +560,7 @@ body {
     --muted-3000: var(--muted);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary);
+    --primary-3000-highlight: var(--primary-highlight);
     --primary-3000-hover: var(--primary-light);
     --primary-3000-active: var(--primary-dark);
     --secondary-3000: var(--secondary);
@@ -578,6 +579,7 @@ body {
         --muted-3000: var(--muted-3000-light);
         --trace-3000: var(--trace-3000-light);
         --primary-3000: var(--primary-3000-light);
+        --primary-3000-highlight: var(--primary-3000-highlight-light);
         --primary-3000-hover: var(--primary-3000-hover-light);
         --primary-3000-active: var(--primary-3000-active-light);
         --secondary-3000: var(--secondary-3000-light);
@@ -596,6 +598,7 @@ body {
         --muted-3000: var(--muted-3000-dark);
         --trace-3000: var(--trace-3000-dark);
         --primary-3000: var(--primary-3000-dark);
+        --primary-3000-highlight: var(--primary-3000-highlight-dark);
         --primary-3000-hover: var(--primary-3000-hover-dark);
         --primary-3000-active: var(--primary-3000-active-dark);
         --secondary-3000: var(--secondary-3000-dark);

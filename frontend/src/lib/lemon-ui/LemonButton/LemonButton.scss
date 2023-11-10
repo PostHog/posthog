@@ -185,7 +185,7 @@
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background: var(--primary-highlight);
-                border-color: var(--primary);
+                border-color: var(--primary-3000);
             }
 
             &:not([aria-disabled='true']):active {

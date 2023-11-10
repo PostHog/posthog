@@ -96,8 +96,8 @@
 
     .LemonSwitch--checked & {
         transform: translateX(1rem);
-        background-color: var(--primary);
-        border-color: var(--primary);
+        background-color: var(--primary-3000);
+        border-color: var(--primary-3000);
     }
     .LemonSwitch--active & {
         transform: scale(1.1);

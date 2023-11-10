@@ -23,7 +23,7 @@
         &:not(.ant-select-disabled):active {
             .ant-select-selector {
                 background: var(--bg-light);
-                border-color: var(--primary);
+                border-color: var(--primary-3000);
                 box-shadow: none;
             }
         }
@@ -66,7 +66,7 @@
     background: var(--bg-light);
     padding: 0.5rem;
     border-radius: var(--radius);
-    border: 1px solid var(--primary);
+    border: 1px solid var(--primary-3000);
     margin: -4px 0px; // Counteract antd wrapper
 
     .ant-select-item {

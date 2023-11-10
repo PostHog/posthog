@@ -114,6 +114,7 @@ $colors: (
     'muted-3000-light': rgba(#111, 0.5),
     'trace-3000-light': rgba(#111, 0.25),
     'primary-3000-light': #f54e01,
+    'primary-3000-highlight-light': rgba(#f54e01, 0.1),
     'primary-3000-hover-light': #f54e01,
     'primary-3000-active-light': #f54e01,
     'secondary-3000-light': rgba(#cfd1c2, 0.6),
@@ -128,6 +129,7 @@ $colors: (
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': #f7a503,
+    'primary-3000-highlight-dark': rgba(#f7a503, 0.1),
     'primary-3000-hover-dark': #f7a503,
     'primary-3000-active-dark': #f7a503,
     'secondary-3000-dark': #3b4159,
@@ -227,7 +229,7 @@ $_lifecycle_dormant: $_danger;
 
     // Funnels
     // TODO: unify with lib/colors.ts, getGraphColors()
-    --funnel-default: var(--primary);
+    --funnel-default: var(--primary-3000);
     --funnel-background: var(--border-light);
     --funnel-axis: var(--border);
     --funnel-grid: #ddd;
@@ -240,7 +242,7 @@ $_lifecycle_dormant: $_danger;
     --recording-seekbar-red: var(--brand-red);
     --recording-hover-event: var(--primary-bg-hover);
     --recording-hover-event-mid: var(--primary-bg-active);
-    --recording-hover-event-dark: var(--primary);
+    --recording-hover-event-dark: var(--primary-3000);
     --recording-current-event: #eef2ff;
     --recording-current-event-dark: var(--primary-alt);
     --recording-failure-event: #fee9e2;
@@ -278,7 +280,7 @@ $_lifecycle_dormant: $_danger;
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary);
+    --toastify-color-info: var(--primary-3000);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);

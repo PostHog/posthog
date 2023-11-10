@@ -20,7 +20,7 @@
         border-color: var(--primary-3000-hover);
     }
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
     }
 
     &.LemonInput--transparent-background {
@@ -66,7 +66,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 
