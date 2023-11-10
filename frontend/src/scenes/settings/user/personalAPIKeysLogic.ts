@@ -1,5 +1,5 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, listeners, events } from 'kea'
+import { kea, path, listeners } from 'kea'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
@@ -36,8 +36,5 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: [actions.loadKeys],
     })),
 ])

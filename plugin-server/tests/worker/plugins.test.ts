@@ -81,6 +81,7 @@ describe('plugins', () => {
         expect(pluginConfig.vm).toBeDefined()
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
+            'composeWebhook',
             'exportEvents',
             'getSettings',
             'onEvent',

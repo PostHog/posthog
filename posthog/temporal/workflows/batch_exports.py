@@ -14,6 +14,7 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
+from prometheus_client import Counter
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -45,6 +46,15 @@ SELECT_QUERY_TEMPLATE = Template(
     $order_by
     $format
     """
+)
+
+ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
+BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
+EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
+EXPORT_FINISHED = Counter(
+    "batch_export_finished",
+    "Number of batch exports finished, for any reason (including failure).",
+    labelnames=("destination", "status"),
 )
 
 
@@ -246,7 +256,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
             msg = (
                 "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+                "In the latter case, ensure '{Type}BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 
@@ -260,7 +270,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
         else:
             msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
                 f"of type '{type(data_interval_end_search_attr[0])}'."
             )
             raise TypeError(msg)
@@ -670,8 +680,8 @@ class CreateBatchExportBackfillInputs:
 async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
     """Activity that creates an BatchExportBackfill.
 
-    Intended to be used in all export workflows, usually at the start, to create a model
-    instance to represent them in our database.
+    Intended to be used in all batch export backfill workflows, usually at the start, to create a
+    model instance to represent them in our database.
     """
     logger = get_batch_exports_logger(inputs=inputs)
     logger.info(f"Creating BatchExportBackfill model instance in team {inputs.team_id}.")
@@ -735,6 +745,7 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     logger = get_batch_exports_logger(inputs=inputs)
+    destination = workflow.info().workflow_type.lower()
 
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
@@ -743,6 +754,7 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
     try:
+        EXPORT_STARTED.labels(destination=destination).inc()
         await workflow.execute_activity(
             activity,
             inputs,
@@ -773,6 +785,7 @@ async def execute_batch_export_insert_activity(
         )
 
     finally:
+        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

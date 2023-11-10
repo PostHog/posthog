@@ -13,7 +13,7 @@ class QueryAlternator:
     _group_bys: List[ast.Expr]
     _select_from: ast.JoinExpr | None
 
-    def __init__(self, query: ast.SelectQuery):
+    def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
         assert isinstance(query, ast.SelectQuery)
 
         self._query = query
@@ -21,7 +21,7 @@ class QueryAlternator:
         self._group_bys = []
         self._select_from = None
 
-    def build(self) -> ast.SelectQuery:
+    def build(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if len(self._selects) > 0:
             self._query.select.extend(self._selects)
 
@@ -89,7 +89,7 @@ class AggregationOperations:
             else:
                 raise NotImplementedError()
 
-        return parse_expr("count(e.uuid)")
+        return parse_expr("count(e.uuid)")  # All "count per actor" get replaced during query orchestration
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [

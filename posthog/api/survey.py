@@ -432,7 +432,7 @@ def nh3_clean_with_allow_list(to_clean: str):
             "*": {"style", "lang", "title", "width", "height"},
             # below are mostly defaults to ammonia, but we need to add them explicitly
             # because this python binding doesn't allow additive allowing
-            "a": {"href", "hreflang"},
+            "a": {"href", "hreflang", "target"},
             "bdo": {"dir"},
             "blockquote": {"cite"},
             "col": {"align", "char", "charoff", "span"},

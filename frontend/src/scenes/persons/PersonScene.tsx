@@ -1,4 +1,4 @@
-import { Dropdown, Menu, Tag } from 'antd'
+import { Dropdown, Menu } from 'antd'
 // eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -19,7 +19,7 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -76,10 +76,10 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                         }
                         trigger={['click']}
                     >
-                        <Tag className="extra-ids">
-                            +{person.distinct_ids.length - 1}
+                        <LemonTag className="extra-ids space-x-1">
+                            <div>+{person.distinct_ids.length - 1}</div>
                             <DownOutlined />
-                        </Tag>
+                        </LemonTag>
                     </Dropdown>
                 )}
             </div>
