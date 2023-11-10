@@ -61,8 +61,8 @@ const LOADER_SELECTORS = [
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
-const JEST_TIMEOUT_MS = 10000
-const PLAYWRIGHT_TIMEOUT_MS = 5000 // Must be shorter than JEST_TIMEOUT_MS
+const JEST_TIMEOUT_MS = 15000
+const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
 module.exports = {
     setup() {
