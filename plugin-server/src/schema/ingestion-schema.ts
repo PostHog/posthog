@@ -17,7 +17,7 @@ export interface SummarizedSessionRecordingEvent {
     /**
      * @nullable
      * */
-    first_url: string | undefined
+    first_url: string | undefined | null
     /**
      * @asType integer
      * */
@@ -50,4 +50,12 @@ export interface SummarizedSessionRecordingEvent {
      * @asType integer
      * */
     size: number
+    /**
+     * @asType integer
+     * */
+    event_count: number
+    /**
+     * @asType integer
+     * */
+    message_count: number
 }
