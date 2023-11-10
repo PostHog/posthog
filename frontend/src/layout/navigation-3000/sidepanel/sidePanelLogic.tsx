@@ -11,7 +11,14 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['isCloudOrDev']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['isCloudOrDev'],
+            activationLogic,
+            ['isReady', 'hasCompletedAllTasks'],
+        ],
     }),
 
     selectors({
@@ -44,16 +51,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.enabledTabs,
                 sidePanelStateLogic.selectors.selectedTab,
                 sidePanelStateLogic.selectors.sidePanelOpen,
-                activationLogic.selectors.isReady,
-                activationLogic.selectors.hasCompletedAllTasks,
+                s.isReady,
+                s.hasCompletedAllTasks,
             ],
-            (
-                enabledTabs,
-                selectedTab,
-                sidePanelOpen,
-                activationIsReady,
-                activationHasCompletedAllTasks
-            ): SidePanelTab[] => {
+            (enabledTabs, selectedTab, sidePanelOpen, isReady, hasCompletedAllTasks): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -64,7 +65,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return false
                     }
 
-                    if (tab === SidePanelTab.Activation && (!activationIsReady || activationHasCompletedAllTasks)) {
+                    if (tab === SidePanelTab.Activation && (!isReady || hasCompletedAllTasks)) {
                         return false
                     }
 
