@@ -94,26 +94,29 @@ export const searchBarLogic = kea<searchBarLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // load initial results
         actions.setSearchQuery('')
 
+        // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (!values.filterSearchResults) {
-                return
-            }
-
             if (event.key === 'Enter') {
+                // open result
                 event.preventDefault()
                 actions.openResult(values.activeResultIndex)
             } else if (event.key === 'ArrowDown') {
+                // navigate to next result
                 event.preventDefault()
                 actions.onArrowDown(values.activeResultIndex, values.maxIndex)
             } else if (event.key === 'ArrowUp') {
+                // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp(values.activeResultIndex, values.maxIndex)
             } else if (event.key === 'Escape') {
+                // hide command bar
                 actions.hideCommandBar()
             } else if (event.key === '>') {
                 if (values.searchQuery.length === 0) {
+                    // transition to actions when entering '>' with empty input
                     event.preventDefault()
                     actions.setCommandBar(BarStatus.SHOW_ACTIONS)
                 }
@@ -122,6 +125,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         window.addEventListener('keydown', cache.onKeyDown)
     }),
     beforeUnmount(({ cache }) => {
+        // unregister keyboard shortcuts
         window.removeEventListener('keydown', cache.onKeyDown)
     }),
 ])

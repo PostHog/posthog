@@ -25,12 +25,15 @@ export const commandBarLogic = kea<commandBarLogicType>([
         ],
     }),
     afterMount(({ actions, cache }) => {
+        // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
             if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
                 event.preventDefault()
                 if (event.shiftKey) {
+                    // cmd+shift+k opens actions
                     actions.toggleActionsBar()
                 } else {
+                    // cmd+k opens search
                     actions.toggleSearchBar()
                 }
             }
@@ -38,6 +41,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
         window.addEventListener('keydown', cache.onKeyDown)
     }),
     beforeUnmount(({ cache }) => {
+        // unregister keyboard shortcuts
         window.removeEventListener('keydown', cache.onKeyDown)
     }),
 ])
