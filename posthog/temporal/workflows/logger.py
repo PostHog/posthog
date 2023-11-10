@@ -12,6 +12,8 @@ from structlog.typing import FilteringBoundLogger
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
+BACKGROUND_LOGGER_TASKS = set()
+
 
 async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for BatchExports."""
@@ -30,7 +32,7 @@ def configure_logger(
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
     cache_logger_on_first_use: bool = True,
-) -> tuple:
+) -> None:
     """Configure a StructLog logger for batch exports.
 
     Configuring the logger involves:
@@ -65,7 +67,8 @@ def configure_logger(
         logger_factory=logger_factory(),
         cache_logger_on_first_use=cache_logger_on_first_use,
     )
-    listen_task = asyncio.create_task(
+
+    listen_task = create_logger_background_task(
         KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer).listen()
     )
 
@@ -82,9 +85,20 @@ def configure_logger(
 
         await asyncio.wait([listen_task])
 
-    worker_shutdown_handler_task = asyncio.create_task(worker_shutdown_handler())
+    create_logger_background_task(worker_shutdown_handler())
 
-    return (listen_task, worker_shutdown_handler_task)
+
+def create_logger_background_task(task) -> asyncio.Task:
+    """Create an asyncio.Task and add them to BACKGROUND_LOGGER_TASKS.
+
+    Adding them to BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they won't
+    be garbage collected and disappear mid execution.
+    """
+    new_task = asyncio.create_task(task)
+    BACKGROUND_LOGGER_TASKS.add(new_task)
+    new_task.add_done_callback(BACKGROUND_LOGGER_TASKS.discard)
+
+    return new_task
 
 
 class PutInBatchExportsLogQueueProcessor:

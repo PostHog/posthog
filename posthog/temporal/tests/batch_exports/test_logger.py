@@ -23,7 +23,7 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.workflows.logger import bind_batch_exports_logger, configure_logger
+from posthog.temporal.workflows.logger import BACKGROUND_LOGGER_TASKS, bind_batch_exports_logger, configure_logger
 
 pytestmark = pytest.mark.asyncio
 
@@ -138,16 +138,15 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    tasks = configure_logger(
-        extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
-    )
-    yield tasks
+    configure_logger(extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False)
 
-    for task in tasks:
+    yield
+
+    for task in BACKGROUND_LOGGER_TASKS:
         # Clean up logger tasks to avoid leaking/warnings.
         task.cancel()
 
-    await asyncio.wait(tasks)
+    await asyncio.wait(BACKGROUND_LOGGER_TASKS)
 
 
 async def test_batch_exports_logger_binds_context(log_capture):
