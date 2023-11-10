@@ -4,16 +4,23 @@ import { Form } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
 import { Field } from 'lib/forms/Field'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Element {
     const logic = batchExportsEditLogic(props)
     const { isNew, batchExportConfigForm, isBatchExportConfigFormSubmitting, batchExportConfigLoading } =
         useValues(logic)
     const { submitBatchExportConfigForm, cancelEditing } = useActions(logic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
 
     return (
         <>
@@ -49,12 +56,22 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         </>
                                     }
                                 >
-                                    <LemonSelect
-                                        options={[
-                                            { value: 'hour', label: 'Hourly' },
-                                            { value: 'day', label: 'Daily' },
-                                        ]}
-                                    />
+                                    {highFrequencyBatchExports ? (
+                                        <LemonSelect
+                                            options={[
+                                                { value: 'hour', label: 'Hourly' },
+                                                { value: 'day', label: 'Daily' },
+                                                { value: 'every 5 minutes', label: 'Every 5 minutes' },
+                                            ]}
+                                        />
+                                    ) : (
+                                        <LemonSelect
+                                            options={[
+                                                { value: 'hour', label: 'Hourly' },
+                                                { value: 'day', label: 'Daily' },
+                                            ]}
+                                        />
+                                    )}
                                 </Field>
                                 {/* <Field
                                     name="start_at"
@@ -130,9 +147,11 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                             <Field name="destination" label="Destination">
                                 <LemonSelect
                                     options={[
+                                        { value: 'BigQuery', label: 'BigQuery' },
+                                        { value: 'Postgres', label: 'PostgreSQL' },
+                                        { value: 'Redshift', label: 'Redshift' },
                                         { value: 'S3', label: 'S3' },
                                         { value: 'Snowflake', label: 'Snowflake' },
-                                        { value: 'Postgres', label: 'Postgres' },
                                     ]}
                                 />
                             </Field>
@@ -181,12 +200,36 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                     <Field name="prefix" label="Key prefix">
                                         <LemonInput placeholder="e.g. posthog-events/" />
                                     </Field>
+
+                                    <div className="flex gap-4">
+                                        <Field name="compression" label="Compression" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'gzip', label: 'gzip' },
+                                                    { value: 'brotli', label: 'brotli' },
+                                                    { value: null, label: 'No compression' },
+                                                ]}
+                                            />
+                                        </Field>
+
+                                        <Field name="encryption" label="Encryption" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'AES256', label: 'AES256' },
+                                                    { value: 'aws:kms', label: 'aws:kms' },
+                                                    { value: null, label: 'No encryption' },
+                                                ]}
+                                            />
+                                        </Field>
+                                    </div>
+
                                     <div className="flex gap-4">
                                         <Field name="aws_access_key_id" label="AWS Access Key ID" className="flex-1">
                                             <LemonInput
                                                 placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'leave unchanged'}
                                             />
                                         </Field>
+
                                         <Field
                                             name="aws_secret_access_key"
                                             label="AWS Secret Access Key"
@@ -197,7 +240,36 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 type="password"
                                             />
                                         </Field>
+
+                                        {batchExportConfigForm.encryption == 'aws:kms' && (
+                                            <Field name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
+                                                <LemonInput
+                                                    placeholder={
+                                                        isNew
+                                                            ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab'
+                                                            : 'leave unchanged'
+                                                    }
+                                                />
+                                            </Field>
+                                        )}
                                     </div>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
+                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Snowflake' ? (
                                 <>
@@ -231,6 +303,23 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="role" label="Role" showOptional>
                                         <LemonInput placeholder="my-role" />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
                                     </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Postgres' ? (
@@ -276,6 +365,111 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                     </Tooltip>
                                                 </span>
                                             }
+                                        />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
+                                    </Field>
+                                </>
+                            ) : batchExportConfigForm.destination === 'Redshift' ? (
+                                <>
+                                    <Field name="user" label="User">
+                                        <LemonInput placeholder="my-user" />
+                                    </Field>
+
+                                    <Field name="password" label="Password">
+                                        <LemonInput placeholder="my-password" type="password" />
+                                    </Field>
+
+                                    <Field name="host" label="Host">
+                                        <LemonInput placeholder="my-host" />
+                                    </Field>
+
+                                    <Field name="port" label="Port">
+                                        <LemonInput placeholder="5439" type="number" min="0" max="65535" />
+                                    </Field>
+
+                                    <Field name="database" label="Database">
+                                        <LemonInput placeholder="my-database" />
+                                    </Field>
+
+                                    <Field name="schema" label="Schema">
+                                        <LemonInput placeholder="public" />
+                                    </Field>
+
+                                    <Field name="table_name" label="Table name">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="properties_data_type" label="Properties data type">
+                                        <LemonSelect
+                                            options={[
+                                                { value: 'varchar', label: 'VARCHAR(65535)' },
+                                                { value: 'super', label: 'SUPER' },
+                                            ]}
+                                            value={'varchar'}
+                                        />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
+                                    </Field>
+                                </>
+                            ) : batchExportConfigForm.destination === 'BigQuery' ? (
+                                <>
+                                    <Field name="json_config_file" label="Google Cloud JSON key file">
+                                        <LemonFileInput accept=".json" multiple={false} />
+                                    </Field>
+
+                                    <Field name="table_id" label="Table ID">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="dataset_id" label="Dataset ID">
+                                        <LemonInput placeholder="dataset" />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
                                         />
                                     </Field>
                                 </>

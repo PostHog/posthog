@@ -18,17 +18,16 @@ export enum RestrictionScope {
     Project = 'project',
 }
 
-export interface RestrictedAreaProps {
-    Component: (props: RestrictedComponentProps) => JSX.Element
+export interface UseRestrictedAreaProps {
     minimumAccessLevel: EitherMembershipLevel
     scope?: RestrictionScope
 }
 
-export function RestrictedArea({
-    Component,
-    minimumAccessLevel,
-    scope = RestrictionScope.Organization,
-}: RestrictedAreaProps): JSX.Element {
+export interface RestrictedAreaProps extends UseRestrictedAreaProps {
+    Component: (props: RestrictedComponentProps) => JSX.Element
+}
+
+export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAreaProps): null | string {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -58,6 +57,16 @@ export function RestrictedArea({
         }
         return null
     }, [currentOrganization])
+
+    return restrictionReason
+}
+
+export function RestrictedArea({
+    Component,
+    minimumAccessLevel,
+    scope = RestrictionScope.Organization,
+}: RestrictedAreaProps): JSX.Element {
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel, scope })
 
     return restrictionReason ? (
         <Tooltip title={restrictionReason} placement="topLeft" delayMs={0}>

@@ -25,17 +25,20 @@ describe('PersonState.update()', () => {
     let uuid2: UUIDT
     let teamId: number
     let poEEmbraceJoin: boolean
+    let organizationId: string
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+
+        organizationId = await createOrganization(hub.db.postgres)
     })
 
     beforeEach(async () => {
         poEEmbraceJoin = false
         uuid = new UUIDT()
         uuid2 = new UUIDT()
-        const organizationId = await createOrganization(hub.db.postgres)
+
         teamId = await createTeam(hub.db.postgres, organizationId)
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -103,6 +106,8 @@ describe('PersonState.update()', () => {
                 event: '$pageview',
                 distinct_id: 'new-user',
                 uuid: event_uuid,
+                // `null_byte` validates that `sanitizeJsonbValue` is working as expected
+                properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
             await hub.db.kafkaProducer.flush()
 
@@ -110,7 +115,7 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: { $creator_event_uuid: event_uuid },
+                    properties: { $creator_event_uuid: event_uuid, null_byte: '\uFFFD' },
                     created_at: timestamp,
                     version: 0,
                     is_identified: false,
@@ -241,16 +246,24 @@ describe('PersonState.update()', () => {
 
     describe('on person update', () => {
         it('updates person properties', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, uuid.toString(), [
-                'new-user',
-            ])
+            await hub.db.createPerson(
+                timestamp,
+                { b: 3, c: 4, toString: {} },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['new-user']
+            )
 
             const person = await personState({
                 event: '$pageview',
                 distinct_id: 'new-user',
                 properties: {
                     $set_once: { c: 3, e: 4 },
-                    $set: { b: 4 },
+                    $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             }).updateProperties()
             await hub.db.kafkaProducer.flush()
@@ -259,7 +272,8 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: { b: 4, c: 4, e: 4 },
+                    // `null_byte` validates that `sanitizeJsonbValue` is working as expected
+                    properties: { b: 4, c: 4, e: 4, toString: 1, null_byte: '\uFFFD' },
                     created_at: timestamp,
                     version: 1,
                     is_identified: false,
@@ -1078,10 +1092,11 @@ describe('PersonState.update()', () => {
             hub.statsd = { increment: jest.fn() } as any
         })
 
-        it('stops $identify if current distinct_id is illegal', async () => {
+        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
+        it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
-                distinct_id: '[object Object]',
+                distinct_id: illegalId,
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                 },
@@ -1092,16 +1107,16 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: '[object Object]',
+                distinctId: illegalId,
             })
         })
 
-        it('stops $identify if $anon_distinct_id is illegal', async () => {
+        it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
                 distinct_id: 'some_distinct_id',
                 properties: {
-                    $anon_distinct_id: 'undefined',
+                    $anon_distinct_id: illegalId,
                 },
             }).handleIdentifyOrAlias()
 
@@ -1110,7 +1125,7 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: 'undefined',
+                distinctId: illegalId,
             })
         })
 

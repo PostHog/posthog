@@ -1,141 +1,121 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { onboardingLogic } from './onboardingLogic'
-import { billingProductLogic } from 'scenes/billing/billingProductLogic'
-import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
-import { BillingProductV2Type } from '~/types'
-import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
-import { IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
+import { SDKs } from './sdks/SDKs'
+import { ProductKey } from '~/types'
+import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
+import { OnboardingBillingStep } from './OnboardingBillingStep'
+import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
+import { OnboardingVerificationStep } from './OnboardingVerificationStep'
+import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
     logic: onboardingLogic,
 }
 
-const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product }))
-    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product }))
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
+/**
+ * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
+ */
+const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
+    const { setAllOnboardingSteps } = useActions(onboardingLogic)
+    const { product } = useValues(onboardingLogic)
+    const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
-    const pricingBenefits = [
-        'Only pay for what you use',
-        'Control spend with billing limits as low as $0/mo',
-        'Generous free volume every month, forever',
-    ]
+    useEffect(() => {
+        createAllSteps()
+    }, [children])
 
-    const productWebsiteKey = product.type.replace('_', '-')
-    const communityUrl = 'https://posthog.com/questions/topic/' + productWebsiteKey
-    const tutorialsUrl = 'https://posthog.com/tutorials/categories/' + productWebsiteKey
-    const productPageUrl = 'https://posthog.com/' + productWebsiteKey
-    const productImageUrl = `https://posthog.com/images/product/${productWebsiteKey}-product.png`
+    useEffect(() => {
+        if (!allSteps.length) {
+            return
+        }
+        setAllOnboardingSteps(allSteps)
+    }, [allSteps])
 
+    if (!product || !children) {
+        return <></>
+    }
+
+    const createAllSteps = (): void => {
+        let steps = []
+        if (Array.isArray(children)) {
+            steps = [...children]
+        } else {
+            steps = [children as JSX.Element]
+        }
+        if (shouldShowBillingStep) {
+            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
+            steps = [...steps, BillingStep]
+        }
+        if (shouldShowOtherProductsStep) {
+            const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
+            steps = [...steps, OtherProductsStep]
+        }
+        setAllSteps(steps)
+    }
+
+    return (currentOnboardingStep as JSX.Element) || <></>
+}
+
+const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
-        <div className="w-full">
-            <div className="flex flex-col w-full p-6 bg-mid items-center justify-center">
-                <div className="max-w-lg flex flex-wrap my-8 items-center">
-                    <div className="w-1/2 pr-6 min-w-80">
-                        <h1 className="text-5xl font-bold">{product.name}</h1>
-                        <h2 className="font-bold mb-6">{product.description}</h2>
-                        <div className="flex gap-x-2">
-                            <LemonButton type="primary">Get started</LemonButton>
-                            {product.docs_url && (
-                                <LemonButton type="secondary" to={productPageUrl}>
-                                    Learn more
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
-                    <div className="shrink w-1/2 min-w-80">
-                        <img src={productImageUrl} className="w-full" />
-                    </div>
-                </div>
-            </div>
-            <div className="my-12 flex justify-between mx-auto max-w-lg gap-x-8">
-                <div className="flex flex-col">
-                    <h2 className="text-3xl">Features</h2>
-                    <div className="flex flex-wrap gap-y-4 my-6 max-w-lg">
-                        {upgradePlan.features.map((feature, i) => (
-                            <li className="flex mb-2" key={`product-features-${i}`}>
-                                <div>
-                                    <IconCheckCircleOutline className="text-success mr-2 mt-1 w-6" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold mb-0">{feature.name}</h4>
-                                    <p className="m-0">{feature.description}</p>
-                                </div>
-                            </li>
-                        ))}
-                    </div>
-                </div>
-                <div>
-                    <LemonCard hoverEffect={false}>
-                        <h2 className="text-3xl">Pricing</h2>
-                        <p>
-                            {upgradePlan?.tiers?.[0].unit_amount_usd &&
-                                parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
-                                    <p className="ml-0 mb-0 mt-4">
-                                        <span className="font-bold">
-                                            First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
-                                            {product.unit}s free
-                                        </span>
-                                        , then{' '}
-                                        <span className="font-bold">${upgradePlan?.tiers?.[1].unit_amount_usd}</span>
-                                        <span className="text-muted">/{product.unit}</span>.{' '}
-                                        <Link
-                                            onClick={() => {
-                                                toggleIsPricingModalOpen()
-                                            }}
-                                        >
-                                            <span className="font-bold text-brand-red">Volume discounts</span>
-                                        </Link>{' '}
-                                        after {convertLargeNumberToWords(upgradePlan?.tiers?.[1].up_to, null)}/mo.
-                                    </p>
-                                )}
-                        </p>
-                        <ul>
-                            {pricingBenefits.map((benefit, i) => (
-                                <li className="flex mb-2 ml-6" key={`pricing-benefits-${i}`}>
-                                    <IconCheckCircleOutline className="text-success mr-2 mt-1" />
-                                    {benefit}
-                                </li>
-                            ))}
-                        </ul>
-                    </LemonCard>
-                    <LemonCard className="mt-8" hoverEffect={false}>
-                        <h2 className="text-3xl">Resources</h2>
-                        {product.docs_url && (
-                            <p>
-                                <Link to={product.docs_url}>
-                                    Documentation <IconOpenInNew />
-                                </Link>
-                            </p>
-                        )}
-                        <p>
-                            <Link to={communityUrl}>
-                                Community forum <IconOpenInNew />
-                            </Link>
-                        </p>
-                        <p>
-                            <Link to={tutorialsUrl}>
-                                Tutorials <IconOpenInNew />
-                            </Link>
-                        </p>
-                    </LemonCard>
-                </div>
-            </div>
-            <ProductPricingModal
-                modalOpen={isPricingModalOpen}
-                onClose={toggleIsPricingModalOpen}
-                product={product}
-                planKey={upgradePlan.plan_key}
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="collecting events"
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                stepKey={OnboardingStepKey.SDKS}
             />
-        </div>
+            <OnboardingVerificationStep
+                listeningForName="event"
+                teamPropertyToVerify="ingested_event"
+                stepKey={OnboardingStepKey.VERIFY}
+            />
+        </OnboardingWrapper>
+    )
+}
+const SessionReplayOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="recording sessions"
+                sdkInstructionMap={SessionReplaySDKInstructions}
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
+            />
+        </OnboardingWrapper>
+    )
+}
+const FeatureFlagsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="loading flags & experiments"
+                sdkInstructionMap={FeatureFlagsSDKInstructions}
+                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
+            />
+        </OnboardingWrapper>
+    )
+}
+
+const SurveysOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="taking surveys"
+                sdkInstructionMap={SurveysSDKInstructions}
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
+            />
+        </OnboardingWrapper>
     )
 }
 
@@ -149,5 +129,16 @@ export function Onboarding(): JSX.Element | null {
         }
     }, [])
 
-    return product ? <OnboardingProductIntro product={product} /> : null
+    if (!product) {
+        return <></>
+    }
+    const onboardingViews = {
+        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+        [ProductKey.SURVEYS]: SurveysOnboarding,
+    }
+    const OnboardingView = onboardingViews[product.type]
+
+    return <OnboardingView />
 }

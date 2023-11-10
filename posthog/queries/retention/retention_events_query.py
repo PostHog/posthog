@@ -38,7 +38,6 @@ class RetentionEventsQuery(EventQuery):
         )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         _fields = [
             self.get_timestamp_field(),
             self.target_field(),
@@ -176,7 +175,9 @@ class RetentionEventsQuery(EventQuery):
 
     def get_timestamp_field(self) -> str:
         start_of_inteval_sql = get_start_of_interval_sql(
-            self._filter.period, source=f"{self.EVENT_TABLE_ALIAS}.timestamp", team=self._team
+            self._filter.period,
+            source=f"{self.EVENT_TABLE_ALIAS}.timestamp",
+            team=self._team,
         )
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {start_of_inteval_sql} AS event_date"

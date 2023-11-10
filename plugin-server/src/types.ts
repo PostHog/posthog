@@ -7,8 +7,10 @@ import {
     PluginConfigSchema,
     PluginEvent,
     PluginSettings,
+    PostHogEvent,
     ProcessedPluginEvent,
     Properties,
+    Webhook,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
@@ -21,10 +23,9 @@ import { VM } from 'vm2'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
-import { PostgresRouter } from './utils/db/postgres' /** Re-export Element from scaffolding, for backwards compat. */
+import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -33,8 +34,7 @@ import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-man
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
+export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -78,7 +78,6 @@ export enum PluginServerMode {
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
-    recordings_ingestion = 'recordings-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
@@ -129,7 +128,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -139,17 +137,20 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
-    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
+    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
+    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
+    HTTP_SERVER_PORT: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -188,6 +189,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -198,7 +200,19 @@ export interface PluginsServerConfig {
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    CLOUD_DEPLOYMENT: string
+    /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
+    CLOUD_DEPLOYMENT: string | null
+    EXTERNAL_REQUEST_TIMEOUT_MS: number
+    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
+    POE_EMBRACE_JOIN_FOR_TEAMS: string
+    RELOAD_PLUGIN_JITTER_MAX_MS: number
+
+    // dump profiles to disk, covering the first N seconds of runtime
+    STARTUP_PROFILE_DURATION_SECONDS: number
+    STARTUP_PROFILE_CPU: boolean
+    STARTUP_PROFILE_HEAP: boolean
+    STARTUP_PROFILE_HEAP_INTERVAL: number
+    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -207,13 +221,17 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_REDIS_PREFIX: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
+    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
@@ -258,6 +276,11 @@ export interface Hub extends PluginsServerConfig {
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
+    // ValueMatchers used for various opt-in/out features
+    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
+    poeEmbraceJoinForTeams: ValueMatcher<number>
+    // lookups
+    eventsToDropByToken: Map<string, string[]>
 }
 
 export interface PluginServerCapabilities {
@@ -270,9 +293,9 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
 }
@@ -360,6 +383,11 @@ export interface PluginCapabilities {
     methods?: string[]
 }
 
+export enum PluginMethod {
+    onEvent = 'onEvent',
+    composeWebhook = 'composeWebhook',
+}
+
 export interface PluginConfig {
     id: number
     team_id: TeamId
@@ -373,6 +401,10 @@ export interface PluginConfig {
     vm?: LazyPluginVM | null
     created_at: string
     updated_at?: string
+    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
+    // we'll need to know which method this plugin is using to call it the right way
+    // undefined for old plugins with multiple or deprecated methods
+    method?: PluginMethod
 }
 
 export interface PluginJsonConfig {
@@ -389,7 +421,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | ProcessedPluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -436,12 +468,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginSourceFileStatus {
-    Transpiled = 'TRANSPILED',
-    Locked = 'LOCKED',
-    Error = 'ERROR',
-}
-
 export enum PluginTaskType {
     Job = 'job',
     Schedule = 'schedule',
@@ -455,17 +481,13 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
-export type WorkerMethods = {
-    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
-}
-
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
+    composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
@@ -631,7 +653,6 @@ export interface ClickHouseEvent extends BaseEvent {
 interface BaseIngestionEvent {
     eventUuid: string
     event: string
-    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
@@ -639,8 +660,15 @@ interface BaseIngestionEvent {
     elementsList: Element[]
 }
 
-/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
-export type PreIngestionEvent = BaseIngestionEvent
+/** Ingestion event before saving, BaseIngestionEvent without elementsList */
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+}
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export interface PostIngestionEvent extends BaseIngestionEvent {
@@ -914,6 +942,15 @@ export interface RawSessionRecordingEvent {
     created_at: string
 }
 
+/** Raw session replay event row from ClickHouse. */
+export interface RawSessionReplayEvent {
+    min_first_timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    /* TODO what columns do we need */
+}
+
 export interface RawPerformanceEvent {
     uuid: string
     team_id: number
@@ -1142,4 +1179,8 @@ export type RRWebEvent = Record<string, any> & {
     timestamp: number
     type: number
     data: any
+}
+
+export interface ValueMatcher<T> {
+    (value: T): boolean
 }

@@ -16,7 +16,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 
-const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
+export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
     stage: EarlyAccessFeatureStage.Draft,
@@ -38,23 +38,30 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess']],
     })),
     actions({
+        setEarlyAccessFeatureMissing: true,
         toggleImplementOptInInstructionsModal: true,
-        cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         earlyAccessFeature: {
             loadEarlyAccessFeature: async () => {
                 if (props.id && props.id !== 'new') {
-                    const response = await api.earlyAccessFeatures.get(props.id)
-                    return response
+                    try {
+                        const response = await api.earlyAccessFeatures.get(props.id)
+                        return response
+                    } catch (error: any) {
+                        actions.setEarlyAccessFeatureMissing()
+                        throw error
+                    }
                 }
                 return NEW_EARLY_ACCESS_FEATURE
             },
-            saveEarlyAccessFeature: async (updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType>) => {
+            saveEarlyAccessFeature: async (
+                updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
+            ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
                     result = await api.earlyAccessFeatures.create(
@@ -83,6 +90,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
     })),
     reducers({
+        earlyAccessFeatureMissing: [
+            false,
+            {
+                setEarlyAccessFeatureMissing: () => true,
+            },
+        ],
         isEditingFeature: [
             false,
             {
@@ -116,12 +129,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        cancel: () => {
-            if ('id' in values.earlyAccessFeature) {
-                actions.loadEarlyAccessFeature()
-            }
-            actions.editFeature(false)
-        },
         updateStage: async ({ stage }) => {
             'id' in values.earlyAccessFeature &&
                 (await api.earlyAccessFeatures.update(props.id, {

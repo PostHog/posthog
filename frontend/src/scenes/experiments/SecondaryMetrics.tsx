@@ -196,7 +196,7 @@ export function SecondaryMetrics({
                                         buttonCopy="Add funnel step"
                                         seriesIndicatorType="numeric"
                                         sortable
-                                        showNestedArrow={true}
+                                        showNestedArrow
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,
@@ -204,7 +204,7 @@ export function SecondaryMetrics({
                                             TaxonomicFilterGroupType.Cohorts,
                                             TaxonomicFilterGroupType.Elements,
                                         ]}
-                                        readOnly={true}
+                                        readOnly
                                     />
                                 )}
                                 {metric.filters.insight === InsightType.TRENDS && (

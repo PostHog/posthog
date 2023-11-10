@@ -34,11 +34,13 @@ export interface LemonTextAreaProps
     minRows?: number
     maxRows?: number
     rows?: number
+    /** Whether to stop propagation of events from the input */
+    stopPropagation?: boolean
 }
 
 /** A `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
-    { className, onChange, onPressCmdEnter: onPressEnter, minRows = 3, onKeyDown, ...textProps },
+    { className, onChange, onPressCmdEnter: onPressEnter, minRows = 3, onKeyDown, stopPropagation, ...textProps },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
@@ -50,26 +52,34 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             ref={textRef}
             className={clsx('LemonTextArea', className)}
             onKeyDown={(e) => {
+                if (stopPropagation) {
+                    e.stopPropagation()
+                }
                 if (onPressEnter && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     onPressEnter(textProps.value?.toString() ?? '')
                 }
 
                 onKeyDown?.(e)
             }}
-            onChange={(event) => onChange?.(event.currentTarget.value ?? '')}
+            onChange={(event) => {
+                if (stopPropagation) {
+                    event.stopPropagation()
+                }
+                return onChange?.(event.currentTarget.value ?? '')
+            }}
             {...textProps}
         />
     )
 })
 
-interface LemonTextMarkdownProps {
+interface LemonTextAreaMarkdownProps {
     value?: string
     onChange?: (s: string) => void
     placeholder?: string
     'data-attr'?: string
 }
 
-export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+export function LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }: LemonTextAreaMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     const [isPreviewShown, setIsPreviewShown] = useState(false)
@@ -138,7 +148,11 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 {
                     key: 'preview',
                     label: 'Preview',
-                    content: value ? <TextContent text={value} /> : <i>Nothing to preview</i>,
+                    content: value ? (
+                        <TextContent text={value} className={'LemonTextArea--preview'} />
+                    ) : (
+                        <i>Nothing to preview</i>
+                    ),
                 },
             ]}
         />

@@ -15,13 +15,12 @@ import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
-    ensureTooltipElement,
+    ensureTooltip,
     filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -29,7 +28,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -46,6 +45,11 @@ function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
     }, 25)
 }
 
+function getPercentageForDataPoint(context: Context): number {
+    const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number
+    return ((context.dataset.data[context.dataIndex] as number) / total) * 100
+}
+
 export function PieChart({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -56,11 +60,14 @@ export function PieChart({
     trendsFilter,
     formula,
     showValueOnSeries,
+    supportsPercentStackView,
+    showPercentStackView,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
 }: LineGraphProps): JSX.Element {
     const isPie = type === GraphType.Pie
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
 
     if (!isPie) {
         throw new Error('PieChart must be a pie chart')
@@ -127,11 +134,7 @@ export function PieChart({
                             return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
                         },
                         display: (context) => {
-                            const total = context.dataset.data.reduce(
-                                (a, b) => (a as number) + (b as number),
-                                0
-                            ) as number
-                            const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
+                            const percentage = getPercentageForDataPoint(context)
                             return showValueOnSeries !== false && // show if true or unset
                                 context.dataset.data.length > 1 &&
                                 percentage > 5
@@ -145,7 +148,14 @@ export function PieChart({
                             const paddingX = value < 10 ? 5 : 4
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
                         },
-                        formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
+                        formatter: (value: number, context) => {
+                            if (isPercentStackView) {
+                                const percentage = getPercentageForDataPoint(context)
+                                return `${percentage.toFixed(1)}%`
+                            }
+
+                            return formatAggregationAxisValue(trendsFilter, value)
+                        },
                         font: {
                             weight: 500,
                         },
@@ -166,7 +176,7 @@ export function PieChart({
                                 return
                             }
 
-                            const tooltipEl = ensureTooltipElement()
+                            const [tooltipRoot, tooltipEl] = ensureTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
                                 if (trendsFilter?.show_legend) {
@@ -181,6 +191,7 @@ export function PieChart({
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                             tooltipEl.style.opacity = '1'
+                            tooltipEl.style.display = 'initial'
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -192,7 +203,7 @@ export function PieChart({
 
                                 highlightSeries(seriesData[0].dataIndex)
 
-                                ReactDOM.render(
+                                tooltipRoot.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
@@ -238,8 +249,7 @@ export function PieChart({
                                                 : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
-                                    />,
-                                    tooltipEl
+                                    />
                                 )
                             }
 

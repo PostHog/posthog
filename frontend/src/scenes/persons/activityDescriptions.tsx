@@ -68,7 +68,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                         }
                         listParts={distinctIds.map((di) => (
                             <span key={di} className="highlighted-activity">
-                                <Link to={urls.person(di)}>{di}</Link>
+                                <Link to={urls.personByDistinctId(di)}>{di}</Link>
                             </span>
                         ))}
                     />

@@ -55,12 +55,12 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     selectors({
         paths: [
             (s) => [s.queries],
-            (queries: Query[]) => {
+            (queries: Query[]): [string, number][] | null => {
                 return queries
                     ? Object.entries(
                           queries
                               .map((result) => result.path)
-                              .reduce((acc, val) => {
+                              .reduce((acc: { [path: string]: number }, val: string) => {
                                   acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
                                   return acc
                               }, {})

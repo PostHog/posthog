@@ -3,7 +3,6 @@ import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayou
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import clsx from 'clsx'
 import {
-    offset,
     useFloating,
     autoUpdate,
     Middleware,
@@ -24,6 +23,8 @@ export interface PopoverProps {
     visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
+    onMouseEnterInside?: MouseEventHandler<HTMLDivElement>
+    onMouseLeaveInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
     children?: React.ReactChild
     /** External reference element not passed as a direct child */
@@ -46,6 +47,7 @@ export interface PopoverProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     referenceRef?: UseFloatingReturn['refs']['reference']
+    floatingRef?: UseFloatingReturn['refs']['floating']
     style?: React.CSSProperties
     /**
      * Whether the parent popover should be closed as well on click. Useful for menus.
@@ -76,6 +78,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         visible,
         onClickOutside,
         onClickInside,
+        onMouseEnterInside,
+        onMouseLeaveInside,
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
@@ -86,6 +90,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
         referenceRef: extraReferenceRef,
+        floatingRef: extraFloatingRef,
         style,
         getPopupContainer,
         showArrow = false,
@@ -107,7 +112,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         x,
         y,
         reference,
-        floating,
         refs: { reference: referenceRef, floating: floatingRef },
         strategy,
         placement: effectivePlacement,
@@ -118,7 +122,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement,
         strategy: 'fixed',
         middleware: [
-            offset(showArrow ? 8 : 4),
             ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
             shift(),
             size({
@@ -134,6 +137,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         ],
     })
     const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
+    const mergedFloatingRef = useMergeRefs([floatingRef, extraFloatingRef || null]) as React.RefCallback<HTMLElement>
 
     const arrowStyle = middlewareData.arrow
         ? {
@@ -206,7 +210,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 </PopoverReferenceContext.Provider>
             )}
             <FloatingPortal root={getPopupContainer?.()}>
-                <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
+                <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div
                             className={clsx(
@@ -214,10 +218,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 actionable && 'Popover--actionable',
                                 maxContentWidth && 'Popover--max-content-width',
                                 !isAttached && 'Popover--top-centered',
+                                showArrow && 'Popover--with-arrow',
                                 className
                             )}
                             data-placement={effectivePlacement}
-                            ref={floating}
+                            ref={mergedFloatingRef}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
@@ -227,6 +232,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 ...style,
                             }}
                             onClick={_onClickInside}
+                            onMouseEnter={onMouseEnterInside}
+                            onMouseLeave={onMouseLeaveInside}
                             aria-level={currentPopoverLevel}
                         >
                             <div className="Popover__box">

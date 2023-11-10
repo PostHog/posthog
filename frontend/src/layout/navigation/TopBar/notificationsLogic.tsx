@@ -7,8 +7,8 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { dayjs } from 'lib/dayjs'
-import ReactMarkdown from 'react-markdown'
 import posthog from 'posthog-js'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 const MARK_READ_TIMEOUT = 2500
@@ -156,11 +156,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                             email: 'joe@posthog.com',
                             name: 'Joe',
                             isSystem: true,
-                            description: (
-                                <>
-                                    <ReactMarkdown linkTarget="_blank">{changelogNotification.markdown}</ReactMarkdown>
-                                </>
-                            ),
+                            description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                             created_at: changelogNotification.notificationDate,
                             unread: changeLogIsUnread,
                         }

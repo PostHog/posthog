@@ -1,19 +1,20 @@
 import posthog from 'posthog-js'
-import { useActions } from 'kea'
-import { useCallback, useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useRef } from 'react'
 
 import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -26,47 +27,63 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
+import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { InlineMenu } from './InlineMenu'
+import { notebookLogic } from './notebookLogic'
+import { sampleOne } from 'lib/utils'
+import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
+import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { MentionsExtension } from './MentionsExtension'
+import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
 
-export function Editor({
-    initialContent,
-    onCreate,
-    onUpdate,
-    onSelectionUpdate,
-    placeholder,
-}: {
-    initialContent: JSONContent
-    onCreate: (editor: NotebookEditor) => void
-    onUpdate: () => void
-    onSelectionUpdate: () => void
-    placeholder: ({ node }: { node: any }) => string
-}): JSX.Element {
+const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
+
+export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
-    const logic = insertionSuggestionsLogic()
-    const { resetSuggestions, setPreviousNode } = useActions(logic)
+
+    const { shortId, mode } = useValues(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
+
+    const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
+
+    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const updatePreviousNode = useCallback(() => {
         const editor = editorRef.current
         if (editor) {
-            setPreviousNode(getPreviousNode(editor))
+            setPreviousNode(getNodeBeforeActiveNode(editor))
         }
     }, [editorRef.current])
 
     const _editor = useEditor({
         extensions: [
-            CustomDocument,
+            mode === 'notebook' ? CustomDocument : ExtensionDocument,
             StarterKit.configure({
                 document: false,
+                gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
-                placeholder: placeholder,
+                placeholder: ({ node }: { node: any }) => {
+                    if (node.type.name === 'heading' && node.attrs.level === 1) {
+                        return `Untitled - maybe.. "${headingPlaceholder}"`
+                    }
+
+                    if (node.type.name === 'heading') {
+                        return `Heading ${node.attrs.level}`
+                    }
+
+                    return ''
+                },
             }),
             FloatingMenu.extend({
                 onSelectionUpdate() {
@@ -82,23 +99,32 @@ export function Editor({
                     }
                 },
             }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
+            }),
             NotebookMarkLink,
             NotebookNodeBacklink,
-            NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodeReplayTimestamp,
             NotebookNodePlaylist,
             NotebookNodePerson,
+            NotebookNodeCohort,
+            NotebookNodeGroup,
             NotebookNodeFlagCodeExample,
             NotebookNodeFlag,
             NotebookNodeExperiment,
             NotebookNodeEarlyAccessFeature,
+            NotebookNodeSurvey,
             NotebookNodeImage,
+            NotebookNodeProperties,
+            NotebookNodeMention,
             SlashCommandsExtension,
-            BacklinkCommandsExtension,
+            MentionsExtension,
+            NotebookNodePersonFeed,
+            NotebookNodeMap,
         ],
-        content: initialContent,
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
@@ -164,9 +190,7 @@ export function Editor({
                             .setTextSelection(coordinates.pos)
                             .insertContent({
                                 type: NotebookNodeType.Image,
-                                attrs: {
-                                    file,
-                                },
+                                attrs: { file },
                             })
                             .run()
 
@@ -180,17 +204,20 @@ export function Editor({
         onCreate: ({ editor }) => {
             editorRef.current = editor
 
-            onCreate({
+            setEditor({
                 getJSON: () => editor.getJSON(),
+                getText: () => textContent(editor.state.doc),
+                getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
-                getPreviousNode: () => getPreviousNode(editor),
-                getNextNode: () => getNextNode(editor),
+                getCurrentPosition: () => editor.state.selection.$anchor.pos,
+                getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
-                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
+                focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
-                isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -200,25 +227,39 @@ export function Editor({
                         editor.commands.scrollIntoView()
                     }
                 },
+                pasteContent: (position: number, text: string) => {
+                    editor?.chain().focus().setTextSelection(position).run()
+                    editor?.view.pasteText(text)
+                },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
                 scrollToSelection: () => {
-                    const position = editor.state.selection.$anchor.pos
-                    const domEl = editor.view.nodeDOM(position) as HTMLElement
-                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    queueMicrotask(() => {
+                        const position = editor.state.selection.$anchor.pos
+                        const domEl = editor.view.nodeDOM(position) as HTMLElement
+                        domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    })
+                },
+                scrollToPosition(position) {
+                    queueMicrotask(() => {
+                        const domEl = editor.view.nodeDOM(position) as HTMLElement
+                        domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    })
                 },
             })
         },
-        onUpdate: onUpdate,
-        onSelectionUpdate: onSelectionUpdate,
+        onUpdate: onEditorUpdate,
+        onSelectionUpdate: onEditorSelectionUpdate,
     })
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </EditorContent>
         </>
     )
 }
@@ -289,16 +330,16 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
     return children
 }
 
-function getPreviousNode(editor: TTEditor): Node | null {
+function getAdjacentNodes(editor: TTEditor, pos: number): { previous: Node | null; next: Node | null } {
+    const { doc } = editor.state
+    const currentIndex = doc.resolve(pos).index(0)
+    return { previous: doc.maybeChild(currentIndex - 1), next: doc.maybeChild(currentIndex + 1) }
+}
+
+function getNodeBeforeActiveNode(editor: TTEditor): Node | null {
     const { doc, selection } = editor.state
     const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
     return doc.maybeChild(currentIndex - 1)
-}
-
-function getNextNode(editor: TTEditor): Node | null {
-    const { doc, selection } = editor.state
-    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
-    return doc.maybeChild(currentIndex + 1)
 }
 
 export function hasMatchingNode(

@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0156_insight_short_id"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -33,14 +32,21 @@ class Migration(migrations.Migration):
                 (
                     "tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        default=list,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "updated_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],
@@ -67,7 +73,11 @@ class Migration(migrations.Migration):
                 (
                     "tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        default=list,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -83,7 +93,10 @@ class Migration(migrations.Migration):
                 (
                     "updated_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],

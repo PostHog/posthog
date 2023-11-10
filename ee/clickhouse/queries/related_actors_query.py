@@ -9,7 +9,13 @@ from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
-from posthog.queries.actor_base_query import SerializedActor, SerializedGroup, SerializedPerson, get_groups, get_people
+from posthog.queries.actor_base_query import (
+    SerializedActor,
+    SerializedGroup,
+    SerializedPerson,
+    get_groups,
+    get_people,
+)
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
@@ -22,7 +28,12 @@ class RelatedActorsQuery:
     Two actors are considered related if they have had shared events in the past 90 days.
     """
 
-    def __init__(self, team: Team, group_type_index: Optional[Union[GroupTypeIndex, str]], id: str):
+    def __init__(
+        self,
+        team: Team,
+        group_type_index: Optional[Union[GroupTypeIndex, str]],
+        id: str,
+    ):
         self.team = team
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id

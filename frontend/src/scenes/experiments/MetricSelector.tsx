@@ -16,7 +16,6 @@ import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
-import { InfoCircleOutlined } from '@ant-design/icons'
 
 import './Experiment.scss'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -24,6 +23,7 @@ import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DEFAULT_DURATION } from './experimentLogic'
+import { IconInfo } from '@posthog/icons'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
@@ -133,11 +133,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                             <AggregationSelect insightProps={insightProps} hogqlAvailable />
                         </div>
                         <FunnelConversionWindowFilter insightProps={insightProps} />
-                        <AttributionSelect
-                            insightProps={insightProps}
-                            query={querySource as InsightQueryNode}
-                            setQuery={updateQuerySource}
-                        />
+                        <AttributionSelect insightProps={insightProps} />
                     </>
                 )}
                 <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
@@ -146,11 +142,11 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
     )
 }
 
-export function AttributionSelect({ insightProps, query, setQuery }: EditorFilterProps): JSX.Element {
+export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <div className="flex items-center w-full gap-2">
-            <span>
-                Attribution type
+            <div className="flex">
+                <span>Attribution type</span>
                 <Tooltip
                     title={
                         <div>
@@ -167,10 +163,10 @@ export function AttributionSelect({ insightProps, query, setQuery }: EditorFilte
                         </div>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
-            </span>
-            <Attribution insightProps={insightProps} query={query} setQuery={setQuery} />
+            </div>
+            <Attribution insightProps={insightProps} />
         </div>
     )
 }

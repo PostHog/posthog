@@ -63,10 +63,19 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         my_notebooks = list(Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
 
         # then things they edited
-        interesting_changes = ["updated", "exported", "sharing enabled", "sharing disabled", "deleted"]
+        interesting_changes = [
+            "updated",
+            "exported",
+            "sharing enabled",
+            "sharing disabled",
+            "deleted",
+        ]
         my_changed_insights = list(
             ActivityLog.objects.filter(
-                team_id=self.team.id, activity__in=interesting_changes, user_id=user.pk, scope="Insight"
+                team_id=self.team.id,
+                activity__in=interesting_changes,
+                user_id=user.pk,
+                scope="Insight",
             )
             .exclude(item_id__in=my_insights)
             .values_list("item_id", flat=True)
@@ -74,7 +83,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         my_changed_notebooks = list(
             ActivityLog.objects.filter(
-                team_id=self.team.id, activity__in=interesting_changes, user_id=user.pk, scope="Notebook"
+                team_id=self.team.id,
+                activity__in=interesting_changes,
+                user_id=user.pk,
+                scope="Notebook",
             )
             .exclude(item_id__in=my_notebooks)
             .values_list("item_id", flat=True)
@@ -82,7 +94,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         my_changed_feature_flags = list(
             ActivityLog.objects.filter(
-                team_id=self.team.id, activity__in=interesting_changes, user_id=user.pk, scope="FeatureFlag"
+                team_id=self.team.id,
+                activity__in=interesting_changes,
+                user_id=user.pk,
+                scope="FeatureFlag",
             )
             .exclude(item_id__in=my_feature_flags)
             .values_list("item_id", flat=True)

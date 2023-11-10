@@ -29,7 +29,7 @@ import {
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -63,7 +63,7 @@ function AccountInfo(): JSX.Element {
             </div>
             <Tooltip title="Account settings" placement="left">
                 <LemonButton
-                    to={urls.mySettings()}
+                    to={urls.settings('user')}
                     onClick={closeSitePopover}
                     data-attr="top-menu-item-me"
                     status="stealth"
@@ -85,7 +85,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 sideIcon={<IconSettings />}
                 status="stealth"
                 fullWidth
-                to={urls.organizationSettings()}
+                to={urls.settings('organization')}
                 onClick={closeSitePopover}
             >
                 <div className="SitePopover__main-info SitePopover__organization">
@@ -190,7 +190,7 @@ function InstanceSettings(): JSX.Element | null {
 
     return (
         <Link to={urls.instanceSettings()}>
-            <LemonButton icon={<IconCorporate className="text-primary" />} onClick={closeSitePopover} fullWidth>
+            <LemonButton icon={<IconCorporate className="text-link" />} onClick={closeSitePopover} fullWidth>
                 Instance settings
             </LemonButton>
         </Link>

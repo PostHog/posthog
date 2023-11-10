@@ -24,9 +24,9 @@
         opacity: 0.333;
     }
     &:nth-child(2) {
-        animation: spin 1.5s infinite linear;
+        animation: spin 1s infinite linear;
         > circle {
-            animation: writhe 2.25s infinite ease both;
+            animation: writhe 1.5s infinite ease both;
         }
     }
 }

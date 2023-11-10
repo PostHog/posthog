@@ -10,7 +10,7 @@ from posthog.models import (
     Organization,
     Team,
 )
-from posthog.temporal.workflows.base import (
+from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,

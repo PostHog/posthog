@@ -3,7 +3,9 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import {
     BatchExportConfiguration,
     BatchExportDestination,
+    BatchExportDestinationBigQuery,
     BatchExportDestinationPostgres,
+    BatchExportDestinationRedshift,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
     Breadcrumb,
@@ -27,11 +29,14 @@ export type BatchExportConfigurationForm = Omit<
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
     Partial<BatchExportDestinationPostgres['config']> &
+    Partial<BatchExportDestinationRedshift['config']> &
+    Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres'
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
         start_at: Dayjs | null
         end_at: Dayjs | null
+        json_config_file?: File[] | null
     }
 
 const formFields = (
@@ -58,6 +63,21 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   has_self_signed_cert: false,
+                  exclude_events: '',
+                  include_events: '',
+              }
+            : destination === 'Redshift'
+            ? {
+                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                  host: !config.host ? 'This field is required' : '',
+                  port: !config.port ? 'This field is required' : '',
+                  database: !config.database ? 'This field is required' : '',
+                  schema: !config.schema ? 'This field is required' : '',
+                  table_name: !config.table_name ? 'This field is required' : '',
+                  properties_data_type: '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : destination === 'S3'
             ? {
@@ -66,6 +86,29 @@ const formFields = (
                   prefix: !config.prefix ? 'This field is required' : '',
                   aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
                   aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
+                  compression: '',
+                  encryption: '',
+                  kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
+                  exclude_events: '',
+                  include_events: '',
+              }
+            : destination === 'BigQuery'
+            ? {
+                  json_config_file: isNew
+                      ? !config.json_config_file
+                          ? 'This field is required'
+                          : !config.project_id ||
+                            !config.private_key ||
+                            !config.private_key_id ||
+                            !config.client_email ||
+                            !config.token_uri
+                          ? 'The config file is not valid'
+                          : ''
+                      : '',
+                  dataset_id: !config.dataset_id ? 'This field is required' : '',
+                  table_id: !config.table_id ? 'This field is required' : '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -77,6 +120,8 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   role: '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : {}),
     }
@@ -103,7 +148,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             errors: (form) => formFields(props, form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
-                    destination == 'Postgres'
+                    destination === 'Postgres'
                         ? ({
                               type: 'Postgres',
                               config: config,
@@ -113,6 +158,16 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'S3',
                               config: config,
                           } as unknown as BatchExportDestinationS3)
+                        : destination === 'Redshift'
+                        ? ({
+                              type: 'Redshift',
+                              config: config,
+                          } as unknown as BatchExportDestinationRedshift)
+                        : destination === 'BigQuery'
+                        ? ({
+                              type: 'BigQuery',
+                              config: config,
+                          } as unknown as BatchExportDestinationBigQuery)
                         : ({
                               type: 'Snowflake',
                               config: config,
@@ -148,6 +203,32 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 router.actions.push(urls.batchExports())
             } else {
                 router.actions.push(urls.batchExport(props.id))
+            }
+        },
+
+        setBatchExportConfigFormValue: async ({ name, value }) => {
+            if (name[0] === 'json_config_file' && value) {
+                try {
+                    const loadedFile: string = await new Promise((resolve, reject) => {
+                        const filereader = new FileReader()
+                        filereader.onload = (e) => resolve(e.target?.result as string)
+                        filereader.onerror = (e) => reject(e)
+                        filereader.readAsText(value[0])
+                    })
+                    const jsonConfig = JSON.parse(loadedFile)
+                    actions.setBatchExportConfigFormValues({
+                        ...values.batchExportConfigForm,
+                        project_id: jsonConfig.project_id,
+                        private_key: jsonConfig.private_key,
+                        private_key_id: jsonConfig.private_key_id,
+                        client_email: jsonConfig.client_email,
+                        token_uri: jsonConfig.token_uri,
+                    })
+                } catch (e) {
+                    actions.setBatchExportConfigFormManualErrors({
+                        json_config_file: 'The config file is not valid',
+                    })
+                }
             }
         },
 

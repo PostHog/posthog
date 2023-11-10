@@ -22,7 +22,8 @@ def can_user_edit_feature_flag(request, feature_flag):
         all_role_memberships = request.user.role_memberships.select_related("role").all()
         try:
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
-                organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                organization=request.user.organization,
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
             )
             if feature_flag_resource_access.access_level >= OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
                 return True
@@ -30,7 +31,10 @@ def can_user_edit_feature_flag(request, feature_flag):
         except OrganizationResourceAccess.DoesNotExist:
             org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
 
-        role_level = max([membership.role.feature_flags_access_level for membership in all_role_memberships], default=0)
+        role_level = max(
+            [membership.role.feature_flags_access_level for membership in all_role_memberships],
+            default=0,
+        )
 
         if role_level == 0:
             final_level = org_level

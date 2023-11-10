@@ -1,12 +1,10 @@
-import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic, path, connect, actions, reducers, selectors, events } from 'kea'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { appLogicType } from './AppType'
-import { models } from '~/models'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
@@ -18,28 +16,24 @@ import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonModal } from '@posthog/lemon-ui'
-import { Setup2FA } from './authentication/Setup2FA'
-import { membersLogic } from './organization/Settings/membersLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
-import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
+import { GlobalModals } from '~/layout/GlobalModals'
 
-export const appLogic = kea<appLogicType>({
-    path: ['scenes', 'App'],
-    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
-    actions: {
+export const appLogic = kea<appLogicType>([
+    path(['scenes', 'App']),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic]),
+    actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
-    },
-    reducers: {
+    }),
+    reducers({
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
-    },
-    selectors: {
+    }),
+    selectors({
         showApp: [
             (s) => [
                 userLogic.selectors.userLoading,
@@ -57,8 +51,8 @@ export const appLogic = kea<appLogicType>({
                 )
             },
         ],
-    },
-    events: ({ actions, cache }) => ({
+    }),
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
             cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
@@ -67,13 +61,11 @@ export const appLogic = kea<appLogicType>({
             window.clearTimeout(cache.spinnerTimeout)
             window.clearTimeout(cache.featureFlagTimeout)
         },
-    }),
-})
+    })),
+])
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    const { user } = useValues(userLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
@@ -88,7 +80,6 @@ export function App(): JSX.Element | null {
     if (showApp) {
         return (
             <>
-                {user && currentTeamId ? <Models /> : null}
                 <LoadedSceneLogics />
                 <AppScene />
             </>
@@ -117,12 +108,6 @@ function LoadedSceneLogics(): JSX.Element {
                 ))}
         </>
     )
-}
-
-/** Loads every logic in the "src/models" folder */
-function Models(): null {
-    useMountedLogic(models)
-    return null
 }
 
 function AppScene(): JSX.Element | null {
@@ -182,27 +167,7 @@ function AppScene(): JSX.Element | null {
                 {wrappedSceneElement}
             </Navigation>
             {toastContainer}
-            <FeaturePreviewsModal />
-            <UpgradeModal />
-            {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
-                <LemonModal title="Set up 2FA" closable={false}>
-                    <p>
-                        <b>Your organization requires you to set up 2FA.</b>
-                    </p>
-                    <p>
-                        <b>
-                            Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.
-                        </b>
-                    </p>
-                    <Setup2FA
-                        onSuccess={() => {
-                            userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
-                        }}
-                    />
-                </LemonModal>
-            )}
-            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
+            <GlobalModals />
         </>
     )
 }

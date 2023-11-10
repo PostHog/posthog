@@ -4,7 +4,15 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import connection
 from django.db.models import Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets, status, request, response
+from rest_framework import (
+    mixins,
+    permissions,
+    serializers,
+    viewsets,
+    status,
+    request,
+    response,
+)
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -19,7 +27,10 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from posthog.models.utils import UUIDT
-from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    OrganizationMemberPermissions,
+    TeamMemberAccessPermission,
+)
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -140,7 +151,8 @@ class QueryContext:
     def with_is_numerical_flag(self, is_numerical: Optional[str]) -> "QueryContext":
         if is_numerical:
             return dataclasses.replace(
-                self, numerical_filter="AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')"
+                self,
+                numerical_filter="AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')",
             )
         else:
             return self
@@ -164,19 +176,32 @@ class QueryContext:
     def with_type_filter(self, type: str, group_type_index: Optional[int]):
         if type == "event":
             return dataclasses.replace(
-                self, params={**self.params, "type": PropertyDefinition.Type.EVENT, "group_type_index": -1}
+                self,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.EVENT,
+                    "group_type_index": -1,
+                },
             )
         elif type == "person":
             return dataclasses.replace(
                 self,
                 should_join_event_property=False,
-                params={**self.params, "type": PropertyDefinition.Type.PERSON, "group_type_index": -1},
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.PERSON,
+                    "group_type_index": -1,
+                },
             )
         elif type == "group":
             return dataclasses.replace(
                 self,
                 should_join_event_property=False,
-                params={**self.params, "type": PropertyDefinition.Type.GROUP, "group_type_index": group_type_index},
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.GROUP,
+                    "group_type_index": group_type_index,
+                },
             )
 
     def with_event_property_filter(
@@ -207,7 +232,9 @@ class QueryContext:
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
         return dataclasses.replace(
-            self, search_query=search_query, params={**self.params, "team_id": self.team_id, **search_kwargs}
+            self,
+            search_query=search_query,
+            params={**self.params, "team_id": self.team_id, **search_kwargs},
         )
 
     def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> "QueryContext":
@@ -215,7 +242,10 @@ class QueryContext:
             excluded_properties = json.loads(excluded_properties)
 
         excluded_list = tuple(
-            set.union(set(excluded_properties or []), EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [])
+            set.union(
+                set(excluded_properties or []),
+                EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [],
+            )
         )
         return dataclasses.replace(
             self,
@@ -422,7 +452,11 @@ class PropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = PropertyDefinitionSerializer
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        OrganizationMemberPermissions,
+        TeamMemberAccessPermission,
+    ]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
@@ -433,10 +467,16 @@ class PropertyDefinitionViewSet(
         queryset = PropertyDefinition.objects
 
         property_definition_fields = ", ".join(
-            [f'posthog_propertydefinition."{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
+            [
+                f'posthog_propertydefinition."{f.column}"'  # type: ignore
+                for f in PropertyDefinition._meta.get_fields()
+                if hasattr(f, "column")
+            ]
         )
 
-        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
+        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(  # type: ignore
+            AvailableFeature.INGESTION_TAXONOMY
+        )
         order_by_verified = False
         if use_enterprise_taxonomy:
             try:
@@ -453,7 +493,9 @@ class PropertyDefinitionViewSet(
 
                 queryset = EnterprisePropertyDefinition.objects.prefetch_related(
                     Prefetch(
-                        "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+                        "tagged_items",
+                        queryset=TaggedItem.objects.select_related("tag"),
+                        to_attr="prefetched_tags",
                     )
                 )
                 order_by_verified = True
@@ -483,7 +525,10 @@ class PropertyDefinitionViewSet(
                 limit=limit,
                 offset=offset,
             )
-            .with_type_filter(query.validated_data.get("type"), query.validated_data.get("group_type_index"))
+            .with_type_filter(
+                query.validated_data.get("type"),
+                query.validated_data.get("group_type_index"),
+            )
             .with_properties_to_filter(query.validated_data.get("properties"))
             .with_is_numerical_flag(query.validated_data.get("is_numerical"))
             .with_feature_flags(query.validated_data.get("is_feature_flag"))
@@ -493,7 +538,8 @@ class PropertyDefinitionViewSet(
             )
             .with_search(search_query, search_kwargs)
             .with_excluded_properties(
-                query.validated_data.get("excluded_properties"), type=query.validated_data.get("type")
+                query.validated_data.get("excluded_properties"),
+                type=query.validated_data.get("type"),
             )
         )
 
@@ -509,7 +555,9 @@ class PropertyDefinitionViewSet(
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
-                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
+                from ee.api.ee_property_definition import (
+                    EnterprisePropertyDefinitionSerializer,
+                )
             except ImportError:
                 pass
             else:
@@ -581,7 +629,9 @@ class PropertyDefinitionViewSet(
             scope="PropertyDefinition",
             activity="deleted",
             detail=Detail(
-                name=cast(str, instance.name), type=PropertyDefinition.Type(instance.type).label, changes=None
+                name=cast(str, instance.name),
+                type=PropertyDefinition.Type(instance.type).label,
+                changes=None,
             ),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)

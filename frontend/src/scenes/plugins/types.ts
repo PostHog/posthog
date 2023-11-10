@@ -36,12 +36,8 @@ export enum PluginInstallationType {
 }
 
 export enum PluginTab {
-    Installed = 'installed',
-    Repository = 'repository',
-    Advanced = 'advanced',
-
-    // New values
     Apps = 'apps',
+    AppsManagement = 'apps_management',
     BatchExports = 'batch_exports',
     History = 'history',
 }

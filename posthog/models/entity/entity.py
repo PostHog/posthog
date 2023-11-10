@@ -65,7 +65,10 @@ class Entity(PropertyMixin):
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data.get("id")
-        if data.get("type") not in [TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS]:
+        if data.get("type") not in [
+            TREND_FILTER_TYPE_ACTIONS,
+            TREND_FILTER_TYPE_EVENTS,
+        ]:
             raise ValueError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
         order_provided = data.get("order")
@@ -150,7 +153,15 @@ class Entity(PropertyMixin):
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
     __repr__ = sane_repr(
-        "id", "type", "order", "name", "custom_name", "math", "math_property", "math_hogql", "properties"
+        "id",
+        "type",
+        "order",
+        "name",
+        "custom_name",
+        "math",
+        "math_property",
+        "math_hogql",
+        "properties",
     )
 
 

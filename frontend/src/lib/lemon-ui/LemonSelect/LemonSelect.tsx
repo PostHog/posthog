@@ -93,7 +93,7 @@ export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T>
 
 export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
 
-export function LemonSelect<T>({
+export function LemonSelect<T extends string | number | boolean | null>({
     value = null,
     onChange,
     onSelect,

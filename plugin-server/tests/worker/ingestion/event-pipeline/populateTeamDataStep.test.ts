@@ -80,11 +80,13 @@ describe('populateTeamDataStep()', () => {
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
-    it('event with a valid token for a team with anonymize_ips=true gets its ip set to null', async () => {
+    it('event with a valid token for a team with anonymize_ips=true keeps its ip', async () => {
+        // NOTE: The IP is intentionally kept in `populateTeamDataStep` so that it is still
+        // available for plugins. It is later removed by `prepareEventStep`.
         jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...teamTwo, anonymize_ips: true })
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
 
-        expect(response).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: null })
+        expect(response).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 

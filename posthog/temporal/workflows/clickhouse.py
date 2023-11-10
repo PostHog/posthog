@@ -53,7 +53,7 @@ def encode_clickhouse_data(data: typing.Any) -> bytes:
 
         case _:
             str_data = str(data)
-            str_data.replace("\\", "\\\\").replace("'", "\\'")
+            str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"'{str_data}'".encode("utf-8")
 
 
@@ -123,7 +123,10 @@ class ClickHouseClient:
         """
         try:
             await self.session.get(
-                url=self.url, params={**self.params, "query": "SELECT 1"}, headers=self.headers, raise_for_status=True
+                url=self.url,
+                params={**self.params, "query": "SELECT 1"},
+                headers=self.headers,
+                raise_for_status=True,
             )
         except aiohttp.ClientResponseError:
             return False
@@ -171,7 +174,7 @@ class ClickHouseClient:
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
-            error_message = response.text()
+            error_message = response.text
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
@@ -236,7 +239,12 @@ class ClickHouseClient:
 
         with requests.Session() as s:
             response = s.post(
-                url=self.url, params=params, headers=self.headers, data=request_data, stream=True, verify=False
+                url=self.url,
+                params=params,
+                headers=self.headers,
+                data=request_data,
+                stream=True,
+                verify=False,
             )
             self.check_response(response, query)
             yield response
@@ -259,7 +267,12 @@ class ClickHouseClient:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
-        self, query, *data, query_parameters=None, query_id: str | None = None, line_separator=b"\n"
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+        line_separator=b"\n",
     ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
         """Execute the given query in ClickHouse and stream back the response as one JSON per line.
 

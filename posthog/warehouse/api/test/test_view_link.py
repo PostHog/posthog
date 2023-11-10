@@ -124,7 +124,13 @@ class TestViewLinkQuery(APIBaseTest):
             },
         )
         self.assertIn(
-            {"key": "event_view", "type": "view", "table": "event_view", "fields": ["fake"]}, query_response["events"]
+            {
+                "key": "event_view",
+                "type": "view",
+                "table": "event_view",
+                "fields": ["fake"],
+            },
+            query_response["events"],
         )
 
     def test_view_link_columns_query(self):
@@ -142,7 +148,11 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
         DataWarehouseViewLink.objects.create(
-            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+            saved_query=saved_query,
+            table="events",
+            to_join_key="fake",
+            from_join_key="distinct_id",
+            team=self.team,
         )
 
         query_response = process_query(
@@ -169,7 +179,11 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
         DataWarehouseViewLink.objects.create(
-            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+            saved_query=saved_query,
+            table="events",
+            to_join_key="fake",
+            from_join_key="distinct_id",
+            team=self.team,
         )
 
         response = self.client.post(
@@ -203,7 +217,10 @@ class TestViewLinkQuery(APIBaseTest):
 
         self.assertEqual(
             query_response["types"],
-            [("events__event_view.fake", "String"), ("events__person_view.p_distinct_id", "String")],
+            [
+                ("events__event_view.fake", "String"),
+                ("events__person_view.p_distinct_id", "String"),
+            ],
         )
 
     def test_delete(self):

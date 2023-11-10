@@ -12,7 +12,7 @@ export function EmptyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={[] as ElementType[]} />
 }
 
-export const elementsExample = [
+export const EXAMPLE_ELEMENTS = [
     {
         text: 'Insights',
         tag_name: 'span',
@@ -176,15 +176,15 @@ export const elementsExample = [
 ] as ElementType[]
 
 export function ReadOnlyDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} />
 }
 
 export function WithoutCentralHghlightDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} />
 }
 
 export function EditableDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} />
 }
 
 export function EditableDisplayWithPreselection(): JSX.Element {
@@ -195,7 +195,7 @@ export function EditableDisplayWithPreselection(): JSX.Element {
             </h4>
             <HTMLElementsDisplay
                 startingSelector={'div div.SideBar .LemonButton__content span.text-default'}
-                elements={elementsExample}
+                elements={EXAMPLE_ELEMENTS}
                 highlight={false}
                 editable={true}
             />
@@ -204,5 +204,5 @@ export function EditableDisplayWithPreselection(): JSX.Element {
 }
 
 export function WithUniquenessCheck(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} checkUniqueness={true} />
 }

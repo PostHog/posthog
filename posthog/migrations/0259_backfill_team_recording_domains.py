@@ -45,7 +45,6 @@ def reverse(apps, _):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0258_team_recording_domains"),
     ]

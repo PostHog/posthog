@@ -83,6 +83,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <EditableField
                                     multiline
                                     name="description"
+                                    markdown
                                     value={definition.description || ''}
                                     placeholder="Description (optional)"
                                     mode="view"

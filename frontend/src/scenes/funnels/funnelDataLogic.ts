@@ -4,7 +4,7 @@ import {
     FunnelResultType,
     FunnelVizType,
     FunnelStep,
-    FunnelStepRangeEntityFilter,
+    FunnelExclusion,
     FunnelStepReference,
     FunnelStepWithNestedBreakdown,
     InsightLogicProps,
@@ -381,7 +381,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         // Exclusion filters
         exclusionDefaultStepRange: [
             (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
+            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
                 funnel_from_step: 0,
                 funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),

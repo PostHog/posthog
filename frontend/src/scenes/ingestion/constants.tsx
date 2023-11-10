@@ -1,5 +1,5 @@
 import { PlatformType } from 'scenes/ingestion/types'
-import { Segment } from './panels/ThirdPartyIcons'
+import { Segment, RSS } from './panels/ThirdPartyIcons'
 
 export const TECHNICAL = 'TECHNICAL'
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
@@ -52,28 +52,22 @@ export const allFrameworks = {
 }
 export interface ThirdPartySource {
     name: string
-    type: ThirdPartySourceType
     icon: JSX.Element
-    docsLink?: string
+    docsLink: string
+    aboutLink: string
     labels?: string[]
-    pluginName?: string
-}
-
-export enum ThirdPartySourceType {
-    Integration = 'INTEGRATION',
-    Plugin = 'PLUGIN',
+    description?: string
 }
 
 export const thirdPartySources: ThirdPartySource[] = [
     {
         name: 'Segment',
-        type: ThirdPartySourceType.Integration,
         icon: <Segment />,
         docsLink: 'https://posthog.com/docs/integrate/third-party/segment',
+        aboutLink: 'https://segment.com',
     },
     {
         name: 'Rudderstack',
-        type: ThirdPartySourceType.Integration,
         icon: (
             <img
                 style={{ height: 36, width: 36 }}
@@ -81,17 +75,13 @@ export const thirdPartySources: ThirdPartySource[] = [
             />
         ),
         docsLink: 'https://posthog.com/docs/integrate/third-party/rudderstack',
+        aboutLink: 'https://rudderstack.com',
     },
     {
-        name: 'Redshift',
-        type: ThirdPartySourceType.Plugin,
-        pluginName: 'redshift-import',
-        labels: ['beta'],
-        icon: (
-            <img
-                style={{ height: 36, width: 36 }}
-                src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
-            />
-        ),
+        name: 'RSS items',
+        description: 'Send events from releases, blog posts, status pages, or any other RSS feed into PostHog',
+        icon: <RSS />,
+        docsLink: 'https://posthog.com/tutorials/rss-item-capture',
+        aboutLink: 'https://en.wikipedia.org/wiki/RSS',
     },
 ]

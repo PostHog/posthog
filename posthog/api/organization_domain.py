@@ -9,13 +9,15 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.models import OrganizationDomain
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+)
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
-
     UPDATE_ONLY_WHEN_VERIFIED = ["jit_provisioning_enabled", "sso_enforcement"]
 
     class Meta:
@@ -74,7 +76,11 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
 class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [
+        IsAuthenticated,
+        OrganizationMemberPermissions,
+        OrganizationAdminWritePermissions,
+    ]
     queryset = OrganizationDomain.objects.all()
 
     def get_queryset(self):

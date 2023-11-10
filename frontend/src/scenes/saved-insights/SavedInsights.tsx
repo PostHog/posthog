@@ -57,6 +57,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -181,6 +182,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
+    [NodeKind.PersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.InsightPersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table',
@@ -223,6 +236,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCoffee,
         inMenu: true,
     },
+    [NodeKind.SessionsTimelineQuery]: {
+        name: 'Sessions',
+        description: 'Sessions timeline query',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
@@ -239,6 +258,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
         icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebOverviewQuery]: {
+        name: 'Overview Stats',
+        description: 'View overview stats for a website',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebStatsTableQuery]: {
+        name: 'Web Table',
+        description: 'A table of results from web analytics, with a breakdown',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebTopClicksQuery]: {
+        name: 'Top Clicks',
+        description: 'View top clicks for a website',
+        icon: InsightsTrendsIcon,
         inMenu: true,
     },
 }
@@ -396,7 +433,9 @@ export function SavedInsights(): JSX.Element {
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (
-                            <span className="row-description">{insight.description}</span>
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {insight.description}
+                            </LemonMarkdown>
                         )}
                     </>
                 )

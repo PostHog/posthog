@@ -4,7 +4,7 @@ from typing import Dict, Optional, cast, Any, List
 
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -24,15 +24,38 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.queries.time_to_see_data.serializers import (
+    SessionEventsQuerySerializer,
+    SessionsQuerySerializer,
+)
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    TeamRateThrottle,
+)
+from posthog.schema import HogQLMetadata
+from posthog.utils import refresh_requested_by_client
+
+QUERY_WITH_RUNNER = [
+    "LifecycleQuery",
+    "TrendsQuery",
+    "WebOverviewQuery",
+    "WebTopSourcesQuery",
+    "WebTopClicksQuery",
+    "WebTopPagesQuery",
+    "WebStatsTableQuery",
+]
+QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -48,7 +71,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.parse_obj(data)
+            schema.QuerySchema.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -63,7 +86,11 @@ class QuerySchemaParser(JSONParser):
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     parser_classes = (QuerySchemaParser,)
 
@@ -78,22 +105,30 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             OpenApiParameter(
                 "query",
                 OpenApiTypes.STR,
-                description="Query node JSON string",
+                description=(
+                    "Submit a JSON string representing a query for PostHog data analysis,"
+                    " for example a HogQL query.\n\nExample payload:\n"
+                    '```\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n```'
+                    "\n\nFor more details on HogQL queries"
+                    ", see the [PostHog HogQL documentation](/docs/hogql#api-access). "
+                ),
             ),
             OpenApiParameter(
                 "client_query_id",
                 OpenApiTypes.STR,
                 description="Client provided query ID. Can be used to cancel queries.",
             ),
-        ]
+        ],
+        responses={
+            200: OpenApiResponse(description="Query results"),
+        },
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -105,7 +140,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         self._tag_client_query_id(request_json.get("client_query_id"))
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -164,7 +199,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 raise ValidationError(ex)
 
             query = json.loads(
-                query_source, parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}")
+                query_source,
+                parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}"),
             )
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
@@ -194,29 +230,30 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
     return cast(dict, _unwrap_pydantic(response))
 
 
-def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
+def process_query(
+    team: Team,
+    query_json: Dict,
+    in_export_context: Optional[bool] = False,
+    request: Optional[Request] = None,
+) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
-
     tag_queries(query=query_json)
 
-    if query_kind == "EventsQuery":
-        events_query = EventsQuery.parse_obj(query_json)
-        response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _unwrap_pydantic_dict(response)
-    elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.parse_obj(query_json)
-        response = execute_hogql_query(
-            query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
-        )
-        return _unwrap_pydantic_dict(response)
+    if query_kind in QUERY_WITH_RUNNER:
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "HogQLMetadata":
-        metadata_query = HogQLMetadata.parse_obj(query_json)
-        response = get_hogql_metadata(query=metadata_query, team=team)
-        return _unwrap_pydantic_dict(response)
+        metadata_query = HogQLMetadata.model_validate(query_json)
+        metadata_response = get_hogql_metadata(query=metadata_query, team=team)
+        return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "DatabaseSchemaQuery":
-        database = create_hogql_database(team.pk)
+        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
         return serialize_database(database)
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)

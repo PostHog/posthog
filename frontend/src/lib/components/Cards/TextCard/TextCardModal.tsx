@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field, Form } from 'kea-forms'
-import { LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { userLogic } from 'scenes/userLogic'
 
@@ -71,7 +71,7 @@ export function TextCardModal({
             >
                 <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
                     <Field name="body" label="">
-                        <LemonTextMarkdown data-attr={'text-card-edit-area'} />
+                        <LemonTextAreaMarkdown data-attr={'text-card-edit-area'} />
                     </Field>
                 </PayGateMini>
             </Form>

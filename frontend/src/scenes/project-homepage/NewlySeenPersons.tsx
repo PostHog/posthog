@@ -17,7 +17,7 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
 
     return (
         <ProjectHomePageCompactListItem
-            to={urls.person(person.distinct_ids[0])}
+            to={urls.personByDistinctId(person.distinct_ids[0])}
             title={asDisplay(person)}
             subtitle={`First seen ${dayjs(person.created_at).fromNow()}`}
             prefix={<ProfilePicture name={asDisplay(person)} />}

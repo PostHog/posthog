@@ -5,13 +5,12 @@ import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
 
-export const HTTP_SERVER_PORT = 6738
-
 prometheus.collectDefaultMetrics()
 const v8Profiler = require('v8-profiler-next')
 v8Profiler.setGenerateType(1)
 
 export function createHttpServer(
+    port: number,
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
 ): Server {
@@ -47,7 +46,7 @@ export function createHttpServer(
             //   }
             // }
             const checkResults = await Promise.all(
-                // Note that we do not ues `Promise.allSettled` here so we can
+                // Note that we do not use `Promise.allSettled` here so we can
                 // assume that all promises have resolved. If there was a
                 // rejected promise, the http server should catch it and return
                 // a 500 status code.
@@ -118,8 +117,8 @@ export function createHttpServer(
         }
     })
 
-    server.listen(HTTP_SERVER_PORT, () => {
-        status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
+    server.listen(port, () => {
+        status.info('🩺', `Status server listening on port ${port}`)
     })
 
     return server
@@ -155,8 +154,13 @@ function exportProfile(req: IncomingMessage, res: ServerResponse) {
             }, durationSeconds * 1000)
             break
         case 'heap':
+            // Additional params for sampling heap profile, higher precision means bigger profile.
+            // Defaults are taken from https://v8.github.io/api/head/classv8_1_1HeapProfiler.html
+            const interval = url.searchParams.get('interval') ? parseInt(url.searchParams.get('interval')!) : 512 * 1024
+            const depth = url.searchParams.get('depth') ? parseInt(url.searchParams.get('depth')!) : 16
+
             sendHeaders('heapprofile')
-            v8Profiler.startSamplingHeapProfiling()
+            v8Profiler.startSamplingHeapProfiling(interval, depth)
             setTimeout(() => {
                 outputProfileResult(res, type, v8Profiler.stopSamplingHeapProfiling())
             }, durationSeconds * 1000)

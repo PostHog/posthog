@@ -21,7 +21,8 @@ class AsyncDeletion(models.Model):
                 condition=models.Q(group_type_index__isnull=True),
             ),
             models.UniqueConstraint(
-                name="unique deletion for groups", fields=["deletion_type", "key", "group_type_index"]
+                name="unique deletion for groups",
+                fields=["deletion_type", "key", "group_type_index"],
             ),
         ]
         indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]

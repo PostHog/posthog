@@ -1,5 +1,5 @@
 import urllib.parse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -38,8 +38,16 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_start_of_interval_sql
-from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
+from posthog.queries.util import (
+    TIME_IN_SECONDS,
+    get_interval_func_ch,
+    get_start_of_interval_sql,
+)
+from posthog.utils import (
+    PersonOnEventsMode,
+    encode_get_request_params,
+    generate_short_id,
+)
 
 
 class TrendsTotalVolume:
@@ -54,7 +62,7 @@ class TrendsTotalVolume:
         if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
             person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
-            person_id_alias = "person_id"
+            person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         aggregate_operation, join_condition, math_params = process_math(
             entity,
@@ -115,7 +123,11 @@ class TrendsTotalVolume:
                     tag_queries(trend_volume_type="volume_aggregate")
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
-            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
+            return (
+                content_sql,
+                params,
+                self._parse_aggregate_volume_result(filter, entity, team.id),
+            )
         else:
             tag_queries(trend_volume_display="time_series")
             null_sql = NULL_SQL.format(
@@ -133,12 +145,17 @@ class TrendsTotalVolume:
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
                     date_to_truncated=get_start_of_interval_sql(filter.interval, team=team, source="%(date_to)s"),
                     date_from_active_users_adjusted_truncated=get_start_of_interval_sql(
-                        filter.interval, team=team, source="%(date_from_active_users_adjusted)s"
+                        filter.interval,
+                        team=team,
+                        source="%(date_from_active_users_adjusted)s",
                     ),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
-            elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
+            elif filter.display == TRENDS_CUMULATIVE and entity.math in (
+                UNIQUE_USERS,
+                UNIQUE_GROUPS,
+            ):
                 # :TODO: Consider using bitmap-per-date to speed this up
                 tag_queries(trend_volume_type="cumulative_actors")
                 cumulative_sql = CUMULATIVE_SQL.format(
@@ -256,8 +273,27 @@ class TrendsTotalVolume:
 
         return _parse
 
+    def _offset_date_from(self, point_datetime: datetime, filter: Filter, entity: Entity) -> datetime | None:
+        if filter.display == TRENDS_CUMULATIVE:
+            return filter.date_from
+        elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            # :TRICKY: We have to offset the date by one, as the final query already subtracts 7 days
+            return point_datetime + timedelta(days=1)
+        else:
+            return point_datetime
+
+    def _offset_date_to(self, point_datetime: datetime, filter: Filter, entity: Entity, team: Team) -> datetime:
+        if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            return point_datetime
+        else:
+            return offset_time_series_date_by_interval(point_datetime, filter=filter, team=team)
+
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team: Team, point_datetimes: List[datetime]
+        self,
+        filter: Filter,
+        entity: Entity,
+        team: Team,
+        point_datetimes: List[datetime],
     ) -> List[Dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
@@ -267,8 +303,8 @@ class TrendsTotalVolume:
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
-                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
+                "date_from": self._offset_date_from(point_datetime, filter=filter, entity=entity),
+                "date_to": self._offset_date_to(point_datetime, filter=filter, entity=entity, team=team),
                 "entity_order": entity.order,
             }
 

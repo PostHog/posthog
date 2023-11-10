@@ -20,6 +20,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     allowClear?: boolean
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    hogQLTable?: string
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -45,6 +46,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     placeholderClass = 'text-muted',
     allowClear = false,
     excludedProperties,
+    hogQLTable,
     ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
@@ -85,6 +87,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                         }}
                         taxonomicGroupTypes={groupTypes ?? [groupType]}
                         eventNames={eventNames}
+                        hogQLTable={hogQLTable}
                         excludedProperties={excludedProperties}
                     />
                 }

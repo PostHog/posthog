@@ -128,8 +128,8 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         for expr in node.limit_by or []:
             self.visit(expr)
-        self.visit(node.limit),
-        self.visit(node.offset),
+        (self.visit(node.limit),)
+        (self.visit(node.offset),)
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
@@ -244,11 +244,22 @@ class TraversingVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        for attribute in node.attributes:
+            self.visit(attribute)
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        self.visit(node.value)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
 
-    def __init__(self, clear_types: Optional[bool] = True, clear_locations: Optional[bool] = False):
+    def __init__(
+        self,
+        clear_types: Optional[bool] = True,
+        clear_locations: Optional[bool] = False,
+    ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
 
@@ -463,6 +474,7 @@ class CloningVisitor(Visitor):
             window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
             if node.window_exprs
             else None,
+            settings=node.settings.model_copy() if node.settings is not None else None,
         )
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
@@ -507,3 +519,9 @@ class CloningVisitor(Visitor):
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return ast.JoinConstraint(expr=self.visit(node.expr))
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))

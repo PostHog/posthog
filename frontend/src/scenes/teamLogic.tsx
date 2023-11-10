@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
 import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
@@ -69,11 +69,14 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
                 },
-                updateCurrentTeam: async (payload: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
+
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
+                    breakpoint()
+
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
@@ -86,7 +89,10 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
-                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                    } else if (
+                        updatedAttribute === 'completed_snippet_onboarding' ||
+                        updatedAttribute === 'has_completed_onboarding_for'
+                    ) {
                         message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
@@ -106,7 +112,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(() => ({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -129,6 +135,11 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        /** 0 means Sunday, 1 means Monday. */
+        weekStartDay: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => currentTeam?.week_start_day || 0,
+        ],
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
@@ -193,8 +204,11 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
+        createTeamSuccess: () => {
+            organizationLogic.actions.loadCurrentOrganization()
+        },
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -208,28 +222,26 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            const appContext = getAppContext()
-            const currentTeam = appContext?.current_team
-            const switchedTeam = appContext?.switched_team
-            if (switchedTeam) {
-                lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
-                    button: {
-                        label: 'Switch back',
-                        action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                })
-            }
+    afterMount(({ actions }) => {
+        const appContext = getAppContext()
+        const currentTeam = appContext?.current_team
+        const switchedTeam = appContext?.switched_team
+        if (switchedTeam) {
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
+        }
 
-            if (currentTeam) {
-                // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(currentTeam)
-            } else {
-                // If app context is not available, a traditional request is needed
-                actions.loadCurrentTeam()
-            }
-        },
-    })),
+        if (currentTeam) {
+            // If app context is available (it should be practically always) we can immediately know currentTeam
+            actions.loadCurrentTeamSuccess(currentTeam)
+        } else {
+            // If app context is not available, a traditional request is needed
+            actions.loadCurrentTeam()
+        }
+    }),
 ])

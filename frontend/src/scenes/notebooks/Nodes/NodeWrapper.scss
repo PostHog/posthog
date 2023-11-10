@@ -4,29 +4,56 @@
     --border-color: var(--border);
 
     transform: translate3d(0, 0, 0);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-    margin: 0px 0px 1rem 0px;
-    background-color: var(--bg-light);
-    transition: border 150ms linear;
 
-    .NotebookNode__meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: var(--muted-alt-3000);
-        padding: var(--notebook-node-meta-padding);
-        border-bottom: 1px solid var(--border);
-        height: var(--notebook-node-meta-height);
-        transition: height 150ms ease-out;
+    .NotebookNode__box {
+        transform: translate3d(0, 0, 0);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        background-color: var(--bg-light);
+        transition: border 150ms linear, margin-bottom 150ms linear;
         overflow: hidden;
+
+        .NotebookNode__meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--primary-alt);
+            padding: var(--notebook-node-meta-padding);
+            border-bottom: 1px solid var(--border);
+            height: var(--notebook-node-meta-height);
+            transition: height 150ms ease-out;
+            overflow: hidden;
+        }
+
+        .NotebookNode__settings {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .NotebookNode__content {
+            transition: box-shadow 150ms ease-out;
+            z-index: 1;
+        }
     }
 
-    .NotebookNode__content {
-        transition: box-shadow 150ms ease-out;
-        border-radius: var(--radius);
+    .NotebookNode__gap {
+        display: flex;
+        gap: 0.2rem;
+        overflow: hidden;
+        transition: all 150ms linear 1000ms;
+        opacity: 0;
+        height: 1.25rem;
+        align-items: center;
+    }
+
+    &--editable:hover,
+    &--selected {
+        .NotebookNode__gap {
+            opacity: 1;
+            height: 2rem;
+            transition: all 150ms linear;
+        }
     }
 
     &--selected {
@@ -34,7 +61,7 @@
     }
 
     &--auto-hide-metadata {
-        border-color: transparent;
+        --border-color: transparent;
 
         .NotebookNode__meta {
             height: 0;
@@ -56,6 +83,10 @@
                 }
             }
         }
+
+        &:hover {
+            --border-color: var(--border);
+        }
     }
 }
 
@@ -65,5 +96,20 @@
         height: 100%;
         width: 100%;
         object-fit: contain;
+    }
+}
+
+.NotebookNodeTitle {
+    padding: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--editable {
+        border-radius: var(--radius);
+        transition: background-color 150ms linear;
+        &:hover {
+            background-color: var(--border);
+        }
     }
 }

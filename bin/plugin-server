@@ -46,7 +46,15 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-[[ -n $DEBUG ]] && cmd="pnpm start:dev" || cmd="node dist/index.js"
+if [[ -n $DEBUG ]]; then
+  if [[ -n $NO_WATCH ]]; then
+    cmd="pnpm start:devNoWatch"
+  else
+    cmd="pnpm start:dev"
+  fi
+else
+  cmd="node dist/index.js"
+fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."

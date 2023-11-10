@@ -9,27 +9,21 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
-    Database = 'Database',
     Insight = 'Insight',
-    Cohorts = 'Cohorts',
+    WebAnalytics = 'WebAnalytics',
     Cohort = 'Cohort',
     Events = 'Events',
     DataManagement = 'DataManagement',
-    EventDefinitions = 'EventDefinitionsTable',
     EventDefinition = 'EventDefinition',
-    PropertyDefinitions = 'PropertyDefinitionsTable',
     PropertyDefinition = 'PropertyDefinition',
-    DataManagementHistory = 'DataManagementHistory',
-    IngestionWarnings = 'IngestionWarnings',
     Replay = 'Replay',
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
+    PersonsManagement = 'PersonsManagement',
     Person = 'Person',
-    Persons = 'Persons',
-    Groups = 'Groups',
+    Pipeline = 'Pipeline',
     Group = 'Group',
     Action = 'Action',
-    Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
     BatchExports = 'BatchExports',
@@ -41,23 +35,21 @@ export enum Scene {
     EarlyAccessFeature = 'EarlyAccessFeature',
     Surveys = 'Surveys',
     Survey = 'Survey',
+    SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
     DataWarehousePosthog = 'DataWarehousePosthog',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
-    OrganizationSettings = 'OrganizationSettings',
+    DataWarehouseSettings = 'DataWarehouseSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
-    ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
-    MySettings = 'MySettings',
-    Annotations = 'Annotations',
     Billing = 'Billing',
-    Plugins = 'Plugins',
+    Apps = 'Apps',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
@@ -78,9 +70,12 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Notebooks = 'Notebooks',
     Notebook = 'Notebook',
+    Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
+    Settings = 'Settings',
 }
 
 export type SceneProps = Record<string, any>
@@ -123,10 +118,11 @@ export interface SceneConfig {
     /**
      * If `app`, navigation is shown, and the scene has default padding.
      * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

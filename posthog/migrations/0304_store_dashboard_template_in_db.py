@@ -13,7 +13,6 @@ class AlterFieldNullSafe(migrations.AlterField):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0303_team_session_recording_version"),
     ]
@@ -28,7 +27,10 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
@@ -66,7 +68,10 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=255), blank=True, null=True, size=None
+                base_field=models.CharField(max_length=255),
+                blank=True,
+                null=True,
+                size=None,
             ),
         ),
         AlterFieldNullSafe(

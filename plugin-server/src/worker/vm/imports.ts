@@ -15,11 +15,12 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 import * as zlib from 'zlib'
 
-import fetch from '../../utils/fetch'
+import { isTestEnv } from '../../utils/env-utils'
+import { trackedFetch } from '../../utils/fetch'
 import { writeToFile } from './extensions/test-utils'
 
-export const imports = {
-    ...(process.env.NODE_ENV === 'test'
+export const AVAILABLE_IMPORTS = {
+    ...(isTestEnv()
         ? {
               'test-utils/write-to-file': writeToFile,
           }
@@ -32,7 +33,7 @@ export const imports = {
     'aws-sdk': AWS,
     ethers: ethers,
     'generic-pool': genericPool,
-    'node-fetch': fetch,
+    'node-fetch': trackedFetch,
     'snowflake-sdk': snowflake,
     crypto: crypto,
     jsonwebtoken: jsonwebtoken,

@@ -27,6 +27,7 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
     eventNames?: string[]
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export interface PropertyFilterInternalProps {
@@ -41,4 +42,6 @@ export interface PropertyFilterInternalProps {
     orFiltering?: boolean
     addText?: string | null
     hasRowOperator?: boolean
+    hogQLTable?: string
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }

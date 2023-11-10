@@ -34,7 +34,8 @@ def timed_log(name: Optional[str] = None):
             finally:
                 duration = round((time() - start) * 1000, 1)
                 print(  # noqa T201
-                    f"Timed function: {fn_name} took {duration}ms with args", {"args": args, "kwargs": kwargs}
+                    f"Timed function: {fn_name} took {duration}ms with args",
+                    {"args": args, "kwargs": kwargs},
                 )
 
         return wrapper

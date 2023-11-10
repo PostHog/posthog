@@ -1,0 +1,5 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`CorsPlugin should replace font urls in stylesheets 1`] = `"@font-face { font-display: fallback; font-family: "Roboto Condensed"; font-weight: 400; font-style: normal; src: url("https://replay.ph-proxy.com/proxy?url=https://posthog.com/assets/fonts/roboto/roboto_condensed_reg-webfont.woff2?11012022") format("woff2"), url("https://replay.ph-proxy.com/proxy?url=https://posthog.com/assets/fonts/roboto/roboto_condensed_reg-webfont.woff?11012022")"`;
+
+exports[`CorsPlugin should replace font urls in stylesheets 2`] = `"url("https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/fonts/my-font.woff2")"`;

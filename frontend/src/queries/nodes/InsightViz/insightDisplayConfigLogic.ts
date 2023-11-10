@@ -12,7 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
-    path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
+    path((key) => ['queries', 'nodes', 'InsightViz', 'insightDisplayConfigLogic', key]),
 
     connect((props: InsightLogicProps) => ({
         values: [

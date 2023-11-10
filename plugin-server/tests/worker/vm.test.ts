@@ -1,5 +1,5 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import * as fetch from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
@@ -58,6 +58,7 @@ describe('vm tests', () => {
 
         expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
+            'composeWebhook',
             'exportEvents',
             'getSettings',
             'onEvent',
@@ -122,7 +123,7 @@ describe('vm tests', () => {
         })
         expect(fetch).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', undefined)
     })
 
     test('processEvent', async () => {
@@ -376,7 +377,7 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export')
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', undefined)
         })
 
         test('export default', async () => {
@@ -395,7 +396,7 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export')
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', undefined)
         })
     })
 
@@ -723,7 +724,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -745,7 +746,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -766,7 +767,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -1051,7 +1052,7 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', undefined)
     })
 
     describe('exportEvents', () => {
@@ -1085,7 +1086,7 @@ describe('vm tests', () => {
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
             await delay(1010)
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
+            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2', undefined)
             expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
                 teamId: pluginConfig39.team_id,
                 pluginConfigId: pluginConfig39.id,
@@ -1136,8 +1137,8 @@ describe('vm tests', () => {
             await vm.methods.onEvent!(event)
             await delay(1010)
             expect(fetch).toHaveBeenCalledTimes(4)
-            expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=2')
+            expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
+            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=2', undefined)
         })
 
         test('buffers bytes with exportEventsBufferBytes', async () => {
@@ -1264,10 +1265,16 @@ describe('vm tests', () => {
                 indexJs
             )
             await vm.methods.onEvent!(defaultEvent)
-            expect(fetch).not.toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
+            expect(fetch).not.toHaveBeenCalledWith(
+                'https://export.com/results.json?query=default event&events=1',
+                undefined
+            )
 
             await vm.methods.teardownPlugin!()
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
+            expect(fetch).toHaveBeenCalledWith(
+                'https://export.com/results.json?query=default event&events=1',
+                undefined
+            )
         })
     })
 

@@ -312,14 +312,6 @@ export function escapeClickHouseString(string: string): string {
     return string.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
-export function groupIntoBatches<T>(array: T[], batchSize: number): T[][] {
-    const batches = []
-    for (let i = 0; i < array.length; i += batchSize) {
-        batches.push(array.slice(i, i + batchSize))
-    }
-    return batches
-}
-
 /** Standardize JS code used internally to form without extraneous indentation. Template literal function. */
 export function code(strings: TemplateStringsArray): string {
     const stringsConcat = strings.join('…')
@@ -613,4 +605,8 @@ export function getPropertyValueByPath(properties: Properties, [firstKey, ...nes
         value = value[key]
     }
     return value
+}
+
+export async function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
 }

@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { isString } from '@tiptap/core'
 
 export interface AccountResponse {
     success: boolean
@@ -107,8 +108,20 @@ export const signupLogic = kea<signupLogicType>([
             if (values.preflight?.cloud) {
                 // Redirect to a different region if we are doing maintenance on one of them
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
-                const isRegionOverrideValid = regionOverrideFlag === 'eu' || regionOverrideFlag === 'us'
-                if (isRegionOverrideValid && regionOverrideFlag !== values.preflight?.region.toLowerCase()) {
+                const regionsAllowList = ['eu', 'us']
+                const isRegionOverrideValid =
+                    isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
+                // KLUDGE: the backend can technically return null
+                // but definitely does in Cypress tests
+                // and, we don't want to redirect to the app unless the preflight region is valid
+                const isPreflightRegionValid =
+                    values.preflight?.region && regionsAllowList.includes(values.preflight?.region)
+
+                if (
+                    isRegionOverrideValid &&
+                    isPreflightRegionValid &&
+                    regionOverrideFlag !== values.preflight?.region?.toLowerCase()
+                ) {
                     window.location.href = `https://${
                         CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
                     }${urls.signup()}?maintenanceRedirect=true`

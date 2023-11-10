@@ -10,7 +10,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0220_backfill_primary_dashboards"),
     ]
@@ -22,7 +21,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("team_id", models.PositiveIntegerField(null=True)),
@@ -33,26 +35,36 @@ class Migration(migrations.Migration):
                 (
                     "detail",
                     models.JSONField(
-                        encoder=posthog.models.activity_logging.activity_log.ActivityDetailEncoder, null=True
+                        encoder=posthog.models.activity_logging.activity_log.ActivityDetailEncoder,
+                        null=True,
                     ),
                 ),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 (
                     "user",
                     models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],
         ),
         migrations.AddIndex(
             model_name="activitylog",
-            index=models.Index(fields=["team_id", "scope", "item_id"], name="posthog_act_team_id_13a0a8_idx"),
+            index=models.Index(
+                fields=["team_id", "scope", "item_id"],
+                name="posthog_act_team_id_13a0a8_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="activitylog",
             constraint=models.CheckConstraint(
-                check=models.Q(("team_id__isnull", False), ("organization_id__isnull", False), _connector="OR"),
+                check=models.Q(
+                    ("team_id__isnull", False),
+                    ("organization_id__isnull", False),
+                    _connector="OR",
+                ),
                 name="must_have_team_or_organization_id",
             ),
         ),

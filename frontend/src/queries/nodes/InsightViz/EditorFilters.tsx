@@ -42,18 +42,32 @@ import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     showing: boolean
+    embedded: boolean
 }
 
-export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown, pathsFilter } =
-        useValues(insightVizDataLogic(insightProps))
+    const {
+        isTrends,
+        isFunnels,
+        isRetention,
+        isPaths,
+        isLifecycle,
+        isTrendsLike,
+        display,
+        breakdown,
+        pathsFilter,
+        querySource,
+    } = useValues(insightVizDataLogic(insightProps))
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+
+    if (!querySource) {
+        return null
+    }
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -268,6 +282,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--singlecolumn': isFunnels,
+                    'EditorFiltersWrapper--embedded': embedded,
                 })}
             >
                 <div className="EditorFilters">
@@ -278,7 +293,6 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                             insight={insight}
                             insightProps={insightProps}
                             query={query}
-                            setQuery={setQuery}
                         />
                     ))}
                 </div>

@@ -8,7 +8,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { asDisplay } from './person-utils'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export type PersonPreviewProps = {
     distinctId: string | undefined
@@ -32,7 +32,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     }
 
     const display = asDisplay(person)
-    const url = urls.person(person?.distinct_ids[0])
+    const url = urls.personByDistinctId(person?.distinct_ids[0])
 
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
@@ -41,17 +41,19 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
 
-                <NotebookAddButton
+                <NotebookSelectButton
                     resource={{
-                        attrs: {
-                            id: person?.distinct_ids[0],
-                        },
                         type: NotebookNodeType.Person,
+                        attrs: { id: person?.distinct_ids[0] },
                     }}
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"
                 />
-                <LemonButton size="small" icon={<IconOpenInNew />} to={urls.person(person?.distinct_ids[0])} />
+                <LemonButton
+                    size="small"
+                    icon={<IconOpenInNew />}
+                    to={urls.personByDistinctId(person?.distinct_ids[0])}
+                />
             </div>
 
             <div className="flex-1 overflow-y-auto border-t">

@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -13,6 +13,7 @@ import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
@@ -77,7 +78,6 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: string) => ({ id }),
         skipTask: (id: string) => ({ id }),
         addSkippedTask: (teamId: TeamBasicType['id'], taskId: string) => ({ teamId, taskId }),
-        setShowSessionRecordingConfig: (value: boolean) => ({ value }),
     }),
     reducers(() => ({
         skippedTasks: [
@@ -87,12 +87,6 @@ export const activationLogic = kea<activationLogicType>([
                 addSkippedTask: (state, { teamId, taskId }) => {
                     return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
                 },
-            },
-        ],
-        showSessionRecordingConfig: [
-            false,
-            {
-                setShowSessionRecordingConfig: (_, { value }) => value,
             },
         ],
         areMembersLoaded: [
@@ -345,7 +339,7 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.dashboards())
                     break
                 case ActivationTasks.SetupSessionRecordings:
-                    actions.setShowSessionRecordingConfig(true)
+                    router.actions.push(urls.replay())
                     break
                 case ActivationTasks.InstallFirstApp:
                     router.actions.push(urls.projectApps())
@@ -358,9 +352,6 @@ export const activationLogic = kea<activationLogicType>([
             if (values.currentTeam?.id) {
                 actions.addSkippedTask(values.currentTeam.id, id)
             }
-        },
-        toggleActivationSideBar: async () => {
-            actions.setShowSessionRecordingConfig(false)
         },
         showActivationSideBar: async () => {
             actions.reportActivationSideBarShown(
@@ -385,4 +376,5 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
     })),
+    permanentlyMount(),
 ])

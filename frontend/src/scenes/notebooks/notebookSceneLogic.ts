@@ -1,10 +1,10 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, NotebookMode } from '~/types'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { Breadcrumb, NotebookTarget } from '~/types'
 
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
+import { notebooksModel } from '~/models/notebooksModel'
 
 export type NotebookSceneLogicProps = {
     shortId: string
@@ -14,62 +14,36 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
-        values: [notebookLogic(props), ['notebook', 'notebookLoading']],
-        actions: [notebookLogic(props), ['loadNotebook']],
+        values: [notebookLogic(props), ['notebook', 'notebookLoading'], notebooksModel, ['notebooksLoading']],
+        actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
-    actions({
-        setNotebookMode: (mode: NotebookMode) => ({ mode }),
-    }),
-    reducers({
-        mode: [
-            NotebookMode.View as NotebookMode,
-            {
-                setNotebookMode: (_, { mode }) => mode,
-            },
-        ],
-    }),
     selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.shortId],
 
+        loading: [
+            (s) => [s.notebookLoading, s.notebooksLoading],
+            (notebookLoading, notebooksLoading) => notebookLoading || notebooksLoading,
+        ],
+
         breadcrumbs: [
-            (s) => [s.notebook, s.notebookLoading],
-            (notebook, notebookLoading): Breadcrumb[] => [
+            (s) => [s.notebook, s.loading],
+            (notebook, loading): Breadcrumb[] => [
                 {
                     name: 'Notebooks',
-                    path: urls.dashboards() + '?tab=notebooks',
+                    path: urls.notebooks(),
                 },
                 {
-                    name: notebook
-                        ? notebook?.title || 'Unnamed'
-                        : notebookLoading
-                        ? 'Loading...'
-                        : 'Notebook not found',
+                    name: notebook ? notebook?.title || 'Unnamed' : loading ? 'Loading...' : 'Notebook not found',
                 },
             ],
         ],
     })),
-    urlToAction(({ props, actions, values }) => ({
-        [`/notebooks/${props.shortId}(/:mode)`]: (
-            { mode } // url params
-        ) => {
-            const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
 
-            if (newMode !== values.mode) {
-                actions.setNotebookMode(newMode)
-            }
-        },
-    })),
-    actionToUrl(({ values, props }) => {
-        return {
-            setNotebookMode: () => {
-                return values.mode === NotebookMode.View
-                    ? urls.notebook(props.shortId)
-                    : urls.notebookEdit(props.shortId)
-            },
+    afterMount(({ actions, props }) => {
+        if (props.shortId === 'new') {
+            actions.createNotebook(NotebookTarget.Scene)
+        } else {
+            actions.loadNotebook()
         }
-    }),
-
-    afterMount(({ actions }) => {
-        actions.loadNotebook()
     }),
 ])

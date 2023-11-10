@@ -3,8 +3,8 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import saved_query, table, view_link
-
+from posthog.warehouse.api import external_data_source, saved_query, table, view_link
+from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
     annotation,
@@ -24,6 +24,7 @@ from . import (
     notebook,
     organization,
     organization_domain,
+    organization_feature_flag,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -132,7 +133,22 @@ app_metrics_router.register(
 batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
 )
-batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
+batch_export_runs_router = batch_exports_router.register(
+    r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"]
+)
+batch_exports_router.register(
+    r"logs",
+    batch_exports.BatchExportLogViewSet,
+    "batch_export_run_logs",
+    ["team_id", "batch_export_id"],
+)
+
+batch_export_runs_router.register(
+    r"logs",
+    batch_exports.BatchExportLogViewSet,
+    "batch_export_logs",
+    ["team_id", "batch_export_id", "run_id"],
+)
 
 projects_router.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
 projects_router.register(
@@ -142,7 +158,10 @@ projects_router.register(
     ["team_id"],
 )
 projects_router.register(
-    r"warehouse_view_links", view_link.ViewLinkViewSet, "project_warehouse_view_links", ["team_id"]
+    r"warehouse_view_links",
+    view_link.ViewLinkViewSet,
+    "project_warehouse_view_links",
+    ["team_id"],
 )
 
 projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "warehouse_api", ["team_id"])
@@ -170,6 +189,12 @@ organizations_router.register(
     "organization_domains",
     ["organization_id"],
 )
+organizations_router.register(
+    r"feature_flags",
+    organization_feature_flag.OrganizationFeatureFlagView,
+    "organization_feature_flags",
+    ["organization_id"],
+)
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
@@ -192,6 +217,14 @@ projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "projec
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 
+# External data resources
+projects_router.register(
+    r"external_data_sources",
+    external_data_source.ExternalDataSourceViewSet,
+    "project_external_data_sources",
+    ["team_id"],
+)
+
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet)
@@ -212,7 +245,6 @@ from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E4
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
-from posthog.api.session_recording import SessionRecordingViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")

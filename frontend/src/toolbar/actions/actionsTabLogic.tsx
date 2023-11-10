@@ -23,14 +23,14 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
 function toElementsChain(element: HTMLElement): ElementType[] {
     const chain: HTMLElement[] = []
     let currentElement: HTMLElement | null | undefined = element
-    while (currentElement && chain.length <= 10 && currentElement !== document.body) {
+    while (currentElement && currentElement !== document.documentElement) {
         chain.push(currentElement)
         currentElement = currentElement.parentElement
     }
     return chain.map(
         (element, index) =>
             ({
-                attr_class: element.getAttribute('class') || undefined,
+                attr_class: element.getAttribute('class')?.split(' '),
                 attr_id: element.getAttribute('id') || undefined,
                 attributes: Array.from(element.attributes).reduce((acc, attr) => {
                     if (!acc[attr.name]) {

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
-import { Popover } from 'antd'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
 import { getSeriesColor } from 'lib/colors'
 import { Noun } from '~/models/groupsModel'
 import { MetricRow } from './MetricRow'
+import { LemonDropdown } from '@posthog/lemon-ui'
 
 interface BarProps {
     percentage: number
@@ -79,10 +79,11 @@ export function Bar({
     }, [wrapperWidth])
 
     return (
-        <Popover
+        <LemonDropdown
             trigger="hover"
             placement="right"
-            content={
+            showArrow
+            overlay={
                 <LEGACY_InsightTooltip altTitle={popoverTitle}>
                     {popoverMetrics.map(({ title, value, visible }, index) =>
                         visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
@@ -121,6 +122,6 @@ export function Bar({
                     </div>
                 )}
             </div>
-        </Popover>
+        </LemonDropdown>
     )
 }

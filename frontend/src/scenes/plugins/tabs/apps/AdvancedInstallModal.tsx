@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
 import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function AdvancedInstallModal(): JSX.Element {
@@ -43,9 +43,9 @@ export function AdvancedInstallModal(): JSX.Element {
                     <LemonLabel>Code your own app</LemonLabel>
                     <p>
                         Write your app directly in PostHog.{' '}
-                        <a href="https://posthog.com/docs/apps" target="_blank">
+                        <Link to="https://posthog.com/docs/apps" target="_blank">
                             Read the documentation for more information!
-                        </a>
+                        </Link>
                     </p>
                     <div className="flex items-center gap-2">
                         <LemonInput
@@ -70,29 +70,20 @@ export function AdvancedInstallModal(): JSX.Element {
                     <LemonLabel>Install from GitHub, GitLab or npm</LemonLabel>
                     <p>
                         To install a third-party or custom app, paste its URL below. For{' '}
-                        <a
-                            href="https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token"
+                        <Link
+                            to="https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token"
                             target="_blank"
-                            rel="noopener noreferrer"
                         >
                             GitHub
-                        </a>
+                        </Link>
                         {', '}
-                        <a
-                            href="https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
+                        <Link to="https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html" target="_blank">
                             GitLab
-                        </a>
+                        </Link>
                         {' and '}
-                        <a
-                            href="https://docs.npmjs.com/creating-and-viewing-access-tokens"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
+                        <Link to="https://docs.npmjs.com/creating-and-viewing-access-tokens" target="_blank">
                             npm
-                        </a>{' '}
+                        </Link>{' '}
                         private repositories, append <code>?private_token=TOKEN</code> to the end of the URL.
                         <br />
                         <b className="text-warning">Warning: Only install apps from trusted sources.</b>

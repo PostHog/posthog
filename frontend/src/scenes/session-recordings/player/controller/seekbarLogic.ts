@@ -2,7 +2,7 @@ import { MutableRefObject } from 'react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { seekbarLogicType } from './seekbarLogicType'
 import {
-    SessionRecordingLogicProps,
+    SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
@@ -11,9 +11,9 @@ import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } 
 
 export const seekbarLogic = kea<seekbarLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key]),
-    props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingLogicProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['sessionPlayerData', 'currentPlayerTime']],
         actions: [sessionRecordingPlayerLogic(props), ['seekToTime', 'startScrub', 'endScrub', 'setCurrentTimestamp']],
     })),

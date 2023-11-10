@@ -29,5 +29,9 @@ class PersonalAPIKey(models.Model):
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
-        "posthog.Team", on_delete=models.SET_NULL, related_name="personal_api_keys+", null=True, blank=True
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="personal_api_keys+",
+        null=True,
+        blank=True,
     )

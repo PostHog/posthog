@@ -191,7 +191,7 @@ const featureFlagActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
+                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
                 </>,
             ],
         }
@@ -250,6 +250,7 @@ const featureFlagActionsMapping: Record<
     can_edit: () => null,
     analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
+    surveys: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

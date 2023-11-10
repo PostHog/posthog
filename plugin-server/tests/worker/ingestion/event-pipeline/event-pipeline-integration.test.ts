@@ -9,7 +9,10 @@ import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
-import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import {
+    processOnEventStep,
+    processWebhooksStep,
+} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -31,7 +34,7 @@ describe('Event Pipeline integration test', () => {
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return Promise.all([
-            runner.runAppsOnEventPipeline(postIngestionEvent),
+            processOnEventStep(runner.hub, postIngestionEvent),
             processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
         ])
     }
@@ -45,7 +48,14 @@ describe('Event Pipeline integration test', () => {
         actionManager = new ActionManager(hub.db.postgres)
         await actionManager.prepare()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
-        hookCannon = new HookCommander(hub.db.postgres, hub.teamManager, hub.organizationManager)
+        hookCannon = new HookCommander(
+            hub.db.postgres,
+            hub.teamManager,
+            hub.organizationManager,
+            hub.appMetrics,
+            undefined,
+            hub.EXTERNAL_REQUEST_TIMEOUT_MS
+        )
 
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'createPerson')
@@ -105,6 +115,7 @@ describe('Event Pipeline integration test', () => {
                     $set: {
                         personProp: 'value',
                         anotherValue: 2,
+                        $browser: 'Chrome',
                     },
                     $set_once: {
                         $initial_browser: 'Chrome',
@@ -118,6 +129,7 @@ describe('Event Pipeline integration test', () => {
         expect(persons[0].properties).toEqual({
             $creator_event_uuid: event.uuid,
             $initial_browser: 'Chrome',
+            $browser: 'Chrome',
             personProp: 'value',
             anotherValue: 2,
         })
@@ -174,7 +186,7 @@ describe('Event Pipeline integration test', () => {
             user_id: commonUserId,
             resource_id: 69,
             event: 'action_performed',
-            target: 'https://rest-hooks.example.com/',
+            target: 'https://example.com/',
             created: timestamp,
             updated: timestamp,
         } as Hook)
@@ -198,7 +210,7 @@ describe('Event Pipeline integration test', () => {
             hook: {
                 id: 'abc',
                 event: 'action_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
             },
             data: {
                 event: 'xyz',
@@ -222,7 +234,7 @@ describe('Event Pipeline integration test', () => {
 
         // Using a more verbose way instead of toHaveBeenCalledWith because we need to parse request body
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
-        expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://rest-hooks.example.com/')
+        expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
         expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
         expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)

@@ -3,22 +3,31 @@
 
 .SessionRecordingsPlaylist {
     display: flex;
-    flex-direction: column-reverse;
-    align-items: flex-start;
-    gap: 1rem;
-    overflow: hidden;
-    padding-bottom: 1rem;
+    flex-direction: row;
+    justify-content: flex-start;
 
-    .SessionRecordingsPlaylist__left-column {
+    align-items: flex-start;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 100%;
+
+    .SessionRecordingsPlaylist__list {
         flex-shrink: 0;
-        width: 100%;
         display: flex;
         flex-direction: column;
+        max-width: 350px;
+        min-width: 300px;
+        width: 25%;
+        overflow: hidden;
+        height: 100%;
     }
-    .SessionRecordingsPlaylist__right-column {
+
+    .SessionRecordingsPlaylist__player {
+        flex: 1;
+        height: 100%;
         overflow: hidden;
         width: 100%;
-        height: 30rem;
 
         .SessionRecordingsPlaylist__loading {
             display: flex;
@@ -28,35 +37,41 @@
         }
     }
 
+    &--embedded {
+        border: none;
+    }
+
     &--wide {
-        flex-direction: row;
-        justify-content: flex-start;
-        height: calc(100vh - 5rem);
-
-        .SessionRecordingsPlaylist__left-column {
-            max-width: 350px;
-            min-width: 300px;
-            width: 25%;
-            overflow: hidden;
-            height: 100%;
-        }
-
-        .SessionRecordingsPlaylist__right-column {
+        .SessionRecordingsPlaylist__player {
             flex: 1;
             height: 100%;
         }
     }
 }
 
-.SessionRecordingsPlaylist__lists {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-    gap: 0.5rem;
+.SessionRecordingPlaylistHeightWrapper {
+    // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
+    height: calc(100vh - 15rem);
+    min-height: 41rem;
 }
 
 .SessionRecordingPreview {
+    display: flex;
+    padding: 0.5rem 0 0.5rem 0.5rem;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    border-left: 6px solid transparent;
+    transition: background-color 200ms ease, border 200ms ease;
+
+    &--active {
+        border-left-color: var(--primary);
+    }
+
+    &:hover {
+        background-color: var(--primary-highlight);
+    }
+
     .SessionRecordingPreview__property-icon:hover {
         transition: opacity 200ms;
         opacity: 1;

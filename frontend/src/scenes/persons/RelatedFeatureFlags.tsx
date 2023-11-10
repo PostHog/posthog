@@ -7,6 +7,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 import { FeatureFlagReleaseType } from '~/types'
 import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface Props {
     distinctId: string
@@ -55,7 +56,11 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>
-                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                        {featureFlag.name && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {featureFlag.name}
+                            </LemonMarkdown>
+                        )}
                     </>
                 )
             },
@@ -78,7 +83,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <div style={{ wordBreak: 'break-word' }}>
                         {featureFlag.active && featureFlag.value
                             ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : '--'}
+                            : 'False'}
                     </div>
                 )
             },
@@ -112,6 +117,16 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             },
         },
     ]
+
+    const options = [
+        { label: 'All types', value: 'all' },
+        {
+            label: FeatureFlagReleaseType.ReleaseToggle,
+            value: FeatureFlagReleaseType.ReleaseToggle,
+        },
+        { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+    ]
+
     return (
         <>
             <div className="flex justify-between mb-4">
@@ -126,14 +141,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Type</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All types', value: 'all' },
-                            {
-                                label: FeatureFlagReleaseType.ReleaseToggle,
-                                value: FeatureFlagReleaseType.ReleaseToggle,
-                            },
-                            { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-                        ]}
+                        options={options}
                         onChange={(type) => {
                             if (type) {
                                 if (type === 'all') {
@@ -153,11 +161,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Match evaluation</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
-                            { label: 'Not matched', value: 'not matched' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
+                                { label: 'Not matched', value: 'not matched' },
+                            ] as { label: string; value: string }[]
+                        }
                         onChange={(reason) => {
                             if (reason) {
                                 if (reason === 'all') {
@@ -174,7 +184,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
-                        <b>Status</b>
+                        <b>Flag status</b>
                     </span>
                     <LemonSelect
                         onChange={(status) => {
@@ -189,11 +199,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Enabled', value: 'true' },
-                            { label: 'Disabled', value: 'false' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
+                            ] as { label: string; value: string }[]
+                        }
                         value="all"
                         dropdownMaxContentWidth
                     />

@@ -199,6 +199,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
                 properties: {
                     $creator_event_uuid: eventUuid,
                     $initial_current_url: 'http://localhost:8000',
+                    $current_url: 'http://localhost:8000',
                     email: 't@t.com',
                 },
                 uuid: expect.any(String),
@@ -208,6 +209,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
                 $sent_at: expect.any(String),
                 $set: {
                     email: 't@t.com',
+                    $current_url: 'http://localhost:8000',
                 },
                 $set_once: {
                     $initial_current_url: 'http://localhost:8000',

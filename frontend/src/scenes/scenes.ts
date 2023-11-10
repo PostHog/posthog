@@ -3,7 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
+import { InsightShortId, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { EventsQuery } from '~/queries/schema'
@@ -43,9 +43,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
-    [Scene.Cohorts]: {
+    [Scene.WebAnalytics]: {
         projectBased: true,
-        name: 'Cohorts',
+        name: 'Web Analytics',
+        layout: 'app-container',
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -71,35 +72,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.Actions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.EventDefinitions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
     [Scene.EventDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.PropertyDefinitions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
     [Scene.PropertyDefinition]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.DataManagementHistory]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.IngestionWarnings]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.Database]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -119,7 +96,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Person',
     },
-    [Scene.Persons]: {
+    [Scene.PersonsManagement]: {
         projectBased: true,
         name: 'Persons & Groups',
     },
@@ -127,13 +104,13 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Action',
     },
-    [Scene.Groups]: {
-        projectBased: true,
-        name: 'Persons & Groups',
-    },
     [Scene.Group]: {
         projectBased: true,
         name: 'Persons & Groups',
+    },
+    [Scene.Pipeline]: {
+        projectBased: true,
+        name: 'Pipeline',
     },
     [Scene.Experiments]: {
         projectBased: true,
@@ -158,6 +135,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Survey',
     },
+    [Scene.SurveyTemplates]: {
+        projectBased: true,
+        name: 'New survey',
+    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data Warehouse',
@@ -174,6 +155,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Warehouse',
     },
+    [Scene.DataWarehouseSettings]: {
+        projectBased: true,
+        name: 'Data Warehouse Settings',
+    },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
         name: 'Data Warehouse Table',
@@ -184,11 +169,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.EarlyAccessFeature]: {
         projectBased: true,
     },
-    [Scene.Annotations]: {
-        projectBased: true,
-        name: 'Annotations',
-    },
-    [Scene.Plugins]: {
+    [Scene.Apps]: {
         projectBased: true,
         name: 'Apps',
     },
@@ -207,11 +188,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
-    },
-    [Scene.ProjectSettings]: {
-        projectBased: true,
-        hideProjectNotice: true,
-        name: 'Project settings',
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations Redirect',
@@ -244,9 +220,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreationConfirm]: {
         name: 'Confirm organization creation',
         onlyUnauthenticated: true,
-    },
-    [Scene.OrganizationSettings]: {
-        organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
@@ -286,10 +259,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.DeadLetterQueue]: {
         instanceLevel: true,
     },
-    // Personal routes
-    [Scene.MySettings]: {
-        personal: true,
-    },
     // Cloud-only routes
     [Scene.Billing]: {
         hideProjectNotice: true,
@@ -297,6 +266,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
+        layout: 'app-raw',
     },
     [Scene.DebugQuery]: {
         projectBased: true,
@@ -313,6 +283,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Notebook',
         layout: 'app-raw',
+    },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+    },
+    [Scene.Canvas]: {
+        projectBased: true,
+        name: 'Canvas',
+        layout: 'app-raw',
+    },
+    [Scene.Settings]: {
+        projectBased: true,
+        name: 'Settings',
     },
 }
 
@@ -331,12 +314,12 @@ export const redirects: Record<
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
     '/project/plugins': urls.projectApps(),
-    '/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
-    '/organization/members': urls.organizationSettings(),
+    '/actions': urls.actions(),
+    '/organization/members': urls.settings('organization'),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
-    '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
+    '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/:id/*': ({ id, _ }) => {
@@ -359,6 +342,8 @@ export const redirects: Record<
     },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/annotations': () => urls.annotations(),
+    '/annotations/:id': ({ id }) => urls.annotation(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings': (_params, _searchParams, hashParams) => {
@@ -370,6 +355,10 @@ export const redirects: Record<
     },
     '/replay': urls.replay(),
     '/exports': urls.batchExports(),
+    '/settings': urls.settings(),
+    '/project/settings': urls.settings('project'),
+    '/organization/settings': urls.settings('organization'),
+    '/me/settings': urls.settings('user'),
 }
 
 export const routes: Record<string, Scene> = {
@@ -382,7 +371,7 @@ export const routes: Record<string, Scene> = {
     [urls.createAction()]: Scene.Action,
     [urls.copyAction(null)]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
+    [urls.ingestionWarnings()]: Scene.DataManagement,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
@@ -390,17 +379,18 @@ export const routes: Record<string, Scene> = {
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
-    [urls.eventDefinitions()]: Scene.EventDefinitions,
+    [urls.webAnalytics()]: Scene.WebAnalytics,
+    [urls.actions()]: Scene.DataManagement,
+    [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.batchExports()]: Scene.BatchExports,
     [urls.batchExportNew()]: Scene.BatchExportEdit,
     [urls.batchExport(':id')]: Scene.BatchExport,
     [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
-    [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
+    [urls.propertyDefinitions()]: Scene.DataManagement,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
-    [urls.dataManagementHistory()]: Scene.DataManagementHistory,
-    [urls.database()]: Scene.Database,
+    [urls.dataManagementHistory()]: Scene.DataManagement,
+    [urls.database()]: Scene.DataManagement,
     [urls.events()]: Scene.Events,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
@@ -410,41 +400,48 @@ export const routes: Record<string, Scene> = {
     }, {} as Record<string, Scene>),
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
-    [urls.person('*', false)]: Scene.Person,
-    [urls.persons()]: Scene.Persons,
-    [urls.groups(':groupTypeIndex')]: Scene.Groups,
+    [urls.personByDistinctId('*', false)]: Scene.Person,
+    [urls.personByUUID('*', false)]: Scene.Person,
+    [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipeline()]: Scene.Pipeline,
+    // One entry for every available tab
+    ...Object.values(PipelineTabs).reduce((acc, tab) => {
+        acc[urls.pipeline(tab)] = Scene.Pipeline
+        return acc
+    }, {} as Record<string, Scene>),
+    [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohort,
-    [urls.cohorts()]: Scene.Cohorts,
+    [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
-    [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
+    [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
     [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
     [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
+    [urls.dataWarehouseSettings()]: Scene.DataWarehouseSettings,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
-    [urls.annotations()]: Scene.Annotations,
-    [urls.annotation(':id')]: Scene.Annotations,
+    [urls.annotations()]: Scene.DataManagement,
+    [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
-    [urls.projectSettings()]: Scene.ProjectSettings,
-    [urls.projectApps()]: Scene.Plugins,
-    [urls.projectApp(':id')]: Scene.Plugins,
-    [urls.projectAppLogs(':id')]: Scene.Plugins,
-    [urls.projectAppSource(':id')]: Scene.Plugins,
+    [urls.projectApps()]: Scene.Apps,
+    [urls.projectApp(':id')]: Scene.Apps,
+    [urls.projectAppLogs(':id')]: Scene.Apps,
+    [urls.projectAppSource(':id')]: Scene.Apps,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
-    [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
@@ -457,7 +454,6 @@ export const routes: Record<string, Scene> = {
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
-    [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
@@ -481,5 +477,7 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
-    [urls.notebookEdit(':shortId')]: Scene.Notebook,
+    [urls.notebooks()]: Scene.Notebooks,
+    [urls.canvas()]: Scene.Canvas,
+    [urls.settings(':section' as any)]: Scene.Settings,
 }

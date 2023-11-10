@@ -3,11 +3,11 @@ import { captureException, captureMessage } from '@sentry/node'
 import Ajv, { ValidateFunction } from 'ajv'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
@@ -32,7 +32,7 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly offsetHighWaterMarker: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
     ) {
         const ajv = new Ajv()
         this.schemaValidate = ajv.compile(schema)
@@ -82,13 +82,13 @@ export class ReplayEventsIngester {
 
         const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
         await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.offsetHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
+            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
         )
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', `[replay-events] ${text}`, {
+        const logDebug = (text: string, labels: Record<string, any> = {}) =>
+            status.debug('⚠️', `[replay-events] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -102,7 +102,7 @@ export class ReplayEventsIngester {
                 })
                 .inc()
 
-            warn(reason, {
+            logDebug(reason, {
                 reason,
                 ...labels,
             })
@@ -112,18 +112,8 @@ export class ReplayEventsIngester {
             return drop('producer_not_ready')
         }
 
-        if (event.replayIngestionConsumer !== 'v2') {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_replay_events',
-                    drop_cause: 'not_target_consumer',
-                })
-                .inc()
-            return
-        }
-
         if (
-            await this.offsetHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
                 event.metadata.offset
@@ -213,7 +203,8 @@ export class ReplayEventsIngester {
     }
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
 

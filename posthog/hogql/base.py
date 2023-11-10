@@ -18,6 +18,8 @@ class AST:
 
     def accept(self, visitor):
         camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
+        if "hog_qlx" in camel_case_name:
+            camel_case_name = camel_case_name.replace("hog_qlx", "hogqlx_")
         method_name = f"visit_{camel_case_name}"
         if hasattr(visitor, method_name):
             visit = getattr(visitor, method_name)

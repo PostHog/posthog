@@ -29,6 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -90,9 +91,9 @@ export function OverViewTab({
                         </div>
 
                         {featureFlag.name && (
-                            <span className="row-description" style={{ maxWidth: '24rem' }}>
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
                                 {featureFlag.name}
-                            </span>
+                            </LemonMarkdown>
                         )}
                     </>
                 )
@@ -215,7 +216,15 @@ export function OverViewTab({
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
-                                        disabled={!featureFlag.can_edit}
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                : (featureFlag.features?.length || 0) > 0
+                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                : null
+                                        }
                                         fullWidth
                                     >
                                         Delete feature flag
@@ -260,6 +269,7 @@ export function OverViewTab({
                                             <b>Type</b>
                                         </span>
                                         <LemonSelect
+                                            dropdownMatchSelectWidth={false}
                                             onChange={(type) => {
                                                 if (type) {
                                                     if (type === 'all') {
@@ -278,7 +288,7 @@ export function OverViewTab({
                                                 { label: 'Multiple variants', value: 'multivariant' },
                                                 { label: 'Experiment', value: 'experiment' },
                                             ]}
-                                            value="all"
+                                            value={filters.type ?? 'all'}
                                         />
                                     </>
                                 )}
@@ -286,6 +296,7 @@ export function OverViewTab({
                                     <b>Status</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(status) => {
                                         if (status) {
                                             if (status === 'all') {
@@ -303,12 +314,13 @@ export function OverViewTab({
                                         { label: 'Enabled', value: 'true' },
                                         { label: 'Disabled', value: 'false' },
                                     ]}
-                                    value="all"
+                                    value={filters.active ?? 'all'}
                                 />
                                 <span className="ml-1">
                                     <b>Created by</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(user) => {
                                         if (user) {
                                             if (user === 'any') {
@@ -322,7 +334,7 @@ export function OverViewTab({
                                         }
                                     }}
                                     options={uniqueCreators}
-                                    value="any"
+                                    value={filters.created_by ?? 'any'}
                                 />
                             </div>
                         </div>
@@ -422,10 +434,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties as AnyPropertyFilter[]}
-                        style={{ margin: 0, flexDirection: 'column' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )
         } else if (rollout_percentage !== null) {

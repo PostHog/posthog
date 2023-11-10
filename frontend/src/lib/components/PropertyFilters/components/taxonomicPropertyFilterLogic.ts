@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     AnyPropertyFilter,
@@ -11,7 +11,11 @@ import {
 } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
@@ -23,12 +27,11 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
-    path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
-    props: {} as TaxonomicPropertyFilterLogicProps,
-    key: (props) => `${props.pageKey}-${props.filterIndex}`,
-
-    connect: (props: TaxonomicPropertyFilterLogicProps) => ({
+export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>([
+    props({} as TaxonomicPropertyFilterLogicProps),
+    key((props) => `${props.pageKey}-${props.filterIndex}`),
+    path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key]),
+    connect((props: TaxonomicPropertyFilterLogicProps) => ({
         values: [
             props.propertyFilterLogic,
             ['filters'],
@@ -37,23 +40,22 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
                 onChange: props.taxonomicOnChange,
                 eventNames: props.eventNames,
-            }),
+                propertyAllowList: props.propertyAllowList,
+            } as TaxonomicFilterLogicProps),
             ['taxonomicGroups'],
             propertyDefinitionsModel,
             ['describeProperty'],
         ],
-    }),
-
-    actions: {
+    })),
+    actions({
         selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue) => ({
             taxonomicGroup,
             propertyKey,
         }),
         openDropdown: true,
         closeDropdown: true,
-    },
-
-    reducers: {
+    }),
+    reducers({
         dropdownOpen: [
             false,
             {
@@ -61,9 +63,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 closeDropdown: () => false,
             },
         ],
-    },
-
-    selectors: {
+    }),
+    selectors({
         filter: [
             (s, p) => [s.filters, p.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null =>
@@ -82,9 +83,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 }
             },
         ],
-    },
-
-    listeners: ({ actions, values, props }) => ({
+    }),
+    listeners(({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey }) => {
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
@@ -134,5 +134,5 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 actions.closeDropdown()
             }
         },
-    }),
-})
+    })),
+])

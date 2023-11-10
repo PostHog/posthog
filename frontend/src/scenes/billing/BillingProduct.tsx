@@ -15,7 +15,7 @@ import {
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from './billing-utils'
+import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
@@ -23,7 +23,10 @@ import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
-import { PlanComparisonModal } from './PlanComparisonModal'
+import { PlanComparisonModal } from './PlanComparison'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -142,7 +145,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -150,12 +152,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isPricingModalOpen,
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
+        surveyID,
     } = useValues(billingProductLogic({ product }))
     const {
         setIsEditingBillingLimit,
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
+        reportSurveyShown,
+        setSurveyResponse,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
@@ -331,7 +336,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <LemonButton
                                                         status="stealth"
                                                         fullWidth
-                                                        onClick={() => deactivateProduct(product.type)}
+                                                        onClick={() => {
+                                                            setSurveyResponse(product.type, '$survey_response_1')
+                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                        }}
                                                     >
                                                         Unsubscribe
                                                     </LemonButton>
@@ -344,10 +352,24 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         Contact support to unsubscribe
                                                     </LemonButton>
                                                 )}
+
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                                >
+                                                    Learn how to reduce your bill
+                                                </LemonButton>
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
                                                         status="stealth"
+                                                        disabledReason={
+                                                            billing?.discount_percent === 100
+                                                                ? "You can't set a billing limit with a 100% discount"
+                                                                : null
+                                                        }
+                                                        tooltipPlacement="bottom"
                                                         onClick={() => setIsEditingBillingLimit(true)}
                                                     >
                                                         Set billing limit
@@ -358,6 +380,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 )
                             )}
+                            {surveyID && <UnsubscribeSurveyModal product={product} />}
                         </div>
                     </div>
                 </div>
@@ -528,7 +551,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                     {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="mb-4">Addons</h4>
+                            <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons.map((addon, i) => {
                                     return <BillingProductAddon key={i} addon={addon} />
@@ -539,6 +562,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
                     <div
+                        data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
                             product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
                         }`}
@@ -604,7 +628,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
                                             {product.unit}s free
                                         </b>
-                                        , then ${upgradePlan?.tiers?.[1].unit_amount_usd}/{product.unit} with volume
+                                        , then ${upgradePlan?.tiers?.[1]?.unit_amount_usd}/{product.unit} with volume
                                         discounts.
                                     </p>
                                 )}
@@ -621,21 +645,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         Compare plans
                                     </LemonButton>
                                     <LemonButton
-                                        to={
-                                            // if we're in onboarding we want to upgrade them to the product and the addons at once
-                                            isOnboarding
-                                                ? getUpgradeAllProductsLink(
-                                                      product,
-                                                      upgradeToPlanKey || '',
-                                                      redirectPath
-                                                  )
-                                                : // otherwise we just want to upgrade them to the product
-                                                  `/api/billing-v2/activation?products=${
-                                                      product.type
-                                                  }:${upgradeToPlanKey}${
-                                                      redirectPath && `&redirect_path=${redirectPath}`
-                                                  }`
-                                        }
+                                        to={getUpgradeProductLink(
+                                            product,
+                                            upgradeToPlanKey || '',
+                                            redirectPath,
+                                            isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                        )}
                                         type="primary"
                                         icon={<IconPlus />}
                                         disableClientSideRouting

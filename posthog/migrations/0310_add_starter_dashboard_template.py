@@ -148,7 +148,6 @@ def create_starter_template(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0309_team_autocapture_opt_out"),
     ]

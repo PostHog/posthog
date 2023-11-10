@@ -10,12 +10,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
-import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 function EmptyNetworkTab({
     captureNetworkLogOptIn,
@@ -24,6 +24,7 @@ function EmptyNetworkTab({
     captureNetworkLogOptIn: boolean
     captureNetworkFeatureAvailable: boolean
 }): JSX.Element {
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     return !captureNetworkFeatureAvailable ? (
         <div className="p-4">
             <PayGatePage
@@ -46,7 +47,11 @@ function EmptyNetworkTab({
                     Capture performance events like network requests during the browser recording to understand things
                     like response times, page load times, and more.
                 </p>
-                <LemonButton type="primary" onClick={() => openSessionRecordingSettingsDialog()} targetBlank>
+                <LemonButton
+                    type="primary"
+                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                    targetBlank
+                >
                     Configure in settings
                 </LemonButton>
             </div>
@@ -57,6 +62,8 @@ function EmptyNetworkTab({
 }
 
 function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: boolean }): JSX.Element {
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
     return captureConsoleLogOptIn ? (
         <>No results found in this recording.</>
     ) : (
@@ -67,7 +74,11 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
                     Capture all console logs during the browser recording to get technical information on what was
                     occurring.
                 </p>
-                <LemonButton type="primary" onClick={() => openSessionRecordingSettingsDialog()} targetBlank>
+                <LemonButton
+                    type="primary"
+                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                    targetBlank
+                >
                     Configure in settings
                 </LemonButton>
             </div>

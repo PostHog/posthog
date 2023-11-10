@@ -45,35 +45,35 @@ CustomStyles.args = {
 
 export const MondayFirst: Story = BasicTemplate.bind({})
 MondayFirst.args = {
-    weekStart: 1,
+    weekStartDay: 1,
 }
 
 export const TuesdayFirst: Story = BasicTemplate.bind({})
 TuesdayFirst.args = {
-    weekStart: 2,
+    weekStartDay: 2,
 }
 
 export const WednesdayFirst: Story = BasicTemplate.bind({})
 WednesdayFirst.args = {
-    weekStart: 3,
+    weekStartDay: 3,
 }
 
 export const ThursdayFirst: Story = BasicTemplate.bind({})
 ThursdayFirst.args = {
-    weekStart: 4,
+    weekStartDay: 4,
 }
 
 export const FridayFirst: Story = BasicTemplate.bind({})
 FridayFirst.args = {
-    weekStart: 5,
+    weekStartDay: 5,
 }
 
 export const SaturdayFirst: Story = BasicTemplate.bind({})
 SaturdayFirst.args = {
-    weekStart: 6,
+    weekStartDay: 6,
 }
 
 export const SundayFirst: Story = BasicTemplate.bind({})
 SundayFirst.args = {
-    weekStart: 0,
+    weekStartDay: 0,
 }

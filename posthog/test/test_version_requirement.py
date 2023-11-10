@@ -34,7 +34,6 @@ class TestServiceVersionRequirement(TestCase):
             )
 
     def test_service_versions(self):
-
         version1 = version_requirement.version_string_to_semver("14")
         self.assertEqual(version1.major, 14)
         self.assertEqual(version1.minor, 0)
@@ -70,7 +69,10 @@ class TestServiceVersionRequirement(TestCase):
         self.assertEqual(version6.minor, 13)
         self.assertEqual(version6.patch, 0)
 
-    @patch("posthog.version_requirement.ServiceVersionRequirement.get_service_version", lambda x: Version("12.1.2"))
+    @patch(
+        "posthog.version_requirement.ServiceVersionRequirement.get_service_version",
+        lambda x: Version("12.1.2"),
+    )
     def test_ranges(self):
         v1 = ServiceVersionRequirement(service="postgresql", supported_version="==14.0.0")
         in_range, service_version = v1.is_service_in_accepted_version()

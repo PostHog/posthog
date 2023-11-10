@@ -16,12 +16,23 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.logging.timing import timed
-from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight, RetentionFilter, Team
+from posthog.models import (
+    Dashboard,
+    DashboardTile,
+    EventDefinition,
+    Filter,
+    Insight,
+    RetentionFilter,
+    Team,
+)
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_cache_key
-from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels import (
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+)
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
@@ -225,6 +236,10 @@ def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFil
 
         return []
     except Exception as exc:
-        logger.error("update_cache_item.could_not_list_events_from_filter", exc=exc, exc_info=True)
+        logger.error(
+            "update_cache_item.could_not_list_events_from_filter",
+            exc=exc,
+            exc_info=True,
+        )
         capture_exception(exc)
         return []

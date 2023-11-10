@@ -30,7 +30,10 @@ def get_pool(workload: Workload, team_id=None, readonly=False):
 
     # Note that `readonly` does nothing if the relevant vars are not set!
     if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
-        return make_ch_pool(user=settings.READONLY_CLICKHOUSE_USER, password=settings.READONLY_CLICKHOUSE_PASSWORD)
+        return make_ch_pool(
+            user=settings.READONLY_CLICKHOUSE_USER,
+            password=settings.READONLY_CLICKHOUSE_PASSWORD,
+        )
 
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE

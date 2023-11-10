@@ -1,18 +1,19 @@
-from ipaddress import ip_address
 import json
 import re
-from enum import Enum, auto
 import socket
+import urllib.parse
+from enum import Enum, auto
+from ipaddress import ip_address
 from typing import List, Literal, Optional, Union, Tuple
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
+from prometheus_client import Counter
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
-import urllib.parse
 
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
@@ -230,11 +231,17 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+SURROGATES_SUBSTITUTED_COUNTER = Counter(
+    "surrogates_substituted_total",
+    "Stray UTF16 surrogates detected and removed from user input.",
+)
+
 
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
     for match in matches:
+        SURROGATES_SUBSTITUTED_COUNTER.inc()
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
 
@@ -302,23 +309,20 @@ def parse_bool(value: Union[str, List[str]]) -> bool:
 
 
 def raise_if_user_provided_url_unsafe(url: str):
-    """Raise if the provided URL seems unsafe, otherwise do nothing."""
-    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)
+    """Raise if the provided URL seems unsafe, otherwise do nothing.
+
+    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
+    """
+    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)  # urlparse never raises errors
     if not parsed_url.hostname:
         raise ValueError("No hostname")
-    if parsed_url.scheme == "http":
-        port = 80
-    elif parsed_url.scheme == "https":
-        port = 443
-    else:
+    if parsed_url.scheme not in ("http", "https"):
         raise ValueError("Scheme must be either HTTP or HTTPS")
-    if parsed_url.port is not None and parsed_url.port != port:
-        raise ValueError("Port does not match scheme")
     # Disallow if hostname resolves to a private (internal) IP address
     try:
-        addrinfo = socket.getaddrinfo(parsed_url.hostname, port)
+        addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
     except socket.gaierror:
         raise ValueError("Invalid hostname")
     for _, _, _, _, sockaddr in addrinfo:
         if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
-            raise ValueError("Invalid hostname")
+            raise ValueError("Internal hostname")

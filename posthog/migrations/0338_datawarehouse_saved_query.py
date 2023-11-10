@@ -8,7 +8,6 @@ import posthog.warehouse.models.datawarehouse_saved_query
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0337_more_session_recording_fields"),
     ]
@@ -22,7 +21,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
@@ -41,20 +43,30 @@ class Migration(migrations.Migration):
                         null=True,
                     ),
                 ),
-                ("query", models.JSONField(blank=True, default=dict, help_text="HogQL query", null=True)),
+                (
+                    "query",
+                    models.JSONField(blank=True, default=dict, help_text="HogQL query", null=True),
+                ),
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddConstraint(
             model_name="datawarehousesavedquery",
             constraint=models.UniqueConstraint(
-                fields=("team", "name"), name="posthog_datawarehouse_saved_query_unique_name"
+                fields=("team", "name"),
+                name="posthog_datawarehouse_saved_query_unique_name",
             ),
         ),
     ]

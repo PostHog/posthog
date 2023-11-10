@@ -68,7 +68,10 @@ class TestExportedAssetModel(APIBaseTest):
 
         ExportedAsset.delete_expired_assets()
 
-        assert list(ExportedAsset.objects.all()) == [asset_that_is_not_expired, asset_that_has_no_expiry]
+        assert list(ExportedAsset.objects.all()) == [
+            asset_that_is_not_expired,
+            asset_that_has_no_expiry,
+        ]
         assert list(ExportedAsset.objects_including_ttl_deleted.all()) == [
             asset_that_is_not_expired,
             asset_that_has_no_expiry,

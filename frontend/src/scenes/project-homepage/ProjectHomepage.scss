@@ -25,6 +25,10 @@
 
         .top-list {
             margin-bottom: 1.5rem;
+            .posthog-3000 & {
+                margin-bottom: 0px;
+            }
+
             width: 33%;
         }
 

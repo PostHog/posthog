@@ -194,7 +194,9 @@ def backfill_materialized_columns(
 
 
 def _materialized_column_name(
-    table: TableWithProperties, property: PropertyName, table_column: TableColumn = DEFAULT_TABLE_COLUMN
+    table: TableWithProperties,
+    property: PropertyName,
+    table_column: TableColumn = DEFAULT_TABLE_COLUMN,
 ) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 

@@ -26,10 +26,13 @@ def test_filter_interval_success(filter, expected_interval):
 @pytest.mark.parametrize(
     "filter,expected_error_message",
     [
-        (Filter(data={"interval": "foo"}), "Interval foo does not belong to SUPPORTED_INTERVAL_TYPES!"),
+        (
+            Filter(data={"interval": "foo"}),
+            "Interval foo does not belong to SUPPORTED_INTERVAL_TYPES!",
+        ),
         (Filter(data={"interval": 123}), "Interval must be a string!"),
     ],
 )
 def test_filter_interval_errors(filter, expected_error_message):
     with pytest.raises(ValueError, match=expected_error_message):
-        filter.interval
+        filter.interval  # noqa: B018
