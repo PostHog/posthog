@@ -32,4 +32,22 @@ describe('CorsPlugin', () => {
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
     })
+
+    it('can replace a font preload link', () => {
+        const el = document.createElement('link')
+        el.setAttribute('rel', 'preload')
+        el.setAttribute('as', 'font')
+        el.href = 'https://app.posthog.com/my-image.woff'
+        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
+        expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.woff`)
+    })
+
+    it('can replace a js preload link', () => {
+        const el = document.createElement('link')
+        el.setAttribute('rel', 'preload')
+        el.setAttribute('as', 'script')
+        el.href = 'https://app.posthog.com/my-image.js'
+        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
+        expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
+    })
 })

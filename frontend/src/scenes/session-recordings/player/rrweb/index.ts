@@ -1,4 +1,4 @@
-import { ReplayPlugin, playerConfig } from 'rrweb/typings/types'
+import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
@@ -30,15 +30,7 @@ export const CorsPlugin: ReplayPlugin & {
 
         if (node.nodeName === 'LINK') {
             const linkElement = node as HTMLLinkElement
-            const href = linkElement.href
-            if (!href) {
-                return
-            }
-            if (linkElement.getAttribute('rel') == 'modulepreload') {
-                linkElement.href = CorsPlugin._replaceJSUrl(href)
-            } else {
-                linkElement.href = CorsPlugin._replaceFontUrl(href)
-            }
+            linkElement.href = CorsPlugin._replaceJSUrl(CorsPlugin._replaceFontUrl(linkElement.href))
         }
 
         if (node.nodeName === 'SCRIPT') {
