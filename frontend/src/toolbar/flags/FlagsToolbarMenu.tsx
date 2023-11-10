@@ -24,7 +24,7 @@ const MenuHeader = (): JSX.Element => {
             fullWidth
             type={'search'}
             value={searchTerm}
-            className={clsx('feature-flag-row rounded-b-0')}
+            className={clsx('rounded-b-0')}
             onChange={(s) => setSearchTerm(s)}
         />
     )
@@ -38,14 +38,11 @@ const MenuBody = (): JSX.Element => {
         <>
             {filteredFlags.length > 0 ? (
                 filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
-                    <div className={'feature-flag-row FeatureFlagRow'} key={feature_flag.key}>
-                        <div
-                            className={clsx(
-                                'flex flex-row items-center',
-                                hasOverride && 'overridden',
-                                'feature-flag-row-header FeatureFlagRow__header'
-                            )}
-                        >
+                    <div
+                        className={clsx('FeatureFlagRow', hasOverride && 'FeatureFlagRow__overridden')}
+                        key={feature_flag.key}
+                    >
+                        <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header', 'py-1')}>
                             <div className="flex-1 truncate">
                                 <Link
                                     className="text-text-3000 flex flex-row items-center"

@@ -109,6 +109,12 @@
         max-height: 45vh;
     }
 
+    .FeatureFlagRow {
+        &.FeatureFlagRow__overridden {
+            background-color: var(--mark);
+        }
+    }
+
     .ActionsBlockBody {
         background-color: var(--bg-3000);
         color: var(--text-3000);
@@ -126,35 +132,6 @@
 
         .action-section:last-child {
             border-bottom: none;
-        }
-    }
-
-    .ToolbarBlock {
-        background-color: var(--bg-3000);
-        color: var(--text-3000);
-
-        .FeatureFlagRow {
-            background-color: inherit;
-            color: inherit;
-            margin-bottom: 0;
-            border-bottom: 1px solid var(--border-bold-3000);
-
-            &:last-child {
-                border-bottom: none;
-            }
-
-            .FeatureFlagRow__header {
-                background-color: inherit;
-
-                .feature-flag-external-link,
-                .feature-flag-external-link:hover {
-                    color: inherit;
-                }
-
-                &.overridden {
-                    background-color: var(--mark);
-                }
-            }
         }
     }
 
