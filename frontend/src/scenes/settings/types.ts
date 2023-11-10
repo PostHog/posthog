@@ -76,6 +76,7 @@ export type Setting = {
     title: string
     description?: JSX.Element | string
     component: JSX.Element
+    flag?: keyof typeof FEATURE_FLAGS
 }
 
 export type SettingSection = {

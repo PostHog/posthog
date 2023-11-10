@@ -66,8 +66,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
-            (selectedLevel, selectedSectionId, sections): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags],
+            (selectedLevel, selectedSectionId, sections, featureFlags): Setting[] => {
                 let settings: Setting[] = []
 
                 if (!selectedSectionId) {
@@ -78,7 +78,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 }
 
-                return settings
+                return settings.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
             },
         ],
     }),
