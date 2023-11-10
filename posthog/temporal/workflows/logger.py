@@ -48,15 +48,28 @@ def configure_logger(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be True except in tests.
     """
-    log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
-    put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
-
     base_processors: list[structlog.types.Processor] = [
         structlog.processors.add_log_level,
         structlog.processors.format_exc_info,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
         structlog.stdlib.PositionalArgumentsFormatter(),
-        put_in_queue,
+    ]
+
+    log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
+    log_producer = None
+
+    try:
+        log_producer = KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
+    except Exception:
+        # Skip putting logs in queue if we don't have a producer that can consume the queue
+        logger = structlog.get_logger()
+
+        logger.exception("Failed to initialize log producer")
+    else:
+        put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
+        base_processors.append(put_in_queue)
+
+    base_processors += [
         EventRenamer("msg"),
         structlog.processors.JSONRenderer(),
     ]
@@ -68,9 +81,10 @@ def configure_logger(
         cache_logger_on_first_use=cache_logger_on_first_use,
     )
 
-    listen_task = create_logger_background_task(
-        KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer).listen()
-    )
+    if log_producer is None:
+        return
+
+    listen_task = create_logger_background_task(log_producer.listen())
 
     async def worker_shutdown_handler():
         """Gracefully handle a Temporal Worker shutting down.
