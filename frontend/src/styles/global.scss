@@ -570,7 +570,7 @@ body {
     --glass-bg-3000: var(--bg-light);
     --glass-border-3000: var(--border);
     --bg-light: #fff;
-    --link: var(--primary);
+    --link: var(--primary-3000);
 
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
@@ -587,7 +587,7 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
-        --link: var(--link-3000-light);
+        // --link: var(--link-3000-light);
     }
 
     &.posthog-3000[theme='dark'] {
@@ -606,7 +606,7 @@ body {
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-        --link: var(--link-3000-dark);
+        // --link: var(--link-3000-dark);
     }
 
     &.posthog-3000 {
