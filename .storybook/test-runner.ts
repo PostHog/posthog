@@ -54,6 +54,7 @@ const LOADER_SELECTORS = [
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',
+    '.Toastify__toast-container',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
