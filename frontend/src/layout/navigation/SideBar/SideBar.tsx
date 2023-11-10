@@ -51,7 +51,7 @@ import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { PostHog3000OptIn } from 'lib/components/PostHog3000OptIn/PostHog3000OptIn'
+import { PostHog3000OptIn, PostHog3000OptInButton } from 'lib/components/PostHog3000OptIn/PostHog3000OptIn'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -183,11 +183,8 @@ function Pages(): JSX.Element {
                         />
                     </FlaggedFeature>
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
-
                     <div className="SideBar__heading">Feature Management</div>
-
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
@@ -206,7 +203,6 @@ function Pages(): JSX.Element {
                         to={urls.earlyAccessFeatures()}
                     />
                     <div className="SideBar__heading">Data</div>
-
                     <PageButton
                         icon={<IconLive />}
                         identifier={Scene.Events}
@@ -255,7 +251,6 @@ function Pages(): JSX.Element {
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     </FlaggedFeature>
                     <div className="SideBar__heading">Configuration</div>
-
                     <PageButton
                         icon={<IconTools />}
                         identifier={Scene.ToolbarLaunch}
@@ -273,6 +268,9 @@ function Pages(): JSX.Element {
                         }}
                     />
                     <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
+                    <li>
+                        <PostHog3000OptInButton center={false} />
+                    </li>
                 </>
             )}
         </ul>

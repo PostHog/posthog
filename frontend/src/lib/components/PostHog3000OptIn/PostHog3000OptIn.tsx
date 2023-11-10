@@ -1,14 +1,22 @@
 import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPresent } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { posthog3000OptInlogic } from './posthog3000OptInlogic'
 
-export function PostHog3000OptInButton(): JSX.Element | null {
+export function PostHog3000OptInButton(props: Partial<LemonButtonProps>): JSX.Element | null {
     const { optIn } = useActions(posthog3000OptInlogic)
     return (
-        <LemonButton type="primary" status="primary" fullWidth center icon={<IconPresent />} onClick={() => optIn()}>
+        <LemonButton
+            type="primary"
+            status="primary"
+            fullWidth
+            center
+            icon={<IconPresent />}
+            onClick={() => optIn()}
+            {...props}
+        >
             Try out the new design
         </LemonButton>
     )
