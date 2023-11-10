@@ -5,7 +5,7 @@ import SearchBarTab from './SearchBarTab'
 import { ResultType } from './types'
 
 const ActionTabs = (): JSX.Element | null => {
-    const { commandSearchResultsGrouped, commandSearchResults, activeFlow, activeTab } = useValues(actionBarLogic)
+    const { commandSearchResultsGrouped, commandSearchResults, activeFlow } = useValues(actionBarLogic)
 
     console.debug('commandSearchResults', commandSearchResults)
     console.debug('commandSearchResultsGrouped', commandSearchResultsGrouped)

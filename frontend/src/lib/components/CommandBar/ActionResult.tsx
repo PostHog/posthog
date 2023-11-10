@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { actionBarLogic } from './actionBarLogic'
-import { SearchResult as SearchResultType } from './types'
 import { getNameFromActionScope } from './utils'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
@@ -19,7 +17,7 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
     const {
         // onMouseEnterResult,
         // onMouseLeaveResult,
-        openResult,
+
         // setScrolling,
         executeResult,
     } = useActions(actionBarLogic)
@@ -66,8 +64,6 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 //     onMouseLeaveResult()
                 // }}
                 onClick={() => {
-                    // openResult(resultIndex)
-                    console.debug('click', result)
                     if (isExecutable) {
                         executeResult(result)
                     }

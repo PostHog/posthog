@@ -1,4 +1,4 @@
-import { useRef, forwardRef } from 'react'
+import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { useEventListener } from 'lib/hooks/useEventListener'

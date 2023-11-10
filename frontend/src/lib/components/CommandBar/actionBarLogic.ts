@@ -19,7 +19,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
             commandBarLogic,
             ['hideCommandBar'],
             commandPaletteLogic,
-            ['showPalette', 'hidePalette', 'setInput', 'executeResult'],
+            ['showPalette', 'hidePalette', 'setInput', 'executeResult', 'onArrowUp', 'onArrowDown'],
         ],
         values: [
             commandPaletteLogic,
@@ -35,14 +35,11 @@ export const actionBarLogic = kea<actionBarLogicType>([
         ],
     }),
     actions({
-        setSearchQuery: (query: string) => ({ query }),
-        // setActiveTab: (tab: ResultTypeWithAll) => ({ tab }),
         // onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         // onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         // onMouseEnterResult: (index: number) => ({ index }),
         // onMouseLeaveResult: true,
         // setScrolling: (scrolling: boolean) => ({ scrolling }),
-        openResult: (index: number) => ({ index }),
     }),
     loaders({
         searchResponse: [
@@ -55,19 +52,9 @@ export const actionBarLogic = kea<actionBarLogicType>([
         ],
     }),
     reducers({
-        searchQuery: [
-            '',
-            {
-                setSearchQuery: (_, { query }) => query,
-                activateFlow: () => '',
-            },
-        ],
         // keyboardResultIndex: [
         //     0,
         //     {
-        //         setSearchQuery: () => 0,
-        //         setActiveTab: () => 0,
-        //         openResult: () => 0,
         //         onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
         //         onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
         //     },
@@ -75,27 +62,19 @@ export const actionBarLogic = kea<actionBarLogicType>([
         // hoverResultIndex: [
         //     null as number | null,
         //     {
-        //         setSearchQuery: () => null,
-        //         setActiveTab: () => null,
         //         onMouseEnterResult: (_, { index }) => index,
         //         onMouseLeaveResult: () => null,
         //         onArrowUp: () => null,
         //         onArrowDown: () => null,
         //     },
         // ],
-        // activeTab: [
-        //     'all' as ResultTypeWithAll,
-        //     {
-        //         setActiveTab: (_, { tab }) => tab,
-        //     },
-        // ],
         // scrolling: [false, { setScrolling: (_, { scrolling }) => scrolling }],
     }),
     selectors({
-        searchResults: [
-            (s) => [s.commandSearchResults],
-            (commandSearchResults) => commandSearchResults.map((result, index) => ({ ...result, index })),
-        ],
+        // searchResults: [
+        //     (s) => [s.commandSearchResults],
+        //     (commandSearchResults) => commandSearchResults.map((result, index) => ({ ...result, index })),
+        // ],
         //     searchCounts: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.counts],
         //     filterSearchResults: [
         //         (s) => [s.searchResults, s.activeTab],
@@ -113,23 +92,34 @@ export const actionBarLogic = kea<actionBarLogicType>([
         //     ],
     }),
     listeners(({ values, actions }) => ({
-        setSearchQuery: ({ query }) => {
-            actions.setInput(query)
-        },
-        openResult: ({ index }) => {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            const result = values.searchResults![index]
-            actions.executeResult(result)
-        },
         hidePalette: () => {
             actions.hideCommandBar()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         // actions.setSearchQuery('')
         actions.showPalette()
+
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Enter' && values.commandSearchResults.length) {
+                const result = values.commandSearchResults[values.activeResultIndex]
+                const isExecutable = !!result.executor
+                if (isExecutable) {
+                    actions.executeResult(result)
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                actions.onArrowDown(values.commandSearchResults.length - 1)
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                actions.onArrowUp()
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
     }),
-    beforeUnmount(({ actions }) => {
+    beforeUnmount(({ actions, cache }) => {
         actions.hidePalette()
+
+        window.removeEventListener('keydown', cache.onKeyDown)
     }),
 ])
