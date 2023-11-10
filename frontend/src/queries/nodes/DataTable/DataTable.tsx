@@ -28,7 +28,6 @@ import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nod
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import {
     isEventsQuery,
@@ -563,7 +562,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
-                    <SessionPlayerModal />
                     <PersonDeleteModal />
                 </div>
             </BindLogic>

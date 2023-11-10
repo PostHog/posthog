@@ -28,11 +28,11 @@ const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const { id, noInspector } = attributes
+    const { id, noInspector, autoPlay = false } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
-        autoPlay: false,
+        autoPlay,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
         noInspector: noInspector,
@@ -138,6 +138,7 @@ export const Settings = ({
 type NotebookNodeRecordingAttributes = {
     id: string
     noInspector: boolean
+    autoPlay: boolean
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -155,11 +156,14 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         noInspector: {
             default: false,
         },
+        autoPlay: {
+            default: false,
+        },
     },
     pasteOptions: {
         find: urls.replaySingle('(.+)'),
         getAttributes: async (match) => {
-            return { id: match[1], noInspector: false }
+            return { id: match[1], noInspector: false, autoPlay: false }
         },
     },
     Settings,

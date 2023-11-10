@@ -6,9 +6,12 @@ import { PlayerMeta } from '../PlayerMeta'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export function SessionPlayerModal(): JSX.Element | null {
-    const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
-    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const { activeSessionRecording, isSidepanelEnabled } = useValues(sessionPlayerModalLogic)
+    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic)
 
+    if (isSidepanelEnabled) {
+        return null
+    }
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
     const eventUUIDs =

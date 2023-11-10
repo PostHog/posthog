@@ -20,7 +20,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Skeleton } from 'antd'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -216,7 +215,6 @@ export function PersonsModal({
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />
-            <SessionPlayerModal />
         </>
     )
 }

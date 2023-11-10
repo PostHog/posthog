@@ -10,7 +10,6 @@ import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
@@ -53,7 +52,6 @@ export function RecentRecordings(): JSX.Element {
 
     return (
         <>
-            <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.replay()}

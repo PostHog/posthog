@@ -13,6 +13,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -54,6 +55,7 @@ export function GlobalModals(): JSX.Element {
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <FeaturePreviewsModal />
             <UpgradeModal />
+            <SessionPlayerModal />
 
             {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>

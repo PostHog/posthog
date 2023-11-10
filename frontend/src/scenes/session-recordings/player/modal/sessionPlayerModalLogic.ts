@@ -1,8 +1,12 @@
-import { actions, kea, path, reducers } from 'kea'
-import { SessionRecordingId, SessionRecordingType } from '~/types'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { NotebookNodeType, SessionRecordingId, SessionRecordingType } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import type { sessionPlayerModalLogicType } from './sessionPlayerModalLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sidePanelCanvasLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelCanvasLogic'
+import { list } from 'postcss'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
@@ -14,6 +18,11 @@ interface QueryParams {
 
 export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     path(['scenes', 'session-recordings', 'sessionPlayerModalLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+        actions: [sidePanelCanvasLogic, ['openCanvas']],
+    }),
+
     actions({
         openSessionPlayer: (
             sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
@@ -40,6 +49,29 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             },
         ],
     }),
+
+    selectors({
+        isSidepanelEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] && featureFlags[FEATURE_FLAGS.NOTEBOOKS],
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        openSessionPlayer: ({ sessionRecording, initialTimestamp }) => {
+            if (values.isSidepanelEnabled) {
+                actions.openCanvas('Session Replay', [
+                    {
+                        type: NotebookNodeType.Recording,
+                        attrs: {
+                            id: sessionRecording.id,
+                            autoPlay: true,
+                        },
+                    },
+                ])
+            }
+        },
+    })),
     actionToUrl(({ values }) => {
         const buildURL = (
             replace: boolean

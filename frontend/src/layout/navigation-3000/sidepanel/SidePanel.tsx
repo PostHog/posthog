@@ -14,12 +14,18 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanel
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelTab } from '~/types'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { SidePanelCanvas } from './panels/SidePanelCanvas'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
         Content: NotebookPanel,
+    },
+    [SidePanelTab.Canvas]: {
+        label: 'Canvas',
+        Icon: IconNotebook,
+        Content: SidePanelCanvas,
     },
     [SidePanelTab.Feedback]: {
         label: 'Feedback',

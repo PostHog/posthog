@@ -22,6 +22,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
                     tabs.push(SidePanelTab.Notebooks)
+                    tabs.push(SidePanelTab.Canvas)
                 }
 
                 if (isCloudOrDev) {
@@ -60,7 +61,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     // Hide certain tabs unless they are selected
-                    if ([SidePanelTab.Settings].includes(tab)) {
+                    if ([SidePanelTab.Settings, SidePanelTab.Canvas].includes(tab)) {
                         return false
                     }
 
