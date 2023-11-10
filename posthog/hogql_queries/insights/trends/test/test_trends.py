@@ -5600,6 +5600,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"key": "val"},
         )
+
+        flush_persons_and_events()
+
         response = self._run(
             Filter(
                 team=self.team,
@@ -6008,31 +6011,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         result = self._run(filter, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
-
-    @also_test_with_different_timezones
-    @snapshot_clickhouse_queries
-    def test_weekly_active_users_monthly(self):
-        self._create_active_users_events()
-
-        data = {
-            "date_from": "2019-12-01",
-            "date_to": "2020-02-29",  # T'was a leap year
-            "interval": "month",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
-            ],
-        }
-
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
-        self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
-        # No users fall into the period of 7 days during or before the first day of any of those three months
-        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries

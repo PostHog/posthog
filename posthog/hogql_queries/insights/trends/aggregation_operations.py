@@ -164,17 +164,25 @@ class AggregationOperations:
                 placeholders={"inner_query": inner_query},
             )
 
+        day_start = ast.Alias(
+            alias="day_start",
+            expr=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
+            ),
+        )
+
         return parse_select(
             """
                 SELECT
                     counts AS total,
-                    dateTrunc({interval}, timestamp) AS day_start
+                    {day_start}
                 FROM {inner_query}
                 WHERE timestamp >= {date_from} AND timestamp <= {date_to}
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 "inner_query": inner_query,
+                "day_start": day_start,
             },
         )
 
@@ -221,9 +229,9 @@ class AggregationOperations:
                     COUNT(DISTINCT actor_id) AS counts
                 FROM (
                     SELECT
-                        toStartOfDay({date_to}) - toIntervalDay(number) AS timestamp
+                        {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
-                        numbers(dateDiff('day', toStartOfDay({date_from} - {inclusive_lookback}), {date_to}))
+                        numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
                 CROSS JOIN {cross_join_select_query} e
                 WHERE
@@ -242,21 +250,48 @@ class AggregationOperations:
     def _events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        date_filters = [
+            parse_expr(
+                "timestamp >= {date_from} - {inclusive_lookback}",
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    **self._interval_placeholders(),
+                },
+            ),
+            parse_expr(
+                "timestamp <= {date_to}",
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    **self._interval_placeholders(),
+                },
+            ),
+        ]
+
+        where_clause_combined = ast.And(exprs=[events_where_clause, *date_filters])
+
         if self._is_count_per_actor_variant():
+            day_start = ast.Alias(
+                alias="day_start",
+                expr=ast.Call(
+                    name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                    args=[ast.Field(chain=["timestamp"])],
+                ),
+            )
+
             return parse_select(
                 """
                     SELECT
                         count(e.uuid) AS total,
-                        dateTrunc({interval}, timestamp) AS day_start
+                        {day_start}
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
                     GROUP BY e.person_id, day_start
                 """,
                 placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    "events_where_clause": events_where_clause,
+                    "events_where_clause": where_clause_combined,
                     "sample": sample_value,
+                    "day_start": day_start,
                 },
             )
 
@@ -274,7 +309,7 @@ class AggregationOperations:
                     actor_id
             """,
             placeholders={
-                "events_where_clause": events_where_clause,
+                "events_where_clause": where_clause_combined,
                 "sample": sample_value,
             },
         )

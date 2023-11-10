@@ -64,7 +64,7 @@ class TrendsQueryBuilder:
                         """
                         SELECT
                             0 AS total,
-                            dateTrunc({interval}, {date_to}) - {number_interval_period} AS day_start
+                            {date_to_start_of_interval} - {number_interval_period} AS day_start
                         FROM
                             numbers(
                                 coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
@@ -81,7 +81,7 @@ class TrendsQueryBuilder:
                         """
                         SELECT
                             0 AS total,
-                            {date_from} AS day_start
+                            {date_from_start_of_interval} AS day_start
                     """,
                         placeholders={
                             **self.query_date_range.to_placeholders(),
@@ -101,7 +101,7 @@ class TrendsQueryBuilder:
                         breakdown_value
                     FROM (
                         SELECT
-                            dateTrunc({interval}, {date_to}) - {number_interval_period} AS day_start
+                            {date_to_start_of_interval} - {number_interval_period} AS day_start
                         FROM
                             numbers(
                                 coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
@@ -127,23 +127,30 @@ class TrendsQueryBuilder:
         ]
 
     def _get_events_subquery(self, no_modifications: Optional[bool]) -> ast.SelectQuery:
+        day_start = ast.Alias(
+            alias="day_start",
+            expr=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
+            ),
+        )
+
         default_query = cast(
             ast.SelectQuery,
             parse_select(
                 """
                 SELECT
                     {aggregation_operation} AS total,
-                    dateTrunc({interval}, timestamp) AS day_start
+                    {day_start}
                 FROM events AS e
                 SAMPLE {sample}
                 WHERE {events_filter}
                 GROUP BY day_start
             """,
                 placeholders={
-                    **self.query_date_range.to_placeholders(),
                     "events_filter": self._events_filter(),
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
+                    "day_start": day_start,
                 },
             ),
         )
@@ -239,18 +246,19 @@ class TrendsQueryBuilder:
         filters: List[ast.Expr] = []
 
         # Dates
-        filters.extend(
-            [
-                parse_expr(
-                    "timestamp >= {date_from}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-            ]
-        )
+        if not self._aggregation_operation.requires_query_orchestration():
+            filters.extend(
+                [
+                    parse_expr(
+                        "timestamp >= {date_from}",
+                        placeholders=self.query_date_range.to_placeholders(),
+                    ),
+                    parse_expr(
+                        "timestamp <= {date_to}",
+                        placeholders=self.query_date_range.to_placeholders(),
+                    ),
+                ]
+            )
 
         # Series
         if series_event_name(self.series) is not None:

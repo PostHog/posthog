@@ -1,12 +1,13 @@
 import re
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, Dict, List
+from typing import Literal, Optional, Dict, List
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql.ast import CompareOperationOp
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import ast
 from posthog.models.team import Team
 from posthog.queries.util import get_earliest_timestamp
@@ -114,7 +115,7 @@ class QueryDateRange:
         return self._interval or IntervalType.day
 
     @cached_property
-    def interval_name(self) -> str:
+    def interval_name(self) -> Literal["hour", "day", "week", "month"]:
         return self.interval_type.name
 
     def date_to_as_hogql(self) -> ast.Expr:
@@ -155,6 +156,32 @@ class QueryDateRange:
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
 
+    def date_from_to_start_of_week_hogql(self) -> ast.Call:
+        match self.interval_name:
+            case "hour":
+                return ast.Call(name="toStartOfHour", args=[self.date_from_as_hogql()])
+            case "day":
+                return ast.Call(name="toStartOfDay", args=[self.date_from_as_hogql()])
+            case "week":
+                return ast.Call(name="toStartOfWeek", args=[self.date_from_as_hogql()])
+            case "month":
+                return ast.Call(name="toStartOfMonth", args=[self.date_from_as_hogql()])
+            case _:
+                raise HogQLException(message="Unknown interval name")
+
+    def date_to_to_start_of_week_hogql(self) -> ast.Call:
+        match self.interval_name:
+            case "hour":
+                return ast.Call(name="toStartOfHour", args=[self.date_to_as_hogql()])
+            case "day":
+                return ast.Call(name="toStartOfDay", args=[self.date_to_as_hogql()])
+            case "week":
+                return ast.Call(name="toStartOfWeek", args=[self.date_to_as_hogql()])
+            case "month":
+                return ast.Call(name="toStartOfMonth", args=[self.date_to_as_hogql()])
+            case _:
+                raise HogQLException(message="Unknown interval name")
+
     def to_placeholders(self) -> Dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
@@ -162,6 +189,8 @@ class QueryDateRange:
             "number_interval_period": self.number_interval_periods(),
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
+            "date_from_start_of_interval": self.date_from_to_start_of_week_hogql(),
+            "date_to_start_of_interval": self.date_to_to_start_of_week_hogql(),
         }
 
     def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:
