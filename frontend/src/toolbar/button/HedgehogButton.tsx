@@ -33,7 +33,7 @@ export function HedgehogButton(): JSX.Element {
                     actorRef={actorRef}
                     isDarkModeOn={theme === 'dark'}
                     onPositionChange={(actor) => {
-                        saveDragPosition(actor.x + SPRITE_SIZE * 0.5, -actor.y - SPRITE_SIZE * 0.5)
+                        saveDragPosition(actor.x + SPRITE_SIZE, -actor.y - SPRITE_SIZE)
                     }}
                 />
             )}

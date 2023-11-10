@@ -91,6 +91,16 @@
         border-top-right-radius: 0;
     }
 
+    &.LemonInput--rounded-left {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    &.LemonInput--rounded-right {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
     &.LemonInput--rounded-none {
         border-radius: 0;
     }

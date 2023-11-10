@@ -46,7 +46,7 @@ interface LemonInputPropsBase
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
-    /** which corners should be rounded, defeaults to all */
+    /** which corners should be rounded, defaults to all */
     rounded?: 'all' | 'top' | 'bottom' | 'none'
 }
 
@@ -154,9 +154,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 value && 'LemonInput--has-content',
                 !textProps.disabled && focused && 'LemonInput--focused',
                 transparentBackground && 'LemonInput--transparent-background',
-                rounded === 'top' && 'LemonInput--rounded-top',
-                rounded === 'bottom' && 'LemonInput--rounded-bottom',
-                rounded === 'none' && 'LemonInput--rounded-none',
+                rounded !== 'all' && `LemonInput--rounded-${rounded}`,
                 className
             )}
             aria-disabled={textProps.disabled}
