@@ -3,12 +3,11 @@ import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, Popconfirm, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -156,6 +155,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+        tabs.push({
+            label: 'Projects',
+            key: FeatureFlagsTab.PROJECTS,
+            content: <FeatureFlagProjects />,
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
             label: (
@@ -203,15 +211,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
-        tabs.push({
-            label: 'Projects',
-            key: FeatureFlagsTab.PROJECTS,
-            content: <FeatureFlagProjects />,
         })
     }
 
@@ -555,6 +554,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                             : (featureFlag.features?.length || 0) > 0
                                                             ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                            : (featureFlag.experiment_set?.length || 0) > 0
+                                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
                                                             : null
                                                     }
                                                 >
@@ -817,7 +818,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 <div>
                                                     {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
                                                         <Link to={upgradeLink} target="_blank">
-                                                            <LockOutlined
+                                                            <IconLock
                                                                 style={{
                                                                     marginRight: 4,
                                                                     color: 'var(--warning)',
@@ -903,7 +904,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <Col span={4}>Variant key</Col>
                             <Col span={6}>Description</Col>
                             <Col span={8}>
-                                <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
+                                <div className="flex flex-col" style={{ fontWeight: 'normal' }}>
                                     <b>Payload</b>
                                     <span className="text-muted">
                                         Specify return payload when the variant key matches

@@ -1,6 +1,6 @@
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
-import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic, DatabaseTableListRow } from 'scenes/data-management/database/databaseTableListLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DatabaseTablesContainer(): JSX.Element {
-    const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
+    const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
     const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -21,7 +21,7 @@ export function DatabaseTablesContainer(): JSX.Element {
             <DatabaseTables
                 tables={filteredTables}
                 loading={databaseLoading}
-                renderRow={(row: DatabaseSceneRow) => {
+                renderRow={(row: DatabaseTableListRow) => {
                     return (
                         <div className="px-4 py-3">
                             <div className="mt-2">
@@ -59,7 +59,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables<T extends DatabaseSceneRow>({
+export function DatabaseTables<T extends DatabaseTableListRow>({
     tables,
     loading,
     renderRow,

@@ -1,4 +1,4 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -7,7 +7,7 @@ import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, RRWebEvent, TeamId } from '../../../types'
+import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
@@ -23,7 +23,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, getPartitionsForTopic, now, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, getPartitionsForTopic, now, parseKafkaMessage, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -251,119 +251,6 @@ export class SessionRecordingIngester {
         await this.sessions[key]?.add(event)
     }
 
-    public async parseKafkaMessage(
-        message: Message,
-        getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
-    ): Promise<IncomingRecordingMessage | void> {
-        const statusWarn = (reason: string, extra?: Record<string, any>) => {
-            status.warn('⚠️', 'invalid_message', {
-                reason,
-                partition: message.partition,
-                offset: message.offset,
-                ...(extra || {}),
-            })
-        }
-
-        if (!message.value || !message.timestamp) {
-            // Typing says this can happen but in practice it shouldn't
-            return statusWarn('message value or timestamp is empty')
-        }
-
-        let messagePayload: RawEventMessage
-        let event: PipelineEvent
-
-        try {
-            messagePayload = JSON.parse(message.value.toString())
-            event = JSON.parse(messagePayload.data)
-        } catch (error) {
-            return statusWarn('invalid_json', { error })
-        }
-
-        const { $snapshot_items, $session_id, $window_id } = event.properties || {}
-
-        // NOTE: This is simple validation - ideally we should do proper schema based validation
-        if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-            status.warn('🙈', 'Received non-snapshot message, ignoring')
-            return
-        }
-
-        if (messagePayload.team_id == null && !messagePayload.token) {
-            return statusWarn('no_token')
-        }
-
-        let teamIdWithConfig: TeamIDWithConfig | null = null
-        const token = messagePayload.token
-
-        if (token) {
-            teamIdWithConfig = await getTeamFn(token)
-        }
-
-        // NB `==` so we're comparing undefined and null
-        if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'team_missing_or_disabled',
-                })
-                .inc()
-
-            return statusWarn('team_missing_or_disabled', {
-                token: messagePayload.token,
-                teamId: messagePayload.team_id,
-                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
-            })
-        }
-
-        const invalidEvents: any[] = []
-        const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
-            if (!event || !event.timestamp) {
-                invalidEvents.push(event)
-                return false
-            }
-            return true
-        })
-
-        if (invalidEvents.length) {
-            captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
-                extra: {
-                    invalidEvents,
-                    eventsCount: events.length,
-                    invalidEventsCount: invalidEvents.length,
-                    event,
-                },
-                tags: {
-                    team_id: teamIdWithConfig.teamId,
-                    session_id: $session_id,
-                },
-            })
-        }
-
-        if (!events.length) {
-            status.warn('🙈', 'Event contained no valid rrweb events, ignoring')
-
-            return statusWarn('invalid_rrweb_events', {
-                token: messagePayload.token,
-                teamId: messagePayload.team_id,
-            })
-        }
-
-        return {
-            metadata: {
-                partition: message.partition,
-                topic: message.topic,
-                offset: message.offset,
-                timestamp: message.timestamp,
-                consoleLogIngestionEnabled: teamIdWithConfig.consoleLogIngestionEnabled,
-            },
-
-            team_id: teamIdWithConfig.teamId,
-            distinct_id: messagePayload.distinct_id,
-            session_id: $session_id,
-            window_id: $window_id,
-            events: events,
-        }
-    }
-
     public async handleEachBatch(messages: Message[]): Promise<void> {
         status.info('🔁', `blob_ingester_consumer - handling batch`, {
             size: messages.length,
@@ -395,7 +282,7 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await this.parseKafkaMessage(message, (token) =>
+                            const recordingMessage = await parseKafkaMessage(message, (token) =>
                                 this.teamsRefresher.get().then((teams) => ({
                                     teamId: teams[token]?.teamId || null,
                                     consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
@@ -646,7 +533,7 @@ export class SessionRecordingIngester {
             partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
             delete this.partitionMetrics[partition]
 
-            // Revoke the high water mark for this partition so we are essentially "reset"
+            // Revoke the high watermark for this partition, so we are essentially "reset"
             this.sessionHighWaterMarker.revoke(topicPartition)
             this.persistentHighWaterMarker.revoke(topicPartition)
         })

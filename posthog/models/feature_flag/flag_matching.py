@@ -24,7 +24,7 @@ from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
-from posthog.queries.base import match_property, properties_to_Q
+from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
     postgres_healthcheck,
     DATABASE_FOR_FLAG_MATCHING,
@@ -908,8 +908,10 @@ def parse_exception_for_error_message(err: Exception):
 def key_and_field_for_property(property: Property) -> Tuple[str, str]:
     column = "group_properties" if property.type == "group" else "properties"
     key = property.key
+    sanitized_key = sanitize_property_key(key)
+
     return (
-        f"{column}_{key}_type",
+        f"{column}_{sanitized_key}_type",
         f"{column}__{key}",
     )
 

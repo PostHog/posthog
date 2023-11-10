@@ -82,11 +82,15 @@ module.exports = {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
                     },
+                    {
+                        name: '@ant-design/icons',
+                        message: 'Please use icons from the @posthog/icons package instead',
+                    },
                 ],
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -98,7 +102,7 @@ module.exports = {
             },
         ],
         'posthog/warn-elements': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -142,11 +146,15 @@ module.exports = {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
+                    {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
+                    },
                 ],
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -200,9 +208,10 @@ module.exports = {
                 ],
             },
         ],
-        'no-constant-condition': 0,
-        'no-prototype-builtins': 0,
-        'no-irregular-whitespace': 0,
+        'no-constant-binary-expression': 'error',
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
         {

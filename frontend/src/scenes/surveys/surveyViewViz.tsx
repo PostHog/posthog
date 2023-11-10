@@ -65,7 +65,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
         <>
             {total > 0 && (
                 <div className="mb-8">
-                    <div className="w-full mx-auto h-10 mb-4">
+                    <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
                                 count: seen,
@@ -102,6 +102,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             >
                                 <div
                                     className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={style}
                                 >
                                     <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
@@ -121,6 +122,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 ({ count, label, style }) =>
                                     count > 0 && (
                                         <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <div className="w-3 h-3 rounded-full mr-2" style={style} />
                                             <span className="font-semibold text-muted-alt">{`${label} (${(
                                                 (count / total) *
@@ -345,6 +347,7 @@ export function SingleChoiceQuestionPieChart({
                                     >
                                         <div
                                             className="w-3 h-3 rounded-full mr-2"
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
                                         <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
@@ -483,7 +486,7 @@ export function OpenTextViz({
                                     <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
                                         {event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

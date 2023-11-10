@@ -37,6 +37,8 @@ def mocked_plugin_reload(*args, **kwargs):
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
+    maxDiff = None
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -703,88 +705,122 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 3)
 
-    def test_create_plugin_frontend_source(self, mock_get, mock_reload):
-        self.assertEqual(mock_reload.call_count, 0)
+    def test_transpile_plugin_frontend_source(self, mock_get, mock_reload):
+        # Setup
+        assert mock_reload.call_count == 0
         response = self.client.post(
             "/api/organizations/@current/plugins/",
             {"plugin_type": "source", "name": "myplugin"},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         id = response.json()["id"]
-        self.assertEqual(
-            response.json(),
-            {
-                "id": id,
-                "plugin_type": "source",
-                "name": "myplugin",
-                "description": None,
-                "url": None,
-                "config_schema": {},
-                "tag": None,
-                "icon": None,
-                "latest_tag": None,
-                "is_global": False,
-                "organization_id": response.json()["organization_id"],
-                "organization_name": self.CONFIG_ORGANIZATION_NAME,
-                "capabilities": {},
-                "metrics": {},
-                "public_jobs": {},
-            },
-        )
-        self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(mock_reload.call_count, 0)
+        assert response.json() == {
+            "id": id,
+            "plugin_type": "source",
+            "name": "myplugin",
+            "description": None,
+            "url": None,
+            "config_schema": {},
+            "tag": None,
+            "icon": None,
+            "latest_tag": None,
+            "is_global": False,
+            "organization_id": response.json()["organization_id"],
+            "organization_name": self.CONFIG_ORGANIZATION_NAME,
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {},
+        }
 
-        response = self.client.patch(
+        assert Plugin.objects.count() == 1
+        assert mock_reload.call_count == 0
+
+        # Add first source file, frontend.tsx
+        self.client.patch(
             f"/api/organizations/@current/plugins/{id}/update_source",
             {"frontend.tsx": "export const scene = {}"},
         )
+        assert Plugin.objects.count() == 1
+        assert PluginSourceFile.objects.count() == 1
+        assert mock_reload.call_count == 1
 
-        self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginSourceFile.objects.count(), 1)
-        self.assertEqual(mock_reload.call_count, 1)
-
+        # Fetch transpiled source via API call
         plugin = Plugin.objects.get(pk=id)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-
-        # no frontend, since no pluginserver transpiles the code
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.content,
-            b'export function getFrontendApp () { return {"transpiling": true} }',
+            response.content.decode("utf-8"),
+            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; '
+            '"use strict";\n\nObject.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+            "var scene = exports.scene = {};"  # this is it
+            "; return exports; }",
         )
 
-        # mock the plugin server's transpilation
+        # Check in the database
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
-        self.assertEqual(plugin_source.status, None)
-        self.assertEqual(plugin_source.transpiled, None)
-        plugin_source.status = PluginSourceFile.Status.TRANSPILED
-        plugin_source.transpiled = "'random transpiled frontend'"
-        plugin_source.save()
+        assert plugin_source.source == "export const scene = {}"
+        assert plugin_source.error is None
+        assert plugin_source.transpiled == response.content.decode("utf-8")
+        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
-        # Can get the transpiled frontend
-        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"'random transpiled frontend'")
-
-        # Update the source frontend
+        # Updates work
         self.client.patch(
             f"/api/organizations/@current/plugins/{id}/update_source",
             {"frontend.tsx": "export const scene = { name: 'new' }"},
         )
-
-        # It will clear the transpiled frontend
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
-        self.assertEqual(plugin_source.source, "export const scene = { name: 'new' }")
-        self.assertEqual(plugin_source.transpiled, None)
-
-        # And reply that it's transpiling
-        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.content,
-            b'export function getFrontendApp () { return {"transpiling": true} }',
+        assert plugin_source.source == "export const scene = { name: 'new' }"
+        assert plugin_source.error is None
+        assert (
+            plugin_source.transpiled
+            == (
+                '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
+                'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+                "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
+                "; return exports; }"
+            )
         )
+        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
+
+        # Errors as well
+        self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/update_source",
+            {"frontend.tsx": "export const scene = { nam broken code foobar"},
+        )
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
+        assert plugin_source.source == "export const scene = { nam broken code foobar"
+        assert plugin_source.transpiled is None
+        assert plugin_source.status == PluginSourceFile.Status.ERROR
+        assert (
+            plugin_source.error
+            == '/frontend.tsx: Unexpected token, expected "," (1:27)\n\n> 1 | export const scene = { nam broken code foobar\n    |                            ^\n'
+        )
+
+        # Deletes work
+        self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/update_source",
+            {"frontend.tsx": None},
+        )
+        try:
+            PluginSourceFile.objects.get(plugin_id=id)
+            assert False, "Should have thrown DoesNotExist"
+        except PluginSourceFile.DoesNotExist:
+            assert True
+
+        # Check that the syntax for "site.ts" is slightly different
+        self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/update_source",
+            {"site.ts": "console.log('hello')"},
+        )
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
+        assert plugin_source.source == "console.log('hello')"
+        assert plugin_source.error is None
+        assert (
+            plugin_source.transpiled
+            == "(function () {let exports={};\"use strict\";\n\nconsole.log('hello');;return exports;})"
+        )
+        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")
@@ -935,6 +971,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "enabled": True,
                 "order": 0,
                 "config": json.dumps({"bar": "moop"}),
+                "name": "name in ui",
+                "description": "description in ui",
             },
             format="multipart",
         )
@@ -955,6 +993,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -993,6 +1035,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1309,6 +1355,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
 
@@ -1334,6 +1384,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
 
@@ -1361,6 +1415,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1370,7 +1428,15 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def test_plugin_config_list(self, mock_get, mock_reload):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config1 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-        plugin_config2 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=2)
+        plugin_config2 = PluginConfig.objects.create(
+            plugin=plugin,
+            team=self.team,
+            enabled=True,
+            order=2,
+            name="ui name",
+            description="ui description",
+            deleted=True,
+        )
 
         create_app_metric(
             team_id=self.team.pk,
@@ -1397,6 +1463,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "plugin_info": None,
                     "delivery_rate_24h": 0.5,
                     "created_at": mock.ANY,
+                    "updated_at": mock.ANY,
+                    "name": None,
+                    "description": None,
+                    "deleted": False,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1409,6 +1479,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "plugin_info": None,
                     "delivery_rate_24h": None,
                     "created_at": mock.ANY,
+                    "updated_at": mock.ANY,
+                    "name": "ui name",
+                    "description": "ui description",
+                    "deleted": True,
                 },
             ],
         )

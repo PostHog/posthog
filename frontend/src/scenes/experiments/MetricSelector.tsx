@@ -16,7 +16,6 @@ import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
-import { InfoCircleOutlined } from '@ant-design/icons'
 
 import './Experiment.scss'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -24,6 +23,7 @@ import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DEFAULT_DURATION } from './experimentLogic'
+import { IconInfo } from '@posthog/icons'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
@@ -163,7 +163,7 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
                         </div>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="info-indicator" />
                 </Tooltip>
             </span>
             <Attribution insightProps={insightProps} />

@@ -68,16 +68,11 @@ export function StaffUsersTab(): JSX.Element {
                                 okType: 'primary',
                                 okButtonProps: { className: 'btn-danger' },
                                 content: (
-                                    <div style={{ border: '' }}>
+                                    <div className="border-none">
                                         {myself?.uuid === user.uuid ? (
                                             <>
                                                 Please confirm you want to <b>remove yourself</b> as a staff user.
-                                                <div
-                                                    style={{
-                                                        fontWeight: 'normal',
-                                                        color: 'var(--muted-alt)',
-                                                    }}
-                                                >
+                                                <div className="font-normal" style={{ color: 'var(--muted-alt)' }}>
                                                     Only another staff user will be able to add you again.
                                                 </div>
                                             </>
@@ -100,9 +95,7 @@ export function StaffUsersTab(): JSX.Element {
 
     return (
         <div>
-            <h3 className="l3" style={{ marginTop: 16 }}>
-                Staff Users
-            </h3>
+            <h3 className="l3 mt-4">Staff Users</h3>
             <div className="mb-4">
                 Users who have permissions to manage instance-wide settings. Staff user permissions are set at the{' '}
                 <b>instance-level and are independent of any organization or project permissions.</b>{' '}
@@ -118,7 +111,7 @@ export function StaffUsersTab(): JSX.Element {
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
                 <div className="flex gap-2 mb-4">
-                    <div className="flex flex-1">
+                    <div className="flex-1">
                         <LemonSelectMultiple
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}

@@ -19,17 +19,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Action]: Scene.DataManagement,
-    [Scene.Actions]: Scene.DataManagement,
-    [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.IngestionWarnings]: Scene.DataManagement,
-    [Scene.Person]: Scene.Persons,
-    [Scene.Cohort]: Scene.Cohorts,
-    [Scene.Groups]: Scene.Persons,
+    [Scene.Person]: Scene.PersonsManagement,
+    [Scene.Cohort]: Scene.PersonsManagement,
     [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.Persons,
+    [Scene.Group]: Scene.PersonsManagement,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
@@ -258,7 +253,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/onboarding') &&
                         !location.pathname.startsWith('/products') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !location.pathname.startsWith('/settings')
                     ) {
                         if (
                             featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===

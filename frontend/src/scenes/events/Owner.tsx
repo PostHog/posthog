@@ -6,12 +6,14 @@ export function Owner({ user, style = {} }: { user?: UserBasicType | null; style
     return (
         <>
             {user?.uuid ? (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+                <div className="flex items-center flex-row">
                     <ProfilePicture name={user.first_name} email={user.email} size="sm" />
-                    <span style={{ paddingLeft: 8, ...style }}>{user.first_name}</span>
+                    <span className="pl-2" style={style}>
+                        {user.first_name}
+                    </span>
                 </div>
             ) : (
-                <span className="text-muted" style={{ fontStyle: 'italic', ...style }}>
+                <span className="text-muted italic" style={style}>
                     No owner
                 </span>
             )}

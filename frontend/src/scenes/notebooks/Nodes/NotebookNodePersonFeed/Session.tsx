@@ -26,7 +26,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     const [isFolded, setIsFolded] = useState(false)
 
     const onOpenReplay = (): void => {
-        const newChildren = [...children] || []
+        const newChildren = [...(children || [])]
 
         const existingChild = newChildren.find((child) => child.attrs?.nodeId === `${nodeId}-active-replay`)
 

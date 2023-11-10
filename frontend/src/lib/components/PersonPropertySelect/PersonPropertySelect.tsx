@@ -36,6 +36,7 @@ const SortableProperty = ({
             className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}
             {...attributes}
             {...listeners}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Translate.toString(transform),
                 transition,

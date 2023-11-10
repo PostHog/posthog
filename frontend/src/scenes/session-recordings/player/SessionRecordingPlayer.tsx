@@ -129,7 +129,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             400: 'small',
             1000: 'medium',
         },
-        playerRef
+        {
+            ref: playerRef,
+        }
     )
 
     const [inspectorFocus, setInspectorFocus] = useState(false)

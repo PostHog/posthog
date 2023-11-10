@@ -216,7 +216,15 @@ export function OverViewTab({
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
-                                        disabled={!featureFlag.can_edit}
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                : (featureFlag.features?.length || 0) > 0
+                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                : null
+                                        }
                                         fullWidth
                                     >
                                         Delete feature flag
@@ -426,10 +434,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties as AnyPropertyFilter[]}
-                        style={{ margin: 0, flexDirection: 'column' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )
         } else if (rollout_percentage !== null) {

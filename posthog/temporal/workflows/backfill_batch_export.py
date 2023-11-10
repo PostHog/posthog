@@ -36,14 +36,14 @@ class HeartbeatDetails(typing.NamedTuple):
     def make_activity_heartbeat_while_running(
         self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
     ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
-        """Return a callable that returns a coroutine that hearbeats with these HeartbeatDetails.
+        """Return a callable that returns a coroutine that heartbeats with these HeartbeatDetails.
 
-        The returned callable wraps 'function_to_run' while heartbeatting 'factor' times for every
-        'heartbeat_timeout'.
+        The returned callable wraps 'function_to_run' while heartbeating every 'heartbeat_every'
+        seconds.
         """
 
         async def heartbeat() -> None:
-            """Heartbeat factor times every heartbeat_timeout."""
+            """Heartbeat every 'heartbeat_every' seconds."""
             while True:
                 await asyncio.sleep(heartbeat_every.total_seconds())
                 temporalio.activity.heartbeat(self)
@@ -99,8 +99,8 @@ class BackfillScheduleInputs:
 async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """Temporal Activity to backfill a Temporal Schedule.
 
-    The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is requested,
-    we wait for it to be done before continuing with the next.
+    The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is
+    requested, we wait for it to be done before continuing with the next.
 
     This activity heartbeats while waiting to allow cancelling an ongoing backfill.
     """
