@@ -10,7 +10,9 @@ import { commandBarLogic } from './commandBarLogic'
 
 import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
-export const actionBarLogic = kea([
+import type { actionBarLogicType } from './actionBarLogicType'
+
+export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
     connect({
         actions: [

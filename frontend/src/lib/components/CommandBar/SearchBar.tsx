@@ -7,7 +7,7 @@ import SearchResults from './SearchResults'
 import SearchTabs from './SearchTabs'
 
 const SearchBar = (): JSX.Element => {
-    useMountedLogic(searchBarLogic)
+    useMountedLogic(searchBarLogic) // load initial results
 
     return (
         <div className="flex flex-col h-full">
