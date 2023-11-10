@@ -454,7 +454,7 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                 },
                 aggregated_value: 0,
                 label: '$pageview - control',
-                count: 11.421053,
+                count: 11.421053, // eslint-disable-line no-loss-of-precision
                 data: [
                     2.4210526315789473, 1.4210526315789473, 3.4210526315789473, 0.4210526315789473, 3.4210526315789473,
                 ],
