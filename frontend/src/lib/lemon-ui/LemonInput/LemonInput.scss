@@ -17,7 +17,7 @@
     gap: 0.25rem;
 
     &:hover:not([aria-disabled='true']) {
-        border-color: var(--primary-light);
+        border-color: var(--primary-3000-hover);
     }
     &.LemonInput--focused:not([aria-disabled='true']) {
         border-color: var(--primary);

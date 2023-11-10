@@ -28,7 +28,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     &::selection {
-        background: var(--primary-light); // Default selection background is invisible on primary
+        background: var(--primary-3000-hover); // Default selection background is invisible on primary
     }
     .Spinner {
         margin-right: 0.25rem;

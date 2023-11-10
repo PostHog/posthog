@@ -10,7 +10,7 @@
 
     &:not(:disabled) {
         &:hover {
-            color: var(--primary-light);
+            color: var(--primary-3000-hover);
         }
         &:active {
             color: var(--primary-dark);
