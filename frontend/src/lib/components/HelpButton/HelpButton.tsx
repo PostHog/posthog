@@ -24,6 +24,9 @@ import { supportLogic } from '../Support/supportLogic'
 import { SupportModal } from '../Support/SupportModal'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconThumbsDown } from '@posthog/icons'
+import { posthog3000OptInlogic } from '../PostHog3000OptIn/posthog3000OptInlogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -92,6 +95,9 @@ export function HelpButton({
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000Preview = useFeatureFlag('POSTHOG_3000_PREVIEW')
+    const { optOut } = useActions(posthog3000OptInlogic)
 
     const showSupportOptions: boolean = isCloudOrDev || false
 
@@ -192,6 +198,15 @@ export function HelpButton({
                             },
                         ],
                     },
+                    is3000 &&
+                        is3000Preview && {
+                            label: 'Back to the old UI',
+                            icon: <IconThumbsDown />,
+                            onClick: () => {
+                                optOut()
+                                hideHelp()
+                            },
+                        },
                 ]}
                 onVisibilityChange={(visible) => !visible && hideHelp()}
                 visible={isHelpVisible}

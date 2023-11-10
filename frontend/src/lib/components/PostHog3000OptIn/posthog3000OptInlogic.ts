@@ -4,6 +4,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 
+import type { posthog3000OptInlogicType } from './posthog3000OptInlogicType'
+
 export enum SidePanelTab {
     Notebooks = 'notebook',
     Feedback = 'feedback',
@@ -12,11 +14,12 @@ export enum SidePanelTab {
     Settings = 'settings',
 }
 
-export const posthog3000OptInlogic = kea([
+export const posthog3000OptInlogic = kea<posthog3000OptInlogicType>([
     path(['lib', 'posthog3000OptIn', 'posthog3000OptInlogic']),
     actions({
         dismissNotice: true,
         optIn: true,
+        optOut: true,
     }),
 
     connect({
@@ -28,7 +31,9 @@ export const posthog3000OptInlogic = kea([
             false,
             { persist: true },
             {
-                dismissNotice: (_, { tab }) => tab,
+                dismissNotice: () => true,
+                optIn: () => false,
+                optOut: () => false,
             },
         ],
     })),
@@ -40,17 +45,5 @@ export const posthog3000OptInlogic = kea([
         optOut: () => {
             posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.POSTHOG_3000, false)
         },
-        // openSidePanel: () => {
-        //     actions.setSidePanelOpen(true)
-        // },
-        // closeSidePanel: ({ tab }) => {
-        //     if (!tab) {
-        //         // If we aren't specifiying the tab we always close
-        //         actions.setSidePanelOpen(false)
-        //     } else if (values.selectedTab === tab) {
-        //         // Otherwise we only close it if the tab is the currently open one
-        //         actions.setSidePanelOpen(false)
-        //     }
-        // },
     })),
 ])
