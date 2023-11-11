@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
 
 import { actionBarLogic } from './actionBarLogic'
@@ -11,10 +11,16 @@ type SearchResultProps = {
 }
 
 const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
-    const { executeResult } = useActions(actionBarLogic)
+    const { executeResult, onMouseEnterResult, onMouseLeaveResult } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
     const isExecutable = !!result.executor
+
+    useEffect(() => {
+        if (focused) {
+            ref.current?.scrollIntoView()
+        }
+    }, [focused])
 
     return (
         <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
@@ -22,6 +28,12 @@ const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
                 className={`w-full pl-3 pr-2 ${
                     focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
                 } border-b cursor-pointer`}
+                onMouseEnter={() => {
+                    onMouseEnterResult(result.index)
+                }}
+                onMouseLeave={() => {
+                    onMouseLeaveResult()
+                }}
                 onClick={() => {
                     if (isExecutable) {
                         executeResult(result)

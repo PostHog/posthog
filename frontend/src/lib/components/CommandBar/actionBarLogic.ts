@@ -14,7 +14,17 @@ export const actionBarLogic = kea<actionBarLogicType>([
             commandBarLogic,
             ['hideCommandBar', 'setCommandBar'],
             commandPaletteLogic,
-            ['showPalette', 'hidePalette', 'setInput', 'executeResult', 'backFlow', 'onArrowUp', 'onArrowDown'],
+            [
+                'showPalette',
+                'hidePalette',
+                'setInput',
+                'executeResult',
+                'backFlow',
+                'onArrowUp',
+                'onArrowDown',
+                'onMouseEnterResult',
+                'onMouseLeaveResult',
+            ],
         ],
         values: [
             commandPaletteLogic,
