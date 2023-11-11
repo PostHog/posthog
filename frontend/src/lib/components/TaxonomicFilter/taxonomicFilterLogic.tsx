@@ -71,6 +71,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
     connect({
+        logic: [actionsModel, cohortsModel],
         values: [
             teamLogic,
             ['currentTeamId'],
