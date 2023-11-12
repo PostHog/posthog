@@ -309,15 +309,7 @@ export function ItemPerformanceEvent({
                         </>
                     ) : (
                         <>
-                            <p>
-                                <div className="text-xs space-y-1 max-w-full">
-                                    <div className="flex gap-4 items-start justify-between overflow-hidden">
-                                        <span className="font-semibold">Status code</span>
-                                        <StatusTag status={item.response_status} />
-                                    </div>
-                                </div>
-                                <LemonDivider dashed />
-                            </p>
+                            <StatusRow status={item.response_status} />
                             <p>
                                 Request started at{' '}
                                 <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
@@ -356,7 +348,7 @@ export function ItemPerformanceEvent({
                                     <HeadersDisplay request={item.request_headers} response={item.response_headers} />
                                 ),
                             },
-                            {
+                            item.entry_type !== 'navigation' && {
                                 key: 'payload',
                                 label: 'Payload',
                                 content: (
@@ -367,7 +359,7 @@ export function ItemPerformanceEvent({
                                     />
                                 ),
                             },
-                            item.response_body
+                            item.entry_type !== 'navigation' && item.response_body
                                 ? {
                                       key: 'response_body',
                                       label: 'Response',
@@ -440,16 +432,29 @@ function HeadersDisplay({
     )
 }
 
-function StatusTag({ status }: { status: number | undefined }): JSX.Element | null {
+function StatusRow({ status }: { status: number | undefined }): JSX.Element | null {
     if (status === undefined) {
         return null
     }
+
     const statusDescription = `${status} ${friendlyHttpStatus[status] || ''}`
+
     let statusType: LemonTagType = 'success'
     if (status >= 400 || status < 100) {
         statusType = 'warning'
     } else if (status >= 500) {
         statusType = 'danger'
     }
-    return <LemonTag type={statusType}>{statusDescription}</LemonTag>
+
+    return (
+        <p>
+            <div className="text-xs space-y-1 max-w-full">
+                <div className="flex gap-4 items-start justify-between overflow-hidden">
+                    <span className="font-semibold">Status code</span>
+                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                </div>
+            </div>
+            <LemonDivider dashed />
+        </p>
+    )
 }
