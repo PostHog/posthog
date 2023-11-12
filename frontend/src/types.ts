@@ -1058,6 +1058,18 @@ export interface RecentPerformancePageView extends PerformancePageView {
     duration: number
 }
 
+// copied from rrweb/network@1
+export type Body =
+    | string
+    | Document
+    | Blob
+    | ArrayBufferView
+    | ArrayBuffer
+    | FormData
+    | URLSearchParams
+    | ReadableStream<Uint8Array>
+    | null
+
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1119,6 +1131,12 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+
+    // request/response capture - merged in from rrweb/network@1 payloads
+    request_headers?: Record<string, string>
+    response_headers?: Record<string, string>
+    request_body?: Body
+    response_body?: Body
 }
 
 export interface CurrentBillCycleType {
