@@ -118,7 +118,6 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
 
                     if (matchedStartTime && matchedStartTime.length === 1) {
                         matchedStartTime[0].response_status = capturedRequest.status
-                        matchedStartTime[0].response_status = capturedRequest.status
                         matchedStartTime[0].request_headers = capturedRequest.requestHeaders
                         matchedStartTime[0].request_body = capturedRequest.requestBody
                         matchedStartTime[0].response_headers = capturedRequest.responseHeaders
