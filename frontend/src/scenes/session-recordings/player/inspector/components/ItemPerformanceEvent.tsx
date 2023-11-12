@@ -250,7 +250,7 @@ export function ItemPerformanceEvent({
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
                                 {shortEventName}
                             </span>
-                            {/* only show interesting status codes at the top level */}
+                            {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
                                 <span
                                     className={clsx(
