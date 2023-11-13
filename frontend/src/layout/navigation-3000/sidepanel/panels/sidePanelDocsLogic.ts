@@ -1,14 +1,15 @@
 import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { SidePanelTab, sidePanelLogic } from '../sidePanelLogic'
 
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
+import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 const POSTHOG_COM_DOMAIN = 'https://posthog.com'
 
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     connect({
-        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
 
     actions({

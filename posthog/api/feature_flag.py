@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import QuerySet, Q
+from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
 from rest_framework import (
     authentication,
@@ -256,7 +256,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team_id=self.context["team_id"], deleted=True).delete()
+        try:
+            FeatureFlag.objects.filter(
+                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
+            ).delete()
+        except deletion.RestrictedError:
+            raise exceptions.ValidationError(
+                "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
+            )
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)

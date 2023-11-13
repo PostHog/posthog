@@ -50,8 +50,8 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
 
     return (
         <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap">
-                Conversion window limit{' '}
+            <span className="flex whitespace-nowrap">
+                Conversion window limit
                 <Tooltip
                     title={
                         <>
@@ -63,7 +63,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                         </>
                     }
                 >
-                    <IconInfo className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </span>
             <div className="flex items-center gap-2">

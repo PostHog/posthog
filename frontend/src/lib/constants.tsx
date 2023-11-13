@@ -161,6 +161,7 @@ export const FEATURE_FLAGS = {
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
+    HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik

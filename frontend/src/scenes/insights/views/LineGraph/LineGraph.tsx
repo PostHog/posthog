@@ -733,7 +733,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
         <div

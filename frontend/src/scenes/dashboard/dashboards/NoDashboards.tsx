@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { Card } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { AppstoreAddOutlined } from '@ant-design/icons'
 
 export const NoDashboards = (): JSX.Element => {

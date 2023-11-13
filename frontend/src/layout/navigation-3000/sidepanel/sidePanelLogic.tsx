@@ -1,44 +1,25 @@
-import { actions, kea, reducers, path, listeners, selectors, connect } from 'kea'
+import { kea, path, selectors, connect } from 'kea'
 
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-export enum SidePanelTab {
-    Notebooks = 'notebook',
-    Support = 'support',
-    Docs = 'docs',
-}
+import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
+import { SidePanelTab } from '~/types'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
-    actions({
-        setSidePanelOpen: (open: boolean) => ({ open }),
-        openSidePanel: (tab: SidePanelTab) => ({ tab }),
-        closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
-    }),
-
     connect({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['isCloudOrDev']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['isCloudOrDev'],
+            activationLogic,
+            ['isReady', 'hasCompletedAllTasks'],
+        ],
     }),
-
-    reducers(() => ({
-        selectedTab: [
-            null as SidePanelTab | null,
-            { persist: true },
-            {
-                openSidePanel: (_, { tab }) => tab,
-            },
-        ],
-        sidePanelOpen: [
-            false,
-            { persist: true },
-            {
-                setSidePanelOpen: (_, { open }) => open,
-            },
-        ],
-    })),
 
     selectors({
         enabledTabs: [
@@ -58,23 +39,39 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Docs)
                 }
 
+                tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Activation)
+
                 return tabs
             },
         ],
-    }),
 
-    listeners(({ actions, values }) => ({
-        openSidePanel: () => {
-            actions.setSidePanelOpen(true)
-        },
-        closeSidePanel: ({ tab }) => {
-            if (!tab) {
-                // If we aren't specifiying the tab we always close
-                actions.setSidePanelOpen(false)
-            } else if (values.selectedTab === tab) {
-                // Otherwise we only close it if the tab is the currently open one
-                actions.setSidePanelOpen(false)
-            }
-        },
-    })),
+        visibleTabs: [
+            (s) => [
+                s.enabledTabs,
+                sidePanelStateLogic.selectors.selectedTab,
+                sidePanelStateLogic.selectors.sidePanelOpen,
+                s.isReady,
+                s.hasCompletedAllTasks,
+            ],
+            (enabledTabs, selectedTab, sidePanelOpen, isReady, hasCompletedAllTasks): SidePanelTab[] => {
+                return enabledTabs.filter((tab: any) => {
+                    if (tab === selectedTab && sidePanelOpen) {
+                        return true
+                    }
+
+                    // Hide certain tabs unless they are selected
+                    if ([SidePanelTab.Settings].includes(tab)) {
+                        return false
+                    }
+
+                    if (tab === SidePanelTab.Activation && (!isReady || hasCompletedAllTasks)) {
+                        return false
+                    }
+
+                    return true
+                })
+            },
+        ],
+    }),
 ])

@@ -3,7 +3,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { Region, TeamType, UserType } from '~/types'
+import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -12,7 +12,7 @@ import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import * as Sentry from '@sentry/react'
-import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -111,7 +111,7 @@ export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
-        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions(() => ({
         closeSupportForm: () => true,

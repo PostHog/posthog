@@ -91,7 +91,9 @@ class OrganizationFeatureFlagView(
                 "deleted": False,
             }
 
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target_project_id).first()
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team_id=target_project_id, deleted=False
+            ).first()
             # Update existing flag
             if existing_flag:
                 feature_flag_serializer = FeatureFlagSerializer(

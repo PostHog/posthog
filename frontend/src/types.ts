@@ -3114,7 +3114,7 @@ export type NotebookNodeResource = {
 
 export enum NotebookTarget {
     Popover = 'popover',
-    Auto = 'auto',
+    Scene = 'scene',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
@@ -3332,3 +3332,11 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
+
+export enum SidePanelTab {
+    Notebooks = 'notebook',
+    Support = 'support',
+    Docs = 'docs',
+    Activation = 'activation',
+    Settings = 'settings',
+}

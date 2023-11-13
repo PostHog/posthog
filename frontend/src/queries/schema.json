@@ -1541,38 +1541,51 @@
             "additionalProperties": false,
             "properties": {
                 "clickhouse": {
+                    "description": "Executed ClickHouse query",
                     "type": "string"
                 },
                 "columns": {
+                    "description": "Returned columns",
                     "items": {},
                     "type": "array"
                 },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "explain": {
+                    "description": "Query explanation output",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
                 "hogql": {
+                    "description": "Generated HogQL query",
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "query": {
+                    "description": "Input query string",
                     "type": "string"
                 },
                 "results": {
+                    "description": "Query results",
                     "items": {},
                     "type": "array"
                 },
                 "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
                 },
                 "types": {
+                    "description": "Types of returned columns",
                     "items": {},
                     "type": "array"
                 }
@@ -1686,6 +1699,9 @@
                     "description": "Show with most visual options enabled. Used in insight scene.",
                     "type": "boolean"
                 },
+                "hidePersonsModal": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
@@ -1713,6 +1729,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
+                },
+                "suppressSessionAnalysisWarning": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "source"],
@@ -2528,6 +2547,9 @@
                     "description": "Show with most visual options enabled. Used in insight scene.",
                     "type": "boolean"
                 },
+                "hidePersonsModal": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "SavedInsightNode",
                     "type": "string"
@@ -2618,6 +2640,9 @@
                 },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
+                    "type": "boolean"
+                },
+                "suppressSessionAnalysisWarning": {
                     "type": "boolean"
                 }
             },
@@ -3064,16 +3089,19 @@
             "required": ["results"],
             "type": "object"
         },
+        "WebAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                }
+            ]
+        },
         "WebAnalyticsPropertyFilters": {
             "items": {
-                "anyOf": [
-                    {
-                        "$ref": "#/definitions/EventPropertyFilter"
-                    },
-                    {
-                        "$ref": "#/definitions/HogQLPropertyFilter"
-                    }
-                ]
+                "$ref": "#/definitions/WebAnalyticsPropertyFilter"
             },
             "type": "array"
         },

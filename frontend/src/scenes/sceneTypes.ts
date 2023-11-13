@@ -42,15 +42,12 @@ export enum Scene {
     DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseSettings = 'DataWarehouseSettings',
-    OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
-    ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
-    MySettings = 'MySettings',
     Billing = 'Billing',
     Apps = 'Apps',
     FrontendAppScene = 'FrontendAppScene',
@@ -78,6 +75,7 @@ export enum Scene {
     Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
+    Settings = 'Settings',
 }
 
 export type SceneProps = Record<string, any>
