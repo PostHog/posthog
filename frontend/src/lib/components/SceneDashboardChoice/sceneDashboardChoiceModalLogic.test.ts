@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { Scene } from 'scenes/sceneTypes'
 
-describe('sceneDashboardChoiceModalLogic ', () => {
+describe('sceneDashboardChoiceModalLogic', () => {
     let logic: ReturnType<typeof sceneDashboardChoiceModalLogic.build>
 
     beforeEach(async () => {

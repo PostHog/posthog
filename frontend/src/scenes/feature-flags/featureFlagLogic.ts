@@ -524,10 +524,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: [
+        relatedInsights: [
             [] as InsightModel[],
             {
-                loadRecentInsights: async () => {
+                loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
@@ -661,7 +661,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async () => {
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
@@ -1010,7 +1010,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloads = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloads)
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
