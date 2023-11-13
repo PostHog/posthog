@@ -232,18 +232,20 @@ export function InsightVizDisplay({
                             </div>
                         )}
 
-                        {BlockingEmptyState ? (
-                            BlockingEmptyState
-                        ) : supportsDisplay && showLegend ? (
-                            <div className="InsightVizDisplay__content">
-                                <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                <div className="InsightVizDisplay__content__right">
-                                    <InsightLegend />
-                                </div>
-                            </div>
-                        ) : (
-                            renderActiveView()
-                        )}
+                        <div className="InsightVizDisplay__content">
+                            {BlockingEmptyState ? (
+                                BlockingEmptyState
+                            ) : supportsDisplay && showLegend ? (
+                                <>
+                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__right">
+                                        <InsightLegend />
+                                    </div>
+                                </>
+                            ) : (
+                                renderActiveView()
+                            )}
+                        </div>
                     </>
                 )}
             </div>

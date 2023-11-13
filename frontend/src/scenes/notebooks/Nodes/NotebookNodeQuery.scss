@@ -6,6 +6,8 @@
 
 .NotebookNode.ph-query {
     .InsightVizDisplay {
+        --insight-viz-min-height: 100%;
+
         .RetentionContainer {
             .LineGraph {
                 position: relative;

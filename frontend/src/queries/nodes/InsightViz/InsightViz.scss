@@ -4,6 +4,7 @@
     overflow: hidden;
     gap: 1rem;
     container-type: inline-size;
+    flex: 1; // important for when rendered within a flex parent
 
     &.InsightViz--horizontal {
         flex-direction: row;
@@ -23,16 +24,25 @@
 }
 
 .InsightVizDisplay {
+    --insight-viz-min-height: calc(100vh - 4rem);
+    display: flex;
+    flex-direction: column;
+    min-height: var(--insight-viz-min-height);
+
     .InsightVizDisplay__content {
         display: flex;
+        flex: 1;
+        position: relative;
 
         .InsightVizDisplay__content__left {
+            display: flex;
             flex: 1;
+            position: relative;
             width: 100%;
         }
 
         .InsightVizDisplay__content__right {
-            height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+            height: min(calc(90vh - 16rem), 36rem); // same as .TrendsInsightContainer
             flex-shrink: 1;
             max-width: 45%;
             width: fit-content;
@@ -41,19 +51,12 @@
             align-items: center;
         }
     }
-
-    .LineGraph {
-        // hacky because container not respecting position: relative;
-        width: calc(100% - 3rem);
-        height: calc(100% - 3rem);
-    }
 }
 
-.trends-insights-container {
+.TrendsInsightContainer {
     position: relative;
-    min-height: min(calc(90vh - 16rem), 36rem);
-    display: flex;
-    justify-content: center;
+    flex: 1;
+    margin: 0.5rem;
 
     .LineGraph {
         height: calc(100% - 1rem) !important;

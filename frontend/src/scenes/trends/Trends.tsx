@@ -67,7 +67,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                         display !== ChartDisplayType.ActionsTable &&
                         display !== ChartDisplayType.WorldMap &&
                         display !== ChartDisplayType.BoldNumber
-                            ? 'trends-insights-container'
+                            ? 'TrendsInsightContainer'
                             : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
                     }
                 >
