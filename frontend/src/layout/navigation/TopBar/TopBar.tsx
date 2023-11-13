@@ -16,12 +16,19 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { LemonButtonWithDropdown, Lettermark } from '@posthog/lemon-ui'
+import { ProjectSwitcherOverlay } from '../ProjectSwitcher'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
     const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { isProjectSwitcherShown } = useValues(ingestionLogic)
+    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(ingestionLogic)
 
     const hasNotebooks = !!featureFlags[FEATURE_FLAGS.NOTEBOOKS]
 
@@ -71,11 +78,32 @@ export function TopBar(): JSX.Element {
                     )}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {!minimalTopBar && (
+                    {!minimalTopBar ? (
                         <>
                             {hasNotebooks && <NotebookButton />}
                             <NotificationBell />
                         </>
+                    ) : (
+                        currentOrganization?.teams &&
+                        currentOrganization.teams.length > 1 && (
+                            <div>
+                                <LemonButtonWithDropdown
+                                    icon={<Lettermark name={currentOrganization?.name} />}
+                                    onClick={() => toggleProjectSwitcher()}
+                                    dropdown={{
+                                        visible: isProjectSwitcherShown,
+                                        onClickOutside: hideProjectSwitcher,
+                                        overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
+                                        actionable: true,
+                                        placement: 'top-end',
+                                    }}
+                                    type="secondary"
+                                    fullWidth
+                                >
+                                    <span className="text-muted">Switch project</span>
+                                </LemonButtonWithDropdown>
+                            </div>
+                        )
                     )}
                     <HelpButton />
                     <SitePopover />
