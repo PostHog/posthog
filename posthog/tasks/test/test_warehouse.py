@@ -3,7 +3,7 @@ import datetime
 from unittest.mock import patch, MagicMock
 from posthog.tasks.warehouse import (
     _traverse_jobs_by_field,
-    calculate_workspace_rows_synced_by_team,
+    capture_workspace_rows_synced_by_team,
     check_external_data_source_billing_limit_by_team,
 )
 from posthog.warehouse.models import ExternalDataSource
@@ -66,13 +66,13 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team(self, mock_capture, traverse_jobs_mock) -> None:
+    def test_capture_workspace_rows_synced_by_team(self, mock_capture, traverse_jobs_mock) -> None:
         traverse_jobs_mock.return_value = [
             {"count": 97747, "startTime": "2023-11-05T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(
@@ -83,13 +83,13 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff(self, mock_capture, traverse_jobs_mock) -> None:
+    def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_capture, traverse_jobs_mock) -> None:
         # external_data_workspace_last_synced_at unset
         traverse_jobs_mock.return_value = [
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(
@@ -100,7 +100,7 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff_field_set(
+    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(
         self, mock_capture, traverse_jobs_mock
     ) -> None:
         self.team.external_data_workspace_last_synced_at = datetime.datetime(
@@ -112,7 +112,7 @@ class TestWarehouse(APIBaseTest):
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(

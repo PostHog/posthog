@@ -107,7 +107,7 @@ def check_external_data_source_billing_limit_by_team(team_id) -> None:
 
 
 @app.task(ignore_result=True, max_retries=2)
-def calculate_workspace_rows_synced_by_team(team_id) -> None:
+def capture_workspace_rows_synced_by_team(team_id) -> None:
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)

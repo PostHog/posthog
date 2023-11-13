@@ -929,14 +929,14 @@ def calculate_external_data_rows_synced() -> None:
     from django.db.models import Q
     from posthog.models import Team
     from posthog.tasks.warehouse import (
-        calculate_workspace_rows_synced_by_team,
+        capture_workspace_rows_synced_by_team,
         check_external_data_source_billing_limit_by_team,
     )
 
     for team in Team.objects.select_related("organization").exclude(
         Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
     ):
-        calculate_workspace_rows_synced_by_team.delay(team.pk)
+        capture_workspace_rows_synced_by_team.delay(team.pk)
         check_external_data_source_billing_limit_by_team.delay(team.pk)
 
 
