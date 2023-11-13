@@ -245,6 +245,9 @@ async def wait_for_schedule_backfill_in_range(
     while not done:
         await asyncio.sleep(wait_delay)
 
+        if await check_temporal_schedule_exists(client, schedule_id) is False:
+            raise TemporalScheduleNotFoundError(schedule_id)
+
         workflows = [workflow async for workflow in client.list_workflows(query=query)]
 
         if not workflows:
@@ -253,9 +256,6 @@ async def wait_for_schedule_backfill_in_range(
 
         if check_workflow_executions_not_running(workflows) is False:
             continue
-
-        if await check_temporal_schedule_exists(client, schedule_id) is False:
-            raise TemporalScheduleNotFoundError(schedule_id)
 
         done = True
 
