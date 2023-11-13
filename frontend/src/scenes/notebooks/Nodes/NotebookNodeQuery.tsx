@@ -132,6 +132,7 @@ export const Settings = ({
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
+            modifiedQuery.showHeader = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
         }
