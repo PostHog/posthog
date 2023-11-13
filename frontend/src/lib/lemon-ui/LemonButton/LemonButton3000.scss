@@ -222,6 +222,7 @@
             }
 
             > span {
+                color: var(--default);
                 background: var(--bg-light);
                 border-color: var(--secondary-3000-frame-border);
                 top: -1px !important;
@@ -272,9 +273,22 @@
         }
     }
 
+    // Menu items
     .Popover {
         .LemonButton {
+            padding: 0px 1px;
+            border: none;
+            min-height: 0px;
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                > span {
+                    background-color: var(--bg-light) !important;
+                }
+            }
+
             > span {
+                top: 0px !important;
                 background: none !important;
                 border-color: transparent !important;
             }
