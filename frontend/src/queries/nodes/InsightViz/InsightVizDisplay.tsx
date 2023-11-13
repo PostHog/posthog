@@ -216,48 +216,26 @@ export function InsightVizDisplay({
                 )}
                 {showingResults && (
                     <>
-                        {isFunnels && (
-                            <div className="overflow-hidden">
-                                {/* negative margin-top so that the border is only visible when the rows wrap */}
-                                <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
-                                    {(!disableLastComputation || !!samplingFactor) && (
-                                        <div className="flex grow items-center insights-graph-header border-t">
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        </div>
-                                    )}
-                                    <div
-                                        className={`flex insights-graph-header ${
-                                            disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
-                                        }`}
-                                    >
-                                        <FunnelCanvasLabel />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
-                            <div className="flex items-center justify-between insights-graph-header">
-                                <div className="flex items-center">
+                        <div className="InsightVizDisplay__subheader">
+                            {(!disableLastComputation || !!samplingFactor) && (
+                                <div className="flex items-center justify-between p-2 flex-wrap border-b">
                                     <InsightResultMetadata
                                         disableLastComputation={disableLastComputation}
                                         disableLastComputationRefresh={disableLastComputationRefresh}
                                     />
-                                </div>
 
-                                <div>{isPaths ? <PathCanvasLabel /> : null}</div>
-                            </div>
-                        )}
+                                    {isPaths ? <PathCanvasLabel /> : null}
+                                    {isFunnels ? <FunnelCanvasLabel /> : null}
+                                </div>
+                            )}
+                        </div>
 
                         {BlockingEmptyState ? (
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
-                            <div className="InsightVizDisplay__row flex flex-nowrap">
-                                <div className="InsightVizDisplay__row__left">{renderActiveView()}</div>
-                                <div className="InsightVizDisplay__row__right">
+                            <div className="InsightVizDisplay__content">
+                                <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                <div className="InsightVizDisplay__content__right">
                                     <InsightLegend />
                                 </div>
                             </div>

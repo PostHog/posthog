@@ -23,17 +23,20 @@
 }
 
 .InsightVizDisplay {
-    .InsightVizDisplay__row {
-        .InsightVizDisplay__row__left {
+    .InsightVizDisplay__content {
+        display: flex;
+
+        .InsightVizDisplay__content__left {
+            flex: 1;
             width: 100%;
         }
 
-        .InsightVizDisplay__row__right {
+        .InsightVizDisplay__content__right {
             height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+            flex-shrink: 1;
             max-width: 45%;
-            min-width: 300px;
             width: fit-content;
-            padding: 0 1rem 1rem 0;
+            margin: 1rem;
             display: flex;
             align-items: center;
         }
