@@ -74,7 +74,7 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
     return (
         <LemonCard className={`max-w-80 flex flex-col`} key={product.type}>
             <div className="flex mb-2">
-                <div className="bg-mid rounded p-2 flex">{getProductIcon(product.icon_key, 'w-6 h-6')}</div>
+                <div className="bg-mid rounded p-2 flex">{getProductIcon(product.icon_key, 'text-2xl')}</div>
             </div>
             <div className="mb-2">
                 <h3 className="bold mb-0">{product.name}</h3>
