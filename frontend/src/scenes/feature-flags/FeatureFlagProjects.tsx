@@ -1,5 +1,5 @@
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag, Link, LemonBanner } from '@posthog/lemon-ui'
 import { IconArrowRight, IconSync } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -67,49 +67,58 @@ export default function FeatureFlagProjects(): JSX.Element {
 
     return (
         <div>
-            <h3 className="l3">Feature flag copy</h3>
-            <div className="ant-row">Copy your flag and its configuration to another project.</div>
-            <div className="inline-flex gap-4 my-6">
-                <div>
-                    <div className="font-semibold leading-6 h-6">Key</div>
-                    <div className="border px-3 rounded h-10 text-center flex items-center justify-center max-w-200">
-                        <span className="font-semibold truncate">{featureFlag.key}</span>
+            {featureFlag.can_edit ? (
+                <>
+                    <h3 className="l3">Feature flag copy</h3>
+                    <div className="ant-row">Copy your flag and its configuration to another project.</div>
+                    <div className="inline-flex gap-4 my-6">
+                        <div>
+                            <div className="font-semibold leading-6 h-6">Key</div>
+                            <div className="border px-3 rounded h-10 text-center flex items-center justify-center max-w-200">
+                                <span className="font-semibold truncate">{featureFlag.key}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div className="h-6" />
+                            <IconArrowRight className="h-10" fontSize="30" />
+                        </div>
+                        <div>
+                            <div className="font-semibold leading-6 h-6">Destination project</div>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                value={copyDestinationProject}
+                                onChange={(id) => setCopyDestinationProject(id)}
+                                options={
+                                    currentOrganization?.teams
+                                        ?.map((team) => ({ value: team.id, label: team.name }))
+                                        .filter((option) => option.value !== currentTeam?.id) || []
+                                }
+                                className="min-w-40"
+                            />
+                        </div>
+                        <div>
+                            <div className="h-6" />
+                            <LemonButton
+                                disabledReason={!copyDestinationProject && 'Select destination project'}
+                                loading={featureFlagCopyLoading}
+                                type="primary"
+                                icon={<IconSync />}
+                                onClick={() => copyFlag()}
+                                className="w-28 max-w-28"
+                            >
+                                {projectsWithCurrentFlag.find((p) => Number(p.team_id) === copyDestinationProject)
+                                    ? 'Update'
+                                    : 'Copy'}
+                            </LemonButton>
+                        </div>
                     </div>
-                </div>
-                <div>
-                    <div className="h-6" />
-                    <IconArrowRight className="h-10" fontSize="30" />
-                </div>
-                <div>
-                    <div className="font-semibold leading-6 h-6">Destination project</div>
-                    <LemonSelect
-                        dropdownMatchSelectWidth={false}
-                        value={copyDestinationProject}
-                        onChange={(id) => setCopyDestinationProject(id)}
-                        options={
-                            currentOrganization?.teams
-                                ?.map((team) => ({ value: team.id, label: team.name }))
-                                .filter((option) => option.value !== currentTeam?.id) || []
-                        }
-                        className="min-w-40"
-                    />
-                </div>
-                <div>
-                    <div className="h-6" />
-                    <LemonButton
-                        disabledReason={!copyDestinationProject && 'Select destination project'}
-                        loading={featureFlagCopyLoading}
-                        type="primary"
-                        icon={<IconSync />}
-                        onClick={() => copyFlag()}
-                        className="w-28 max-w-28"
-                    >
-                        {projectsWithCurrentFlag.find((p) => Number(p.team_id) === copyDestinationProject)
-                            ? 'Update'
-                            : 'Copy'}
-                    </LemonButton>
-                </div>
-            </div>
+                </>
+            ) : (
+                <LemonBanner type="info" className="mb-6">
+                    You currently cannot copy this flag to another project. Contact your administrator to request
+                    editing rights.
+                </LemonBanner>
+            )}
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}

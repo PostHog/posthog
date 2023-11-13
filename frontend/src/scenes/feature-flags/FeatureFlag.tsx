@@ -156,7 +156,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     }
 
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects && featureFlag.can_edit) {
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
         tabs.push({
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
