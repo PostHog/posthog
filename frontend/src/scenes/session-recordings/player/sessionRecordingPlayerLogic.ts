@@ -104,7 +104,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
-                'snapshotsInvalid',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -346,7 +345,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
                 s.sessionPlayerSnapshotDataLoading,
-                s.snapshotsInvalid,
             ],
             (
                 playingState,
@@ -355,13 +353,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 isScrubbing,
                 isSkippingInactivity,
                 snapshotsLoaded,
-                snapshotsLoading,
-                snapshotsInvalid
+                snapshotsLoading
             ) => {
-                if (snapshotsInvalid) {
-                    return SessionPlayerState.ERROR
-                }
-
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
