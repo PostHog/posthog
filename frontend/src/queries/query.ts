@@ -25,7 +25,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { toParams } from 'lib/utils'
+import { flattenObject, toParams } from 'lib/utils'
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
@@ -156,32 +156,10 @@ export async function query<N extends DataNode = DataNode>(
                         api.query(queryNode, methodOptions, queryId, refresh),
                         fetchLegacyInsights(),
                     ])
-                    const flattenObject = function (ob: Record<string, any>): Record<string, any> {
-                        const toReturn = {}
-
-                        for (const i in ob) {
-                            if (!ob.hasOwnProperty(i)) {
-                                continue
-                            }
-
-                            if (typeof ob[i] == 'object') {
-                                const flatObject = flattenObject(ob[i])
-                                for (const x in flatObject) {
-                                    if (!flatObject.hasOwnProperty(x)) {
-                                        continue
-                                    }
-
-                                    toReturn[i + '.' + x] = flatObject[x]
-                                }
-                            } else {
-                                toReturn[i] = ob[i]
-                            }
-                        }
-                        return toReturn
-                    }
 
                     const results = flattenObject(response?.result || response?.results)
                     const legacyResults = flattenObject(legacyResponse?.result || legacyResponse?.results)
+
                     const insightsMatch = equal(results, legacyResults)
                     const symbols = insightsMatch ? '🍀🍀🍀' : '🏎️🏎️🏎'
                     // eslint-disable-next-line no-console
@@ -191,13 +169,13 @@ export async function query<N extends DataNode = DataNode>(
                         hogqlResults: results,
                         legacyResults: legacyResults,
                         equal: insightsMatch,
+                        response,
+                        legacyResponse,
                     })
-                    const allKeys = new Set(Object.keys(results))
-                    for (const key of Object.keys(legacyResults)) {
-                        allKeys.add(key)
-                    }
-                    const sortedKeys = Array.from(allKeys).sort()
-                    const tableData = [['', 'key', 'hogql', 'legacy']]
+                    const sortedKeys = Array.from(
+                        new Set([...Object.keys(results), ...Object.keys(legacyResults)])
+                    ).sort()
+                    const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
                     for (const key of sortedKeys) {
                         if (key.includes('.persons_urls.')) {
                             continue
