@@ -2,7 +2,6 @@ import { ReactNode } from 'react'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -23,35 +22,62 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const {
-        showDateRange,
-        disableDateRange,
-        showCompare,
-        showValueOnSeries,
-        showPercentStackView,
-        showUnit,
-        showChart,
-        showInterval,
-        showSmoothing,
-        showRetention,
-        showPaths,
-        showFunnelDisplayLayout,
-        showFunnelBins,
+        isTrends,
+        isFunnels,
+        isRetention,
+        isPaths,
+        isStickiness,
+        isLifecycle,
+        supportsDisplay,
         display,
+        breakdown,
         trendsFilter,
         hasLegend,
         showLegend,
-    } = useValues(insightDisplayConfigLogic(insightProps))
+        supportsValueOnSeries,
+        showPercentStackView,
+    } = useValues(insightVizDataLogic(insightProps))
+    const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
+        funnelDataLogic(insightProps)
+    )
+
+    const showDateRange = !isRetention
+    const disableDateRange = isFunnels && !!isEmptyFunnel
+    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
+    const showUnit = supportsDisplay && isTrends
+    const showChart = supportsDisplay
+    const showInterval =
+        isTrendsFunnel ||
+        isLifecycle ||
+        ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
+    const showSmoothing =
+        isTrends &&
+        !breakdown?.breakdown_type &&
+        !trendsFilter?.compare &&
+        (!display || display === ChartDisplayType.ActionsLineGraph) &&
+        featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
+    const showRetention = !!isRetention
+    const showPaths = !!isPaths
+    const showFunnelDisplayLayout = !!isStepsFunnel
+    const showFunnelBins = !!isTimeToConvertFunnel
+    const showValueOnSeries = supportsValueOnSeries
 
     const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
         trendsDataLogic(insightProps)
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(showValueOnSeries || showPercentStackView || hasLegend
+        ...(supportsValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',

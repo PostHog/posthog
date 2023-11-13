@@ -30,7 +30,11 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import {
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+} from 'lib/constants'
 import {
     getBreakdown,
     getCompare,
@@ -130,6 +134,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (q, display) =>
                 isTrendsQuery(q) &&
                 PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
+        supportsValueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) => {
+                if (isTrends || isStickiness) {
+                    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
+                } else if (isLifecycle) {
+                    return true
+                } else {
+                    return false
+                }
+            },
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
