@@ -62,6 +62,10 @@
 
 .new-insight-overlay {
     width: 21rem;
+
+    & .Popover__box {
+        background: var(--bg-light);
+    }
 }
 
 .insight-type-icon-wrapper {

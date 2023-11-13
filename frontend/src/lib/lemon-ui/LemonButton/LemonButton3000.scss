@@ -184,9 +184,6 @@
                 background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
 
-                &.LemonButton--active {
-                    border-color: var(--secondary-3000-button-border-hover);
-                }
                 .LemonButton__icon {
                     color: var(--default);
                     opacity: 0.5;
@@ -194,15 +191,9 @@
             }
         }
 
-        &.LemonButton--active {
-            &:not([aria-disabled='true']):hover > span {
-                border-color: var(--secondary-3000-button-border-hover) !important;
-            }
-
+        &.LemonButton--tertiary {
             > span {
-                background: var(--secondary-3000-button-bg);
-                border-color: var(--secondary-3000-button-border-hover);
-                top: -1px !important;
+                color: var(--default);
             }
         }
 
@@ -224,6 +215,18 @@
                 }
             }
         }
+
+        &.LemonButton--active {
+            &:not([aria-disabled='true']):hover > span {
+                border-color: var(--secondary-3000-button-border-hover) !important;
+            }
+
+            > span {
+                background: var(--bg-light);
+                border-color: var(--secondary-3000-frame-border);
+                top: -1px !important;
+            }
+        }
     }
 
     .LemonButtonWithSideAction__spacer {
@@ -233,16 +236,22 @@
         &.LemonButtonWithSideAction__spacer--divider {
             margin-left: 0.25rem;
             padding: 0;
-
-            > span {
-                padding-left: 0.25rem;
-            }
+            opacity: 0.7;
         }
     }
 
     // SideAction buttons are buttons next to other buttons in the DOM but layered on top. since they're on another button, we don't want them to look like buttons.
     .LemonButtonWithSideAction__side-button {
-        button {
+        top: 1px;
+        right: 1px;
+        bottom: 4px;
+        width: 1.75rem;
+        transform: none;
+        border-top-right-radius: 5px;
+        border-bottom-right-radius: 5px;
+
+        & .LemonButton {
+            margin: auto;
             background: none !important;
             border: none !important;
 
@@ -255,6 +264,8 @@
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
+            background: rgba(0,0,0,0.1);
+
             .LemonButton__icon {
                 color: var(--default);
             }
