@@ -146,7 +146,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - new",
+                    "label": "$pageview - new",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -161,6 +161,13 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "status": "new",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
                 },
                 {
                     "count": 2.0,
@@ -190,7 +197,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - returning",
+                    "label": "$pageview - returning",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -205,6 +212,13 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "status": "returning",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
                 },
                 {
                     "count": 4.0,
@@ -234,7 +248,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - resurrecting",
+                    "label": "$pageview - resurrecting",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -249,6 +263,13 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "status": "resurrecting",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
                 },
                 {
                     "count": -7.0,
@@ -278,7 +299,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - dormant",
+                    "label": "$pageview - dormant",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -293,6 +314,13 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "status": "dormant",
+                    "action": {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "order": 0,
+                        "type": "events",
+                    },
                 },
             ],
             response.results,

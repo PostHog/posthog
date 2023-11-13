@@ -229,6 +229,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
+        target_project_2 = Team.objects.create(organization=self.organization)
         rollout_percentage_existing = 99
 
         existing_deleted_flag = FeatureFlag.objects.create(
@@ -241,9 +242,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             ensure_experience_continuity=False,
             deleted=True,
         )
+        existing_deleted_flag2 = FeatureFlag.objects.create(
+            team=target_project_2,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            name="Existing flag",
+            filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
+            rollout_percentage=rollout_percentage_existing,
+            ensure_experience_continuity=False,
+            deleted=True,
+        )
 
         # The following instances must be overriden for a soft-deleted flag
-        Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=existing_deleted_flag.id)
         Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_deleted_flag)
 
         analytics_dashboard = Dashboard.objects.create(
@@ -259,12 +269,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         existing_deleted_flag.usage_dashboard = usage_dashboard
         existing_deleted_flag.save()
 
+        # Experiments restrict deleting soft-deleted flags
+        Experiment.objects.create(
+            team=target_project_2, created_by=self.user, feature_flag_id=existing_deleted_flag2.id
+        )
+
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 
         data = {
             "feature_flag_key": self.feature_flag_to_copy.key,
             "from_project": self.feature_flag_to_copy.team_id,
-            "target_project_ids": [target_project.id],
+            "target_project_ids": [target_project.id, target_project_2.id],
         }
         response = self.client.post(url, data)
 
@@ -315,6 +330,14 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertSetEqual(
             set(expected_flag_response.keys()),
             set(flag_response.keys()),
+        )
+
+        # target_project_2 should have failed
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
+        self.assertEqual(
+            response.json()["failed"][0]["errors"],
+            "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
         )
 
     def test_copy_feature_flag_missing_fields(self):

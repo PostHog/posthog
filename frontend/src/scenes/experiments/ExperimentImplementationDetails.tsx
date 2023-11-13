@@ -107,7 +107,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <div className="border rounded">
+        <div className="border rounded bg-bg-light">
             <div className="card-secondary p-4 border-b">Feature flag usage and implementation</div>
             <div className="p-6">
                 <div className="flex mb-2 justify-between">

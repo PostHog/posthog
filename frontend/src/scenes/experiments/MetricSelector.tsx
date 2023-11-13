@@ -145,8 +145,8 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
 export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <div className="flex items-center w-full gap-2">
-            <span>
-                Attribution type
+            <div className="flex">
+                <span>Attribution type</span>
                 <Tooltip
                     title={
                         <div>
@@ -163,9 +163,9 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
                         </div>
                     }
                 >
-                    <IconInfo className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
-            </span>
+            </div>
             <Attribution insightProps={insightProps} />
         </div>
     )
