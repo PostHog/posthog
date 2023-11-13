@@ -130,6 +130,18 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             capture_exception(e)
             raise e
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "query_id",
+                OpenApiTypes.STR,
+                description="Query ID to get status for.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Query status"),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def status(self, request: Request, *args, **kwargs) -> JsonResponse:
         query_id = request.query_params.get("query_id")
