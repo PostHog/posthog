@@ -25,6 +25,13 @@ from posthog.temporal.workflows.batch_exports import (
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
+class TemporalScheduleNotFoundError(Exception):
+    """Exception raised when a Temporal Schedule is not found."""
+
+    def __init__(self, schedule_id: str):
+        super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
+
+
 class HeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
@@ -66,6 +73,9 @@ async def get_schedule_frequency(schedule_id: str) -> float:
     """Return a Temporal Schedule's frequency.
 
     This assumes that the Schedule has one interval set.
+
+    Raises:
+         TemporalScheduleNotFoundError: If the Temporal Schedule whose frequency we are trying to get doesn't exist.
     """
     client = await connect(
         settings.TEMPORAL_HOST,
@@ -77,7 +87,11 @@ async def get_schedule_frequency(schedule_id: str) -> float:
     )
 
     handle = client.get_schedule_handle(schedule_id)
-    desc = await handle.describe()
+
+    try:
+        desc = await handle.describe()
+    except temporalio.service.RPCError:
+        raise TemporalScheduleNotFoundError(schedule_id)
 
     interval = desc.schedule.spec.intervals[0]
     return interval.every.total_seconds()
@@ -208,7 +222,13 @@ async def wait_for_schedule_backfill_in_range(
     execution start time, assuming that backfill runs will have started recently after 'now' whereas regularly
     scheduled runs happened sometime in the past, before 'now'. This should hold true for historical backfills,
     but the heuristic fails for "future backfills", which should not be allowed.
+
+    Raises:
+         TemporalScheduleNotFoundError: If we detect the Temporal Schedule we are waiting on doesn't exist.
     """
+    if await check_temporal_schedule_exists(client, schedule_id) is False:
+        raise TemporalScheduleNotFoundError(schedule_id)
+
     query = (
         f'TemporalScheduledById="{schedule_id}" '
         f'AND TemporalScheduledStartTime >= "{start_at.isoformat()}" '
@@ -234,6 +254,9 @@ async def wait_for_schedule_backfill_in_range(
         if check_workflow_executions_not_running(workflows) is False:
             continue
 
+        if await check_temporal_schedule_exists(client, schedule_id) is False:
+            raise TemporalScheduleNotFoundError(schedule_id)
+
         done = True
 
 
@@ -243,6 +266,17 @@ def check_workflow_executions_not_running(workflow_executions: list[temporalio.c
         workflow_execution.status != temporalio.client.WorkflowExecutionStatus.RUNNING
         for workflow_execution in workflow_executions
     )
+
+
+async def check_temporal_schedule_exists(client: temporalio.client.Client, schedule_id: str) -> bool:
+    """Check if Temporal Schedule exists by trying to describe it."""
+    handle = client.get_schedule_handle(schedule_id)
+
+    try:
+        await handle.describe()
+    except temporalio.service.RPCError:
+        return False
+    return True
 
 
 def backfill_range(
@@ -337,6 +371,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
+                    non_retryable_error_types=["TemporalScheduleDeletedError"],
                 ),
                 # Temporal requires that we set a timeout.
                 # Allocate 5 minutes per expected number of runs to backfill as a timeout.
