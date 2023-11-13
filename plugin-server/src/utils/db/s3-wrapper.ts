@@ -1,4 +1,6 @@
 import {
+    AbortMultipartUploadCommandOutput,
+    CompleteMultipartUploadCommandOutput,
     DeleteObjectCommandInput,
     DeleteObjectCommandOutput,
     GetObjectCommandInput,
@@ -8,7 +10,8 @@ import {
     PutObjectCommandInput,
     S3,
     S3ClientConfig,
-} from '@aws-sdk/client-s3';
+} from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
 
 export class S3Wrapper {
     s3: S3
@@ -17,19 +20,21 @@ export class S3Wrapper {
         this.s3 = new S3(options)
     }
 
-    async upload(params: PutObjectCommandInput): Promise<S3.ManagedUpload.SendData> {
-        return this.s3.upload(params).promise()
+    async upload(
+        params: PutObjectCommandInput
+    ): Promise<AbortMultipartUploadCommandOutput | CompleteMultipartUploadCommandOutput> {
+        return new Upload({ client: this.s3, params }).done()
     }
 
     async getObject(params: GetObjectCommandInput): Promise<GetObjectCommandOutput> {
-        return this.s3.getObject(params).promise()
+        return this.s3.getObject(params)
     }
 
     async deleteObject(params: DeleteObjectCommandInput): Promise<DeleteObjectCommandOutput> {
-        return this.s3.deleteObject(params).promise()
+        return this.s3.deleteObject(params)
     }
 
     async listObjectsV2(params: ListObjectsV2CommandInput): Promise<ListObjectsV2CommandOutput> {
-        return this.s3.listObjectsV2(params).promise()
+        return this.s3.listObjectsV2(params)
     }
 }
