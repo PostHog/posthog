@@ -28,7 +28,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
         query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
-        result = client.get_status_or_results(team_id, query_id)
+        result = client.get_query_status(team_id, query_id)
         self.assertFalse(result.error)
         self.assertTrue(result.complete)
         self.assertEqual(result.results["results"], [[2]])
@@ -46,7 +46,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception:
             pass
 
-        result = client.get_status_or_results(team_id, query_id)
+        result = client.get_query_status(team_id, query_id)
         self.assertTrue(result.error)
         self.assertRegex(result.error_message, "Unknown table")
 
@@ -55,7 +55,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         team_id = self.team_id
         wrong_team = 5
         query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
-        result = client.get_status_or_results(wrong_team, query_id)
+        result = client.get_query_status(wrong_team, query_id)
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, "Requesting team is not executing team")
 

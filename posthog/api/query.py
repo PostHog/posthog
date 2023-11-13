@@ -18,7 +18,7 @@ from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.process import process_query
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_status_or_results
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
@@ -147,7 +147,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         query_id = request.query_params.get("query_id")
         if not query_id:
             raise ValidationError({"query_id": ["This field is required."]}, code="required")
-        status = get_status_or_results(self.team.pk, query_id)
+        status = get_query_status(self.team.pk, query_id)
         return JsonResponse(status.__dict__, safe=False)
 
     @action(methods=["GET"], detail=False)

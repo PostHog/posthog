@@ -1,4 +1,5 @@
 import json
+from unittest import mock
 from unittest.mock import patch
 from urllib.parse import quote
 
@@ -832,3 +833,90 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.get("results", [])[0][0], 20)
+
+
+class TestStatusAction(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team_id = self.team.pk
+        self.valid_query_id = "12345"
+        self.invalid_query_id = "invalid-query-id"
+        self.redis_client_mock = mock.Mock()
+        self.redis_get_patch = mock.patch("posthog.redis.get_client", return_value=self.redis_client_mock)
+        self.redis_get_patch.start()
+
+    def tearDown(self):
+        self.redis_get_patch.stop()
+
+    def test_status_with_valid_query_id(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "team_id": self.team_id,
+                "num_rows": 100,
+                "total_rows": 200,
+                "error": False,
+                "complete": True,
+                "results": ["result1", "result2"],
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["complete"], True)
+
+    def test_status_with_invalid_query_id(self):
+        self.redis_client_mock.get.return_value = None
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.invalid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Query is unknown to backend", response.json()["error_message"])
+
+    def test_status_with_missing_query_id(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", expected_status_code=400)
+        self.assertEqual(response.status_code, 400)
+
+    def test_status_with_incorrect_team_id(self):
+        incorrect_team_id = 15115151
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "team_id": incorrect_team_id,
+                "complete": True,
+                "results": ["result1", "result2"],
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Requesting team is not executing team", response.json()["error_message"])
+
+    def test_status_for_completed_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "team_id": self.team_id,
+                "complete": True,
+                "results": ["result1", "result2"],
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["complete"])
+
+    def test_status_for_running_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "team_id": self.team_id,
+                "complete": False,
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["complete"])
+
+    def test_status_for_failed_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": "Query failed",
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["error"])

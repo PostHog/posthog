@@ -137,7 +137,7 @@ def enqueue_process_query_task(
     return query_id
 
 
-def get_status_or_results(team_id, query_id):
+def get_query_status(team_id, query_id):
     """
     Returns QueryStatus data class
     QueryStatus data class contains either:
