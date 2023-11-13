@@ -31,6 +31,7 @@ import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import equal from 'fast-deep-equal'
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -108,25 +109,34 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
     )
+    const hogQLInsightsLiveCompareEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
+    )
+
+    async function fetchLegacyInsights(): Promise<Record<string, any>> {
+        if (!isInsightQueryNode(queryNode)) {
+            throw new Error('fetchLegacyInsights called with non-insight query. Should be unreachable.')
+        }
+        const filters = queryNodeToFilter(queryNode)
+        const params = {
+            ...filters,
+            ...(refresh ? { refresh: true } : {}),
+            client_query_id: queryId,
+            session_id: currentSessionId(),
+        }
+        const [resp] = await legacyInsightQuery({
+            filters: params,
+            currentTeamId: getCurrentTeamId(),
+            methodOptions,
+            refresh,
+        })
+        response = await resp.json()
+        return response
+    }
 
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode))) {
-            const filters = queryNodeToFilter(queryNode)
-            const params = {
-                ...filters,
-                ...(refresh ? { refresh: true } : {}),
-                client_query_id: queryId,
-                session_id: currentSessionId(),
-            }
-            const [resp] = await legacyInsightQuery({
-                filters: params,
-                currentTeamId: getCurrentTeamId(),
-                methodOptions,
-                refresh,
-            })
-            response = await resp.json()
         } else if (isTimeToSeeDataQuery(queryNode)) {
             response = await api.query(
                 {
@@ -138,6 +148,75 @@ export async function query<N extends DataNode = DataNode>(
                 },
                 methodOptions
             )
+        } else if (isInsightQueryNode(queryNode)) {
+            if (hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode)) {
+                if (hogQLInsightsLiveCompareEnabled) {
+                    let legacyResponse
+                    ;[response, legacyResponse] = await Promise.all([
+                        api.query(queryNode, methodOptions, queryId, refresh),
+                        fetchLegacyInsights(),
+                    ])
+                    const flattenObject = function (ob: Record<string, any>): Record<string, any> {
+                        const toReturn = {}
+
+                        for (const i in ob) {
+                            if (!ob.hasOwnProperty(i)) {
+                                continue
+                            }
+
+                            if (typeof ob[i] == 'object') {
+                                const flatObject = flattenObject(ob[i])
+                                for (const x in flatObject) {
+                                    if (!flatObject.hasOwnProperty(x)) {
+                                        continue
+                                    }
+
+                                    toReturn[i + '.' + x] = flatObject[x]
+                                }
+                            } else {
+                                toReturn[i] = ob[i]
+                            }
+                        }
+                        return toReturn
+                    }
+
+                    const results = flattenObject(response?.result || response?.results)
+                    const legacyResults = flattenObject(legacyResponse?.result || legacyResponse?.results)
+                    const insightsMatch = equal(results, legacyResults)
+                    const symbols = insightsMatch ? '🍀🍀🍀' : '🏎️🏎️🏎'
+                    // eslint-disable-next-line no-console
+                    console.log(`${symbols} Insight Race ${symbols}`, {
+                        query: queryNode,
+                        duration: performance.now() - startTime,
+                        hogqlResults: results,
+                        legacyResults: legacyResults,
+                        equal: insightsMatch,
+                    })
+                    const allKeys = new Set(Object.keys(results))
+                    for (const key of Object.keys(legacyResults)) {
+                        allKeys.add(key)
+                    }
+                    const sortedKeys = Array.from(allKeys).sort()
+                    const tableData = [['', 'key', 'hogql', 'legacy']]
+                    for (const key of sortedKeys) {
+                        if (key.includes('.persons_urls.')) {
+                            continue
+                        }
+                        tableData.push([
+                            results[key] === legacyResults[key] ? '✅' : '🚨',
+                            key,
+                            results[key],
+                            legacyResults[key],
+                        ])
+                    }
+                    // eslint-disable-next-line no-console
+                    console.table(tableData)
+                } else {
+                    response = await api.query(queryNode, methodOptions, queryId, refresh)
+                }
+            } else {
+                response = await fetchLegacyInsights()
+            }
         } else {
             response = await api.query(queryNode, methodOptions, queryId, refresh)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
