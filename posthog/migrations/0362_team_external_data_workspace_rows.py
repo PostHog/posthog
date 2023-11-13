@@ -11,12 +11,12 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="team",
-            name="external_data_workspace_last_synced",
+            name="external_data_workspace_last_synced_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="team",
             name="external_data_workspace_rows_synced_in_month",
-            field=models.IntegerField(blank=True, null=True),
+            field=models.BigIntegerField(blank=True, null=True),
         ),
     ]

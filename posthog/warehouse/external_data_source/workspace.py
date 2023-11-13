@@ -25,7 +25,7 @@ def get_or_create_workspace(team_id: int):
         workspace_id = create_workspace(team_id)
         team.external_data_workspace_id = workspace_id
         # start tracking from now
-        team.external_data_workspace_last_synced = datetime.datetime.now(datetime.timezone.utc)
+        team.external_data_workspace_last_synced_at = datetime.datetime.now(datetime.timezone.utc)
         team.save()
 
     return team.external_data_workspace_id

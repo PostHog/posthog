@@ -5,6 +5,7 @@ from posthog.warehouse.external_data_source.client import send_request
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.external_data_source.connection import retrieve_sync
+from ee.billing.quota_limiting import org_quota_limit, QuotaResource
 from urllib.parse import urlencode
 from posthog.ph_client import get_ph_client
 
@@ -14,8 +15,6 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
-
-DEFAULT_DATE_TIME = datetime.datetime(2023, 11, 7, tzinfo=datetime.timezone.utc)
 
 
 def sync_resources():
@@ -107,19 +106,12 @@ def check_external_data_source_billing_limit_by_team(team_id):
 
 
 def _get_data_warehouse_usage_limit(team_id):
-    from posthog.cloud_utils import get_cached_instance_license
-    from ee.billing.billing_manager import BillingManager
-
-    license = get_cached_instance_license()
     team = Team.objects.get(pk=team_id)
     org = team.organization
 
-    response = BillingManager(license).get_billing(org, None)
-    try:
-        data_warehouse_product = [product for product in response["products"] if product["name"] == "Data Warehouse"][0]
-        usage_limit = data_warehouse_product["usage_limit"]
-    except Exception as e:
-        logger.exception("Data Warehouse: Failed to retrieve data warehouse billing product", exc_info=e)
+    usage_limit = org_quota_limit(org, QuotaResource.DATA_WAREHOUSE)
+
+    if not usage_limit:
         usage_limit = DEFAULT_USAGE_LIMIT
 
     return usage_limit
@@ -130,7 +122,7 @@ def calculate_workspace_rows_synced_by_team(team_id):
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)
-    begin = team.external_data_workspace_last_synced or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    begin = team.external_data_workspace_last_synced_at or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = now
 
     params = {
@@ -146,8 +138,16 @@ def calculate_workspace_rows_synced_by_team(team_id):
 
     # reset accumulated to new period if the month has changed
     if end.month != begin.month:
-        total = sum([result["count"] for result in result_totals if result["startTime"].month == end.month])
-    elif team.external_data_workspace_last_synced and team.external_data_workspace_last_synced.month != begin.month:
+        total = sum(
+            [
+                result["count"]
+                for result in result_totals
+                if datetime.datetime.strptime(result["startTime"], "%Y-%m-%dT%H:%M:%SZ").month == end.month
+            ]
+        )
+    elif (
+        team.external_data_workspace_last_synced_at and team.external_data_workspace_last_synced_at.month != begin.month
+    ):
         total = sum([result["count"] for result in result_totals])
     else:
         total = (
@@ -165,7 +165,7 @@ def calculate_workspace_rows_synced_by_team(team_id):
     team = Team.objects.get(pk=team_id)
 
     # TODO: check assumption that ordering is possible with API
-    team.external_data_workspace_last_synced = result_totals[-1]["startTime"] if result_totals else end
+    team.external_data_workspace_last_synced_at = result_totals[-1]["startTime"] if result_totals else end
     team.external_data_workspace_rows_synced_in_month = total
     team.save()
 

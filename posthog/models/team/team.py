@@ -246,8 +246,10 @@ class Team(UUIDClassicModel):
     event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
     external_data_workspace_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    external_data_workspace_last_synced: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    external_data_workspace_rows_synced_in_month: models.IntegerField = models.IntegerField(null=True, blank=True)
+    external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+
+    # current month's rows synced
+    external_data_workspace_rows_synced_in_month: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
 

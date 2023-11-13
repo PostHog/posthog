@@ -26,6 +26,7 @@ QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
+    DATA_WAREHOUSE = "data_warehouse"
 
 
 OVERAGE_BUFFER = {
@@ -87,6 +88,19 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
         return billing_period_end
 
     return None
+
+
+def org_quota_limit(organization: Organization, resource: QuotaResource) -> Optional[int]:
+    if not organization.usage:
+        return None
+
+    summary = organization.usage.get(resource.value, {})
+    limit = summary.get("limit")
+
+    if limit is None:
+        return None
+
+    return limit
 
 
 def sync_org_quota_limits(organization: Organization):

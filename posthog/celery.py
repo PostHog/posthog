@@ -336,7 +336,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Every 2 hours try to retrieve and calculate total rows synced in period
     sender.add_periodic_task(
-        crontab(hour="*/2"),
+        crontab(minute="*", hour="*/2"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
     )
