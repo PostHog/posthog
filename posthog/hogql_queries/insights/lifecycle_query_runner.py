@@ -149,6 +149,7 @@ class LifecycleQueryRunner(QueryRunner):
 
             # legacy response compatibility object
             action_object = {}
+            label = "{} - {}".format("", val[2])
             if isinstance(self.query.series[0], ActionsNode):
                 action = Action.objects.get(pk=int(self.query.series[0].id), team=self.team)
                 label = "{} - {}".format(action.name, val[2])
@@ -168,8 +169,6 @@ class LifecycleQueryRunner(QueryRunner):
                     "order": 0,
                     "math": "total",
                 }
-            else:
-                label = "{} - {}".format("", val[2])
 
             additional_values = {"label": label, "status": val[2]}
             res.append(
