@@ -1,10 +1,14 @@
-import { actions, kea, reducers, path, listeners, connect } from 'kea'
+import { actions, kea, reducers, path, listeners, connect, selectors } from 'kea'
 
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-const POSTHOG_COM_DOMAIN = 'https://posthog.com'
+export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog-git-app-docs-post-hog.vercel.app'
+
+const sanitizePath = (path: string): string => {
+    return path[0] === '/' ? path : `/${path}`
+}
 
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
@@ -14,32 +18,57 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
     actions({
         openDocsPage: (urlOrPath: string) => ({ urlOrPath }),
+        updatePath: (path: string) => ({ path }),
+        setInitialPath: (path: string) => ({ path }),
+        unmountIframe: true,
     }),
 
     reducers(() => ({
-        path: [
-            '/docs' as string,
+        currentPath: [
+            null as string | null,
             {
-                openDocsPage: (_, { urlOrPath }) => {
-                    let path = urlOrPath
-                    try {
-                        const url = new URL(urlOrPath)
-                        if (url.origin === POSTHOG_COM_DOMAIN) {
-                            path = url.pathname + url.search
-                        }
-                    } catch (e) {
-                        // not a valid URL, continue
-                    }
-
-                    return path[0] === '/' ? path : `/${path}`
-                },
+                updatePath: (_, { path }) => sanitizePath(path),
+            },
+        ],
+        initialPath: [
+            '/docs' as string,
+            { persist: true },
+            {
+                setInitialPath: (_, { path }) => sanitizePath(path),
             },
         ],
     })),
 
-    listeners(({ actions }) => ({
-        openDocsPage: () => {
+    selectors({
+        iframeSrc: [
+            (s) => [s.initialPath],
+            (initialPath) => {
+                return `${POSTHOG_WEBSITE_ORIGIN}${initialPath ?? ''}`
+            },
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        openDocsPage: ({ urlOrPath }) => {
+            let path = urlOrPath
+            try {
+                const url = new URL(urlOrPath)
+                if (url.origin === POSTHOG_WEBSITE_ORIGIN) {
+                    path = url.pathname + url.search
+                }
+            } catch (e) {
+                // not a valid URL, continue
+            }
+
+            actions.setInitialPath(path)
             actions.openSidePanel(SidePanelTab.Docs)
+        },
+
+        unmountIframe: () => {
+            // Update the initialPath so that next time we load it is the same as last time
+            actions.setInitialPath(values.currentPath ?? '/docs')
+
+            // TODO: Do we need to call this before the window unloads?
         },
     })),
 ])
