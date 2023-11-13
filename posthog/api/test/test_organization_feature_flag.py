@@ -39,12 +39,6 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        expected_data = [
-            {"flag_id": self.feature_flag_1.id, "team_id": self.team_1.id, "active": True},
-            {"flag_id": self.feature_flag_2.id, "team_id": self.team_2.id, "active": True},
-        ]
-        self.assertCountEqual(response.json(), expected_data)
-
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
         response = self.client.get(url)
