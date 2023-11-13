@@ -161,10 +161,11 @@ class LifecycleQueryRunner(QueryRunner):
                     "math": "total",
                 }
             elif isinstance(self.query.series[0], EventsNode):
-                label = "{} - {}".format(self.query.series[0].event, val[2])
+                event = self.query.series[0].event
+                label = "{} - {}".format("All events" if event is None else event, val[2])
                 action_object = {
-                    "id": self.query.series[0].event,
-                    "name": self.query.series[0].event,
+                    "id": event,
+                    "name": "All events" if event is None else event,
                     "type": "events",
                     "order": 0,
                     "math": "total",
