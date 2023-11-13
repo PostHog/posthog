@@ -8,7 +8,7 @@ use rdkafka::producer::future_producer::{FutureProducer, FutureRecord};
 use rdkafka::producer::Producer;
 use rdkafka::util::Timeout;
 use tokio::task::JoinSet;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 use crate::api::CaptureError;
 use crate::config::KafkaConfig;
@@ -192,6 +192,7 @@ impl KafkaSink {
 
 #[async_trait]
 impl EventSink for KafkaSink {
+    #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         Self::kafka_send(self.producer.clone(), self.topic.clone(), event).await?;
 
@@ -200,6 +201,7 @@ impl EventSink for KafkaSink {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut set = JoinSet::new();
         let batch_size = events.len();

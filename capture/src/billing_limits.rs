@@ -22,10 +22,12 @@ use crate::redis::Client;
 use thiserror::Error;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 // todo: fetch from env
 const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 
+#[derive(Debug)]
 pub enum QuotaResource {
     Events,
     Recordings,
@@ -81,6 +83,7 @@ impl BillingLimiter {
         })
     }
 
+    #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         resource: QuotaResource,
@@ -96,6 +99,7 @@ impl BillingLimiter {
             .await
     }
 
+    #[instrument(skip_all, fields(key = key))]
     pub async fn is_limited(&self, key: &str, resource: QuotaResource) -> bool {
         // hold the read lock to clone it, very briefly. clone is ok because it's very small 🤏
         // rwlock can have many readers, but one writer. the writer will wait in a queue with all

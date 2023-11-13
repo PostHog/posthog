@@ -9,10 +9,15 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:3000")]
     pub address: SocketAddr,
     pub redis_url: String,
-    #[envconfig(default = "true")]
-    pub export_prometheus: bool,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    pub otel_url: Option<String>,
+    #[envconfig(default = "1.0")]
+    pub otel_sampling_rate: f64,
+    #[envconfig(default = "true")]
+    pub export_prometheus: bool,
 }
 
 #[derive(Envconfig, Clone)]

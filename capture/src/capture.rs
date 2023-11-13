@@ -13,6 +13,7 @@ use base64::Engine;
 use metrics::counter;
 
 use time::OffsetDateTime;
+use tracing::instrument;
 
 use crate::billing_limits::QuotaResource;
 use crate::event::ProcessingContext;
@@ -25,6 +26,7 @@ use crate::{
     utils::uuid_v7,
 };
 
+#[instrument(skip_all)]
 pub async fn event(
     state: State<router::State>,
     InsecureClientIp(ip): InsecureClientIp,
@@ -110,6 +112,7 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
     }))
 }
 
+#[instrument(skip_all)]
 pub fn process_single_event(
     event: &RawEvent,
     context: &ProcessingContext,
@@ -141,6 +144,7 @@ pub fn process_single_event(
     })
 }
 
+#[instrument(skip_all, fields(events = events.len()))]
 pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, CaptureError> {
     let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
         events
@@ -162,6 +166,7 @@ pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, CaptureEr
     };
 }
 
+#[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
     sink: Arc<dyn sink::EventSink + Send + Sync>,
     events: &'a [RawEvent],

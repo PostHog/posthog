@@ -1,7 +1,18 @@
 use std::net::TcpListener;
+use std::time::Duration;
 
 use envconfig::Envconfig;
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
+use tracing::level_filters::LevelFilter;
+use tracing::Level;
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
 use capture::server::serve;
@@ -21,12 +32,50 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
+fn init_tracer(sink_url: &str, sampling_rate: f64) -> Tracer {
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_trace_config(
+            opentelemetry_sdk::trace::Config::default()
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                    sampling_rate,
+                ))))
+                .with_id_generator(RandomIdGenerator::default())
+                .with_resource(Resource::new(vec![KeyValue::new(
+                    "service.name",
+                    "capture",
+                )])),
+        )
+        .with_batch_config(BatchConfig::default())
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(sink_url)
+                .with_timeout(Duration::from_secs(3)),
+        )
+        .install_batch(runtime::Tokio)
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() {
-    // initialize tracing
-    tracing_subscriber::fmt::init();
-
     let config = Config::init_from_env().expect("Invalid configuration:");
+
+    // Instantiate tracing outputs:
+    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
+    //   - OpenTelemetry if enabled, for levels INFO and higher
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let otel_layer = config
+        .otel_url
+        .clone()
+        .map(|url| OpenTelemetryLayer::new(init_tracer(&url, config.otel_sampling_rate)))
+        .with_filter(LevelFilter::from_level(Level::INFO));
+    tracing_subscriber::registry()
+        .with(log_layer)
+        .with(otel_layer)
+        .init();
+
+    // Open the TCP port and start the server
     let listener = TcpListener::bind(config.address).unwrap();
     serve(config, listener, shutdown()).await
 }

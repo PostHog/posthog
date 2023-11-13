@@ -7,10 +7,14 @@ edition = "2021"
 axum = { workspace = true }
 capture = { path = "../capture" }
 envconfig = { workspace = true }
+opentelemetry = { version = "0.21.0", features = ["trace"]}
+opentelemetry-otlp = "0.14.0"
+opentelemetry_sdk = { version = "0.21.0", features = ["trace", "rt-tokio"] }
 time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-opentelemetry = "0.22.0"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
 anyhow = { workspace = true, features = [] }

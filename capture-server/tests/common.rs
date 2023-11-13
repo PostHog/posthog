@@ -25,7 +25,6 @@ use capture::server::serve;
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
-    export_prometheus: false,
     redis_url: "redis://localhost:6379/".to_string(),
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
@@ -35,6 +34,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
     },
+    otel_url: None,
+    otel_sampling_rate: 0.0,
+    export_prometheus: false,
 });
 
 static TRACING_INIT: Once = Once::new();
