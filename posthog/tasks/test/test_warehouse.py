@@ -4,7 +4,6 @@ from unittest.mock import patch, MagicMock
 from posthog.tasks.warehouse import (
     _traverse_jobs_by_field,
     calculate_workspace_rows_synced_by_team,
-    _get_data_warehouse_usage_limit,
     check_external_data_source_billing_limit_by_team,
 )
 from posthog.warehouse.models import ExternalDataSource
@@ -119,22 +118,10 @@ class TestWarehouse(APIBaseTest):
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
 
-    def test_external_data_source_get_usage_limit(self):
-        self.team.organization.usage = {
-            "data_warehouse": {
-                "usage": 2,
-                "limit": 100,
-            }
-        }
-        self.team.organization.save()
-        usage_limit = _get_data_warehouse_usage_limit(self.team.pk)
-        self.assertEqual(usage_limit, 100)
-
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
+    @patch("ee.billing.quota_limiting.list_limited_team_tokens")
     def test_external_data_source_billing_limit_deactivate(self, usage_limit_mock, send_request_mock):
-        usage_limit_mock.return_value = 100
-        self.team.save()
+        usage_limit_mock.return_value = [self.team.pk]
 
         external_source = ExternalDataSource.objects.create(
             source_id="test_id",
@@ -151,30 +138,9 @@ class TestWarehouse(APIBaseTest):
         self.assertEqual(external_source.status, "inactive")
 
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
+    @patch("ee.billing.quota_limiting.list_limited_team_tokens")
     def test_external_data_source_billing_limit_activate(self, usage_limit_mock, send_request_mock):
-        usage_limit_mock.return_value = 100
-        self.team.save()
-
-        external_source = ExternalDataSource.objects.create(
-            source_id="test_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="inactive",
-            source_type="Stripe",
-        )
-
-        check_external_data_source_billing_limit_by_team(self.team.pk)
-
-        external_source.refresh_from_db()
-        self.assertEqual(external_source.status, "running")
-
-    @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
-    def test_external_data_source_billing_limit_no_limit(self, usage_limit_mock, send_request_mock):
-        usage_limit_mock.return_value = None
-        self.team.save()
+        usage_limit_mock.return_value = []
 
         external_source = ExternalDataSource.objects.create(
             source_id="test_id",
