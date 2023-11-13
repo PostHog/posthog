@@ -2,6 +2,7 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
+import { getProductIcon } from 'scenes/products/Products'
 
 export const OnboardingOtherProductsStep = ({
     stepKey = OnboardingStepKey.OTHER_PRODUCTS,
@@ -27,13 +28,7 @@ export const OnboardingOtherProductsStep = ({
                         key={suggestedProduct.type}
                     >
                         <div className="flex items-center">
-                            <div className="mr-4">
-                                <img
-                                    src={suggestedProduct.image_url || ''}
-                                    alt={suggestedProduct.name}
-                                    className="w-8 h-8"
-                                />
-                            </div>
+                            <div className="mr-4">{getProductIcon(suggestedProduct.icon_key, 'text-2xl')}</div>
                             <div>
                                 <h3 className="font-bold mb-0">{suggestedProduct.name}</h3>
                                 <p className="m-0">{suggestedProduct.description}</p>
