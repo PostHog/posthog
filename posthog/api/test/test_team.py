@@ -710,7 +710,7 @@ class TestTeamAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_network_payload_capture_config"] == {}
+        assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
