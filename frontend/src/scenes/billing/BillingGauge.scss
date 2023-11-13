@@ -1,8 +1,5 @@
-.BillingGauge {
-}
-
 .BillingGaugeItem {
-    transition: all 1000ms cubic-bezier(0.15, 0.15, 0.2, 1);
+    animation: billing-gauge-item-expand 800ms cubic-bezier(0.15, 0.15, 0.2, 1) forwards;
 
     .BillingGaugeItem__info {
         position: absolute;
@@ -26,5 +23,14 @@
         &:hover {
             z-index: 100;
         }
+    }
+}
+
+@keyframes billing-gauge-item-expand {
+    0% {
+        width: 0%;
+    }
+    100% {
+        width: var(--billing-gauge-item-width);
     }
 }
