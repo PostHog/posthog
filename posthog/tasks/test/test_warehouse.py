@@ -76,7 +76,6 @@ class TestWarehouse(APIBaseTest):
         calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 191100)
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
@@ -94,7 +93,6 @@ class TestWarehouse(APIBaseTest):
         calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
@@ -116,7 +114,6 @@ class TestWarehouse(APIBaseTest):
         calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
@@ -137,7 +134,6 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
     def test_external_data_source_billing_limit_deactivate(self, usage_limit_mock, send_request_mock):
         usage_limit_mock.return_value = 100
-        self.team.external_data_workspace_rows_synced_in_month = 20000000
         self.team.save()
 
         external_source = ExternalDataSource.objects.create(
@@ -158,7 +154,6 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
     def test_external_data_source_billing_limit_activate(self, usage_limit_mock, send_request_mock):
         usage_limit_mock.return_value = 100
-        self.team.external_data_workspace_rows_synced_in_month = 10
         self.team.save()
 
         external_source = ExternalDataSource.objects.create(
@@ -179,7 +174,6 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
     def test_external_data_source_billing_limit_no_limit(self, usage_limit_mock, send_request_mock):
         usage_limit_mock.return_value = None
-        self.team.external_data_workspace_rows_synced_in_month = 10
         self.team.save()
 
         external_source = ExternalDataSource.objects.create(

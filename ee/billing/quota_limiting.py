@@ -26,12 +26,13 @@ QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
-    DATA_WAREHOUSE = "data_warehouse"
+    ROWS_SYNCED = "rows_synced"
 
 
 OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.RECORDINGS: 1000,
+    QuotaResource.ROWS_SYNCED: 0,
 }
 
 
@@ -90,36 +91,38 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     return None
 
 
-def org_quota_limit(organization: Organization, resource: QuotaResource) -> Optional[int]:
-    if not organization.usage:
-        return None
-
-    summary = organization.usage.get(resource.value, {})
-    limit = summary.get("limit")
-
-    if limit is None:
-        return None
-
-    return limit
-
-
 def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
-    team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
-
-    if not team_tokens:
-        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
-        return
-
-    for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
+    for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
+        team_attributes = get_team_attribute_by_quora_resource(organization, resource)
         quota_limited_until = org_quota_limited_until(organization, resource)
 
         if quota_limited_until:
-            add_limited_team_tokens(resource, {x: quota_limited_until for x in team_tokens})
+            add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
         else:
-            remove_limited_team_tokens(resource, team_tokens)
+            remove_limited_team_tokens(resource, team_attributes)
+
+
+def get_team_attribute_by_quora_resource(organization: Organization, resource: QuotaResource):
+    if resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
+        team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+
+        if not team_tokens:
+            capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+            return
+
+        return team_tokens
+
+    if resource == QuotaResource.ROWS_SYNCED:
+        team_ids: List[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
+
+        if not team_ids:
+            capture_exception(Exception(f"quota_limiting: No team ids found for organization: {organization.id}"))
+            return
+
+        return team_ids
 
 
 def set_org_usage_summary(

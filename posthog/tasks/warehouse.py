@@ -5,7 +5,6 @@ from posthog.warehouse.external_data_source.client import send_request
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.external_data_source.connection import retrieve_sync
-from ee.billing.quota_limiting import org_quota_limit, QuotaResource
 from urllib.parse import urlencode
 from posthog.ph_client import get_ph_client
 
@@ -15,6 +14,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
+DEFAULT_DATE_TIME = datetime.datetime(2023, 11, 7, tzinfo=datetime.timezone.utc)
 
 
 def sync_resources():
@@ -85,15 +85,16 @@ ROWS_PER_DOLLAR = 66666  # 1 million rows per $15
 @app.task(ignore_result=True, max_retries=2)
 def check_external_data_source_billing_limit_by_team(team_id):
     from posthog.warehouse.external_data_source.connection import deactivate_connection_by_id, activate_connection_by_id
+    from ee.billing.quota_limiting import list_limited_team_tokens, QuotaResource
+
+    limited_teams_rows_synced = list_limited_team_tokens(QuotaResource.ROWS_SYNCED)
 
     team = Team.objects.get(pk=team_id)
     all_active_connections = ExternalDataSource.objects.filter(team=team, status__in=["running", "succeeded"])
     all_inactive_connections = ExternalDataSource.objects.filter(team=team, status="inactive")
 
-    _usage_limit = _get_data_warehouse_usage_limit(team_id)
-
     # TODO: consider more boundaries
-    if _usage_limit and team.external_data_workspace_rows_synced_in_month >= (_usage_limit * ROWS_PER_DOLLAR):
+    if team_id in limited_teams_rows_synced:
         for connection in all_active_connections:
             deactivate_connection_by_id(connection.connection_id)
             connection.status = "inactive"
@@ -105,24 +106,12 @@ def check_external_data_source_billing_limit_by_team(team_id):
             connection.save()
 
 
-def _get_data_warehouse_usage_limit(team_id):
-    team = Team.objects.get(pk=team_id)
-    org = team.organization
-
-    usage_limit = org_quota_limit(org, QuotaResource.DATA_WAREHOUSE)
-
-    if not usage_limit:
-        usage_limit = DEFAULT_USAGE_LIMIT
-
-    return usage_limit
-
-
 @app.task(ignore_result=True, max_retries=2)
 def calculate_workspace_rows_synced_by_team(team_id):
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)
-    begin = team.external_data_workspace_last_synced_at or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
     end = now
 
     params = {
@@ -136,27 +125,8 @@ def calculate_workspace_rows_synced_by_team(team_id):
     }
     result_totals = _traverse_jobs_by_field(ph_client, team, AIRBYTE_JOBS_URL + "?" + urlencode(params), "rowsSynced")
 
-    # reset accumulated to new period if the month has changed
-    if end.month != begin.month:
-        total = sum(
-            [
-                result["count"]
-                for result in result_totals
-                if datetime.datetime.strptime(result["startTime"], "%Y-%m-%dT%H:%M:%SZ").month == end.month
-            ]
-        )
-    else:
-        total = (
-            team.external_data_workspace_rows_synced_in_month
-            if team.external_data_workspace_rows_synced_in_month is not None
-            else 0
-        ) + sum([result["count"] for result in result_totals])
-
-    team = Team.objects.get(pk=team_id)
-
     # TODO: check assumption that ordering is possible with API
     team.external_data_workspace_last_synced_at = result_totals[-1]["startTime"] if result_totals else end
-    team.external_data_workspace_rows_synced_in_month = total
     team.save()
 
     ph_client.shutdown()
