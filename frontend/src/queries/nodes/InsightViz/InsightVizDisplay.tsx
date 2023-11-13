@@ -202,6 +202,8 @@ export function InsightVizDisplay({
         return null
     }
 
+    const showComputationMetadata = !disableLastComputation || !!samplingFactor
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
@@ -216,19 +218,19 @@ export function InsightVizDisplay({
                 )}
                 {showingResults && (
                     <>
-                        <div className="InsightVizDisplay__subheader">
-                            {(!disableLastComputation || !!samplingFactor) && (
-                                <div className="flex items-center justify-between p-2 flex-wrap border-b">
+                        {(isFunnels || isPaths || showComputationMetadata) && (
+                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap border-b">
+                                {showComputationMetadata && (
                                     <InsightResultMetadata
                                         disableLastComputation={disableLastComputation}
                                         disableLastComputationRefresh={disableLastComputationRefresh}
                                     />
+                                )}
 
-                                    {isPaths ? <PathCanvasLabel /> : null}
-                                    {isFunnels ? <FunnelCanvasLabel /> : null}
-                                </div>
-                            )}
-                        </div>
+                                {isPaths && <PathCanvasLabel />}
+                                {isFunnels && <FunnelCanvasLabel />}
+                            </div>
+                        )}
 
                         {BlockingEmptyState ? (
                             BlockingEmptyState
