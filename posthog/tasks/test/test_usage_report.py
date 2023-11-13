@@ -1060,13 +1060,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["data_warehouse_rows_synced_in_period"] == 20
+        assert org_1_report["rows_synced_in_period"] == 20
 
-        assert org_1_report["teams"]["3"]["data_warehouse_rows_synced_in_period"] == 10
-        assert org_1_report["teams"]["4"]["data_warehouse_rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 10
 
         assert org_2_report["organization_name"] == "Org 2"
-        assert org_2_report["data_warehouse_rows_synced_in_period"] == 0
+        assert org_2_report["rows_synced_in_period"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

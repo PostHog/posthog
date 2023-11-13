@@ -17,6 +17,7 @@ from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_recording_count_in_period,
+    get_teams_with_rows_synced_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -65,6 +66,7 @@ def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
 class UsageCounters(TypedDict):
     events: int
     recordings: int
+    rows_synced: int
 
 
 def org_quota_limited_until(organization: Organization, resource: QuotaResource) -> Optional[int]:
@@ -142,7 +144,7 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    for field in ["events", "recordings"]:
+    for field in ["events", "recordings", "rows_synced"]:
         resource_usage = new_usage[field]  # type: ignore
 
         if todays_usage:
@@ -172,6 +174,9 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         teams_with_recording_count_in_period=convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)
         ),
+        teams_with_rows_synced_in_period=convert_team_usage_rows_to_dict(
+            get_teams_with_rows_synced_in_period(period_start, period_end)
+        ),
     )
 
     teams: Sequence[Team] = list(
@@ -188,6 +193,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+            rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -200,7 +206,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
@@ -212,7 +218,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             if set_org_usage_summary(org, todays_usage=todays_report):
                 org.save(update_fields=["usage"])
 
-            for field in ["events", "recordings"]:
+            for field in ["events", "recordings", "rows_synced"]:
                 quota_limited_until = org_quota_limited_until(org, QuotaResource(field))
 
                 if quota_limited_until:
@@ -224,12 +230,13 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
         "events": {},
         "recordings": {},
+        "rows_synced": {},
     }
 
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_tokens(QuotaResource(field))
 
-    quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -250,6 +257,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         properties = {
             "quota_limited_events": quota_limited_orgs["events"].get(org_id, None),
             "quota_limited_recordings": quota_limited_orgs["events"].get(org_id, None),
+            "quota_limited_rows_synced": quota_limited_orgs["rows_synced"].get(org_id, None),
         }
 
         report_organization_action(
