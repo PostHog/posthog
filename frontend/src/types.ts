@@ -3357,7 +3357,7 @@ export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
-    Feedback = 'feedback',
+    Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',

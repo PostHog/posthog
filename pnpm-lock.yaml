@@ -36,8 +36,8 @@ dependencies:
     specifier: 4.4.6
     version: 4.4.6(monaco-editor@0.39.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/icons':
-    specifier: ^0.1.31
-    version: 0.1.33(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.2.0
+    version: 0.2.0(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -3374,8 +3374,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.1.33(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-VjQXuy48kcBXhgNN7vAuvEiM/fQULTIzWs4ntGZ6PqAbL95GGsGJAcDWZ+aoHLPOGqhfE+gM7vpWm8MUNduq1A==}
+  /@posthog/icons@0.2.0(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-ftFoIropSJaFbxzzt1eGOgJCsbK0+L5KDdxKcpbhl4nMbmCEI/awzj98l+0pp/JAJzDrAsqEou7MvdJrntOGbw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'

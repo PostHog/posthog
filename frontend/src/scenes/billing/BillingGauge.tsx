@@ -14,7 +14,6 @@ type BillingGaugeItemProps = {
 
 const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaugeItemProps): JSX.Element => {
     return (
-        // eslint-disable-next-line react/forbid-dom-props
         <div
             className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${className}`}
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
