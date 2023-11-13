@@ -14,18 +14,22 @@ import {
     ChartDisplayType,
     EventDefinition,
     EventDefinitionType,
+    InsightType,
     PropertyFilterType,
     PropertyOperator,
+    RetentionPeriod,
 } from '~/types'
 import { isNotNil } from 'lib/utils'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { STALE_EVENT_SECONDS } from 'lib/constants'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
 
 export interface WebTileLayout {
     colSpan?: number
     rowSpan?: number
+    className?: string
 }
 
 interface BaseTile {
@@ -209,7 +213,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ actions, values }) => ({
         tiles: [
             (s) => [
                 s.webAnalyticsFilters,
@@ -570,6 +574,33 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
+                    {
+                        title: 'Retention',
+                        layout: {
+                            colSpan: 12,
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts: true,
+                                retentionFilter: {
+                                    retention_type: RETENTION_FIRST_TIME,
+                                    retention_reference: 'total',
+                                    total_intervals: values.isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                    hide_size_column: true,
+                                },
+                            },
+                            vizSpecificSettings: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                },
+                            },
+                        },
+                    },
                 ]
             },
         ],
@@ -617,6 +648,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
+    }),
+    windowValues({
+        isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
 ])
 

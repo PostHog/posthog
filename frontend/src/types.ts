@@ -1819,6 +1819,7 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     period?: RetentionPeriod
+    hide_size_column?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */

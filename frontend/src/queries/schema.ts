@@ -12,6 +12,7 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightShortId,
+    InsightType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
@@ -391,6 +392,16 @@ export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTab
 
 // Insight viz node
 
+/** Chart specific rendering options.
+ * Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+ * @see ChartRenderingMetadata
+ * **/
+export interface VizSpecificSettings {
+    [InsightType.RETENTION]?: {
+        hideLineGraph?: true
+    }
+}
+
 export interface InsightVizNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
@@ -410,6 +421,8 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
+
+    vizSpecificSettings?: VizSpecificSettings
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

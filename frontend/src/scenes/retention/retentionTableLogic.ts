@@ -47,6 +47,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
         ],
 
+        hideSizeColumn: [(s) => [s.retentionFilter], (retentionFilter) => retentionFilter?.hide_size_column],
+
         maxIntervalsCount: [
             (s) => [s.results],
             (results) => {
@@ -55,15 +57,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableHeaders: [
-            (s) => [s.results],
-            (results) => {
-                return ['Cohort', 'Size', ...results.map((x) => x.label)]
+            (s) => [s.results, s.hideSizeColumn],
+            (results, hideSizeColumn) => {
+                return ['Cohort', ...(hideSizeColumn ? [] : ['Size']), ...results.map((x) => x.label)]
             },
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown],
-            (results, maxIntervalsCount, retentionFilter, breakdown) => {
+            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown, s.hideSizeColumn],
+            (results, maxIntervalsCount, retentionFilter, breakdown, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
                 const { breakdowns } = breakdown || {}
 
@@ -75,7 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                         ? dayjs(results[rowIndex].date).format('MMM D, h A')
                         : dayjs(results[rowIndex].date).format('MMM D'),
                     // Second column is the first value (which is essentially the total)
-                    results[rowIndex].values[0].count,
+                    ...(hideSizeColumn ? [] : [results[rowIndex].values[0].count]),
                     // All other columns are rendered as percentage
                     ...results[rowIndex].values.map((row) => {
                         const percentage =
