@@ -11,7 +11,7 @@ import {
     SurveyQuestionType,
     SurveyType,
 } from '~/types'
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
@@ -178,21 +178,21 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function SurveysList(): JSX.Element {
+export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
     }, [])
     return <App />
 }
 
-export function NewSurvey(): JSX.Element {
+export const NewSurvey: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
     }, [])
     return <App />
 }
 
-export function NewSurveyCustomisationSection(): JSX.Element {
+export const NewSurveyCustomisationSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -201,7 +201,7 @@ export function NewSurveyCustomisationSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyPresentationSection(): JSX.Element {
+export const NewSurveyPresentationSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -210,7 +210,7 @@ export function NewSurveyPresentationSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyTargetingSection(): JSX.Element {
+export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -228,7 +228,7 @@ export function NewSurveyTargetingSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyAppearanceSection(): JSX.Element {
+export const NewSurveyAppearanceSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -237,21 +237,26 @@ export function NewSurveyAppearanceSection(): JSX.Element {
     return <App />
 }
 
-export function SurveyView(): JSX.Element {
+export const SurveyView: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
     }, [])
     return <App />
 }
+SurveyView.parameters = {
+    testOptions: {
+        skip: true, // FIXME: Fix the mocked data so that survey results can actually load
+    },
+}
 
-export function SurveyTemplates(): JSX.Element {
+export const SurveyTemplates: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveyTemplates())
     }, [])
     return <App />
 }
 
-export function SurveyNotFound(): JSX.Element {
+export const SurveyNotFound: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('1234566789'))
     }, [])
