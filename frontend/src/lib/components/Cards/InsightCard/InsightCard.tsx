@@ -336,7 +336,7 @@ function InsightCardInternal(
                 />
                 {insight.query ? (
                     <div
-                        className="InsightViz p-2"
+                        className="InsightCard__viz p-2"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={
                             metaPrimaryHeight

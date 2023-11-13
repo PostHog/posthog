@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,15 +27,14 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
-import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
-export function InsightContainer({
+export function InsightVizDisplay({
     disableHeader,
     disableTable,
     disableCorrelationTable,
@@ -77,7 +75,6 @@ export function InsightContainer({
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
-        shouldShowSessionAnalysisWarning,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -207,22 +204,16 @@ export function InsightContainer({
 
     return (
         <>
-            {shouldShowSessionAnalysisWarning ? (
-                <div className="mb-4">
-                    <LemonBanner type="info">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                </div>
-            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
-            <Card
-                title={disableHeader ? null : <InsightDisplayConfig />}
+            <div
+                className={clsx('InsightVizDisplay ph-no-capture', !embedded && 'border rounded bg-bg-light')}
                 data-attr="insights-graph"
-                className="insights-graph-container"
-                bordered={!embedded}
             >
+                {disableHeader ? null : (
+                    <div className="p-2 border-b">
+                        <InsightDisplayConfig />
+                    </div>
+                )}
                 {showingResults && (
                     <div>
                         {isFunnels && (
@@ -264,9 +255,9 @@ export function InsightContainer({
                         {BlockingEmptyState ? (
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
-                            <div className="insights-graph-container-row flex flex-nowrap">
-                                <div className="insights-graph-container-row-left">{renderActiveView()}</div>
-                                <div className="insights-graph-container-row-right">
+                            <div className="InsightVizDisplay__row flex flex-nowrap">
+                                <div className="InsightVizDisplay__row__left">{renderActiveView()}</div>
+                                <div className="InsightVizDisplay__row__right">
                                     <InsightLegend />
                                 </div>
                             </div>
@@ -275,7 +266,7 @@ export function InsightContainer({
                         )}
                     </div>
                 )}
-            </Card>
+            </div>
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

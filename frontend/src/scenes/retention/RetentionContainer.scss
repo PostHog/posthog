@@ -5,8 +5,8 @@
 // Here we override based on retention-container the graph-container styling, so
 // as to not change the global styling. We need the extra nesting to ensure we
 // are more specific than the other insights css
-.insights-page {
-    .insights-graph-container {
+.Insight {
+    .InsightVizDisplay {
         .RetentionContainer {
             .LineGraph {
                 position: relative;

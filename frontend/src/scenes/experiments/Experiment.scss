@@ -14,7 +14,8 @@
         justify-content: space-between;
     }
 
-    .insights-graph-container {
+    // TODO: Remove these overrides
+    .InsightVizDisplay {
         margin-bottom: 1rem;
 
         .display-config-inner {
@@ -28,12 +29,12 @@
             padding: 0;
         }
 
-        .insights-graph-container-row {
-            .insights-graph-container-row-left {
+        .InsightVizDisplay__row__ {
+            .InsightVizDisplay__row__left {
                 width: 100%;
             }
 
-            .insights-graph-container-row-right {
+            .InsightVizDisplay__row__right {
                 width: 100%;
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;

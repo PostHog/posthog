@@ -148,7 +148,7 @@ export function ExperimentResult(): JSX.Element {
             )}
             {experimentResults ? (
                 // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
-                <div className="mt-4 insights-page">
+                <div className="mt-4 Insight">
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,

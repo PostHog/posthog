@@ -1,0 +1,76 @@
+.InsightViz {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 1rem;
+
+    &.InsightViz--horizontal {
+        flex-direction: row;
+        align-items: start;
+
+        .EditorFiltersWrapper {
+            min-width: 24rem;
+        }
+    }
+}
+
+.InsightVizDisplay {
+    margin-bottom: 1rem;
+
+    .InsightVizDisplay__row {
+        .InsightVizDisplay__row__left {
+            width: 100%;
+        }
+
+        .InsightVizDisplay__row__right {
+            height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+            max-width: 45%;
+            min-width: 300px;
+            width: fit-content;
+            padding: 0 1rem 1rem 0;
+            display: flex;
+            align-items: center;
+        }
+    }
+
+    .LineGraph {
+        // hacky because container not respecting position: relative;
+        width: calc(100% - 3rem);
+        height: calc(100% - 3rem);
+    }
+}
+
+.trends-insights-container {
+    position: relative;
+    min-height: min(calc(90vh - 16rem), 36rem);
+    display: flex;
+    justify-content: center;
+
+    .LineGraph {
+        height: calc(100% - 1rem) !important;
+    }
+}
+
+.funnel-insights-container {
+    border-radius: 0 0 var(--radius) var(--radius);
+
+    &.non-empty-state {
+        min-height: 26rem;
+        position: relative;
+        margin-bottom: 0;
+    }
+
+    .ant-table-wrapper {
+        margin-top: 0 !important;
+    }
+}
+
+.funnel-significance-highlight {
+    display: inline-flex;
+    background: var(--primary);
+    color: var(--bg-light);
+
+    .LemonIcon {
+        color: var(--bg-light);
+    }
+}
