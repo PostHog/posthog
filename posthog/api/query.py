@@ -1,11 +1,10 @@
 import json
 import re
-from typing import Dict, Optional, cast, Any, List
+from typing import Dict
 
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, ValidationError, NotAuthenticated
@@ -17,45 +16,25 @@ from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
+from posthog.api.process import process_query
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_status_or_results
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
 from posthog.models.user import User
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.queries.time_to_see_data.serializers import (
-    SessionEventsQuerySerializer,
-    SessionsQuerySerializer,
-)
-from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     TeamRateThrottle,
 )
-from posthog.schema import HogQLMetadata
 from posthog.utils import refresh_requested_by_client
-
-QUERY_WITH_RUNNER = [
-    "LifecycleQuery",
-    "TrendsQuery",
-    "WebOverviewQuery",
-    "WebTopSourcesQuery",
-    "WebTopClicksQuery",
-    "WebTopPagesQuery",
-    "WebStatsTableQuery",
-]
-QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -128,7 +107,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
+            refresh_requested = refresh_requested_by_client(request)
+            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -138,9 +118,21 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         request_json = request.data
         query_json = request_json.get("query")
         self._tag_client_query_id(request_json.get("client_query_id"))
+        refresh_requested = refresh_requested_by_client(request)
+        slow_lane = request_json.get("async") is True
+        if slow_lane:
+            query_id = enqueue_process_query_task(
+                team_id=self.team.pk,
+                query_json=query_json,
+                refresh_requested=refresh_requested,
+            )
+            return JsonResponse(
+                {"status": "slow_lane", "query_id": query_id},
+                safe=False,
+            )
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
+            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -149,6 +141,14 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             self.handle_column_ch_error(e)
             capture_exception(e)
             raise e
+
+    @action(methods=["GET"], detail=False)
+    def status(self, request: Request, *args, **kwargs) -> JsonResponse:
+        query_id = request.query_params.get("query_id")
+        if not query_id:
+            raise ValidationError({"query_id": ["This field is required."]}, code="required")
+        status = get_status_or_results(self.team.pk, query_id)
+        return JsonResponse(status.__dict__, safe=False)
 
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
@@ -205,73 +205,3 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
         return query
-
-
-def _unwrap_pydantic(response: Any) -> Dict | List:
-    if isinstance(response, list):
-        return [_unwrap_pydantic(item) for item in response]
-
-    elif isinstance(response, BaseModel):
-        resp1: Dict[str, Any] = {}
-        for key in response.__fields__.keys():
-            resp1[key] = _unwrap_pydantic(getattr(response, key))
-        return resp1
-
-    elif isinstance(response, dict):
-        resp2: Dict[str, Any] = {}
-        for key in response.keys():
-            resp2[key] = _unwrap_pydantic(response.get(key))
-        return resp2
-
-    return response
-
-
-def _unwrap_pydantic_dict(response: Any) -> Dict:
-    return cast(dict, _unwrap_pydantic(response))
-
-
-def process_query(
-    team: Team,
-    query_json: Dict,
-    in_export_context: Optional[bool] = False,
-    request: Optional[Request] = None,
-) -> Dict:
-    # query_json has been parsed by QuerySchemaParser
-    # it _should_ be impossible to end up in here with a "bad" query
-    query_kind = query_json.get("kind")
-    tag_queries(query=query_json)
-
-    if query_kind in QUERY_WITH_RUNNER:
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
-        return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
-        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
-        return _unwrap_pydantic_dict(query_runner.calculate())
-    elif query_kind == "HogQLMetadata":
-        metadata_query = HogQLMetadata.model_validate(query_json)
-        metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-        return _unwrap_pydantic_dict(metadata_response)
-    elif query_kind == "DatabaseSchemaQuery":
-        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-        return serialize_database(database)
-    elif query_kind == "TimeToSeeDataSessionsQuery":
-        sessions_query_serializer = SessionsQuerySerializer(data=query_json)
-        sessions_query_serializer.is_valid(raise_exception=True)
-        return {"results": get_sessions(sessions_query_serializer).data}
-    elif query_kind == "TimeToSeeDataQuery":
-        serializer = SessionEventsQuerySerializer(
-            data={
-                "team_id": team.pk,
-                "session_start": query_json["sessionStart"],
-                "session_end": query_json["sessionEnd"],
-                "session_id": query_json["sessionId"],
-            }
-        )
-        serializer.is_valid(raise_exception=True)
-        return get_session_events(serializer) or {}
-    else:
-        if query_json.get("source"):
-            return process_query(team, query_json["source"])
-
-        raise ValidationError(f"Unsupported query kind: {query_kind}")

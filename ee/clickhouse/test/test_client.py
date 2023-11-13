@@ -1,97 +1,108 @@
 from unittest.mock import patch
 
 import fakeredis
-from clickhouse_driver.errors import ServerException
 from django.test import TestCase
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
+from posthog.hogql.errors import HogQLException
+from posthog.models import Organization, Team
 from posthog.test.base import ClickhouseTestMixin
+
+
+def build_query(sql):
+    return {
+        "kind": "HogQLQuery",
+        "query": sql,
+    }
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
         self.redis_client = fakeredis.FakeStrictRedis()
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.team_id = self.team.pk
 
     def test_async_query_client(self):
-        query = "SELECT 1+1"
-        team_id = 2
-        query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        query = build_query("SELECT 1+1")
+        team_id = self.team_id
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
         result = client.get_status_or_results(team_id, query_id)
         self.assertFalse(result.error)
         self.assertTrue(result.complete)
-        self.assertEqual(result.results, [[2]])
+        self.assertEqual(result.results["results"], [[2]])
 
     def test_async_query_client_errors(self):
-        query = "SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK"
-        team_id = 2
+        query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
+        team_id = self.team_id
         self.assertRaises(
-            ServerException,
-            client.enqueue_execute_with_progress,
-            **{"team_id": team_id, "query": query, "bypass_celery": True},
+            HogQLException,
+            client.enqueue_process_query_task,
+            **{"team_id": team_id, "query_json": query, "bypass_celery": True},
         )
         try:
-            query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+            query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
         except Exception:
             pass
 
         result = client.get_status_or_results(team_id, query_id)
         self.assertTrue(result.error)
-        self.assertRegex(result.error_message, "Code: 62.\nDB::Exception: Syntax error:")
+        self.assertRegex(result.error_message, "Unknown table")
 
     def test_async_query_client_does_not_leak(self):
-        query = "SELECT 1+1"
-        team_id = 2
+        query = build_query("SELECT 1+1")
+        team_id = self.team_id
         wrong_team = 5
-        query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
         result = client.get_status_or_results(wrong_team, query_id)
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, "Requesting team is not executing team")
 
-    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_is_lazy(self, execute_sync_mock):
-        query = "SELECT 4 + 4"
-        team_id = 2
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        query = build_query("SELECT 4 + 4")
+        team_id = self.team_id
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
 
         # Try the same query again
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
 
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
 
-    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_sync_mock):
-        query = "SELECT 8 + 8"
-        team_id = 2
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        query = build_query("SELECT 8 + 8")
+        team_id = self.team_id
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
 
         # Try the same query again, but with force
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True, force=True)
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True, force=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
-    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_manual_query_uuid(self, execute_sync_mock):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
         # in redis. This tests to make sure it is treated as a unique run of that query
-        query = "SELECT 8 + 8"
-        team_id = 2
+        query = build_query("SELECT 8 + 8")
+        team_id = self.team_id
         query_id = "I'm so unique"
-        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Try the same query again, but with force
-        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True, force=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True, force=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
