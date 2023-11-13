@@ -41,16 +41,29 @@ class LifecycleQueryRunner(QueryRunner):
         super().__init__(query, team, timings, in_export_context)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self.query.samplingFactor == 0:
+            counts_with_sampling = ast.Constant(value=0)
+        elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
+            counts_with_sampling = parse_expr(
+                "round(counts * (1 / {sampling_factor}))",
+                {
+                    "sampling_factor": ast.Constant(value=self.query.samplingFactor),
+                },
+            )
+        else:
+            counts_with_sampling = parse_expr("counts")
+
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
             "periods_query": self.periods_query,
+            "counts_with_sampling": counts_with_sampling,
         }
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
                 """
                     SELECT groupArray(start_of_period) AS date,
-                           groupArray(counts) AS total,
+                           groupArray({counts_with_sampling}) AS total,
                            status
                     FROM (
                         SELECT
