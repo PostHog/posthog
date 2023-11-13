@@ -115,10 +115,7 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({
+        openSupportForm: (kind: SupportTicketKind = 'support', target_area: SupportTicketTargetArea | null = null) => ({
             kind,
             target_area,
         }),
