@@ -284,7 +284,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["session_recording_network_payload_capture_config"] is None
+        assert response["sessionRecording"]["networkPayloadCapture"] is None
 
         self._update_team(
             {
@@ -293,9 +293,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"]["session_recording_network_payload_capture_config"], {"recordHeaders": True}
-        )
+        self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
