@@ -1,7 +1,7 @@
 import { LemonEventName } from './EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Col, Radio, RadioChangeEvent } from 'antd'
+import { Radio, RadioChangeEvent } from 'antd'
 import { ActionStepType, StringMatching } from '~/types'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
@@ -11,6 +11,9 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+
+import './ActionStep.scss'
+import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -30,84 +33,86 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <Col span={24} md={12}>
-            <div className="rounded border p-4 relative h-full">
-                {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <b>Match Group #{index + 1}</b>
+        <div className="ActionStep rounded border p-4 relative h-full">
+            {index > 0 && !(index % 2 === 0) && (
+                <div className="ActionStep__or-tag">
+                    <OperandTag operand="or" />
+                </div>
+            )}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <b>Match Group #{index + 1}</b>
 
-                        {!isOnlyStep && (
-                            <LemonButton
-                                status="primary-alt"
-                                icon={<IconClose />}
-                                size="small"
-                                aria-label="delete"
-                                onClick={onDelete}
-                            />
-                        )}
-                    </div>
-                    {<TypeSwitcher step={step} sendStep={sendStep} />}
-
-                    {step.event === '$autocapture' && (
-                        <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                    {!isOnlyStep && (
+                        <LemonButton
+                            status="primary-alt"
+                            icon={<IconClose />}
+                            size="small"
+                            aria-label="delete"
+                            onClick={onDelete}
+                        />
                     )}
-                    {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                        <div className="space-y-1">
-                            <LemonLabel>Event name</LemonLabel>
-                            <LemonEventName
-                                value={step.event}
-                                onChange={(value) =>
-                                    sendStep({
-                                        ...step,
-                                        event: value,
-                                    })
-                                }
-                                placeholder="All events"
-                                allEventsOption="explicit"
-                            />
+                </div>
+                {<TypeSwitcher step={step} sendStep={sendStep} />}
 
-                            <small>
-                                <Link to="https://posthog.com/docs/libraries" target="_blank">
-                                    See documentation
-                                </Link>{' '}
-                                on how to send custom events in lots of languages.
-                            </small>
-                        </div>
-                    )}
-                    {step.event === '$pageview' && (
-                        <div>
-                            <Option
-                                step={step}
-                                sendStep={sendStep}
-                                item="url"
-                                extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
-                                label="URL"
-                            />
-                            {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                                <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
-                            )}
-                        </div>
-                    )}
-
-                    <div className="mt-4 space-y-2">
-                        <LemonLabel>Filters</LemonLabel>
-                        <PropertyFilters
-                            propertyFilters={step.properties}
-                            pageKey={identifier}
-                            eventNames={step.event ? [step.event] : []}
-                            onChange={(properties) => {
+                {step.event === '$autocapture' && (
+                    <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                )}
+                {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                    <div className="space-y-1">
+                        <LemonLabel>Event name</LemonLabel>
+                        <LemonEventName
+                            value={step.event}
+                            onChange={(value) =>
                                 sendStep({
                                     ...step,
-                                    properties: properties as [],
+                                    event: value,
                                 })
-                            }}
-                            showConditionBadge
+                            }
+                            placeholder="All events"
+                            allEventsOption="explicit"
                         />
+
+                        <small>
+                            <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                See documentation
+                            </Link>{' '}
+                            on how to send custom events in lots of languages.
+                        </small>
                     </div>
+                )}
+                {step.event === '$pageview' && (
+                    <div>
+                        <Option
+                            step={step}
+                            sendStep={sendStep}
+                            item="url"
+                            extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                            label="URL"
+                        />
+                        {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                            <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                        )}
+                    </div>
+                )}
+
+                <div className="mt-4 space-y-2">
+                    <LemonLabel>Filters</LemonLabel>
+                    <PropertyFilters
+                        propertyFilters={step.properties}
+                        pageKey={identifier}
+                        eventNames={step.event ? [step.event] : []}
+                        onChange={(properties) => {
+                            sendStep({
+                                ...step,
+                                properties: properties as [],
+                            })
+                        }}
+                        showConditionBadge
+                    />
                 </div>
             </div>
-        </Col>
+        </div>
     )
 }
 
@@ -179,8 +184,8 @@ function Option({
 
 const AndSeparator = (): JSX.Element => {
     return (
-        <div className="text-center my-2">
-            <span className="stateful-badge and">AND</span>
+        <div className="flex w-full justify-center">
+            <OperandTag operand="and" />
         </div>
     )
 }
