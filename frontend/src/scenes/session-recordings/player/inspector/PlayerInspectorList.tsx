@@ -65,9 +65,9 @@ function EmptyNetworkTab({
     ) : isLocalhost(recordingURL) ? (
         <>
             <div className="flex flex-col items-center">
-                <h4 className="text-xl font-medium">Performance events</h4>
+                <h4 className="text-xl font-medium">Network recording</h4>
                 <p className="text-muted text-center">
-                    Performance events are not captured when replay is running on localhost.{' '}
+                    Network capture is not supported when replay is running on localhost.{' '}
                     <Link to={'https://posthog.com/docs/session-replay/network-recording'}>
                         Learn more in our docs{' '}
                     </Link>
