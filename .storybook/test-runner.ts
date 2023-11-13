@@ -121,7 +121,7 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
-        await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached' })
     }
     if (waitForSelector) {
         await page.waitForSelector(waitForSelector)
