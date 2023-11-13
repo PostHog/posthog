@@ -215,7 +215,7 @@ export function InsightVizDisplay({
                     </div>
                 )}
                 {showingResults && (
-                    <div>
+                    <>
                         {isFunnels && (
                             <div className="overflow-hidden">
                                 {/* negative margin-top so that the border is only visible when the rows wrap */}
@@ -264,7 +264,7 @@ export function InsightVizDisplay({
                         ) : (
                             renderActiveView()
                         )}
-                    </div>
+                    </>
                 )}
             </div>
             {renderTable()}

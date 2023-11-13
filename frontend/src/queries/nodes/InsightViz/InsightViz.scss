@@ -12,6 +12,7 @@
 
         .EditorFiltersWrapper {
             width: 100%;
+
             @container (min-width: 768px) {
                 width: 30%;
                 min-width: 26rem;
@@ -22,8 +23,6 @@
 }
 
 .InsightVizDisplay {
-    margin-bottom: 1rem;
-
     .InsightVizDisplay__row {
         .InsightVizDisplay__row__left {
             width: 100%;
