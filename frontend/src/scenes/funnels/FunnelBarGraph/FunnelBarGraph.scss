@@ -4,11 +4,9 @@ $label_position_offset: 8px;
 $series_container_width: 1.5rem;
 $glyph_height: 23px; // Based on .funnel-step-glyph
 
-.funnel-bar-graph {
+.FunnelBarGraph {
     min-height: 100%;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-    padding-bottom: 1rem;
+    padding: 1rem;
 
     .InsightCard & {
         padding-left: 1rem;

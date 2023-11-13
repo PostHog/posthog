@@ -11,11 +11,7 @@ export function FunnelInsight(): JSX.Element {
     const nonEmptyState = (hasFunnelResults && isFunnelWithEnoughSteps) || insightLoading
 
     return (
-        <div
-            className={clsx('funnel-insights-container', {
-                'non-empty-state': nonEmptyState,
-            })}
-        >
+        <div className={clsx('FunnelInsight')}>
             <Funnel />
         </div>
     )
