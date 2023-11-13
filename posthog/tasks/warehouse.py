@@ -145,22 +145,12 @@ def calculate_workspace_rows_synced_by_team(team_id):
                 if datetime.datetime.strptime(result["startTime"], "%Y-%m-%dT%H:%M:%SZ").month == end.month
             ]
         )
-    elif (
-        team.external_data_workspace_last_synced_at and team.external_data_workspace_last_synced_at.month != begin.month
-    ):
-        total = sum([result["count"] for result in result_totals])
     else:
         total = (
             team.external_data_workspace_rows_synced_in_month
             if team.external_data_workspace_rows_synced_in_month is not None
             else 0
-        ) + sum(
-            [
-                result["count"]
-                for result in result_totals
-                if datetime.datetime.strptime(result["startTime"], "%Y-%m-%dT%H:%M:%SZ").month == end.month
-            ]
-        )
+        ) + sum([result["count"] for result in result_totals])
 
     team = Team.objects.get(pk=team_id)
 
