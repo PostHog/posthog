@@ -350,6 +350,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
+    session_recording_network_payload_capture_config:
+        | { recordHeaders?: boolean; recordBody?: boolean }
+        | undefined
+        | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -1058,6 +1062,18 @@ export interface RecentPerformancePageView extends PerformancePageView {
     duration: number
 }
 
+// copied from rrweb/network@1
+export type Body =
+    | string
+    | Document
+    | Blob
+    | ArrayBufferView
+    | ArrayBuffer
+    | FormData
+    | URLSearchParams
+    | ReadableStream<Uint8Array>
+    | null
+
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1119,6 +1135,12 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+
+    // request/response capture - merged in from rrweb/network@1 payloads
+    request_headers?: Record<string, string>
+    response_headers?: Record<string, string>
+    request_body?: Body
+    response_body?: Body
 }
 
 export interface CurrentBillCycleType {
@@ -3335,7 +3357,7 @@ export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
-    Feedback = 'feedback',
+    Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
