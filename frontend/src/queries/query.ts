@@ -12,6 +12,7 @@ import {
     isInsightVizNode,
     isQueryWithHogQLSupport,
     isPersonsQuery,
+    isLifecycleQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -31,7 +32,6 @@ import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import equal from 'fast-deep-equal'
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -157,26 +157,30 @@ export async function query<N extends DataNode = DataNode>(
                         fetchLegacyInsights(),
                     ])
 
-                    const results = flattenObject(response?.result || response?.results)
-                    const legacyResults = flattenObject(legacyResponse?.result || legacyResponse?.results)
+                    const res1 = response?.result || response?.results
+                    const res2 = legacyResponse?.result || legacyResponse?.results
 
-                    const insightsMatch = equal(results, legacyResults)
-                    const symbols = insightsMatch ? '🍀🍀🍀' : '🏎️🏎️🏎'
-                    // eslint-disable-next-line no-console
-                    console.log(`${symbols} Insight Race ${symbols}`, {
-                        query: queryNode,
-                        duration: performance.now() - startTime,
-                        hogqlResults: results,
-                        legacyResults: legacyResults,
-                        equal: insightsMatch,
-                        response,
-                        legacyResponse,
-                    })
+                    if (isLifecycleQuery(queryNode)) {
+                        // Results don't come back in a predetermined order for the legacy lifecycle insight
+                        const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
+                        res1.sort((a: any, b: any) => order[a.status] - order[b.status])
+                        res2.sort((a: any, b: any) => order[a.status] - order[b.status])
+                    }
+
+                    const results = flattenObject(res1)
+                    const legacyResults = flattenObject(res2)
                     const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
                         .filter((key) => !key.includes('.persons_urls.'))
                         .sort()
                     const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
+                    let matchCount = 0
+                    let mismatchCount = 0
                     for (const key of sortedKeys) {
+                        if (results[key] === legacyResults[key]) {
+                            matchCount++
+                        } else {
+                            mismatchCount++
+                        }
                         tableData.push([
                             results[key] === legacyResults[key] ? '✅' : '🚨',
                             key,
@@ -184,8 +188,27 @@ export async function query<N extends DataNode = DataNode>(
                             legacyResults[key],
                         ])
                     }
+                    const symbols = mismatchCount === 0 ? '🍀🍀🍀' : '🏎️🏎️🏎'
+                    // eslint-disable-next-line no-console
+                    console.log(`${symbols} Insight Race ${symbols}`, {
+                        query: queryNode,
+                        duration: performance.now() - startTime,
+                        hogqlResults: results,
+                        legacyResults: legacyResults,
+                        equal: mismatchCount === 0,
+                        response,
+                        legacyResponse,
+                    })
+                    // eslint-disable-next-line no-console
+                    console.groupCollapsed(
+                        `Results: ${mismatchCount === 0 ? '✅✅✅' : '✅'} ${matchCount}${
+                            mismatchCount > 0 ? ` 🚨🚨🚨${mismatchCount}` : ''
+                        }`
+                    )
                     // eslint-disable-next-line no-console
                     console.table(tableData)
+                    // eslint-disable-next-line no-console
+                    console.groupEnd()
                 } else {
                     response = await api.query(queryNode, methodOptions, queryId, refresh)
                 }
