@@ -57,14 +57,14 @@ def configure_logger(
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
     log_producer = None
+    log_producer_error = None
 
     try:
         log_producer = KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
-    except Exception:
-        # Skip putting logs in queue if we don't have a producer that can consume the queue
-        logger = structlog.get_logger()
-
-        logger.exception("Failed to initialize log producer")
+    except Exception as e:
+        # Skip putting logs in queue if we don't have a producer that can consume the queue.
+        # We save the error to log it later as the logger hasn't yet been configured at this time.
+        log_producer_error = e
     else:
         put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
         base_processors.append(put_in_queue)
@@ -82,6 +82,8 @@ def configure_logger(
     )
 
     if log_producer is None:
+        logger = structlog.get_logger()
+        logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
     listen_task = create_logger_background_task(log_producer.listen())
