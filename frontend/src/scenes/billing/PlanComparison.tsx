@@ -8,6 +8,7 @@ import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { getProductIcon } from 'scenes/products/Products'
 
 export function PlanIcon({
     feature,
@@ -211,13 +212,7 @@ export const PlanComparison = ({
                 <tr>
                     <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
                         <div className="flex items-center gap-x-2 my-2">
-                            {product.image_url && (
-                                <img
-                                    className="w-6 h-6"
-                                    alt={`Logo for PostHog ${product.name}`}
-                                    src={product.image_url}
-                                />
-                            )}
+                            {getProductIcon(product.icon_key, 'text-2xl')}
                             <Tooltip title={product.description}>
                                 <span className="font-bold">{product.name}</span>
                             </Tooltip>
@@ -275,13 +270,7 @@ export const PlanComparison = ({
                                             className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
                                         >
                                             <div className="flex items-center gap-x-2 my-2">
-                                                {includedProduct.image_url && (
-                                                    <img
-                                                        className="w-6 h-6"
-                                                        alt={`Logo for PostHog ${includedProduct.name}`}
-                                                        src={includedProduct.image_url}
-                                                    />
-                                                )}
+                                                {getProductIcon(includedProduct.icon_key, 'text-2xl')}
                                                 <Tooltip title={includedProduct.description}>
                                                     <span className="font-bold">{includedProduct.name}</span>
                                                 </Tooltip>
