@@ -21,7 +21,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventWithTime } from '@rrweb/types'
+import { EventType, eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { chainToElements } from 'lib/utils/elements-chain'
@@ -597,6 +597,42 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionPlayerSnapshotData],
             (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
                 return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
+            },
+        ],
+
+        snapshotsInvalid: [
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
+                if (!fullyLoaded) {
+                    return false
+                }
+
+                const windowsHaveFullSnapshot = Object.entries(snapshotsByWindowId).reduce(
+                    (acc, [windowId, events]) => {
+                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                            (event) => event.type === EventType.FullSnapshot
+                        )
+                        return acc
+                    },
+                    {}
+                )
+                const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
+                const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
+
+                if (everyWindowMissingFullSnapshot) {
+                    // video is definitely unplayable
+                    posthog.capture('recording_has_no_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                } else if (anyWindowMissingFullSnapshot) {
+                    posthog.capture('recording_window_missing_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                }
+
+                return everyWindowMissingFullSnapshot
             },
         ],
 
