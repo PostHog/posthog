@@ -7,9 +7,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import React, { useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import React from 'react'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -24,25 +24,16 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     showEditingControls?: boolean
 }
 
-interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'style' | 'className'> {
+interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
     text: string
     closeDetails?: () => void
 }
 
-export function TextContent({ text, closeDetails, style, className }: TextCardBodyProps): JSX.Element {
+export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()} style={style}>
+        <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()}>
             <LemonMarkdown>{text}</LemonMarkdown>
-        </div>
-    )
-}
-
-export function TextCardBody({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div className="TextCard-Body w-full" onClick={() => closeDetails?.()} style={style}>
-            <TextContent text={text} />
         </div>
     )
 }
@@ -67,8 +58,6 @@ export function TextCardInternal(
     const { push } = useActions(router)
     const { text } = textTile
 
-    const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
-
     if (!text) {
         throw new Error('TextCard requires text')
     }
@@ -85,7 +74,6 @@ export function TextCardInternal(
             <CardMeta
                 showEditingControls={showEditingControls}
                 showDetailsControls={false}
-                className={clsx(showResizeHandles ? 'border-b' : 'border rounded-t')}
                 moreButtons={
                     <>
                         <LemonButton
@@ -150,15 +138,11 @@ export function TextCardInternal(
                         )}
                     </>
                 }
-                setPrimaryHeight={setMetaPrimaryHeight}
             />
 
-            <TextCardBody
-                text={text.body}
-                style={
-                    metaPrimaryHeight ? { height: `calc(100% - ${metaPrimaryHeight}px - 1px /* border */)` } : undefined
-                }
-            />
+            <div className="TextCard__body w-full">
+                <TextContent text={text.body} />
+            </div>
 
             {showResizeHandles && (
                 <>

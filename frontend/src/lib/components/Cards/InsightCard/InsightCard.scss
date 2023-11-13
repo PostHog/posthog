@@ -8,6 +8,9 @@
     border: 1px solid var(--border);
     z-index: 3;
     background: var(--bg-light);
+    display: flex;
+    flex-direction: column;
+
     &--highlighted {
         border-color: var(--primary);
         outline: 1px solid var(--primary);
@@ -20,18 +23,18 @@
 }
 
 .InsightCard__viz {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+    position: relative;
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 0;
     width: 100%;
     overflow: auto;
+
     .LineGraph,
     .AnnotationsOverlay {
-        padding: 1rem;
+        padding: 0.5rem;
     }
     .insight-empty-state {
         height: 100%; // Fix wonkiness when SpinnerOverlay is shown
