@@ -1,10 +1,7 @@
 import { useState } from 'react'
-import { Input, Radio } from 'antd'
-// eslint-disable-next-line no-restricted-imports
-import { SaveOutlined, StopOutlined, CheckOutlined } from '@ant-design/icons'
-import Modal from 'antd/lib/modal/Modal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Field } from 'kea-forms'
 
 interface NewPropertyInterface {
     creating: boolean
@@ -37,90 +34,90 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
             >
                 New property
             </LemonButton>
-            <Modal
-                visible={state.creating}
-                destroyOnClose
-                onCancel={() => setState(initialState)}
+            <LemonModal
+                isOpen={state.creating}
+                onClose={() => setState(initialState)}
                 title="Adding new property"
-                okText={
-                    <>
-                        <SaveOutlined style={{ marginRight: 4 }} />
-                        Save Property
-                    </>
+                footer={
+                    <LemonButton
+                        disabledReason={(!state.key || state.value === undefined) && 'This is a reason'}
+                        type="secondary"
+                        onClick={saveProperty}
+                    >
+                        Save
+                    </LemonButton>
                 }
-                okButtonProps={{ disabled: !state.key || state.value === undefined }}
-                onOk={saveProperty}
             >
-                <div className="input-set">
-                    <label htmlFor="propertyKey">Key</label>
-                    <Input
+                <Field name="key" label="Key">
+                    <LemonInput
                         id="propertyKey"
                         autoFocus
                         placeholder="try email, first_name, is_verified, membership_level, total_revenue"
-                        onChange={(e) => setState({ ...state, key: e.target.value })}
+                        onChange={(key) => setState({ ...state, key: key })}
                         autoComplete="off"
                         autoCapitalize="off"
                     />
-                </div>
-                <div className="input-set">
-                    <label htmlFor="propertyType">Type of Property</label>
-                    <div>
-                        <Radio.Group
-                            value={state.propertyType}
-                            onChange={(e) =>
+                </Field>
+                <Field name="typeOfProperty" label="Type of Property">
+                    <LemonSegmentedButton
+                        onChange={(value: 'string' | 'boolean') =>
+                            setState({
+                                ...state,
+                                propertyType: value,
+                                value: value === 'string' ? undefined : 'true',
+                            })
+                        }
+                        value={state.propertyType}
+                        options={[
+                            {
+                                value: 'string',
+                                label: 'Text or Number',
+                            },
+                            {
+                                value: 'boolean',
+                                label: 'Boolean or Null',
+                            },
+                        ]}
+                    />
+                </Field>
+
+                <Field name="value" label="Value">
+                    {state.propertyType === 'boolean' ? (
+                        <LemonSegmentedButton
+                            onChange={(value) =>
                                 setState({
                                     ...state,
-                                    propertyType: e.target.value,
-                                    value: e.target.value === 'string' ? undefined : 'true',
+                                    value: value,
                                 })
                             }
-                            id="propertyType"
-                            buttonStyle="solid"
-                        >
-                            <Radio.Button value="string">Text or Number</Radio.Button>
-                            <Radio.Button value="boolean">Boolean or Null</Radio.Button>
-                        </Radio.Group>
-                    </div>
-                </div>
-
-                <div className="input-set">
-                    <label htmlFor="propertyValue">Value</label>
-                    {state.propertyType === 'boolean' ? (
-                        <div>
-                            <Radio.Group
-                                value={state.value}
-                                onChange={(e) =>
-                                    setState({
-                                        ...state,
-                                        value: e.target.value,
-                                    })
-                                }
-                                id="propertyValue"
-                                buttonStyle="solid"
-                            >
-                                <Radio.Button value="true" defaultChecked>
-                                    <CheckOutlined /> True
-                                </Radio.Button>
-                                <Radio.Button value="false">
-                                    <IconClose /> False
-                                </Radio.Button>
-                                <Radio.Button value="null">
-                                    <StopOutlined /> Null
-                                </Radio.Button>
-                            </Radio.Group>
-                        </div>
+                            value={state.value}
+                            options={[
+                                {
+                                    value: 'true',
+                                    label: 'True',
+                                },
+                                {
+                                    value: 'false',
+                                    label: 'False',
+                                },
+                                {
+                                    value: 'null',
+                                    label: 'Null',
+                                },
+                            ]}
+                        />
                     ) : (
-                        <Input
-                            placeholder="try email@example.com, gold, 1"
-                            onChange={(e) => setState({ ...state, value: e.target.value })}
+                        <LemonInput
                             id="propertyValue"
+                            placeholder="try email@example.com, gold, 1"
+                            onChange={(value) => setState({ ...state, value: value })}
                             onKeyDown={(e) => e.key === 'Enter' && saveProperty()}
                             autoComplete="off"
                             autoCapitalize="off"
                         />
                     )}
-                </div>
-            </Modal>
+                </Field>
+            </LemonModal>
         </>
     )
 }
