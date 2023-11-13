@@ -61,6 +61,16 @@ export const themeLogic = kea<themeLogicType>([
     subscriptions({
         isDarkModeOn: (isDarkModeOn) => {
             document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
+            const docsIframe: HTMLIFrameElement | null = document.querySelector('iframe[title="Docs"]')
+            if (docsIframe) {
+                docsIframe.contentWindow?.postMessage(
+                    {
+                        type: 'theme-toggle',
+                        isDarkModeOn,
+                    },
+                    '*'
+                )
+            }
         },
     }),
     events(({ cache, actions }) => ({

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -10,12 +10,16 @@ export const SidePanelDocs = (): JSX.Element => {
     const { iframeSrc, currentUrl } = useValues(sidePanelDocsLogic)
     const { updatePath, unmountIframe, closeSidePanel } = useActions(sidePanelDocsLogic)
     const ref = useRef<HTMLIFrameElement>(null)
+    const [ready, setReady] = useState(false)
 
     useEffect(() => {
         const onMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
-                if (typeof event.data === 'string') {
-                    updatePath(event.data)
+                if (event.data.type === 'internal-navigation' && event.data.url) {
+                    updatePath(event.data.url)
+                }
+                if (event.data.type === 'docs-ready') {
+                    setReady(true)
                 }
             }
         }
@@ -42,7 +46,12 @@ export const SidePanelDocs = (): JSX.Element => {
                     Open on posthog.com
                 </LemonButton>
             </SidePanelPaneHeader>
-            <iframe src={iframeSrc} title="Docs" className={clsx('flex-1 w-full h-full')} ref={ref} />
+            <iframe
+                src={iframeSrc}
+                title="Docs"
+                className={clsx('flex-1 w-full h-full', !ready && 'hidden')}
+                ref={ref}
+            />
         </>
     )
 }
