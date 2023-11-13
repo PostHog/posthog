@@ -2251,6 +2251,17 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
 }
 
+export interface OrganizationFeatureFlag {
+    flag_id: number | null
+    team_id: number | null
+    created_by: UserBasicType | null
+    created_at: string | null
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+    filters: FeatureFlagFilters
+    active: boolean
+}
+
 export interface OrganizationFeatureFlagsCopyBody {
     feature_flag_key: FeatureFlagType['key']
     from_project: TeamType['id']

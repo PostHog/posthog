@@ -40,6 +40,16 @@ class OrganizationFeatureFlagView(
             {
                 "flag_id": flag.id,
                 "team_id": flag.team_id,
+                "created_by": {
+                    "id": flag.created_by.id,
+                    "uuid": flag.created_by.uuid,
+                    "distinct_id": flag.created_by.distinct_id,
+                    "first_name": flag.created_by.first_name,
+                    "email": flag.created_by.email,
+                    "is_email_verified": flag.created_by.is_email_verified,
+                },
+                "filters": flag.filters,
+                "created_at": flag.created_at,
                 "active": flag.active,
             }
             for flag in flags
