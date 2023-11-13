@@ -2,6 +2,7 @@
 
 use std::default::Default;
 use std::net::{SocketAddr, TcpListener};
+use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::{Arc, Once};
@@ -26,6 +27,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
+    burst_limit: NonZeroU32::new(5).unwrap(),
+    per_second_limit: NonZeroU32::new(10).unwrap(),
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
@@ -139,6 +142,24 @@ impl EphemeralTopic {
                 let body = message.payload().expect("empty kafka message");
                 let event = serde_json::from_slice(body)?;
                 Ok(event)
+            }
+            Some(Err(err)) => bail!("kafka read error: {}", err),
+            None => bail!("kafka read timeout"),
+        }
+    }
+    pub fn next_message_key(&self) -> anyhow::Result<Option<String>> {
+        match self.consumer.poll(self.read_timeout) {
+            Some(Ok(message)) => {
+                let key = message.key();
+
+                if let Some(key) = key {
+                    let key = std::str::from_utf8(key)?;
+                    let key = String::from_str(key)?;
+
+                    Ok(Some(key))
+                } else {
+                    Ok(None)
+                }
             }
             Some(Err(err)) => bail!("kafka read error: {}", err),
             None => bail!("kafka read timeout"),

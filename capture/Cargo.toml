@@ -31,6 +31,7 @@ metrics-exporter-prometheus = { workspace = true }
 thiserror = { workspace = true }
 redis = { version="0.23.3", features=["tokio-comp", "cluster", "cluster-async"] }
 envconfig = { workspace = true }
+dashmap = "5.5.3"
 
 [dev-dependencies]
 assert-json-diff =  { workspace = true }

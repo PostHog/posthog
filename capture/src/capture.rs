@@ -78,12 +78,12 @@ pub async fn event(
         client_ip: ip.to_string(),
     };
 
-    let limited = state
+    let billing_limited = state
         .billing
         .is_limited(context.token.as_str(), QuotaResource::Events)
         .await;
 
-    if limited {
+    if billing_limited {
         report_dropped_events("over_quota", 1);
 
         // for v0 we want to just return ok 🙃

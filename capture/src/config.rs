@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 
@@ -6,16 +6,25 @@ use envconfig::Envconfig;
 pub struct Config {
     #[envconfig(default = "false")]
     pub print_sink: bool,
+
     #[envconfig(default = "127.0.0.1:3000")]
     pub address: SocketAddr,
+
     pub redis_url: String,
+    pub otel_url: Option<String>,
+
+    #[envconfig(default = "100")]
+    pub per_second_limit: NonZeroU32,
+
+    #[envconfig(default = "1000")]
+    pub burst_limit: NonZeroU32,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    pub otel_url: Option<String>,
     #[envconfig(default = "1.0")]
     pub otel_sampling_rate: f64,
+
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 }

@@ -14,6 +14,7 @@ use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::event::ProcessedEvent;
 use crate::health::HealthHandle;
+use crate::partition_limits::PartitionLimiter;
 use crate::prometheus::report_dropped_events;
 
 #[async_trait]
@@ -111,10 +112,15 @@ impl rdkafka::ClientContext for KafkaContext {
 pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     topic: String,
+    partition: PartitionLimiter,
 }
 
 impl KafkaSink {
-    pub fn new(config: KafkaConfig, liveness: HealthHandle) -> anyhow::Result<KafkaSink> {
+    pub fn new(
+        config: KafkaConfig,
+        liveness: HealthHandle,
+        partition: PartitionLimiter,
+    ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -147,6 +153,7 @@ impl KafkaSink {
 
         Ok(KafkaSink {
             producer,
+            partition,
             topic: config.kafka_topic,
         })
     }
@@ -157,6 +164,7 @@ impl KafkaSink {
         producer: FutureProducer<KafkaContext>,
         topic: String,
         event: ProcessedEvent,
+        limited: bool,
     ) -> Result<(), CaptureError> {
         let payload = serde_json::to_string(&event).map_err(|e| {
             tracing::error!("failed to serialize event: {}", e);
@@ -164,12 +172,13 @@ impl KafkaSink {
         })?;
 
         let key = event.key();
+        let partition_key = if limited { None } else { Some(key.as_str()) };
 
         match producer.send_result(FutureRecord {
             topic: topic.as_str(),
             payload: Some(&payload),
             partition: None,
-            key: Some(&key),
+            key: partition_key,
             timestamp: None,
             headers: None,
         }) {
@@ -194,10 +203,12 @@ impl KafkaSink {
 impl EventSink for KafkaSink {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        Self::kafka_send(self.producer.clone(), self.topic.clone(), event).await?;
+        let limited = self.partition.is_limited(&event.key());
+        Self::kafka_send(self.producer.clone(), self.topic.clone(), event, limited).await?;
 
         histogram!("capture_event_batch_size", 1.0);
         counter!("capture_events_ingested_total", 1);
+
         Ok(())
     }
 
@@ -209,7 +220,8 @@ impl EventSink for KafkaSink {
             let producer = self.producer.clone();
             let topic = self.topic.clone();
 
-            set.spawn(Self::kafka_send(producer, topic, event));
+            let limited = self.partition.is_limited(&event.key());
+            set.spawn(Self::kafka_send(producer, topic, event, limited));
         }
 
         // Await on all the produce promises

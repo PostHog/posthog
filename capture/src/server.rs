@@ -7,8 +7,10 @@ use time::Duration;
 use crate::billing_limits::BillingLimiter;
 use crate::config::Config;
 use crate::health::{ComponentStatus, HealthRegistry};
+use crate::partition_limits::PartitionLimiter;
 use crate::redis::RedisClient;
 use crate::{router, sink};
+
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()>,
@@ -28,6 +30,7 @@ where
             .await
             .report_status(ComponentStatus::Unhealthy)
             .await;
+
         router::router(
             crate::time::SystemTime {},
             liveness,
@@ -40,7 +43,10 @@ where
         let sink_liveness = liveness
             .register("rdkafka".to_string(), Duration::seconds(30))
             .await;
-        let sink = sink::KafkaSink::new(config.kafka, sink_liveness).unwrap();
+
+        let partition = PartitionLimiter::new(config.per_second_limit, config.burst_limit);
+        let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition).unwrap();
+
         router::router(
             crate::time::SystemTime {},
             liveness,
