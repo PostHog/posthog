@@ -64,7 +64,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     return (
-        <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
+        <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
                 title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
                 buttons={
@@ -95,6 +95,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
+                                    form="early-access-feature"
                                 >
                                     {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                 </LemonButton>
@@ -146,7 +147,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         type="secondary"
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
                                     >
-                                        Reactivate Beta
+                                        Reactivate beta
                                     </LemonButton>
                                 )}
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
@@ -155,7 +156,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         tooltip={'Make beta feature available'}
                                         type="primary"
                                     >
-                                        Release Beta
+                                        Release beta
                                     </LemonButton>
                                 )}
                                 <LemonDivider vertical />

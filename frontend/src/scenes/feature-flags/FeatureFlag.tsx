@@ -219,6 +219,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             <div className="feature-flag">
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
+                        id="feature-flag"
                         logic={featureFlagLogic}
                         props={props}
                         formKey="featureFlag"
@@ -248,8 +249,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         type="primary"
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
+                                        form="feature-flag"
                                         loading={featureFlagLoading}
-                                        disabled={featureFlagLoading}
                                     >
                                         Save
                                     </LemonButton>
@@ -449,8 +450,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-feature-flag"
                                 htmlType="submit"
+                                form="feature-flag"
                                 loading={featureFlagLoading}
-                                disabled={featureFlagLoading}
                             >
                                 Save
                             </LemonButton>
