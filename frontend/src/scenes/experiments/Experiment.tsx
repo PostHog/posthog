@@ -1,14 +1,13 @@
-import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Popconfirm, Progress, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -20,7 +19,15 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
-import { LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTagType,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Form, Group } from 'kea-forms'
@@ -36,6 +43,8 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ExperimentResult } from './ExperimentResult'
+import clsx from 'clsx'
+import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -144,7 +153,7 @@ export function Experiment(): JSX.Element {
     }
 
     if (experimentLoading) {
-        return <Skeleton active />
+        return <LoadingState />
     }
 
     if (experimentMissing) {
@@ -198,8 +207,7 @@ export function Experiment(): JSX.Element {
 
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <div className="flex flex-col gap-2" style={{ maxWidth: '50%' }}>
+                                <div className="flex flex-col gap-2 max-w-1/2">
                                     <Field name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
                                     </Field>
@@ -224,7 +232,7 @@ export function Experiment(): JSX.Element {
                                         />
                                     </Field>
                                     {experiment.parameters.feature_flag_variants && (
-                                        <Col>
+                                        <div>
                                             <label>
                                                 <b>Experiment variants</b>
                                             </label>
@@ -234,21 +242,22 @@ export function Experiment(): JSX.Element {
                                                 may have at most 9 test groups. Variant names can only contain letters,
                                                 numbers, hyphens, and underscores.
                                             </div>
-                                            <Col className="variants">
+                                            <div className="variants">
                                                 {experiment.parameters.feature_flag_variants?.map((variant, index) => (
                                                     <Group
                                                         key={index}
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
-                                                        <Row
+                                                        <div
                                                             key={`${variant}-${index}`}
-                                                            className={`feature-flag-variant ${
+                                                            className={clsx(
+                                                                'feature-flag-variant',
                                                                 index === 0
                                                                     ? 'border-t'
                                                                     : index >= maxVariants
                                                                     ? 'border-b'
                                                                     : ''
-                                                            }`}
+                                                            )}
                                                         >
                                                             <div
                                                                 className="variant-label"
@@ -296,7 +305,7 @@ export function Experiment(): JSX.Element {
                                                                         </Tooltip>
                                                                     )}
                                                             </div>
-                                                        </Row>
+                                                        </div>
                                                     </Group>
                                                 ))}
 
@@ -312,12 +321,12 @@ export function Experiment(): JSX.Element {
                                                             </LemonButton>
                                                         </div>
                                                     )}
-                                            </Col>
-                                        </Col>
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
-                                <Row className="person-selection">
-                                    <Col span={12}>
+                                <div className="person-selection">
+                                    <div className="max-w-1/2">
                                         <div>
                                             <strong>Select participants</strong>
                                         </div>
@@ -382,11 +391,11 @@ export function Experiment(): JSX.Element {
                                                 />
                                             </>
                                         )}
-                                    </Col>
-                                </Row>
+                                    </div>
+                                </div>
 
-                                <Row className="metrics-selection">
-                                    <Col span={12}>
+                                <div className="flex metrics-selection gap-4">
+                                    <div className="flex-1">
                                         <div className="mb-2" data-attr="experiment-goal-type">
                                             <b>Goal type</b>
                                             <div className="text-muted">
@@ -436,19 +445,19 @@ export function Experiment(): JSX.Element {
                                         )}
 
                                         <ExperimentInsightCreator insightProps={insightProps} />
-                                    </Col>
-                                    <Col span={12} className="pl-4">
+                                    </div>
+                                    <div className="flex-1">
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
                                             Goal preview
                                         </div>
                                         <BindLogic logic={insightLogic} props={insightProps}>
                                             <Query query={query} context={{ insightProps }} readOnly />
                                         </BindLogic>
-                                    </Col>
-                                </Row>
+                                    </div>
+                                </div>
                                 <Field name="secondary_metrics">
                                     {({ value, onChange }) => (
-                                        <Row className="secondary-metrics">
+                                        <div className="secondary-metrics">
                                             <div className="flex flex-col">
                                                 <div>
                                                     <b>Secondary metrics</b>
@@ -467,10 +476,10 @@ export function Experiment(): JSX.Element {
                                                     }
                                                 />
                                             </div>
-                                        </Row>
+                                        </div>
                                     )}
                                 </Field>
-                                <Card className="experiment-preview">
+                                <div className="bg-bg-light border rounded experiment-preview p-4">
                                     <ExperimentPreview
                                         experimentId={experiment.id}
                                         trendCount={trendCount}
@@ -479,8 +488,7 @@ export function Experiment(): JSX.Element {
                                         funnelEntrants={entrants}
                                         funnelConversionRate={conversionRate}
                                     />
-                                </Card>
-                                <Row />
+                                </div>
                             </>
                         </BindLogic>
                         <div className="flex items-center gap-2 justify-end">
@@ -513,27 +521,25 @@ export function Experiment(): JSX.Element {
                 </>
             ) : experiment ? (
                 <div className="view-experiment">
-                    <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="w-full" wrap={false}>
-                            <Col>
-                                <PageHeader
-                                    style={{ paddingRight: 8 }}
-                                    title={`${experiment?.name}`}
-                                    buttons={
-                                        <>
-                                            <CopyToClipboardInline
-                                                explicitValue={experiment.feature_flag?.key}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            >
-                                                <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                            </CopyToClipboardInline>
-                                            <StatusTag />
-                                            <ResultsTag />
-                                        </>
-                                    }
-                                />
-                            </Col>
-                            <Col className="page-title-row">
+                    <div className="draft-header">
+                        <div className="flex w-full justify-between align-center flex-nowrap">
+                            <PageHeader
+                                style={{ paddingRight: 8 }}
+                                title={`${experiment?.name}`}
+                                buttons={
+                                    <>
+                                        <CopyToClipboardInline
+                                            explicitValue={experiment.feature_flag?.key}
+                                            iconStyle={{ color: 'var(--muted-alt)' }}
+                                        >
+                                            <span className="text-muted">{experiment.feature_flag?.key}</span>
+                                        </CopyToClipboardInline>
+                                        <StatusTag experiment={experiment} />
+                                        <ResultsTag />
+                                    </>
+                                }
+                            />
+                            <div className="page-title-row">
                                 {experiment && !isExperimentRunning && (
                                     <div className="flex items-center">
                                         <LemonButton
@@ -610,9 +616,9 @@ export function Experiment(): JSX.Element {
                                             )}
                                     </div>
                                 )}
-                            </Col>
-                        </Row>
-                        <Row className="w-full pb-4">
+                            </div>
+                        </div>
+                        <div className="w-full pb-4">
                             <span className="exp-description">
                                 {isExperimentRunning ? (
                                     <EditableField
@@ -630,71 +636,62 @@ export function Experiment(): JSX.Element {
                                     <>{experiment.description || 'There is no description for this experiment.'}</>
                                 )}
                             </span>
-                        </Row>
-                    </Row>
-                    <Row>
+                        </div>
+                    </div>
+                    <div className="mb-4">
                         {showWarning && experimentResults && areResultsSignificant && !experiment.end_date && (
-                            <Row align="middle" className="significant-results">
-                                <Col span={20} style={{ fontWeight: 500, color: '#497342' }}>
-                                    <div>
-                                        Experiment results are significant.{' '}
-                                        {experiment.end_date
-                                            ? ''
-                                            : 'You can end your experiment now or let it run until complete.'}
-                                    </div>
-                                </Col>
-                                <Col span={4}>
-                                    {experiment.end_date ? (
-                                        <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                    ) : (
-                                        <LemonButton type="primary" onClick={() => endExperiment()}>
-                                            End experiment
-                                        </LemonButton>
-                                    )}
-                                </Col>
-                            </Row>
+                            <LemonBanner
+                                className="w-full"
+                                type="success"
+                                onClose={experiment.end_date ? () => setShowWarning(false) : undefined}
+                                action={
+                                    !experiment.end_date
+                                        ? {
+                                              onClick: () => endExperiment(),
+                                              type: 'primary',
+                                              children: 'End experiment',
+                                          }
+                                        : undefined
+                                }
+                            >
+                                <div>
+                                    Experiment results are significant.{' '}
+                                    {experiment.end_date
+                                        ? ''
+                                        : 'You can end your experiment now or let it run until complete.'}
+                                </div>
+                            </LemonBanner>
                         )}
                         {showWarning && experimentResults && !areResultsSignificant && !experiment.end_date && (
-                            <Row align="top" className="not-significant-results">
-                                <Col span={23} style={{ fontWeight: 500, color: 'var(--bg-charcoal)' }}>
-                                    <strong>Your results are not statistically significant</strong>.{' '}
-                                    {significanceBannerDetails}{' '}
-                                    {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See
-                                    our{' '}
-                                    <Link to="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
-                                        {' '}
-                                        experimentation guide{' '}
-                                    </Link>
-                                    for more information.{' '}
-                                </Col>
-                                <Col span={1}>
-                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                </Col>
-                            </Row>
+                            <LemonBanner type="warning" onClose={() => setShowWarning(false)}>
+                                <strong>Your results are not statistically significant</strong>.{' '}
+                                {significanceBannerDetails}{' '}
+                                {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See our{' '}
+                                <Link to="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                    {' '}
+                                    experimentation guide{' '}
+                                </Link>
+                                for more information.{' '}
+                            </LemonBanner>
                         )}
                         {showWarning && experiment.end_date && (
-                            <Row align="top" className="feature-flag-mods">
-                                <Col span={23} style={{ fontWeight: 500 }}>
-                                    <strong>Your experiment is complete, but the feature flag is still enabled.</strong>{' '}
-                                    We recommend removing the feature flag from your code completely, instead of relying
-                                    on this distribution.{' '}
-                                    <Link
-                                        to={
-                                            experiment.feature_flag
-                                                ? urls.featureFlag(experiment.feature_flag.id)
-                                                : undefined
-                                        }
-                                    >
-                                        <b>Adjust feature flag distribution</b>
-                                    </Link>
-                                </Col>
-                                <Col span={1}>
-                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                </Col>
-                            </Row>
+                            <LemonBanner type="info" onClose={() => setShowWarning(false)}>
+                                <strong>Your experiment is complete, but the feature flag is still enabled.</strong> We
+                                recommend removing the feature flag from your code completely, instead of relying on
+                                this distribution.{' '}
+                                <Link
+                                    to={
+                                        experiment.feature_flag
+                                            ? urls.featureFlag(experiment.feature_flag.id)
+                                            : undefined
+                                    }
+                                >
+                                    <b>Adjust feature flag distribution</b>
+                                </Link>
+                            </LemonBanner>
                         )}
-                    </Row>
-                    <Row>
+                    </div>
+                    <div>
                         <LemonCollapse
                             className="w-full"
                             defaultActiveKey="experiment-details"
@@ -703,8 +700,8 @@ export function Experiment(): JSX.Element {
                                     key: 'experiment-details',
                                     header: 'Experiment details',
                                     content: (
-                                        <Row>
-                                            <Col span={isExperimentRunning ? 12 : 24}>
+                                        <div>
+                                            <div className={isExperimentRunning ? 'w-1/2' : 'w-full'}>
                                                 <ExperimentPreview
                                                     experimentId={experiment.id}
                                                     trendCount={trendCount}
@@ -715,14 +712,14 @@ export function Experiment(): JSX.Element {
                                                         isExperimentRunning ? funnelResultsPersonsTotal : entrants
                                                     }
                                                 />
-                                            </Col>
+                                            </div>
                                             {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
-                                                <Col span={12}>
+                                                <div className="w-1/2">
                                                     <ExperimentImplementationDetails experiment={experiment} />
-                                                </Col>
+                                                </div>
                                             )}
                                             {experimentResults && (
-                                                <Col span={12} className="mt-4">
+                                                <div className="w-1/2 mt-4">
                                                     <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
@@ -734,7 +731,7 @@ export function Experiment(): JSX.Element {
                                                     />
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experiment.start_date && (
-                                                            <Row justify="space-between" className="mt-2">
+                                                            <div className="flex justify-between mt-2">
                                                                 {experiment.end_date ? (
                                                                     <div>
                                                                         Ran for{' '}
@@ -762,10 +759,10 @@ export function Experiment(): JSX.Element {
                                                                     </b>{' '}
                                                                     days
                                                                 </div>
-                                                            </Row>
+                                                            </div>
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
-                                                        <Row justify="space-between" className="mt-2">
+                                                        <div className="flex justify-between mt-2">
                                                             {experiment.end_date ? (
                                                                 <div>
                                                                     Saw{' '}
@@ -792,11 +789,11 @@ export function Experiment(): JSX.Element {
                                                                 </b>{' '}
                                                                 participants
                                                             </div>
-                                                        </Row>
+                                                        </div>
                                                     )}
-                                                </Col>
+                                                </div>
                                             )}
-                                            <Col>
+                                            <div>
                                                 <SecondaryMetrics
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
@@ -807,8 +804,8 @@ export function Experiment(): JSX.Element {
                                                         experiment.parameters?.aggregation_group_type_index
                                                     }
                                                 />
-                                            </Col>
-                                        </Row>
+                                            </div>
+                                        </div>
                                     ),
                                 },
                             ]}
@@ -818,44 +815,49 @@ export function Experiment(): JSX.Element {
                                 <ExperimentImplementationDetails experiment={experiment} />
                             </div>
                         )}
-                    </Row>
+                    </div>
                     <ExperimentResult />
                 </div>
             ) : (
-                <Skeleton active />
+                <LoadingState />
             )}
         </>
     )
 }
 
-export function StatusTag(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const status = (): string => {
-        if (!isExperimentRunning) {
-            return 'draft'
-        } else if (!experiment?.end_date) {
-            return 'running'
-        }
-        return 'complete'
-    }
-
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
+    const status = getExperimentStatus(experiment)
     return (
-        <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-            <b className="uppercase">{status()}</b>
-        </Tag>
+        <LemonTag type={getExperimentStatusColor(status)}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
     )
 }
 
 export function ResultsTag(): JSX.Element {
     const { experiment, experimentResults, areResultsSignificant } = useValues(experimentLogic)
     if (experimentResults && experiment.end_date) {
+        const result: { color: LemonTagType; label: string } = areResultsSignificant
+            ? { color: 'success', label: 'Significant Results' }
+            : { color: 'primary', label: 'Results not significant' }
+
         return (
-            <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
-                <b className="uppercase">{areResultsSignificant ? 'Significant Results' : 'Results not significant'}</b>
-            </Tag>
+            <LemonTag type={result.color}>
+                <b className="uppercase">{result.label}</b>
+            </LemonTag>
         )
     }
 
     return <></>
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3" />
+        </div>
+    )
 }

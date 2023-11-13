@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError } from '../../types'
@@ -30,7 +30,7 @@ export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
-    event?: PluginEvent | ProcessedPluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
 ): Promise<void> {
     if (!pluginConfig) {
         captureException(new Error('Tried to process error for nonexistent plugin config!'), {

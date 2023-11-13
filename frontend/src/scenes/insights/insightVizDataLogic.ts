@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType, TrendsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -50,7 +50,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
@@ -171,7 +171,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
-
+        shouldShowSessionAnalysisWarning: [
+            (s) => [s.isUsingSessionAnalysis, s.query],
+            (isUsingSessionAnalysis, query) =>
+                isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
+        ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
@@ -181,6 +185,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.isTrends, s.formula, s.series, s.breakdown],
             (isTrends, formula, series, breakdown): boolean => {
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            },
+        ],
+
+        valueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
+            (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
+                return !!(
+                    ((isTrends || isStickiness || isLifecycle) &&
+                        (insightFilter as TrendsFilterType)?.show_values_on_series) ||
+                    // pie charts have value checked by default
+                    (isTrends &&
+                        (insightFilter as TrendsFilterType)?.display === ChartDisplayType.ActionsPie &&
+                        (insightFilter as TrendsFilterType)?.show_values_on_series === undefined)
+                )
             },
         ],
 

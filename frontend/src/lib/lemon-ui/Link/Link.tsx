@@ -5,9 +5,10 @@ import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useActions } from 'kea'
+
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
@@ -134,10 +135,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <Tooltip
-                isDefaultTooltip
-                title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
-            >
+            <Tooltip title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
                 <span>
                     <button
                         ref={ref as any}

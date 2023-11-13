@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import React, { HTMLProps, useEffect, useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ChartParams, TrendResult } from '~/types'
+import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
@@ -104,6 +104,10 @@ interface WorldMapSVGProps extends ChartParams {
     showTooltip: (countryCode: string, countrySeries: TrendResult | null) => void
     hideTooltip: () => void
     updateTooltipCoordinates: (x: number, y: number) => void
+    worldMapCountryProps?: (
+        countryCode: string,
+        countrySeries: TrendResult | undefined
+    ) => Omit<HTMLProps<SVGElement>, 'key'>
 }
 
 const WorldMapSVG = React.memo(
@@ -116,6 +120,7 @@ const WorldMapSVG = React.memo(
                 showTooltip,
                 hideTooltip,
                 updateTooltipCoordinates,
+                worldMapCountryProps,
             },
             ref
         ) => {
@@ -139,15 +144,23 @@ const WorldMapSVG = React.memo(
                         const fill = aggregatedValue
                             ? gradateColor(BRAND_BLUE_HSL, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
                             : undefined
-                        return React.cloneElement(countryElement, {
-                            key: countryCode,
-                            style: { color: fill, cursor: showPersonsModal && countrySeries ? 'pointer' : undefined },
-                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
-                            onMouseLeave: () => hideTooltip(),
-                            onMouseMove: (e: MouseEvent) => {
-                                updateTooltipCoordinates(e.clientX, e.clientY)
-                            },
-                            onClick: () => {
+
+                        const {
+                            onClick: propsOnClick,
+                            style,
+                            ...props
+                        } = worldMapCountryProps
+                            ? worldMapCountryProps(countryCode, countrySeries)
+                            : { onClick: undefined, style: undefined }
+
+                        let onClick: typeof propsOnClick
+                        if (propsOnClick) {
+                            onClick = (e) => {
+                                propsOnClick(e)
+                                hideTooltip()
+                            }
+                        } else if (showPersonsModal && countrySeries) {
+                            onClick = () => {
                                 if (showPersonsModal && countrySeries) {
                                     if (countrySeries.persons?.url) {
                                         openPersonsModal({
@@ -167,7 +180,19 @@ const WorldMapSVG = React.memo(
                                         })
                                     }
                                 }
+                            }
+                        }
+
+                        return React.cloneElement(countryElement, {
+                            key: countryCode,
+                            style: { color: fill, cursor: onClick ? 'pointer' : undefined, ...style },
+                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
+                            onMouseLeave: () => hideTooltip(),
+                            onMouseMove: (e: MouseEvent) => {
+                                updateTooltipCoordinates(e.clientX, e.clientY)
                             },
+                            onClick,
+                            ...props,
                         })
                     })}
                 </svg>
@@ -176,10 +201,11 @@ const WorldMapSVG = React.memo(
     )
 )
 
-export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
+export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
+    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
 
@@ -192,6 +218,7 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
             hideTooltip={hideTooltip}
             updateTooltipCoordinates={updateTooltipCoordinates}
             ref={svgRef}
+            worldMapCountryProps={renderingMetadata?.countryProps}
         />
     )
 }

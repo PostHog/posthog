@@ -23,8 +23,8 @@ import {
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
-import { sanitize } from 'dompurify'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -224,6 +224,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         </div>
                     }
                     onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    checked={appearance?.whiteLabel}
                     disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
                 />
             </div>
@@ -283,12 +284,12 @@ export function BaseAppearance({
                     </div>
                 )}
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
                     {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
                     They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
                     you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
                     {description && (
-                        <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                        <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
                     )}
                     {type === SurveyQuestionType.Open && (
                         <textarea
@@ -490,9 +491,9 @@ export function SurveyRatingAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
                 {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
                 )}
                 <div className="rating-section">
                     <div className="rating-options">
@@ -590,9 +591,9 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
                 {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
                 )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
@@ -603,7 +604,7 @@ export function SurveyMultipleChoiceAppearance({
                                 name="choice"
                                 value={choice}
                             />
-                            <label style={{ color: textColor }}>{choice}</label>
+                            <label>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}
@@ -658,11 +659,13 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                 </div>
                 <h3
                     className="thank-you-message-header"
-                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageHeader || 'Thank you!') }}
+                    dangerouslySetInnerHTML={{
+                        __html: sanitizeHTML(appearance?.thankYouMessageHeader || 'Thank you!'),
+                    }}
                 />
                 <div
                     className="thank-you-message-body"
-                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageDescription || '') }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance?.thankYouMessageDescription || '') }}
                 />
                 <Button appearance={appearance} onSubmit={() => undefined}>
                     Close

@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -20,9 +20,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
-const NETWORK_PLUGIN_NAME = 'posthog/network@1'
+
 const MAX_SEEKBAR_ITEMS = 100
 
 export const IMAGE_WEB_EXTENSIONS = [
@@ -39,58 +40,6 @@ export const IMAGE_WEB_EXTENSIONS = [
     'ico',
     'cur',
 ]
-
-export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceEvent } = {
-    // BASE_PERFORMANCE_EVENT_COLUMNS
-    0: 'entry_type',
-    1: 'time_origin',
-    2: 'name',
-
-    // RESOURCE_EVENT_COLUMNS
-    3: 'start_time',
-    4: 'redirect_start',
-    5: 'redirect_end',
-    6: 'worker_start',
-    7: 'fetch_start',
-    8: 'domain_lookup_start',
-    9: 'domain_lookup_end',
-    10: 'connect_start',
-    11: 'secure_connection_start',
-    12: 'connect_end',
-    13: 'request_start',
-    14: 'response_start',
-    15: 'response_end',
-    16: 'decoded_body_size',
-    17: 'encoded_body_size',
-    18: 'initiator_type',
-    19: 'next_hop_protocol',
-    20: 'render_blocking_status',
-    21: 'response_status',
-    22: 'transfer_size',
-
-    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
-    23: 'largest_contentful_paint_element',
-    24: 'largest_contentful_paint_render_time',
-    25: 'largest_contentful_paint_load_time',
-    26: 'largest_contentful_paint_size',
-    27: 'largest_contentful_paint_id',
-    28: 'largest_contentful_paint_url',
-
-    // NAVIGATION_EVENT_COLUMNS
-    29: 'dom_complete',
-    30: 'dom_content_loaded_event',
-    31: 'dom_interactive',
-    32: 'load_event_end',
-    33: 'load_event_start',
-    34: 'redirect_count',
-    35: 'navigation_type',
-    36: 'unload_event_end',
-    37: 'unload_event_start',
-
-    // Added after v1
-    39: 'duration',
-    40: 'timestamp',
-}
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<InspectorListItem> {}
@@ -277,33 +226,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (sessionPlayerData): PerformanceEvent[] => {
                 // performanceEvents used to come from the API,
                 // but we decided to instead store them in the recording data
-                const events: PerformanceEvent[] = []
+                // we gather more info than rrweb, so we mix the two back together here
 
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
-                    snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === NETWORK_PLUGIN_NAME
-                        ) {
-                            const properties = snapshot.data.payload as any
-
-                            const data: Partial<PerformanceEvent> = {
-                                timestamp: snapshot.timestamp,
-                                window_id: windowId,
-                            }
-
-                            Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-                                if (key in properties) {
-                                    data[value] = properties[key]
-                                }
-                            })
-
-                            events.push(data as PerformanceEvent)
-                        }
-                    })
-                })
-
-                return events
+                return matchNetworkEvents(sessionPlayerData.snapshotsByWindowId)
             },
         ],
 

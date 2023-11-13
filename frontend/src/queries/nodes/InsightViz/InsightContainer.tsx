@@ -36,15 +36,6 @@ import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelati
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { Link } from '@posthog/lemon-ui'
 
-const VIEW_MAP = {
-    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
-    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
-    [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
-}
-
 export function InsightContainer({
     disableHeader,
     disableTable,
@@ -82,11 +73,11 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
-        isUsingSessionAnalysis,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
+        shouldShowSessionAnalysisWarning,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -134,6 +125,25 @@ export function InsightContainer({
 
         return null
     })()
+
+    function renderActiveView(): JSX.Element | null {
+        switch (activeView) {
+            case InsightType.TRENDS:
+                return <TrendInsight view={InsightType.TRENDS} context={context} />
+            case InsightType.STICKINESS:
+                return <TrendInsight view={InsightType.STICKINESS} context={context} />
+            case InsightType.LIFECYCLE:
+                return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
+            case InsightType.FUNNELS:
+                return <FunnelInsight />
+            case InsightType.RETENTION:
+                return <RetentionContainer />
+            case InsightType.PATHS:
+                return <Paths />
+            default:
+                return null
+        }
+    }
 
     function renderTable(): JSX.Element | null {
         if (
@@ -197,7 +207,7 @@ export function InsightContainer({
 
     return (
         <>
-            {isUsingSessionAnalysis ? (
+            {shouldShowSessionAnalysisWarning ? (
                 <div className="mb-4">
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
@@ -255,13 +265,13 @@ export function InsightContainer({
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
                             <div className="insights-graph-container-row flex flex-nowrap">
-                                <div className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</div>
+                                <div className="insights-graph-container-row-left">{renderActiveView()}</div>
                                 <div className="insights-graph-container-row-right">
                                     <InsightLegend />
                                 </div>
                             </div>
                         ) : (
-                            VIEW_MAP[activeView]
+                            renderActiveView()
                         )}
                     </div>
                 )}

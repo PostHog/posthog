@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
 import { DataTableNode } from '~/queries/schema'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 
@@ -32,7 +32,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     props({} as TableLogicProps),
     connect(() => ({
         actions: [
-            databaseSceneLogic,
+            databaseTableListLogic,
             ['loadDatabase'],
             dataWarehouseSceneLogic,
             ['loadDataWarehouse', 'toggleSourceModal'],

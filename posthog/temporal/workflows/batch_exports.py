@@ -4,9 +4,6 @@ import dataclasses
 import datetime as dt
 import gzip
 import json
-import logging
-import logging.handlers
-import queue
 import tempfile
 import typing
 import uuid
@@ -14,18 +11,17 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
+from prometheus_client import Counter
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
-    BatchExportsInputsProtocol,
     create_batch_export_backfill,
     create_batch_export_run,
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -45,6 +41,15 @@ SELECT_QUERY_TEMPLATE = Template(
     $order_by
     $format
     """
+)
+
+ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
+BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
+EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
+EXPORT_FINISHED = Counter(
+    "batch_export_finished",
+    "Number of batch exports finished, for any reason (including failure).",
+    labelnames=("destination", "status"),
 )
 
 
@@ -246,7 +251,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
             msg = (
                 "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+                "In the latter case, ensure '{Type}BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 
@@ -260,7 +265,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
         else:
             msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
                 f"of type '{type(data_interval_end_search_attr[0])}'."
             )
             raise TypeError(msg)
@@ -465,136 +470,6 @@ class BatchExportTemporaryFile:
         self.records_since_last_reset = 0
 
 
-class BatchExportLoggerAdapter(logging.LoggerAdapter):
-    """Adapter that adds batch export details to log records."""
-
-    def __init__(
-        self,
-        logger: logging.Logger,
-        extra=None,
-    ) -> None:
-        """Create the logger adapter."""
-        super().__init__(logger, extra or {})
-
-    def process(self, msg: str, kwargs) -> tuple[typing.Any, collections.abc.MutableMapping[str, typing.Any]]:
-        """Override to add batch exports details."""
-        workflow_id = None
-        workflow_run_id = None
-        attempt = None
-
-        try:
-            activity_info = activity.info()
-        except RuntimeError:
-            pass
-        else:
-            workflow_run_id = activity_info.workflow_run_id
-            workflow_id = activity_info.workflow_id
-            attempt = activity_info.attempt
-
-        try:
-            workflow_info = workflow.info()
-        except RuntimeError:
-            pass
-        else:
-            workflow_run_id = workflow_info.run_id
-            workflow_id = workflow_info.workflow_id
-            attempt = workflow_info.attempt
-
-        if workflow_id is None or workflow_run_id is None or attempt is None:
-            return (None, {})
-
-        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
-        # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
-        # date. Plus one more leaves us at the end of {batch_export_id}.
-        batch_export_id = workflow_id.rsplit("-", maxsplit=3)[0]
-
-        extra = kwargs.get("extra", None) or {}
-        extra["workflow_id"] = workflow_id
-        extra["batch_export_id"] = batch_export_id
-        extra["workflow_run_id"] = workflow_run_id
-        extra["attempt"] = attempt
-
-        if isinstance(self.extra, dict):
-            extra = extra | self.extra
-        kwargs["extra"] = extra
-
-        return (msg, kwargs)
-
-    @property
-    def base_logger(self) -> logging.Logger:
-        """Underlying logger usable for actions such as adding handlers/formatters."""
-        return self.logger
-
-
-class BatchExportsLogRecord(logging.LogRecord):
-    team_id: int
-    batch_export_id: str
-    workflow_run_id: str
-    attempt: int
-
-
-class KafkaLoggingHandler(logging.Handler):
-    def __init__(self, topic, key=None):
-        super().__init__()
-        self.producer = KafkaProducer()
-        self.topic = topic
-        self.key = key
-
-    def emit(self, record):
-        if record.name == "kafka":
-            return
-
-        # This is a lie, but as long as this handler is used together
-        # with BatchExportLoggerAdapter we should be fine.
-        # This is definitely cheaper than a bunch if checks for attributes.
-        record = typing.cast(BatchExportsLogRecord, record)
-
-        msg = self.format(record)
-        data = {
-            "instance_id": record.workflow_run_id,
-            "level": record.levelname,
-            "log_source": "batch_exports",
-            "log_source_id": record.batch_export_id,
-            "message": msg,
-            "team_id": record.team_id,
-            "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
-        }
-
-        try:
-            future = self.producer.produce(topic=self.topic, data=data, key=self.key)
-            future.get(timeout=1)
-        except Exception as e:
-            logging.exception("Failed to produce log to Kafka topic %s", self.topic, exc_info=e)
-
-    def close(self):
-        self.producer.close()
-        logging.Handler.close(self)
-
-
-LOG_QUEUE: queue.Queue = queue.Queue(-1)
-QUEUE_HANDLER = logging.handlers.QueueHandler(LOG_QUEUE)
-QUEUE_HANDLER.setLevel(logging.DEBUG)
-
-KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
-KAFKA_HANDLER.setLevel(logging.DEBUG)
-QUEUE_LISTENER = logging.handlers.QueueListener(LOG_QUEUE, KAFKA_HANDLER)
-
-logger = logging.getLogger(__name__)
-logger.addHandler(QUEUE_HANDLER)
-logger.setLevel(logging.DEBUG)
-
-
-def get_batch_exports_logger(inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
-    """Return a logger for BatchExports."""
-    # Need a type comment as _thread is private.
-    if QUEUE_LISTENER._thread is None:  # type: ignore
-        QUEUE_LISTENER.start()
-
-    adapter = BatchExportLoggerAdapter(logger, {"team_id": inputs.team_id})
-
-    return adapter
-
-
 @dataclasses.dataclass
 class CreateBatchExportRunInputs:
     """Inputs to the create_export_run activity.
@@ -620,9 +495,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
-    logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
-
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -632,8 +504,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
         data_interval_end=inputs.data_interval_end,
         status=inputs.status,
     )
-
-    logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
 
     return str(run.id)
 
@@ -670,12 +540,9 @@ class CreateBatchExportBackfillInputs:
 async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
     """Activity that creates an BatchExportBackfill.
 
-    Intended to be used in all export workflows, usually at the start, to create a model
-    instance to represent them in our database.
+    Intended to be used in all batch export backfill workflows, usually at the start, to create a
+    model instance to represent them in our database.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
-    logger.info(f"Creating BatchExportBackfill model instance in team {inputs.team_id}.")
-
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -686,8 +553,6 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         status=inputs.status,
         team_id=inputs.team_id,
     )
-
-    logger.info(f"Created BatchExportBackfill {run.id} in team {inputs.team_id}.")
 
     return str(run.id)
 
@@ -734,7 +599,8 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    destination = workflow.info().workflow_type.lower()
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
 
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
@@ -743,6 +609,7 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
     try:
+        EXPORT_STARTED.labels(destination=destination).inc()
         await workflow.execute_activity(
             activity,
             inputs,
@@ -773,6 +640,7 @@ async def execute_batch_export_insert_activity(
         )
 
     finally:
+        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

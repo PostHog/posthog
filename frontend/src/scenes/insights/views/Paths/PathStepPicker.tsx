@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Select } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 

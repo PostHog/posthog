@@ -12,17 +12,19 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    BYTES_EXPORTED,
+    ROWS_EXPORTED,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
@@ -98,9 +100,9 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
-        "Running BigQuery export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -126,7 +128,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to BigQuery", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -162,6 +164,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             )
 
             with BatchExportTemporaryFile() as jsonl_file:
+
+                def flush_to_bigquery():
+                    logger.debug(
+                        "Loading %s records of size %s bytes",
+                        jsonl_file.records_since_last_reset,
+                        jsonl_file.bytes_since_last_reset,
+                    )
+                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    ROWS_EXPORTED.labels(destination="bigquery").inc(jsonl_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="bigquery").inc(jsonl_file.bytes_since_last_reset)
+
                 for result in results_iterator:
                     row = {
                         field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
@@ -173,26 +186,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Copying %s records of size %s bytes to BigQuery",
-                            jsonl_file.records_since_last_reset,
-                            jsonl_file.bytes_since_last_reset,
-                        )
-                        load_jsonl_file_to_bigquery_table(
-                            jsonl_file,
-                            bigquery_table,
-                            table_schema,
-                            bq_client,
-                        )
+                        flush_to_bigquery()
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    logger.info(
-                        "Copying %s records of size %s bytes to BigQuery",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
-                    )
-                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    flush_to_bigquery()
 
 
 @workflow.defn(name="bigquery-export")
@@ -214,10 +212,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info(
-            "Starting BigQuery export batch %s - %s",
+            "Starting batch export %s - %s",
             data_interval_start,
             data_interval_end,
         )

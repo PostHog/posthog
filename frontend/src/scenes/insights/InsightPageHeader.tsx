@@ -286,7 +286,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.Query,
-                                        attrs: { id: insight.short_id },
+                                        attrs: {
+                                            query: {
+                                                kind: NodeKind.SavedInsightNode,
+                                                shortId: insight.short_id,
+                                            },
+                                        },
                                     }}
                                     type="secondary"
                                 />
