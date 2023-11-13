@@ -211,7 +211,7 @@
 
             &:hover {
                 > span {
-                    border-color: transparent !important;
+                    border-color: var(--secondary-3000-button-border-hover) !important;
                 }
             }
         }
@@ -265,7 +265,7 @@
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            background: rgba(0,0,0,0.1);
+            background: rgba(0, 0, 0, 0.1);
 
             .LemonButton__icon {
                 color: var(--default);
@@ -284,6 +284,7 @@
             &.LemonButton--active {
                 > span {
                     background-color: var(--bg-light) !important;
+                    border-color: var(--bg-light) !important;
                 }
             }
 
