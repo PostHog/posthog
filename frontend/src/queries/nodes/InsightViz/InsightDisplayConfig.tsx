@@ -51,11 +51,7 @@ export function InsightDisplayConfig(): JSX.Element {
         funnelDataLogic(insightProps)
     )
 
-    const showDateRange = !isRetention
-    const disableDateRange = isFunnels && !!isEmptyFunnel
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
-    const showUnit = isTrends
-    const showChart = supportsDisplay
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -66,15 +62,8 @@ export function InsightDisplayConfig(): JSX.Element {
         !trendsFilter?.compare &&
         (!display || display === ChartDisplayType.ActionsLineGraph) &&
         featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
-    const showRetention = !!isRetention
-    const showPaths = !!isPaths
-    const showFunnelDisplayLayout = !!isStepsFunnel
-    const showFunnelBins = !!isTimeToConvertFunnel
-    const showValueOnSeries = supportsValueOnSeries
 
-    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
         ...(supportsValueOnSeries || showPercentStackView || hasLegend
@@ -82,14 +71,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Display',
                       items: [
-                          ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                       ],
                   },
               ]
             : []),
-        ...(!isPercentStackViewOn && showUnit
+        ...(!isPercentStackViewOn && isTrends
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -99,10 +88,10 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
     ]
     const advancedOptionsCount: number =
-        (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
+        (supportsValueOnSeries && showValueOnSeries ? 1 : 0) +
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
-        showUnit &&
+        isTrends &&
         trendsFilter?.aggregation_axis_format &&
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
@@ -112,9 +101,9 @@ export function InsightDisplayConfig(): JSX.Element {
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center gap-x-2 flex-wrap my-2 gap-y-2">
-                {showDateRange && (
+                {!isRetention && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={disableDateRange} />
+                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
                 )}
 
@@ -130,14 +119,14 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {showRetention && (
+                {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
                     </ConfigFilter>
                 )}
 
-                {showPaths && (
+                {!!isPaths && (
                     <ConfigFilter>
                         <PathStepPicker />
                     </ConfigFilter>
@@ -159,17 +148,17 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonButton>
                     </LemonMenu>
                 )}
-                {showChart && (
+                {supportsDisplay && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
                 )}
-                {showFunnelDisplayLayout && (
+                {!!isStepsFunnel && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {showFunnelBins && (
+                {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>
