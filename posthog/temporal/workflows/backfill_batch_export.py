@@ -371,7 +371,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    non_retryable_error_types=["TemporalScheduleDeletedError"],
+                    non_retryable_error_types=["TemporalScheduleNotFoundError"],
                 ),
                 # Temporal requires that we set a timeout.
                 # Allocate 5 minutes per expected number of runs to backfill as a timeout.
