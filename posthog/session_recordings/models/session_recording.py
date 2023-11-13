@@ -12,7 +12,9 @@ from posthog.session_recordings.models.metadata import (
     RecordingMatchingEvents,
     RecordingMetadata,
 )
-from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording_event import (
+    SessionRecordingViewed,
+)
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 

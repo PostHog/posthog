@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0127_stricter_team_data"),
     ]

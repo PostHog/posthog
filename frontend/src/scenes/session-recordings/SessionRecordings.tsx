@@ -11,7 +11,6 @@ import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecording
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
-import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -24,6 +23,8 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -33,6 +34,7 @@ export function SessionsRecordings(): JSX.Element {
     const { guardAvailableFeature } = useActions(sceneLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         actionId: null,
@@ -53,9 +55,11 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('filters')
     })
 
+    const is3000 = useFeatureFlag('POSTHOG_3000')
+
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-16">
+        <div className={is3000 ? '' : '-mb-16'}>
             <PageHeader
                 title={<div>Session Replay</div>}
                 buttons={
@@ -64,10 +68,8 @@ export function SessionsRecordings(): JSX.Element {
                             <>
                                 <NotebookSelectButton
                                     resource={{
-                                        attrs: {
-                                            filters: filters,
-                                        },
                                         type: NotebookNodeType.RecordingPlaylist,
+                                        attrs: { filters: filters },
                                     }}
                                     type="secondary"
                                 />
@@ -98,7 +100,7 @@ export function SessionsRecordings(): JSX.Element {
                                 <LemonButton
                                     type="secondary"
                                     icon={<IconSettings />}
-                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
                                 >
                                     Configure
                                 </LemonButton>
@@ -144,7 +146,7 @@ export function SessionsRecordings(): JSX.Element {
                         action={{
                             type: 'secondary',
                             icon: <IconSettings />,
-                            onClick: () => openSessionRecordingSettingsDialog(),
+                            onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}
                     >
@@ -158,7 +160,7 @@ export function SessionsRecordings(): JSX.Element {
                         action={{
                             type: 'secondary',
                             icon: <IconSettings />,
-                            onClick: () => openSessionRecordingSettingsDialog(),
+                            onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}
                         dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}

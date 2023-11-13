@@ -19,5 +19,7 @@ def get_recording_status_month_to_date() -> RecordingsSystemStatus:
     """
     )[0]
     return RecordingsSystemStatus(
-        count=result[0], events=f"{result[1]:,} rrweb events in {result[2]:,} messages", size=result[3]
+        count=result[0],
+        events=f"{result[1]:,} rrweb events in {result[2]:,} messages",
+        size=result[3],
     )

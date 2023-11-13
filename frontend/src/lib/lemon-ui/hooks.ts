@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
  * @private
  */
 export function useSliderPositioning<C extends HTMLElement, S extends HTMLElement>(
-    currentValue: string | number | null | undefined,
+    currentValue: React.Key | null | undefined,
     transitionMs: number
 ): {
     containerRef: React.RefObject<C>
@@ -35,7 +35,7 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
                 hasRenderedInitiallyRef.current = true
             }
         }
-    }, [currentValue, containerWidth])
+    }, [currentValue, containerWidth, transitioning]) // FIXME: transitioning is only needed here to trigger a re-render
 
     return {
         containerRef,

@@ -187,7 +187,10 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-08-23T20:00:00.000Z"):
             self.assertEqual(check_condition(rollback_condition, flag), True)
             stats_for_timerange.assert_called_once_with(
-                "2021-08-21T20:00:00", "2021-08-22T20:00:00", "2021-08-22T20:00:00", "2021-08-23T20:00:00"
+                "2021-08-21T20:00:00",
+                "2021-08-22T20:00:00",
+                "2021-08-22T20:00:00",
+                "2021-08-23T20:00:00",
             )
 
         stats_for_timerange.reset_mock()
@@ -195,5 +198,8 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-08-25T13:00:00.000Z"):
             self.assertEqual(check_condition(rollback_condition, flag), False)
             stats_for_timerange.assert_called_once_with(
-                "2021-08-21T20:00:00", "2021-08-22T20:00:00", "2021-08-24T13:00:00", "2021-08-25T13:00:00"
+                "2021-08-21T20:00:00",
+                "2021-08-22T20:00:00",
+                "2021-08-24T13:00:00",
+                "2021-08-25T13:00:00",
             )

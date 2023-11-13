@@ -81,7 +81,10 @@ class TestCachedByFiltersDecorator(APIBaseTest):
 
 
 class TestIsStaleHelper(BaseTest):
-    cached_response = {"last_refresh": datetime.fromisoformat("2023-02-08T12:05:23+00:00"), "result": "bla"}
+    cached_response = {
+        "last_refresh": datetime.fromisoformat("2023-02-08T12:05:23+00:00"),
+        "result": "bla",
+    }
 
     def test_keeps_fresh_hourly_result(self) -> None:
         with freeze_time("2023-02-08T12:59:59Z"):

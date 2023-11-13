@@ -31,6 +31,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -221,6 +225,15 @@
                   "created_at",
                   "updated_at",
                   "properties"
+              ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
               ]
           }
       ],
@@ -813,6 +826,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -998,6 +1015,15 @@
                   "created_at",
                   "updated_at",
                   "properties"
+              ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
               ]
           }
       ],

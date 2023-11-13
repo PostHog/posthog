@@ -1,18 +1,11 @@
 import { Link, LemonButton, LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import {
-    IconLink,
-    IconCloudDownload,
-    IconSettings,
-    IconEllipsis,
-    IconLegend,
-    IconErrorOutline,
-} from 'lib/lemon-ui/icons'
+import { IconLink, IconSettings, IconEllipsis, IconLegend, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTypeWithConfig, PluginRepositoryEntry, PluginInstallationType } from 'scenes/plugins/types'
+import { PluginTypeWithConfig, PluginRepositoryEntry } from 'scenes/plugins/types'
 import { urls } from 'scenes/urls'
 import { PluginType } from '~/types'
 import { PluginTags } from './components'
@@ -23,8 +16,8 @@ export function AppView({
 }: {
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
-    const { installingPluginUrl, showAppMetricsForPlugin, loading, sortableEnabledPlugins } = useValues(pluginsLogic)
-    const { installPlugin, editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
+    const { showAppMetricsForPlugin, sortableEnabledPlugins } = useValues(pluginsLogic)
+    const { editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
@@ -112,9 +105,9 @@ export function AppView({
             </div>
 
             <div className="flex gap-2 whitespace-nowrap items-center justify-end">
-                {'id' in plugin && pluginConfig ? (
+                {'id' in plugin && (
                     <>
-                        {!pluginConfig.enabled && isConfigured && (
+                        {pluginConfig && !pluginConfig.enabled && isConfigured && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -129,7 +122,8 @@ export function AppView({
                             </LemonButton>
                         )}
 
-                        {pluginConfig.id &&
+                        {pluginConfig &&
+                            pluginConfig.id &&
                             (pluginConfig.error ? (
                                 <LemonButton
                                     type="secondary"
@@ -160,18 +154,6 @@ export function AppView({
                             Configure
                         </LemonButton>
                     </>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        loading={loading && installingPluginUrl === plugin.url}
-                        icon={<IconCloudDownload />}
-                        size="small"
-                        onClick={() =>
-                            plugin.url ? installPlugin(plugin.url, PluginInstallationType.Repository) : undefined
-                        }
-                    >
-                        Install
-                    </LemonButton>
                 )}
 
                 <LemonMenu items={menuItems} placement="left">

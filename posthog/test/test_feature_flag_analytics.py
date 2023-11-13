@@ -57,10 +57,12 @@ class TestFeatureFlagAnalytics(BaseTest):
 
             # redis returns encoded bytes
             self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192618": b"10", b"165192619": b"5"}
+                client.hgetall(f"posthog:decide_requests:{team_id}"),
+                {b"165192618": b"10", b"165192619": b"5"},
             )
             self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{other_team_id}"), {b"165192618": b"7", b"165192619": b"3"}
+                client.hgetall(f"posthog:decide_requests:{other_team_id}"),
+                {b"165192618": b"7", b"165192619": b"3"},
             )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
@@ -184,7 +186,10 @@ class TestFeatureFlagAnalytics(BaseTest):
             mock_capture.capture.assert_not_called()
 
             client = redis.get_client()
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192620": b"5"})
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:{team_id}"),
+                {b"165192620": b"5"},
+            )
 
             with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"):
                 capture_team_decide_usage(mock_capture, team_id, team_uuid)
@@ -252,7 +257,12 @@ class TestFeatureFlagAnalytics(BaseTest):
                     for index in range(5)
                 }
                 future_to_index = {
-                    executor.submit(increment_request_count, team_id, 1, FlagRequestType.LOCAL_EVALUATION): index
+                    executor.submit(
+                        increment_request_count,
+                        team_id,
+                        1,
+                        FlagRequestType.LOCAL_EVALUATION,
+                    ): index
                     for index in range(10, 15)
                 }
 
@@ -291,8 +301,14 @@ class TestFeatureFlagAnalytics(BaseTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192620": b"8"})
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{team_id}"), {b"165192620": b"8"})
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:{team_id}"),
+                {b"165192620": b"8"},
+            )
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_requests:{team_id}"),
+                {b"165192620": b"8"},
+            )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}"), {})
 
@@ -345,7 +361,12 @@ class TestFeatureFlagAnalytics(BaseTest):
                     for index in range(5)
                 }
                 future_to_index = {
-                    executor.submit(capture_team_decide_usage, mock_capture, other_team_id, other_team_uuid): index
+                    executor.submit(
+                        capture_team_decide_usage,
+                        mock_capture,
+                        other_team_id,
+                        other_team_uuid,
+                    ): index
                     for index in range(5, 10)
                 }
 
@@ -446,7 +467,10 @@ class TestFeatureFlagAnalytics(BaseTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192620": b"8"})
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:{team_id}"),
+                {b"165192620": b"8"},
+            )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
 
 

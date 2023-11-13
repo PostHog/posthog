@@ -59,5 +59,10 @@ export const NotebookMarkLink = Mark.create({
 })
 
 const isPostHogLink = (href: string): boolean => {
-    return new URL(href, window.location.origin).origin === window.location.origin
+    try {
+        const url = new URL(href, window.location.origin)
+        return url.origin === window.location.origin
+    } catch {
+        return false
+    }
 }

@@ -6,9 +6,9 @@ import {
     EventsQuery,
     HogQLExpression,
     NodeKind,
-    QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'

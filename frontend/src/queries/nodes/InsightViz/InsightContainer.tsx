@@ -1,4 +1,4 @@
-import { Card, Col, Row } from 'antd'
+import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -6,8 +6,8 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { QueryContext } from '~/queries/schema'
-import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
+import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
@@ -34,15 +34,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
-
-const VIEW_MAP = {
-    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
-    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
-    [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
-}
+import { Link } from '@posthog/lemon-ui'
 
 export function InsightContainer({
     disableHeader,
@@ -81,11 +73,11 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
-        isUsingSessionAnalysis,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
+        shouldShowSessionAnalysisWarning,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -133,6 +125,25 @@ export function InsightContainer({
 
         return null
     })()
+
+    function renderActiveView(): JSX.Element | null {
+        switch (activeView) {
+            case InsightType.TRENDS:
+                return <TrendInsight view={InsightType.TRENDS} context={context} />
+            case InsightType.STICKINESS:
+                return <TrendInsight view={InsightType.STICKINESS} context={context} />
+            case InsightType.LIFECYCLE:
+                return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
+            case InsightType.FUNNELS:
+                return <FunnelInsight />
+            case InsightType.RETENTION:
+                return <RetentionContainer />
+            case InsightType.PATHS:
+                return <Paths />
+            default:
+                return null
+        }
+    }
 
     function renderTable(): JSX.Element | null {
         if (
@@ -196,12 +207,12 @@ export function InsightContainer({
 
     return (
         <>
-            {isUsingSessionAnalysis ? (
+            {shouldShowSessionAnalysisWarning ? (
                 <div className="mb-4">
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
-                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 </div>
             ) : null}
@@ -253,14 +264,14 @@ export function InsightContainer({
                         {BlockingEmptyState ? (
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
-                            <Row className="insights-graph-container-row" wrap={false}>
-                                <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                                <Col className="insights-graph-container-row-right">
+                            <div className="insights-graph-container-row flex flex-nowrap">
+                                <div className="insights-graph-container-row-left">{renderActiveView()}</div>
+                                <div className="insights-graph-container-row-right">
                                     <InsightLegend />
-                                </Col>
-                            </Row>
+                                </div>
+                            </div>
                         ) : (
-                            VIEW_MAP[activeView]
+                            renderActiveView()
                         )}
                     </div>
                 )}

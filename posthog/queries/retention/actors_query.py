@@ -99,7 +99,10 @@ def build_actor_activity_query(
     aggregate_users_by_distinct_id: Optional[bool] = None,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
-    from posthog.queries.retention import build_returning_event_query, build_target_event_query
+    from posthog.queries.retention import (
+        build_returning_event_query,
+        build_target_event_query,
+    )
 
     """
     The retention actor query is used to retrieve something of the form:
@@ -134,7 +137,8 @@ def build_actor_activity_query(
     }
 
     query = RETENTION_BREAKDOWN_ACTOR_SQL.format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query
+        returning_event_query=returning_event_query,
+        target_event_query=target_event_query,
     )
 
     return query, all_params
@@ -147,7 +151,6 @@ def _build_actor_query(
     selected_interval: Optional[int] = None,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
-
     actor_activity_query, actor_activity_query_params = build_actor_activity_query(
         filter=filter,
         team=team,
@@ -157,7 +160,11 @@ def _build_actor_query(
         retention_events_query=retention_events_query,
     )
 
-    params = {"offset": filter.offset, "limit": filter.limit or 100, **actor_activity_query_params}
+    params = {
+        "offset": filter.offset,
+        "limit": filter.limit or 100,
+        **actor_activity_query_params,
+    }
     actor_query_template = """
         SELECT
             actor_id,

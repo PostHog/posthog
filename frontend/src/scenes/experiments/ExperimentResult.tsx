@@ -1,9 +1,8 @@
-import { Col, Progress, Row, Skeleton, Tooltip } from 'antd'
+import { Col, Progress, Tooltip } from 'antd'
 import { useValues } from 'kea'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelLayout } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
@@ -11,6 +10,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { NodeKind } from '~/queries/schema'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
+import { IconInfo } from '@posthog/icons'
+import { LoadingState } from './Experiment'
 
 export function ExperimentResult(): JSX.Element {
     const {
@@ -34,14 +35,7 @@ export function ExperimentResult(): JSX.Element {
             {experimentResults ? (
                 (experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
                     <>
-                        <Row
-                            className="border-t"
-                            justify="space-between"
-                            style={{
-                                paddingTop: 8,
-                                paddingBottom: 8,
-                            }}
-                        >
+                        <div className="flex justify-between py-2 border-t">
                             <Col span={2 * secondaryColumnSpan}>Variant</Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col
@@ -54,15 +48,8 @@ export function ExperimentResult(): JSX.Element {
                                     <b>{capitalizeFirstLetter(variant)}</b>
                                 </Col>
                             ))}
-                        </Row>
-                        <Row
-                            className="border-t"
-                            justify="space-between"
-                            style={{
-                                paddingTop: 8,
-                                paddingBottom: 8,
-                            }}
-                        >
+                        </div>
+                        <div className="flex justify-between py-2 border-t">
                             <Col span={2 * secondaryColumnSpan}>
                                 {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
                             </Col>
@@ -73,15 +60,8 @@ export function ExperimentResult(): JSX.Element {
                                         : `${conversionRateForVariant(variant)}%`}
                                 </Col>
                             ))}
-                        </Row>
-                        <Row
-                            className="border-t"
-                            justify="space-between"
-                            style={{
-                                paddingTop: 8,
-                                paddingBottom: 8,
-                            }}
-                        >
+                        </div>
+                        <div className="flex justify-between py-2 border-t">
                             <Col span={2 * secondaryColumnSpan}>Probability to be the best</Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col key={idx} span={secondaryColumnSpan}>
@@ -92,24 +72,24 @@ export function ExperimentResult(): JSX.Element {
                                     </b>
                                 </Col>
                             ))}
-                        </Row>
+                        </div>
                     </>
                 ) : (
-                    <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
+                    <div className="flex justify-around flex-nowrap">
                         {
                             //sort by decreasing probability
                             Object.keys(experimentResults.probability)
                                 .sort((a, b) => experimentResults.probability[b] - experimentResults.probability[a])
                                 .map((variant, idx) => (
-                                    <Col key={idx} className="pr-4">
+                                    <div key={idx} className="pr-4">
                                         <div>
                                             <b>{capitalizeFirstLetter(variant)}</b>
                                         </div>
                                         {experimentInsightType === InsightType.TRENDS ? (
                                             <>
-                                                <Row>
+                                                <div className="flex">
                                                     <b className="pr-1">
-                                                        <Row>
+                                                        <div className="flex">
                                                             {'action' in experimentResults.insight[0] && (
                                                                 <EntityFilterInfo
                                                                     filter={experimentResults.insight[0].action}
@@ -121,7 +101,7 @@ export function ExperimentResult(): JSX.Element {
                                                                     : 'count'}
                                                                 :
                                                             </span>
-                                                        </Row>
+                                                        </div>
                                                     </b>{' '}
                                                     {countDataForVariant(variant)}{' '}
                                                     {areTrendResultsConfusing && idx === 0 && (
@@ -129,20 +109,22 @@ export function ExperimentResult(): JSX.Element {
                                                             placement="right"
                                                             title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
                                                         >
-                                                            <InfoCircleOutlined className="py-1 px-0.5" />
+                                                            <IconInfo className="py-1 px-0.5" />
                                                         </Tooltip>
                                                     )}
-                                                </Row>
+                                                </div>
                                                 <div className="flex">
                                                     <b className="pr-1">Exposure:</b>{' '}
                                                     {exposureCountDataForVariant(variant)}
                                                 </div>
                                             </>
                                         ) : (
-                                            <Row>
-                                                <b className="pr-1">Conversion rate:</b>{' '}
-                                                {conversionRateForVariant(variant)}%
-                                            </Row>
+                                            <div className="space-x-1">
+                                                <span>
+                                                    <b>Conversion rate:</b>{' '}
+                                                </span>
+                                                <span>{conversionRateForVariant(variant)}%</span>
+                                            </div>
                                         )}
                                         <Progress
                                             percent={Number((experimentResults.probability[variant] * 100).toFixed(1))}
@@ -156,17 +138,13 @@ export function ExperimentResult(): JSX.Element {
                                             Probability that this variant is the best:{' '}
                                             <b>{(experimentResults.probability[variant] * 100).toFixed(1)}%</b>
                                         </div>
-                                    </Col>
+                                    </div>
                                 ))
                         }
-                    </Row>
-                )
-            ) : (
-                experimentResultsLoading && (
-                    <div className="text-center">
-                        <Skeleton active />
                     </div>
                 )
+            ) : (
+                experimentResultsLoading && <LoadingState />
             )}
             {experimentResults ? (
                 // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
@@ -198,7 +176,7 @@ export function ExperimentResult(): JSX.Element {
             ) : (
                 experiment.start_date && (
                     <>
-                        <div className="no-experiment-results">
+                        <div className="no-experiment-results p-4">
                             {!experimentResultsLoading && (
                                 <div className="text-center">
                                     <b>There are no results for this experiment yet.</b>

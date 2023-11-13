@@ -27,7 +27,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { userLogic } from 'scenes/userLogic'
 import { dayjs } from 'lib/dayjs'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { openSurveysSettingsDialog } from './SurveySettings'
@@ -51,17 +50,15 @@ export function Surveys(): JSX.Element {
         surveysLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
-        usingSurveysSiteApp,
         searchTerm,
         filters,
         uniqueCreators,
+        showSurveysDisabledBanner,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const surveysPopupDisabled = currentTeam && !currentTeam?.surveys_opt_in
 
     const [tab, setSurveyTab] = useState(SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
@@ -69,14 +66,7 @@ export function Surveys(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Surveys
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
+                title="Surveys"
                 buttons={
                     <>
                         <LemonButtonWithSideAction
@@ -89,7 +79,7 @@ export function Surveys(): JSX.Element {
                                     actionable: true,
                                     overlay: (
                                         <LemonButton size="small" to={urls.survey('new')}>
-                                            New from blank
+                                            Create blank survey
                                         </LemonButton>
                                     ),
                                 },
@@ -98,13 +88,6 @@ export function Surveys(): JSX.Element {
                         >
                             New survey
                         </LemonButtonWithSideAction>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSettings />}
-                            onClick={() => openSurveysSettingsDialog()}
-                        >
-                            Configure
-                        </LemonButton>
                     </>
                 }
                 caption={
@@ -136,7 +119,7 @@ export function Surveys(): JSX.Element {
             <div className="space-y-2">
                 <VersionCheckerBanner />
 
-                {surveysPopupDisabled ? (
+                {showSurveysDisabledBanner ? (
                     <LemonBanner
                         type="warning"
                         action={{
@@ -147,9 +130,8 @@ export function Surveys(): JSX.Element {
                         }}
                         className="mb-2"
                     >
-                        {usingSurveysSiteApp
-                            ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
-                            : 'Survey popups are currently disabled for this project.'}
+                        Survey popovers are currently disabled for this project but there are active surveys running.
+                        Re-enable them in the settings.
                     </LemonBanner>
                 ) : null}
             </div>
@@ -309,14 +291,14 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: {
                                                                             end_date: dayjs().toISOString(),
                                                                         },
                                                                     })
-                                                                }
+                                                                }}
                                                             >
                                                                 Stop survey
                                                             </LemonButton>
@@ -325,12 +307,12 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: { end_date: null },
                                                                     })
-                                                                }
+                                                                }}
                                                             >
                                                                 Resume survey
                                                             </LemonButton>

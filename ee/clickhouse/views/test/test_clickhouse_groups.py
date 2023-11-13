@@ -8,7 +8,12 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    snapshot_clickhouse_queries,
+)
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -25,9 +30,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             )
         with freeze_time("2021-05-02"):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
             )
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Plankton"},
+        )
 
         response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
         self.assertEqual(
@@ -45,7 +58,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
@@ -61,7 +77,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
@@ -78,7 +97,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
@@ -90,7 +112,12 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         response_data = self.client.get(f"/api/projects/{self.team.id}/groups/").json()
         self.assertEqual(
             response_data,
-            {"type": "validation_error", "attr": "group_type_index", "code": "invalid_input", "detail": mock.ANY},
+            {
+                "type": "validation_error",
+                "attr": "group_type_index",
+                "code": "invalid_input",
+                "detail": mock.ANY,
+            },
         )
 
     @freeze_time("2021-05-02")
@@ -101,7 +128,12 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="foo//bar",
+            properties={},
+        )
 
         fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
         self.assertEqual(fail_response.status_code, 404)
@@ -236,9 +268,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Plankton"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:2",
+            properties={},
+        )
 
         response_data = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
         self.assertEqual(
@@ -250,9 +297,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_property_values(self):
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="org:1",
+            properties={"industry": "finance"},
+        )
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
         ).json()
@@ -260,9 +322,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data, [{"name": "finance"}, {"name": "technology"}])
 
     def test_empty_property_values(self):
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="org:1",
+            properties={"industry": "finance"},
+        )
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=name&group_type_index=0"
         ).json()
@@ -278,7 +355,11 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/groups_types/update_metadata",
             [
                 {"group_type_index": 0, "name_singular": "organization!"},
-                {"group_type_index": 1, "group_type": "rename attempt", "name_plural": "playlists"},
+                {
+                    "group_type_index": 1,
+                    "group_type": "rename attempt",
+                    "name_plural": "playlists",
+                },
             ],
         ).json()
 
@@ -291,8 +372,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": "organization!",
                     "name_plural": None,
                 },
-                {"group_type_index": 1, "group_type": "playlist", "name_singular": None, "name_plural": "playlists"},
-                {"group_type_index": 2, "group_type": "another", "name_singular": None, "name_plural": None},
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": "playlists",
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
             ],
         )
 
@@ -312,8 +403,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                 },
-                {"group_type_index": 1, "group_type": "playlist", "name_singular": None, "name_plural": None},
-                {"group_type_index": 2, "group_type": "another", "name_singular": None, "name_plural": None},
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
             ],
         )
 
@@ -328,7 +429,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{other_team.id}/groups_types")  # No access to this project
 
         self.assertEqual(response.status_code, 403, response.json())
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+        self.assertEqual(
+            response.json(),
+            self.permission_denied_response("You don't have access to the project."),
+        )
 
     def test_can_list_group_types_of_another_org_with_sharing_access_token(self):
         other_org = Organization.objects.create(name="other org")
@@ -352,8 +456,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                 },
-                {"group_type_index": 1, "group_type": "playlist", "name_singular": None, "name_plural": None},
-                {"group_type_index": 2, "group_type": "another", "name_singular": None, "name_plural": None},
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
             ],
         )
 

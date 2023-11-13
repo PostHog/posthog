@@ -65,4 +65,20 @@ describe('segmenter', () => {
 
         expect(segments).toMatchSnapshot()
     })
+
+    it('ends a segment if it is the last window', () => {
+        const start = dayjs('2023-01-01T00:00:00.000Z')
+        const end = start.add(1000, 'milliseconds')
+
+        const snapshots: RecordingSnapshot[] = [
+            { windowId: 'A', timestamp: start.valueOf(), type: 2, data: {} } as any,
+            { windowId: 'A', timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
+            { windowId: 'B', timestamp: start.valueOf() + 500, type: 3, data: {} } as any,
+            { windowId: 'B', timestamp: end, type: 3, data: {} } as any,
+        ]
+
+        const segments = createSegments(snapshots, start, end)
+
+        expect(segments).toMatchSnapshot()
+    })
 })

@@ -23,7 +23,10 @@ class TestChangesBetweenInsights(BaseTest):
                 field="dashboards",
                 before=[],
                 after=[
-                    {"dashboard": {"id": dashboard.id, "name": dashboard.name}, "insight": {"id": insight_after.id}}
+                    {
+                        "dashboard": {"id": dashboard.id, "name": dashboard.name},
+                        "insight": {"id": insight_after.id},
+                    }
                 ],
             )
         ]
@@ -36,7 +39,15 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(name="name"),
             current=self._an_insight_with(name="new name"),
         )
-        expected = [Change(type="Insight", field="name", action="changed", before="name", after="new name")]
+        expected = [
+            Change(
+                type="Insight",
+                field="name",
+                action="changed",
+                before="name",
+                after="new name",
+            )
+        ]
 
         self.assertCountEqual(actual, expected)
 
@@ -47,7 +58,13 @@ class TestChangesBetweenInsights(BaseTest):
             current=self._an_insight_with(tagged_items=["after", "tags"]),
         )
         expected = [
-            Change(type="Insight", field="tags", action="changed", before=["before", "tags"], after=["after", "tags"])
+            Change(
+                type="Insight",
+                field="tags",
+                action="changed",
+                before=["before", "tags"],
+                after=["after", "tags"],
+            )
         ]
 
         self.assertCountEqual(actual, expected)
@@ -58,7 +75,15 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(derived_name="starting"),
             current=self._an_insight_with(derived_name="after"),
         )
-        expected = [Change(type="Insight", field="derived_name", action="changed", before="starting", after="after")]
+        expected = [
+            Change(
+                type="Insight",
+                field="derived_name",
+                action="changed",
+                before="starting",
+                after="after",
+            )
+        ]
 
         self.assertCountEqual(actual, expected)
 
@@ -68,7 +93,15 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(description="starting"),
             current=self._an_insight_with(description="after"),
         )
-        expected = [Change(type="Insight", field="description", action="changed", before="starting", after="after")]
+        expected = [
+            Change(
+                type="Insight",
+                field="description",
+                action="changed",
+                before="starting",
+                after="after",
+            )
+        ]
 
         self.assertCountEqual(actual, expected)
 
@@ -91,7 +124,10 @@ class TestChangesBetweenInsights(BaseTest):
             refreshing=kwargs.get("refreshing", False),
             created_by=kwargs.get("user", self.user),
             is_sample=kwargs.get("is_sample", False),
-            short_id=kwargs.get("short_id", "".join(random.choices(string.ascii_letters + string.digits, k=6))),
+            short_id=kwargs.get(
+                "short_id",
+                "".join(random.choices(string.ascii_letters + string.digits, k=6)),
+            ),
             favorited=kwargs.get("favorited", False),
             refresh_attempt=kwargs.get("refresh_attempt", 0),
             last_modified_at=kwargs.get("last_modified_at", parser.parse("12th April 2003")),

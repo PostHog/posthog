@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from dateutil.parser import isoparse
 
@@ -17,7 +17,7 @@ def replace_filters(node: ast.Expr, filters: HogQLFilters, team: Team) -> ast.Ex
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: HogQLFilters, team: Team = None):
+    def __init__(self, filters: Optional[HogQLFilters], team: Team = None):
         super().__init__()
         self.filters = filters
         self.team = team
@@ -59,7 +59,12 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = isoparse(dateTo)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
-                exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
+                exprs.append(
+                    parse_expr(
+                        "timestamp < {timestamp}",
+                        {"timestamp": ast.Constant(value=parsed_date)},
+                    )
+                )
 
             # limit to the last 30d by default
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
@@ -68,7 +73,12 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = isoparse(dateFrom)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
-                exprs.append(parse_expr("timestamp >= {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
+                exprs.append(
+                    parse_expr(
+                        "timestamp >= {timestamp}",
+                        {"timestamp": ast.Constant(value=parsed_date)},
+                    )
+                )
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)

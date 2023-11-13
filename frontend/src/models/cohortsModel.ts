@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount, afterMount } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType, ExporterFormat } from '~/types'
@@ -6,23 +7,24 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import Fuse from 'fuse.js'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 const POLL_TIMEOUT = 5000
 
-export const cohortsModel = kea<cohortsModelType>({
-    path: ['models', 'cohortsModel'],
-    connect: {
+export const cohortsModel = kea<cohortsModelType>([
+    path(['models', 'cohortsModel']),
+    connect({
         values: [teamLogic, ['currentTeam']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
-    }),
-
-    loaders: () => ({
+    })),
+    loaders(() => ({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
@@ -32,9 +34,8 @@ export const cohortsModel = kea<cohortsModelType>({
                 return response?.results?.map((cohort) => processCohort(cohort)) || []
             },
         },
-    }),
-
-    reducers: {
+    })),
+    reducers({
         pollTimeout: [
             null as number | null,
             {
@@ -48,7 +49,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 }
                 return [...state].map((existingCohort) => (existingCohort.id === cohort.id ? cohort : existingCohort))
             },
-            cohortCreated: (state = [], { cohort }) => {
+            cohortCreated: (state, { cohort }) => {
                 if (!cohort) {
                     return state
                 }
@@ -61,18 +62,28 @@ export const cohortsModel = kea<cohortsModelType>({
                 return [...state].filter((c) => c.id !== cohort.id)
             },
         },
-    },
-
-    selectors: {
+    }),
+    selectors({
         cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
         cohortsById: [
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
                 Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])),
         ],
-    },
 
-    listeners: ({ actions }) => ({
+        cohortsSearch: [
+            (s) => [s.cohorts],
+            (cohorts): ((term: string) => CohortType[]) => {
+                const fuse = new Fuse<CohortType>(cohorts ?? [], {
+                    keys: ['name'],
+                    threshold: 0.3,
+                })
+
+                return (term) => fuse.search(term).map((result) => result.item)
+            },
+        ],
+    }),
+    listeners(({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating) {
@@ -85,7 +96,6 @@ export const cohortsModel = kea<cohortsModelType>({
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
-                    max_limit: 10000,
                 },
             }
             if (columns && columns.length > 0) {
@@ -100,17 +110,16 @@ export const cohortsModel = kea<cohortsModelType>({
                 callback: actions.loadCohorts,
             })
         },
+    })),
+    beforeUnmount(({ values }) => {
+        clearTimeout(values.pollTimeout || undefined)
     }),
 
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            if (isAuthenticatedTeam(values.currentTeam)) {
-                // Don't load on shared insights/dashboards
-                actions.loadCohorts()
-            }
-        },
-        beforeUnmount: () => {
-            clearTimeout(values.pollTimeout || undefined)
-        },
+    afterMount(({ actions, values }) => {
+        if (isAuthenticatedTeam(values.currentTeam)) {
+            // Don't load on shared insights/dashboards
+            actions.loadCohorts()
+        }
     }),
-})
+    permanentlyMount(),
+])

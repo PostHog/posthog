@@ -21,6 +21,7 @@ import {
     EarlyAccessFeatureType,
     Survey,
     SurveyQuestionType,
+    OrganizationFeatureFlag,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -41,6 +42,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
@@ -177,6 +179,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature'],
             dashboardsLogic,
             ['dashboards'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -219,6 +223,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        setCopyDestinationProject: (id: number | null) => ({ id }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -266,7 +271,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: 0, variant: null }]
+                    const groups = [
+                        ...(state?.filters?.groups || []),
+                        { properties: [], rollout_percentage: 0, variant: null },
+                    ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -291,7 +299,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
 
-                    const groups = [...state?.filters.groups]
+                    const groups = [...(state?.filters?.groups || [])]
                     if (newRolloutPercentage !== undefined) {
                         groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
                     }
@@ -462,6 +470,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        copyDestinationProject: [
+            null as number | null,
+            {
+                setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -505,10 +519,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: [
+        relatedInsights: [
             [] as InsightModel[],
             {
-                loadRecentInsights: async () => {
+                loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
@@ -563,6 +577,39 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        projectsWithCurrentFlag: {
+            __default: [] as OrganizationFeatureFlag[],
+            loadProjectsWithCurrentFlag: async () => {
+                const orgId = values.currentOrganization?.id
+                const flagKey = values.featureFlag.key
+
+                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
+
+                // Put current project first
+                const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
+                if (currentProjectIdx) {
+                    const [currentProject] = projects.splice(currentProjectIdx, 1)
+                    const sortedProjects = [currentProject, ...projects]
+                    return sortedProjects
+                }
+                return projects
+            },
+        },
+        featureFlagCopy: {
+            copyFlag: async () => {
+                const orgId = values.currentOrganization?.id
+                const featureFlagKey = values.featureFlag.key
+                const { copyDestinationProject, currentTeamId } = values
+
+                if (currentTeamId && copyDestinationProject) {
+                    return await api.organizationFeatureFlags.copy(orgId, {
+                        feature_flag_key: featureFlagKey,
+                        from_project: currentTeamId,
+                        target_project_ids: [copyDestinationProject],
+                    })
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -609,7 +656,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async () => {
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
@@ -723,6 +770,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlagsLogic.findMounted()?.actions.updateFlag(updatedFlag)
             }
         },
+        copyFlagSuccess: ({ featureFlagCopy }) => {
+            if (featureFlagCopy?.success.length) {
+                const operation = values.projectsWithCurrentFlag.find(
+                    (p) => Number(p.team_id) === values.copyDestinationProject
+                )
+                    ? 'updated'
+                    : 'copied'
+                lemonToast.success(`Feature flag ${operation} successfully!`)
+            } else {
+                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
+            }
+
+            actions.loadProjectsWithCurrentFlag()
+            actions.setCopyDestinationProject(null)
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
@@ -746,9 +808,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 variantRolloutSum === 100,
         ],
         aggregationTargetName: [
-            (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
-            (featureFlag, groupTypes, aggregationLabel): string => {
-                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
+            (s) => [s.featureFlag, s.aggregationLabel],
+            (featureFlag, aggregationLabel): string => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
                 return 'users'
@@ -943,7 +1005,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloads = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloads)
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()

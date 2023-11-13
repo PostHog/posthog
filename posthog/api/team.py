@@ -4,7 +4,14 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, request, response, serializers, viewsets
+from rest_framework import (
+    exceptions,
+    permissions,
+    request,
+    response,
+    serializers,
+    viewsets,
+)
 from rest_framework.decorators import action
 from posthog.api.geoip import get_geoip_properties
 
@@ -16,7 +23,10 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import (
+    groups_on_events_querying_enabled,
+    set_team_in_cache,
+)
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -88,6 +98,10 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
+            "session_recording_sample_rate",
+            "session_recording_minimum_duration_milliseconds",
+            "session_recording_linked_flag",
+            "session_recording_network_payload_capture_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -128,6 +142,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
+            "session_recording_sample_rate",
+            "session_recording_minimum_duration_milliseconds",
+            "session_recording_linked_flag",
+            "session_recording_network_payload_capture_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -164,6 +182,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
+
+    def validate_session_recording_linked_flag(self, value) -> Dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+        if value.keys() != {"id", "key"}:
+            raise exceptions.ValidationError("Must provide a dictionary with only 'id' and 'key' keys.")
+
+        return value
+
+    def validate_session_recording_network_payload_capture_config(self, value) -> Dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
+            )
+
+        return value
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:

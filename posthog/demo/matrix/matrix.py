@@ -72,7 +72,12 @@ class Cluster(ABC):
         self.radius = int(self.MIN_RADIUS + self.radius_distribution() * (self.MAX_RADIUS - self.MIN_RADIUS))
         self.people_matrix = [
             [
-                matrix.PERSON_CLASS(kernel=(x == self.radius and y == self.radius), x=x, y=y, cluster=self)
+                matrix.PERSON_CLASS(
+                    kernel=(x == self.radius and y == self.radius),
+                    x=x,
+                    y=y,
+                    cluster=self,
+                )
                 for x in range(1 + self.radius * 2)
             ]
             for y in range(1 + self.radius * 2)

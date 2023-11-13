@@ -7,8 +7,9 @@ import {
     HogQLQuery,
     PersonsNode,
     PersonsQuery,
-    QueryContext,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -558,6 +559,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     (response as any).result.length > 0 ||
                                     !responseLoading) && <LoadNext query={query.source} />
                             }
+                            onRow={context?.rowProps}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}

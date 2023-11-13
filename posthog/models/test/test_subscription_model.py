@@ -80,7 +80,12 @@ class TestSubscription(BaseTest):
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         assert token.startswith("ey")
 
-        info = jwt.decode(token, "not-so-secret", audience=PosthogJwtAudience.UNSUBSCRIBE.value, algorithms=["HS256"])
+        info = jwt.decode(
+            token,
+            "not-so-secret",
+            audience=PosthogJwtAudience.UNSUBSCRIBE.value,
+            algorithms=["HS256"],
+        )
 
         assert info["id"] == subscription.id
         assert info["email"] == "test2@posthog.com"
@@ -137,7 +142,10 @@ class TestSubscription(BaseTest):
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(
-            interval=2, frequency="monthly", bysetpos=-1, byweekday=["wednesday", "friday"]
+            interval=2,
+            frequency="monthly",
+            bysetpos=-1,
+            byweekday=["wednesday", "friday"],
         )
 
         # Last wed or fri of 01.22 is Wed 28th
@@ -156,7 +164,15 @@ class TestSubscription(BaseTest):
             interval=1,
             frequency="monthly",
             bysetpos=3,
-            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            byweekday=[
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
         )
         subscription.save()
         assert subscription.next_delivery_date == datetime(2022, 1, 3, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
@@ -185,7 +201,15 @@ class TestSubscription(BaseTest):
         subscription = self._create_insight_subscription(
             interval=1,
             frequency="monthly",
-            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            byweekday=[
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
             bysetpos=3,
         )
         assert subscription.summary == "sent every month on the third day"

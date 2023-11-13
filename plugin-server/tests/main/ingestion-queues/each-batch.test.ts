@@ -14,6 +14,7 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
+    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
@@ -173,8 +174,8 @@ describe('eachBatchX', () => {
         })
         it('parses elements when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 33 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -193,8 +194,8 @@ describe('eachBatchX', () => {
         })
         it('skips elements parsing when not useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 100 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -426,13 +427,11 @@ describe('eachBatchX', () => {
             )
         })
 
-        it('fails the batch if runEventPipeline rejects', async () => {
+        it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
             const batch = createBatch(captureEndpointEvent)
             runEventPipelineSpy.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
-            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
-                'runEventPipeline nopes out'
-            )
-            expect(runEventPipeline).toHaveBeenCalledTimes(1)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            expect(runEventPipeline).toHaveBeenCalledTimes(2)
         })
 
         it('fails the batch if one deferred promise rejects', async () => {
@@ -530,6 +529,19 @@ describe('eachBatchX', () => {
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
                 key: 'ingestion',
             })
+        })
+
+        it('fails the batch if runEventPipeline rejects repeatedly', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            runEventPipelineSpy
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'runEventPipeline nopes out'
+            )
+            expect(runEventPipeline).toHaveBeenCalledTimes(3)
+            runEventPipelineSpy.mockRestore()
         })
     })
 })

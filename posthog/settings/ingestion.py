@@ -1,7 +1,8 @@
 import os
+
 import structlog
 
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -32,3 +33,7 @@ PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
 
 REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
 REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)
+
+NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
+NEW_ANALYTICS_CAPTURE_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_TEAM_IDS", ""))
+NEW_ANALYTICS_CAPTURE_SAMPLING_RATE = get_from_env("NEW_ANALYTICS_CAPTURE_SAMPLING_RATE", type_cast=float, default=1.0)

@@ -68,21 +68,42 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertIn(b"IP is not allowed", response.content)
 
     def test_trusted_proxies(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
     def test_attempt_spoofing(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                )
                 self.assertIn(b"IP is not allowed", response.content)
 
     def test_trust_all_proxies(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 
@@ -137,7 +158,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(self):
         _, _, third_team = Organization.objects.bootstrap(
-            None, name="Third Party", slug="third-party", team_fields={"name": "Third Team"}
+            None,
+            name="Third Party",
+            slug="third-party",
+            team_fields={"name": "Third Team"},
         )
         dashboard = Dashboard.objects.create(team=third_team)
 

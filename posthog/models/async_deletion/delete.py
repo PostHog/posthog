@@ -41,7 +41,10 @@ class AsyncDeletionProcess(ABC):
             AsyncDeletion.objects.filter(pk__in=[row.pk for row in to_verify]).update(delete_verified_at=timezone.now())
             logger.warn(
                 "Updated `delete_verified_at` for AsyncDeletion",
-                {"count": len(to_verify), "team_ids": list(set(row.team_id for row in to_verify))},
+                {
+                    "count": len(to_verify),
+                    "team_ids": list(set(row.team_id for row in to_verify)),
+                },
             )
 
     def _fetch_unverified_deletions_grouped(self):

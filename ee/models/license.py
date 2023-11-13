@@ -34,7 +34,10 @@ class LicenseManager(models.Manager):
         valid_licenses = list(self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud")))
         if not valid_licenses:
             return None
-        return max(valid_licenses, key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0))
+        return max(
+            valid_licenses,
+            key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0),
+        )
 
 
 class License(models.Model):

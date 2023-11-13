@@ -55,7 +55,9 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
     def setUpTestData(cls):
         super().setUpTestData()
         cls.matrix = DummyMatrix(
-            n_clusters=3, now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")), days_future=0
+            n_clusters=3,
+            now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            days_future=0,
         )
         cls.matrix.simulate()
 
@@ -83,7 +85,11 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
 
         # At least one event for each cluster
         assert (
-            sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[0][0] >= 3
+            sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
+            >= 3
         )
         assert self.team.name == DummyMatrix.PRODUCT_NAME
 
@@ -95,5 +101,9 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         # At least one event for each cluster
         assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
         assert (
-            sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[0][0] >= 3
+            sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
+            >= 3
         )

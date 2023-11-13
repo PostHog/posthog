@@ -58,7 +58,6 @@ def reverse(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0226_longer_action_slack_message_format"),
     ]
@@ -67,9 +66,23 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="DashboardTile",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("dashboard", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.dashboard")),
-                ("insight", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.insight")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "dashboard",
+                    models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.dashboard"),
+                ),
+                (
+                    "insight",
+                    models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.insight"),
+                ),
                 ("layouts", models.JSONField(default=dict)),
                 ("color", models.CharField(blank=True, max_length=400, null=True)),
             ],
@@ -78,7 +91,10 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="insights",
             field=models.ManyToManyField(
-                blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.Insight"
+                blank=True,
+                related_name="dashboards",
+                through="posthog.DashboardTile",
+                to="posthog.Insight",
             ),
         ),
         migrations.RunPython(migrate_dashboard_insight_relations, reverse, elidable=True),

@@ -3,7 +3,9 @@ from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
-from ee.clickhouse.queries.experiments.trend_experiment_result import uses_math_aggregation_by_user_or_property_value
+from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    uses_math_aggregation_by_user_or_property_value,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag

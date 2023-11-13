@@ -3,7 +3,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import (
+    DEFAULT_MAX_ASSET_COUNT,
+    generate_assets,
+)
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile

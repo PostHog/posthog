@@ -4,8 +4,9 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
 import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
@@ -98,10 +99,6 @@ export async function eachBatchParallelIngestion(
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
-        return ingestEvent(queue.pluginsServer, event)
-    }
-
     const batchStartTimer = new Date()
     const metricKey = 'ingestion'
     const loggingKey = `each_batch_parallel_ingestion`
@@ -142,7 +139,7 @@ export async function eachBatchParallelIngestion(
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
                         processingPromises.push(
                             captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                                 overflowDistinctId: distinct_id,
@@ -154,15 +151,17 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
-                        const result = await eachMessage(pluginEvent, queue)
+                        const result = (await retryIfRetriable(async () => {
+                            return await ingestEvent(queue.pluginsServer, pluginEvent)
+                        })) as IngestResult
 
-                        for (const promise of result.promises ?? []) {
+                        result.promises?.forEach((promise) =>
                             processingPromises.push(
                                 promise.catch(async (error) => {
                                     await handleProcessingError(error, message, pluginEvent, queue)
                                 })
                             )
-                        }
+                        )
                     } catch (error) {
                         await handleProcessingError(error, message, pluginEvent, queue)
                     }
@@ -257,13 +256,9 @@ async function ingestEvent(
     const result = await runEventPipeline(server, event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-    countAndLogEvents()
 
     return result
 }
-
-let messageCounter = 0
-let messageLogDate = 0
 
 function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
@@ -318,7 +313,10 @@ export function splitIngestionBatch(
         }
         const pluginEvent = formPipelineEvent(message)
         const eventKey = computeKey(pluginEvent)
-        if (overflowMode === IngestionOverflowMode.Reroute && !ConfiguredLimiter.consume(eventKey, 1)) {
+        if (
+            overflowMode === IngestionOverflowMode.Reroute &&
+            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
+        ) {
             // Local overflow detection triggering, reroute to overflow topic too
             message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
@@ -337,19 +335,4 @@ export function splitIngestionBatch(
     }
     output.toProcess = Array.from(batches.values())
     return output
-}
-
-function countAndLogEvents(): void {
-    const now = new Date().valueOf()
-    messageCounter++
-    if (now - messageLogDate > 10000) {
-        status.info(
-            '🕒',
-            `Processed ${messageCounter} events${
-                messageLogDate === 0 ? '' : ` in ${Math.round((now - messageLogDate) / 10) / 100}s`
-            }`
-        )
-        messageCounter = 0
-        messageLogDate = now
-    }
 }

@@ -784,7 +784,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentPlayerState === SessionPlayerState.SKIP) &&
                 values.timestampChangeTracking.timestampMatchesPrevious > 10
             ) {
-                cache.debug?.('stuck session player detected', values.timestampChangeTracking)
+                // NOTE: We should investigate if this is still happening - logging to posthog recording so we can find this in the future
+                posthog.sessionRecording?.log(
+                    'stuck session player detected - this indicates an issue with the segmenter',
+                    'warn'
+                )
+                cache.debug?.('stuck session player detected', {
+                    timestampChangeTracking: values.timestampChangeTracking,
+                    currentSegment: values.currentSegment,
+                    snapshots: values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId ?? ''],
+                    player: values.player,
+                    meta: values.player?.replayer.getMetaData(),
+                    rrwebPlayerTime,
+                    segments: values.sessionPlayerData.segments,
+                    segmentIndex:
+                        values.currentSegment && values.sessionPlayerData.segments.indexOf(values.currentSegment),
+                })
+
                 actions.skipPlayerForward(rrwebPlayerTime, skip)
                 newTimestamp = newTimestamp + skip
             }
@@ -811,6 +827,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         newTimestamp,
                         segments: values.sessionPlayerData.segments,
                         currentSegment: values.currentSegment,
+                        nextSegment,
                         segmentIndex: values.sessionPlayerData.segments.indexOf(values.currentSegment),
                     })
                     // At the end of the recording. Pause the player and set fully to the end
@@ -946,7 +963,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
     windowValues({
-        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
 
     beforeUnmount(({ values, actions, cache, props }) => {

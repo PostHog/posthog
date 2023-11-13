@@ -197,6 +197,7 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            RELOAD_PLUGIN_JITTER_MAX_MS: 0
             POE_EMBRACE_JOIN_FOR_TEAMS: ${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}}
 
         steps:

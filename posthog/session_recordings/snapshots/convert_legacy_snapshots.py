@@ -18,12 +18,17 @@ RECORDING_CONVERSION_TIME_HISTOGRAM = Histogram(
 
 def _save_converted_content_back_to_storage(converted_content: str, recording: SessionRecording) -> str:
     try:
-        from ee.session_recordings.session_recording_extensions import save_recording_with_new_content
+        from ee.session_recordings.session_recording_extensions import (
+            save_recording_with_new_content,
+        )
 
         return save_recording_with_new_content(recording, converted_content)
     except ImportError:
         # not running in EE context... shouldn't get here
-        logger.error("attempted_to_save_converted_content_back_to_storage_in_non_ee_context", recording_id=recording.id)
+        logger.error(
+            "attempted_to_save_converted_content_back_to_storage_in_non_ee_context",
+            recording_id=recording.id,
+        )
         return ""
 
 

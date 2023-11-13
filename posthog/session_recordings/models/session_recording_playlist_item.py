@@ -14,7 +14,9 @@ class SessionRecordingPlaylistItem(models.Model):
         blank=True,
     )
     playlist: models.ForeignKey = models.ForeignKey(
-        "SessionRecordingPlaylist", related_name="playlist_items", on_delete=models.CASCADE
+        "SessionRecordingPlaylist",
+        related_name="playlist_items",
+        on_delete=models.CASCADE,
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 

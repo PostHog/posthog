@@ -8,6 +8,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -27,15 +29,18 @@ import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
-import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { MentionsExtension } from './MentionsExtension'
+import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -46,7 +51,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -62,7 +67,7 @@ export function Editor(): JSX.Element {
 
     const _editor = useEditor({
         extensions: [
-            CustomDocument,
+            mode === 'notebook' ? CustomDocument : ExtensionDocument,
             StarterKit.configure({
                 document: false,
                 gapcursor: false,
@@ -94,6 +99,10 @@ export function Editor(): JSX.Element {
                     }
                 },
             }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
+            }),
             NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeQuery,
@@ -109,9 +118,12 @@ export function Editor(): JSX.Element {
             NotebookNodeEarlyAccessFeature,
             NotebookNodeSurvey,
             NotebookNodeImage,
+            NotebookNodeProperties,
+            NotebookNodeMention,
             SlashCommandsExtension,
-            BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
+            MentionsExtension,
+            NotebookNodePersonFeed,
+            NotebookNodeMap,
         ],
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
@@ -178,9 +190,7 @@ export function Editor(): JSX.Element {
                             .setTextSelection(coordinates.pos)
                             .insertContent({
                                 type: NotebookNodeType.Image,
-                                attrs: {
-                                    file,
-                                },
+                                attrs: { file },
                             })
                             .run()
 
@@ -199,12 +209,14 @@ export function Editor(): JSX.Element {
                 getText: () => textContent(editor.state.doc),
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                getCurrentPosition: () => editor.state.selection.$anchor.pos,
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
-                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -244,9 +256,10 @@ export function Editor(): JSX.Element {
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
-            {_editor && <InlineMenu editor={_editor} />}
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </EditorContent>
         </>
     )
 }

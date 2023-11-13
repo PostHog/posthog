@@ -7,7 +7,11 @@ from posthog.async_migrations.runner import (
     start_async_migration,
     update_migration_progress,
 )
-from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
+from posthog.async_migrations.utils import (
+    force_stop_migration,
+    process_error,
+    trigger_migration,
+)
 from posthog.celery import app
 from posthog.models.instance_setting import get_instance_setting
 
@@ -44,7 +48,11 @@ def check_async_migration_health() -> None:
     # failures and successes are handled elsewhere
     # pending means we haven't picked up the task yet
     # retry is not possible as max_retries == 0
-    if migration_task_celery_state not in (states.STARTED, states.PENDING, states.FAILURE):
+    if migration_task_celery_state not in (
+        states.STARTED,
+        states.PENDING,
+        states.FAILURE,
+    ):
         return
 
     inspector = app.control.inspect()

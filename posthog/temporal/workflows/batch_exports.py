@@ -4,9 +4,6 @@ import dataclasses
 import datetime as dt
 import gzip
 import json
-import logging
-import logging.handlers
-import queue
 import tempfile
 import typing
 import uuid
@@ -14,15 +11,17 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from temporalio import activity, workflow
+from prometheus_client import Counter
+from temporalio import activity, exceptions, workflow
+from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
-    BatchExportsInputsProtocol,
+    create_batch_export_backfill,
     create_batch_export_run,
+    update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -42,6 +41,15 @@ SELECT_QUERY_TEMPLATE = Template(
     $order_by
     $format
     """
+)
+
+ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
+BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
+EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
+EXPORT_FINISHED = Counter(
+    "batch_export_finished",
+    "Number of batch exports finished, for any reason (including failure).",
+    labelnames=("destination", "status"),
 )
 
 
@@ -107,6 +115,22 @@ properties,
 -- Point in time identity fields
 toString(distinct_id) as distinct_id,
 toString(person_id) as person_id,
+-- Autocapture fields
+elements_chain
+"""
+
+S3_FIELDS = """
+DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
+toString(uuid) as uuid,
+team_id,
+timestamp,
+inserted_at,
+created_at,
+event,
+properties,
+-- Point in time identity fields
+toString(distinct_id) as distinct_id,
+toString(person_id) as person_id,
 person_properties,
 -- Autocapture fields
 elements_chain
@@ -120,6 +144,7 @@ def get_results_iterator(
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
+    include_person_properties: bool = False,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -139,7 +164,7 @@ def get_results_iterator(
         events_to_include_tuple = ()
 
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=FIELDS,
+        fields=S3_FIELDS if include_person_properties else FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
         exclude_events=exclude_events_statement,
@@ -226,7 +251,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
             msg = (
                 "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+                "In the latter case, ensure '{Type}BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 
@@ -240,7 +265,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
         else:
             msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
                 f"of type '{type(data_interval_end_search_attr[0])}'."
             )
             raise TypeError(msg)
@@ -445,136 +470,6 @@ class BatchExportTemporaryFile:
         self.records_since_last_reset = 0
 
 
-class BatchExportLoggerAdapter(logging.LoggerAdapter):
-    """Adapter that adds batch export details to log records."""
-
-    def __init__(
-        self,
-        logger: logging.Logger,
-        extra=None,
-    ) -> None:
-        """Create the logger adapter."""
-        super().__init__(logger, extra or {})
-
-    def process(self, msg: str, kwargs) -> tuple[typing.Any, collections.abc.MutableMapping[str, typing.Any]]:
-        """Override to add batch exports details."""
-        workflow_id = None
-        workflow_run_id = None
-        attempt = None
-
-        try:
-            activity_info = activity.info()
-        except RuntimeError:
-            pass
-        else:
-            workflow_run_id = activity_info.workflow_run_id
-            workflow_id = activity_info.workflow_id
-            attempt = activity_info.attempt
-
-        try:
-            workflow_info = workflow.info()
-        except RuntimeError:
-            pass
-        else:
-            workflow_run_id = workflow_info.run_id
-            workflow_id = workflow_info.workflow_id
-            attempt = workflow_info.attempt
-
-        if workflow_id is None or workflow_run_id is None or attempt is None:
-            return (None, {})
-
-        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
-        # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
-        # date. Plus one more leaves us at the end of {batch_export_id}.
-        batch_export_id = workflow_id.rsplit("-", maxsplit=3)[0]
-
-        extra = kwargs.get("extra", None) or {}
-        extra["workflow_id"] = workflow_id
-        extra["batch_export_id"] = batch_export_id
-        extra["workflow_run_id"] = workflow_run_id
-        extra["attempt"] = attempt
-
-        if isinstance(self.extra, dict):
-            extra = extra | self.extra
-        kwargs["extra"] = extra
-
-        return (msg, kwargs)
-
-    @property
-    def base_logger(self) -> logging.Logger:
-        """Underlying logger usable for actions such as adding handlers/formatters."""
-        return self.logger
-
-
-class BatchExportsLogRecord(logging.LogRecord):
-    team_id: int
-    batch_export_id: str
-    workflow_run_id: str
-    attempt: int
-
-
-class KafkaLoggingHandler(logging.Handler):
-    def __init__(self, topic, key=None):
-        super().__init__()
-        self.producer = KafkaProducer()
-        self.topic = topic
-        self.key = key
-
-    def emit(self, record):
-        if record.name == "kafka":
-            return
-
-        # This is a lie, but as long as this handler is used together
-        # with BatchExportLoggerAdapter we should be fine.
-        # This is definitely cheaper than a bunch if checks for attributes.
-        record = typing.cast(BatchExportsLogRecord, record)
-
-        msg = self.format(record)
-        data = {
-            "instance_id": record.workflow_run_id,
-            "level": record.levelname,
-            "log_source": "batch_exports",
-            "log_source_id": record.batch_export_id,
-            "message": msg,
-            "team_id": record.team_id,
-            "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
-        }
-
-        try:
-            future = self.producer.produce(topic=self.topic, data=data, key=self.key)
-            future.get(timeout=1)
-        except Exception as e:
-            logging.exception("Failed to produce log to Kafka topic %s", self.topic, exc_info=e)
-
-    def close(self):
-        self.producer.close()
-        logging.Handler.close(self)
-
-
-LOG_QUEUE: queue.Queue = queue.Queue(-1)
-QUEUE_HANDLER = logging.handlers.QueueHandler(LOG_QUEUE)
-QUEUE_HANDLER.setLevel(logging.DEBUG)
-
-KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
-KAFKA_HANDLER.setLevel(logging.DEBUG)
-QUEUE_LISTENER = logging.handlers.QueueListener(LOG_QUEUE, KAFKA_HANDLER)
-
-logger = logging.getLogger(__name__)
-logger.addHandler(QUEUE_HANDLER)
-logger.setLevel(logging.DEBUG)
-
-
-def get_batch_exports_logger(inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
-    """Return a logger for BatchExports."""
-    # Need a type comment as _thread is private.
-    if QUEUE_LISTENER._thread is None:  # type: ignore
-        QUEUE_LISTENER.start()
-
-    adapter = BatchExportLoggerAdapter(logger, {"team_id": inputs.team_id})
-
-    return adapter
-
-
 @dataclasses.dataclass
 class CreateBatchExportRunInputs:
     """Inputs to the create_export_run activity.
@@ -600,9 +495,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
-    logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
-
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -612,8 +504,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
         data_interval_end=inputs.data_interval_end,
         status=inputs.status,
     )
-
-    logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
 
     return str(run.id)
 
@@ -630,4 +520,135 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_run_status)(run_id=uuid.UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore
+    await sync_to_async(update_batch_export_run_status)(
+        run_id=uuid.UUID(inputs.id),
+        status=inputs.status,
+        latest_error=inputs.latest_error,
+    )  # type: ignore
+
+
+@dataclasses.dataclass
+class CreateBatchExportBackfillInputs:
+    team_id: int
+    batch_export_id: str
+    start_at: str
+    end_at: str
+    status: str
+
+
+@activity.defn
+async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
+    """Activity that creates an BatchExportBackfill.
+
+    Intended to be used in all batch export backfill workflows, usually at the start, to create a
+    model instance to represent them in our database.
+    """
+    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
+    # But one of our dependencies is pinned to asgiref==3.3.2.
+    # Remove these comments once we upgrade.
+    run = await sync_to_async(create_batch_export_backfill)(  # type: ignore
+        batch_export_id=uuid.UUID(inputs.batch_export_id),
+        start_at=inputs.start_at,
+        end_at=inputs.end_at,
+        status=inputs.status,
+        team_id=inputs.team_id,
+    )
+
+    return str(run.id)
+
+
+@dataclasses.dataclass
+class UpdateBatchExportBackfillStatusInputs:
+    """Inputs to the update_batch_export_backfill_status activity."""
+
+    id: str
+    status: str
+
+
+@activity.defn
+async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
+    """Activity that updates the status of an BatchExportRun."""
+    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore
+
+
+async def execute_batch_export_insert_activity(
+    activity,
+    inputs,
+    non_retryable_error_types: list[str],
+    update_inputs: UpdateBatchExportRunStatusInputs,
+    start_to_close_timeout_seconds: int = 3600,
+    heartbeat_timeout_seconds: int | None = 120,
+    maximum_attempts: int = 10,
+    initial_retry_interval_seconds: int = 10,
+    maximum_retry_interval_seconds: int = 120,
+) -> None:
+    """Execute the main insert activity of a batch export handling any errors.
+
+    All batch exports boil down to inserting some data somewhere, and they all follow the same error
+    handling patterns: logging and updating run status. For this reason, we have this function
+    to abstract executing the main insert activity of each batch export.
+
+    Args:
+        activity: The 'insert_into_*' activity function to execute.
+        inputs: The inputs to the activity.
+        non_retryable_error_types: A list of errors to not retry on when executing the activity.
+        update_inputs: Inputs to the update_export_run_status to run at the end.
+        start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
+        maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
+            Assuming the error that triggered the retry is not in non_retryable_error_types.
+        initial_retry_interval_seconds: When retrying, seconds until the first retry.
+        maximum_retry_interval_seconds: Maximum interval in seconds between retries.
+    """
+    destination = workflow.info().workflow_type.lower()
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+
+    retry_policy = RetryPolicy(
+        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+        maximum_attempts=maximum_attempts,
+        non_retryable_error_types=non_retryable_error_types,
+    )
+    try:
+        EXPORT_STARTED.labels(destination=destination).inc()
+        await workflow.execute_activity(
+            activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
+            retry_policy=retry_policy,
+        )
+    except exceptions.ActivityError as e:
+        if isinstance(e.cause, exceptions.CancelledError):
+            logger.error("BatchExport was cancelled.")
+            update_inputs.status = "Cancelled"
+        else:
+            logger.exception("BatchExport failed.", exc_info=e.cause)
+            update_inputs.status = "Failed"
+
+        update_inputs.latest_error = str(e.cause)
+        raise
+
+    except Exception as e:
+        logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
+        update_inputs.status = "Failed"
+        update_inputs.latest_error = "An unexpected error has ocurred"
+        raise
+
+    else:
+        logger.info(
+            "Successfully finished exporting batch %s - %s", inputs.data_interval_start, inputs.data_interval_end
+        )
+
+    finally:
+        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
+        await workflow.execute_activity(
+            update_export_run_status,
+            update_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
+        )

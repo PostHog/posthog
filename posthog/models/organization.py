@@ -24,7 +24,12 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
-from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.models.utils import (
+    LowercaseSlugField,
+    UUIDModel,
+    create_with_slug,
+    sane_repr,
+)
 from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
@@ -56,7 +61,11 @@ class OrganizationManager(models.Manager):
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
-        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+        self,
+        user: Optional["User"],
+        *,
+        team_fields: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -67,7 +76,9 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                    organization=organization,
+                    user=user,
+                    level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
                 user.organization = user.current_organization  # Update cached property
@@ -222,8 +233,14 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 def ensure_available_features_sync(sender, instance: Organization, **kwargs):
     updated_fields = kwargs.get("update_fields") or []
     if "available_features" in updated_fields:
-        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
-        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
+        logger.info(
+            "Notifying plugin-server to reset available features cache.",
+            {"organization_id": instance.id},
+        )
+        get_client().publish(
+            "reset-available-features-cache",
+            json.dumps({"organization_id": str(instance.id)}),
+        )
 
 
 class OrganizationMembership(UUIDModel):
@@ -235,7 +252,10 @@ class OrganizationMembership(UUIDModel):
         OWNER = 15, "owner"
 
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="memberships", related_query_name="membership"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="memberships",
+        related_query_name="membership",
     )
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",
@@ -251,9 +271,14 @@ class OrganizationMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization_id", "user_id"], name="unique_organization_membership"),
             models.UniqueConstraint(
-                fields=["organization_id"], condition=models.Q(level=15), name="only_one_owner_per_organization"
+                fields=["organization_id", "user_id"],
+                name="unique_organization_membership",
+            ),
+            models.UniqueConstraint(
+                fields=["organization_id"],
+                condition=models.Q(level=15),
+                name="only_one_owner_per_organization",
             ),
         ]
 
@@ -261,7 +286,9 @@ class OrganizationMembership(UUIDModel):
         return str(self.Level(self.level))
 
     def validate_update(
-        self, membership_being_updated: "OrganizationMembership", new_level: Optional[Level] = None
+        self,
+        membership_being_updated: "OrganizationMembership",
+        new_level: Optional[Level] = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
@@ -290,7 +317,10 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="invites",
+        related_query_name="invite",
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
@@ -326,7 +356,8 @@ class OrganizationInvite(UUIDModel):
 
         if self.is_expired():
             raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired"
+                "This invite has expired. Please ask your admin for a new one.",
+                code="expired",
             )
 
         if user is None and User.objects.filter(email=invite_email).exists():
@@ -334,7 +365,8 @@ class OrganizationInvite(UUIDModel):
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member"
+                "You already are a member of this organization.",
+                code="user_already_member",
             )
 
         if OrganizationMembership.objects.filter(
@@ -352,7 +384,12 @@ class OrganizationInvite(UUIDModel):
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
-            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization_id})
+            send_member_join.apply_async(
+                kwargs={
+                    "invitee_uuid": user.uuid,
+                    "organization_id": self.organization_id,
+                }
+            )
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:

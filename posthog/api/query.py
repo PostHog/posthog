@@ -4,7 +4,7 @@ from typing import Dict, Optional, cast, Any, List
 
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -20,37 +20,42 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.hogql import ast
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.queries.time_to_see_data.serializers import (
+    SessionEventsQuerySerializer,
+    SessionsQuerySerializer,
+)
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import HogQLQuery, HogQLMetadata
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    TeamRateThrottle,
+)
+from posthog.schema import HogQLMetadata
 from posthog.utils import refresh_requested_by_client
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
     "TrendsQuery",
-    "WebOverviewStatsQuery",
+    "WebOverviewQuery",
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
     "WebStatsTableQuery",
 ]
-QUERY_WITH_RUNNER_NO_CACHE = [
-    "EventsQuery",
-    "PersonsQuery",
-]
+QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -66,7 +71,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.model_validate(data)
+            schema.QuerySchema.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -81,7 +86,11 @@ class QuerySchemaParser(JSONParser):
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     parser_classes = (QuerySchemaParser,)
 
@@ -96,14 +105,23 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             OpenApiParameter(
                 "query",
                 OpenApiTypes.STR,
-                description="Query node JSON string",
+                description=(
+                    "Submit a JSON string representing a query for PostHog data analysis,"
+                    " for example a HogQL query.\n\nExample payload:\n"
+                    '```\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n```'
+                    "\n\nFor more details on HogQL queries"
+                    ", see the [PostHog HogQL documentation](/docs/hogql#api-access). "
+                ),
             ),
             OpenApiParameter(
                 "client_query_id",
                 OpenApiTypes.STR,
                 description="Client provided query ID. Can be used to cancel queries.",
             ),
-        ]
+        ],
+        responses={
+            200: OpenApiResponse(description="Query results"),
+        },
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
@@ -181,7 +199,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 raise ValidationError(ex)
 
             query = json.loads(
-                query_source, parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}")
+                query_source,
+                parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}"),
             )
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
@@ -212,7 +231,10 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team,
+    query_json: Dict,
+    in_export_context: Optional[bool] = False,
+    request: Optional[Request] = None,
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
@@ -221,29 +243,11 @@ def process_query(
 
     if query_kind in QUERY_WITH_RUNNER:
         refresh_requested = refresh_requested_by_client(request) if request else False
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
     elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.calculate())
-    elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.model_validate(query_json)
-        values = (
-            {key: ast.Constant(value=value) for key, value in hogql_query.values.items()}
-            if hogql_query.values
-            else None
-        )
-        hogql_response = execute_hogql_query(
-            query_type="HogQLQuery",
-            query=hogql_query.query,
-            team=team,
-            filters=hogql_query.filters,
-            modifiers=hogql_query.modifiers,
-            placeholders=values,
-            default_limit=default_limit,
-            explain=hogql_query.explain,
-        )
-        return _unwrap_pydantic_dict(hogql_response)
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.model_validate(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)

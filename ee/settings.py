@@ -30,7 +30,10 @@ SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT = ""
 SOCIAL_AUTH_SAML_SP_PRIVATE_KEY = ""
 SOCIAL_AUTH_SAML_ORG_INFO = {"en-US": {"name": "posthog", "displayname": "PostHog", "url": "https://posthog.com"}}
-SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {"givenName": "PostHog Support", "emailAddress": "hey@posthog.com"}
+SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {
+    "givenName": "PostHog Support",
+    "emailAddress": "hey@posthog.com",
+}
 SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 

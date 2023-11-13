@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, listeners } from 'kea'
 import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
@@ -208,12 +208,12 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
-    path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: () => ({
+export const eventUsageLogic = kea<eventUsageLogicType>([
+    path(['lib', 'utils', 'eventUsageLogic']),
+    connect(() => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    }),
-    actions: {
+    })),
+    actions({
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
@@ -505,8 +505,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-    },
-    listeners: ({ values }) => ({
+    }),
+    listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -632,6 +632,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.mode = insightMode // View or edit
+            // eslint-disable-next-line no-constant-binary-expression
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
@@ -1264,5 +1265,5 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 product_key: productKey,
             })
         },
-    }),
-})
+    })),
+])

@@ -1,12 +1,11 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { Breadcrumb, Group } from '~/types'
+import { Group } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 export interface GroupsPaginatedResponse {
     next: string | null
@@ -18,11 +17,11 @@ export interface GroupsListLogicProps {
     groupTypeIndex: number
 }
 
-export const groupsListLogic = kea<groupsListLogicType>({
-    props: {} as GroupsListLogicProps,
-    key: (props: GroupsListLogicProps) => props.groupTypeIndex,
-    path: ['groups', 'groupsListLogic'],
-    connect: {
+export const groupsListLogic = kea<groupsListLogicType>([
+    props({} as GroupsListLogicProps),
+    key((props: GroupsListLogicProps) => props.groupTypeIndex),
+    path(['groups', 'groupsListLogic']),
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -31,12 +30,12 @@ export const groupsListLogic = kea<groupsListLogicType>({
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         loadGroups: (url?: string | null) => ({ url }),
         setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
-    }),
-    loaders: ({ props, values }) => ({
+    })),
+    loaders(({ props, values }) => ({
         groups: [
             { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
@@ -53,42 +52,31 @@ export const groupsListLogic = kea<groupsListLogicType>({
                 },
             },
         ],
-    }),
-    reducers: {
+    })),
+    reducers({
         search: [
             '',
             {
                 setSearch: (_, { search }) => search,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         groupTypeName: [
             (s, p) => [p.groupTypeIndex, s.aggregationLabel],
             (groupTypeIndex, aggregationLabel): Noun =>
                 groupTypeIndex === -1 ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
         ],
-        breadcrumbs: [
-            (s, p) => [s.groupTypeName, p.groupTypeIndex],
-            (groupTypeName, groupTypeIndex): Breadcrumb[] => [
-                {
-                    name: capitalizeFirstLetter(groupTypeName.plural),
-                    path: urls.groups(groupTypeIndex),
-                },
-            ],
-        ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         setSearch: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(300)
             }
             actions.loadGroups()
         },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadGroups()
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadGroups()
-        },
-    }),
-})
+])

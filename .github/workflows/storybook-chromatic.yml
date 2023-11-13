@@ -64,7 +64,6 @@ jobs:
             SHARD_COUNT: '2'
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=6144
-            JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
             OPT_OUT_CAPTURE: 1
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
@@ -129,8 +128,15 @@ jobs:
 
             - name: Serve Storybook in the background
               run: |
-                  pnpm exec http-server storybook-static --port 6006 --silent &
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+                  retries=3
+                  while [ $retries -gt 0 ]; do
+                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
+                          break
+                      fi
+                      retries=$((retries-1))
+                      echo "Failed to serve Storybook, retrying... ($retries retries left)"
+                  done
 
             - name: Run @storybook/test-runner
               env:
@@ -148,6 +154,13 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
               run: |
                   pnpm test:visual-regression:legacy:ci:$VARIANT
+
+            - name: Archive failure screenshots
+              if: ${{ failure() }}
+              uses: actions/upload-artifact@v3
+              with:
+                  name: failure-screenshots-${{ matrix.browser }}
+                  path: frontend/__snapshots__/__failures__/
 
             - name: Count and optimize updated snapshots
               id: diff

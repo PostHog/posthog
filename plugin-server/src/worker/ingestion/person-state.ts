@@ -506,7 +506,12 @@ export class PersonState {
 
                 // Merge the distinct IDs
                 // TODO: Doesn't this table need to add updates to CH too?
-                await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, tx)
+                await this.db.updateCohortsAndFeatureFlagsForMerge(
+                    otherPerson.team_id,
+                    otherPerson.id,
+                    mergeInto.id,
+                    tx
+                )
 
                 const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
 
@@ -680,25 +685,6 @@ export class PersonState {
         )
 
         return id
-    }
-
-    private async handleTablesDependingOnPersonID(
-        sourcePerson: Person,
-        targetPerson: Person,
-        tx: TransactionClient
-    ): Promise<void> {
-        // When personIDs change, update places depending on a person_id foreign key
-
-        // For Cohorts
-        await this.db.postgres.query(
-            tx,
-            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-            [targetPerson.id, sourcePerson.id],
-            'updateCohortPeople'
-        )
-
-        // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(sourcePerson.team_id, sourcePerson.id, targetPerson.id, tx)
     }
 }
 

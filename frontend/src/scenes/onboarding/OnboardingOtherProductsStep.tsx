@@ -14,7 +14,7 @@ export const OnboardingOtherProductsStep = ({
     return (
         <OnboardingStep
             title={`${product?.name} pairs with...`}
-            subtitle="The magic in PostHog is having everyting all in one place. Get started with our other products to unlock your product and data superpowers."
+            subtitle="The magic in PostHog is having everything all in one place. Get started with our other products to unlock your product and data superpowers."
             showSkip
             continueOverride={<></>}
             stepKey={stepKey}

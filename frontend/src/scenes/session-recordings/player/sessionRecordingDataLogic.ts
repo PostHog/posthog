@@ -3,7 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
+    AnyPropertyFilter,
     EncodedRecordingSnapshot,
+    PersonType,
+    PropertyFilterType,
+    PropertyOperator,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
@@ -17,18 +21,19 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventWithTime } from '@rrweb/types'
+import { EventType, eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import posthog from 'posthog-js'
+import { NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] =>
+const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], sessionId: string): RecordingSnapshot[] =>
     items.flatMap((l) => {
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
@@ -39,6 +44,10 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): Re
                 ...d,
             }))
         } catch (e) {
+            posthog.capture('session recording had unparseable line', {
+                sessionId,
+                line: l,
+            })
             captureException(e)
             return []
         }
@@ -125,6 +134,35 @@ const generateRecordingReportDurations = (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
+}
+
+function makeEventsQuery(
+    person: PersonType | null,
+    distinctId: string | null,
+    start: Dayjs,
+    end: Dayjs,
+    properties: AnyPropertyFilter[]
+): Promise<unknown> {
+    return api.query({
+        kind: NodeKind.EventsQuery,
+        // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
+        select: [
+            'uuid',
+            'event',
+            'timestamp',
+            'elements_chain',
+            'properties.$window_id',
+            'properties.$current_url',
+            'properties.$event_type',
+        ],
+        orderBy: ['timestamp ASC'],
+        limit: 1000000,
+        personId: person ? String(person.id) : undefined,
+        after: start.subtract(BUFFER_MS, 'ms').format(),
+        before: end.add(BUFFER_MS, 'ms').format(),
+        properties: properties,
+        where: distinctId ? [`distinct_id = ('${distinctId}')`] : undefined,
+    })
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -273,7 +311,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
-                breakpoint(100)
+                await breakpoint(100)
                 await api.recordings.persist(props.sessionRecordingId)
 
                 return {
@@ -307,7 +345,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             source.blob_key
                         )
                         data.snapshots = prepareRecordingSnapshots(
-                            parseEncodedSnapshots(encodedResponse),
+                            parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
                             values.sessionPlayerSnapshotData?.snapshots ?? []
                         )
                     } else {
@@ -319,7 +357,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             data.snapshots = prepareRecordingSnapshots(
-                                parseEncodedSnapshots(response.snapshots),
+                                parseEncodedSnapshots(response.snapshots, props.sessionRecordingId),
                                 values.sessionPlayerSnapshotData?.snapshots ?? []
                             )
                         }
@@ -351,44 +389,40 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return null
                     }
 
-                    const [sessionEvents, relatedEvents]: any[] = await Promise.all(
-                        [
+                    const [sessionEvents, relatedEvents]: any[] = await Promise.all([
+                        // make one query for all events that are part of the session
+                        makeEventsQuery(null, null, start, end, [
                             {
                                 key: '$session_id',
                                 value: [props.sessionRecordingId],
-                                operator: 'exact',
-                                type: 'event',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
                             },
+                        ]),
+                        // make a second for all events from that person,
+                        // not marked as part of the session
+                        // but in the same time range
+                        // these are probably e.g. backend events for the session
+                        // but with no session id
+                        // since posthog-js must always add session id we can also
+                        // take advantage of lib being materialized and further filter
+                        makeEventsQuery(null, values.sessionPlayerMetaData?.distinct_id || null, start, end, [
                             {
                                 key: '$session_id',
                                 value: '',
-                                operator: 'exact',
-                                type: 'event',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
                             },
-                        ].map((properties) =>
-                            api.query({
-                                kind: 'EventsQuery',
-                                // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
-                                select: [
-                                    'uuid',
-                                    'event',
-                                    'timestamp',
-                                    'elements_chain',
-                                    'properties.$window_id',
-                                    'properties.$current_url',
-                                    'properties.$event_type',
-                                ],
-                                orderBy: ['timestamp ASC'],
-                                limit: 1000000,
-                                personId: String(person.id),
-                                after: start.subtract(BUFFER_MS, 'ms').format(),
-                                before: end.add(BUFFER_MS, 'ms').format(),
-                                properties: [properties],
-                            })
-                        )
-                    )
+                            {
+                                key: '$lib',
+                                value: ['web'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]),
+                    ])
 
-                    const minimalEvents = [...sessionEvents.results, ...relatedEvents.results].map(
+                    return [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
@@ -415,8 +449,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             }
                         }
                     )
-
-                    return minimalEvents
                 },
 
                 loadFullEventData: async ({ event }) => {
@@ -565,6 +597,42 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionPlayerSnapshotData],
             (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
                 return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
+            },
+        ],
+
+        snapshotsInvalid: [
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
+                if (!fullyLoaded) {
+                    return false
+                }
+
+                const windowsHaveFullSnapshot = Object.entries(snapshotsByWindowId).reduce(
+                    (acc, [windowId, events]) => {
+                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                            (event) => event.type === EventType.FullSnapshot
+                        )
+                        return acc
+                    },
+                    {}
+                )
+                const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
+                const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
+
+                if (everyWindowMissingFullSnapshot) {
+                    // video is definitely unplayable
+                    posthog.capture('recording_has_no_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                } else if (anyWindowMissingFullSnapshot) {
+                    posthog.capture('recording_window_missing_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                }
+
+                return everyWindowMissingFullSnapshot
             },
         ],
 

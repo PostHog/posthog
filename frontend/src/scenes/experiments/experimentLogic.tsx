@@ -80,7 +80,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes', 'showGroupsOptions']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -802,7 +802,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         let index = -1
                         if (insightType === InsightType.FUNNELS) {
                             // Funnel Insight is displayed in order of decreasing count
-                            index = ([...experimentResults?.insight] as FunnelStep[][])
+                            index = ([...experimentResults.insight] as FunnelStep[][])
                                 .sort((a, b) => b[0]?.count - a[0]?.count)
                                 .findIndex(
                                     (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant

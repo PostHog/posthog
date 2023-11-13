@@ -15,7 +15,9 @@ from ee.session_recordings.session_recording_extensions import (
 )
 from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -46,7 +48,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
     def test_does_not_persist_too_recent_recording(self):
         recording = SessionRecording.objects.create(
-            team=self.team, session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}"
+            team=self.team,
+            session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}",
         )
 
         produce_replay_summary(
@@ -67,7 +70,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
         recording: SessionRecording = SessionRecording.objects.create(
-            team=self.team, session_id="test_can_build_different_object_storage_paths-s1"
+            team=self.team,
+            session_id="test_can_build_different_object_storage_paths-s1",
         )
         assert (
             recording.build_object_storage_path("2022-12-22")

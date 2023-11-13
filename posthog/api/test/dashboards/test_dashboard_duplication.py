@@ -15,7 +15,8 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
 
         self.dashboard_api.create_text_tile(
-            dashboard_id, extra_data={"layouts": self.tile_layout, "color": self.tile_color}
+            dashboard_id,
+            extra_data={"layouts": self.tile_layout, "color": self.tile_color},
         )
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
@@ -36,7 +37,11 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
     def test_duplicating_dashboard_while_duplicating_tiles(self) -> None:
         duplicated_dashboard = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
-            {"duplicate_tiles": True, "use_dashboard": self.starting_dashboard["id"], "name": "new"},
+            {
+                "duplicate_tiles": True,
+                "use_dashboard": self.starting_dashboard["id"],
+                "name": "new",
+            },
         ).json()
 
         assert len(duplicated_dashboard["tiles"]) == 2
@@ -45,13 +50,23 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         # makes new children
         assert self.original_child_ids != self._tile_child_ids_from(duplicated_dashboard)
 
-        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [self.tile_color, self.tile_color]
-        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [self.tile_layout, self.tile_layout]
+        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [
+            self.tile_color,
+            self.tile_color,
+        ]
+        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [
+            self.tile_layout,
+            self.tile_layout,
+        ]
 
     def test_duplicating_dashboard_without_duplicating_tiles(self) -> None:
         duplicated_dashboard = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
-            {"duplicate_tiles": False, "use_dashboard": self.starting_dashboard["id"], "name": "new"},
+            {
+                "duplicate_tiles": False,
+                "use_dashboard": self.starting_dashboard["id"],
+                "name": "new",
+            },
         ).json()
 
         assert len(duplicated_dashboard["tiles"]) == 2
@@ -60,8 +75,14 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         # uses existing children
         assert self.original_child_ids == self._tile_child_ids_from(duplicated_dashboard)
 
-        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [self.tile_color, self.tile_color]
-        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [self.tile_layout, self.tile_layout]
+        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [
+            self.tile_color,
+            self.tile_color,
+        ]
+        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [
+            self.tile_layout,
+            self.tile_layout,
+        ]
 
     @staticmethod
     def _tile_child_ids_from(dashboard_json: Dict) -> List[int]:

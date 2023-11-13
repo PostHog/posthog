@@ -1,4 +1,4 @@
-import { kea, connect, path, selectors, events } from 'kea'
+import { kea, connect, path, selectors, afterMount } from 'kea'
 import { loaders } from 'kea-loaders'
 import { Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
@@ -82,10 +82,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             },
         ],
     }),
-
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadData()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadData()
+    }),
 ])

@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Tuple
 from posthog.constants import FlagRequestType
-from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.dashboard_templates import (
+    add_enriched_insights_to_feature_flag_dashboard,
+)
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.redis import redis, get_client
 import time
@@ -68,9 +70,11 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             decide_key_name = get_team_request_key(team_id, FlagRequestType.DECIDE)
-            total_decide_request_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(
-                client, decide_key_name
-            )
+            (
+                total_decide_request_count,
+                min_time,
+                max_time,
+            ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
 
             if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
@@ -87,9 +91,11 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 )
 
             local_evaluation_key_name = get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION)
-            total_local_evaluation_request_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(
-                client, local_evaluation_key_name
-            )
+            (
+                total_local_evaluation_request_count,
+                min_time,
+                max_time,
+            ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
 
             if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
@@ -113,7 +119,6 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
 
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
-
     result = sync_execute(
         """
         SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key

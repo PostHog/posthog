@@ -25,12 +25,14 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         if (value === undefined) {
             return actuallyUpdateLimit()
         }
-        const productAndAddonTiers: BillingV2TierType[][] = [
-            product.tiers,
-            ...product.addons
-                ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                ?.map((addon: BillingProductV2AddonType) => addon.tiers),
-        ].filter(Boolean) as BillingV2TierType[][]
+
+        const addonTiers = product.addons
+            ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+            ?.map((addon: BillingProductV2AddonType) => addon.tiers)
+
+        const productAndAddonTiers: BillingV2TierType[][] = [product.tiers, ...addonTiers].filter(
+            Boolean
+        ) as BillingV2TierType[][]
 
         const newAmountAsUsage = product.tiers
             ? convertAmountToUsage(`${value}`, productAndAddonTiers, billing?.discount_percent)

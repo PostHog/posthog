@@ -24,7 +24,11 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
     def test_dry_run(self, mocked_ch_call):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
-            uuid=str(uuid4()), team_id=self.team.pk, is_deleted=True, version=5, sync=True
+            uuid=str(uuid4()),
+            team_id=self.team.pk,
+            is_deleted=True,
+            version=5,
+            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -39,7 +43,10 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team, person=person_linked_to_after, distinct_id="distinct_id", version=0
+            team=self.team,
+            person=person_linked_to_after,
+            distinct_id="distinct_id",
+            version=0,
         )
         options = {"live_run": False, "team_id": self.team.pk, "new_version": 2500}
         run(options, True)
@@ -61,7 +68,13 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
         self.assertEqual(
             ch_person_distinct_ids,
             [
-                (UUID(ch_only_deleted_person_uuid), self.team.pk, "distinct_id", 7, True),
+                (
+                    UUID(ch_only_deleted_person_uuid),
+                    self.team.pk,
+                    "distinct_id",
+                    7,
+                    True,
+                ),
             ],
         )
         mocked_ch_call.assert_not_called()
@@ -73,7 +86,11 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
     def test_live_run(self, mocked_ch_call):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
-            uuid=str(uuid4()), team_id=self.team.pk, is_deleted=True, version=5, sync=True
+            uuid=str(uuid4()),
+            team_id=self.team.pk,
+            is_deleted=True,
+            version=5,
+            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -96,10 +113,16 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team, person=person_linked_to_after, distinct_id="distinct_id", version=0
+            team=self.team,
+            person=person_linked_to_after,
+            distinct_id="distinct_id",
+            version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team, person=person_linked_to_after, distinct_id="distinct_id-2", version=0
+            team=self.team,
+            person=person_linked_to_after,
+            distinct_id="distinct_id-2",
+            version=0,
         )
         options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
         run(options, True)
@@ -110,7 +133,8 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
         self.assertEqual(pg_distinct_ids[0].version, 2500)
         self.assertEqual(pg_distinct_ids[1].version, 2500)
         self.assertEqual(
-            {pg_distinct_ids[0].distinct_id, pg_distinct_ids[1].distinct_id}, {"distinct_id", "distinct_id-2"}
+            {pg_distinct_ids[0].distinct_id, pg_distinct_ids[1].distinct_id},
+            {"distinct_id", "distinct_id-2"},
         )
         self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
         self.assertEqual(pg_distinct_ids[1].person.uuid, person_linked_to_after.uuid)
@@ -126,7 +150,13 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             ch_person_distinct_ids,
             [
                 (person_linked_to_after.uuid, self.team.pk, "distinct_id", 2500, False),
-                (person_linked_to_after.uuid, self.team.pk, "distinct_id-2", 2500, False),
+                (
+                    person_linked_to_after.uuid,
+                    self.team.pk,
+                    "distinct_id-2",
+                    2500,
+                    False,
+                ),
             ],
         )
         self.assertEqual(mocked_ch_call.call_count, 2)
@@ -145,7 +175,10 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
 
         # distinct id no update
         PersonDistinctId.objects.create(
-            team=self.team, person=person_not_changed_1, distinct_id="distinct_id-1", version=0
+            team=self.team,
+            person=person_not_changed_1,
+            distinct_id="distinct_id-1",
+            version=0,
         )
 
         # deleted person not re-used
@@ -153,7 +186,10 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team, person=person_deleted_1, distinct_id="distinct_id-del-1", version=16
+            team=self.team,
+            person=person_deleted_1,
+            distinct_id="distinct_id-del-1",
+            version=16,
         )
         person_deleted_1.delete()
 

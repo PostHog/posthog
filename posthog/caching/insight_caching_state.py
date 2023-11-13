@@ -20,6 +20,7 @@ GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
 
 logger = structlog.get_logger(__name__)
 
+
 # :TODO: Make these configurable
 class TargetCacheAge(Enum):
     NO_CACHING = None
@@ -95,7 +96,12 @@ def sync_insight_cache_states():
     tiles = (
         DashboardTile.objects.all()
         .filter(insight__isnull=False)
-        .prefetch_related("dashboard", "dashboard__sharingconfiguration_set", "insight", "insight__team")
+        .prefetch_related(
+            "dashboard",
+            "dashboard__sharingconfiguration_set",
+            "insight",
+            "insight__team",
+        )
         .order_by("pk")
     )
 
@@ -105,7 +111,10 @@ def sync_insight_cache_states():
 
 
 def upsert(
-    team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None, execute=True
+    team: Team,
+    target: Union[DashboardTile, Insight],
+    lazy_loader: Optional[LazyLoader] = None,
+    execute=True,
 ) -> Optional[InsightCachingState]:
     lazy_loader = lazy_loader or LazyLoader()
     cache_key = calculate_cache_key(target)
@@ -129,7 +138,11 @@ def upsert(
         return model
 
 
-def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+def sync_insight_caching_state(
+    team_id: int,
+    insight_id: Optional[int] = None,
+    dashboard_tile_id: Optional[int] = None,
+):
     try:
         team = Team.objects.get(pk=team_id)
         item: Optional[DashboardTile | Insight] = None

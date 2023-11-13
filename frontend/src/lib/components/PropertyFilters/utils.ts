@@ -79,6 +79,11 @@ export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is 
 export function isPersonPropertyFilter(filter?: AnyFilterLike | null): filter is PersonPropertyFilter {
     return filter?.type === PropertyFilterType.Person
 }
+export function isEventPropertyOrPersonPropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is EventPropertyFilter | PersonPropertyFilter {
+    return filter?.type === PropertyFilterType.Event || filter?.type === PropertyFilterType.Person
+}
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
 }

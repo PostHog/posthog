@@ -3,7 +3,11 @@ from typing import List, Any
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, SUPPORTED_FUNCTIONS
+from hogvm.python.operation import (
+    Operation,
+    HOGQL_BYTECODE_IDENTIFIER,
+    SUPPORTED_FUNCTIONS,
+)
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,
@@ -74,7 +78,11 @@ class BytecodeBuilder(Visitor):
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        return [*self.visit(node.right), *self.visit(node.left), ARITHMETIC_OPERATIONS[node.op]]
+        return [
+            *self.visit(node.right),
+            *self.visit(node.left),
+            ARITHMETIC_OPERATIONS[node.op],
+        ]
 
     def visit_field(self, node: ast.Field):
         chain = []

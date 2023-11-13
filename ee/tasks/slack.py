@@ -75,7 +75,10 @@ def _handle_slack_event(event_payload: Any) -> None:
                     "blocks": [
                         {
                             "type": "section",
-                            "text": {"type": "mrkdwn", "text": insights[0].name or insights[0].derived_name},
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": insights[0].name or insights[0].derived_name,
+                            },
                             "accessory": _block_for_asset(assets[0]),
                         }
                     ]
@@ -87,7 +90,11 @@ def _handle_slack_event(event_payload: Any) -> None:
         except Exception as e:
             # NOTE: This is temporary as a test to understand if the channel and ts are actually required as the docs are not clear
             slack_integration.client.chat_unfurl(
-                unfurls=unfurls, unfurl_id=unfurl_id, source=source, channel=channel, ts=message_ts
+                unfurls=unfurls,
+                unfurl_id=unfurl_id,
+                source=source,
+                channel=channel,
+                ts=message_ts,
             )
             raise e
 

@@ -32,11 +32,12 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                 </div>
                 <div className="flex gap-2">
                     <LemonLabel>
-                        POE Version:
+                        POE:
                         <LemonSelect
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
                                 { value: 'v1_enabled', label: 'V1 Enabled' },
+                                { value: 'v1_mixed', label: 'V1 Mixed' },
                                 { value: 'v2_enabled', label: 'V2 Enabled' },
                             ]}
                             onChange={(value) =>
@@ -49,7 +50,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         />
                     </LemonLabel>
                     <LemonLabel>
-                        Persons ArgMax Version
+                        Persons ArgMax:
                         <LemonSelect
                             options={[
                                 { value: 'v1', label: 'V1' },
@@ -64,6 +65,22 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                             value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
                         />
                     </LemonLabel>
+                    <LemonLabel>
+                        In Cohort Via:
+                        <LemonSelect
+                            options={[
+                                { value: 'join', label: 'join' },
+                                { value: 'subquery', label: 'subquery' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, inCohortVia: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
+                        />
+                    </LemonLabel>{' '}
                 </div>
                 {dataLoading ? (
                     <>
@@ -74,6 +91,14 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                     </>
                 ) : (
                     <>
+                        {response?.error ? (
+                            <>
+                                <h2 className="text-danger">Error Running Query!</h2>
+                                <CodeSnippet language={Language.Text} wrap>
+                                    {response.error}
+                                </CodeSnippet>
+                            </>
+                        ) : null}
                         {response?.hogql ? (
                             <>
                                 <h2>Executed HogQL</h2>

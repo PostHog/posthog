@@ -7,7 +7,10 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES
+from posthog.kafka_client.topics import (
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_LOG_ENTRIES,
+)
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -134,7 +137,11 @@ def produce_replay_summary(
     }
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka
-    p.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, sql=INSERT_SINGLE_SESSION_REPLAY, data=data)
+    p.produce(
+        topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        sql=INSERT_SINGLE_SESSION_REPLAY,
+        data=data,
+    )
 
     for level, messages in log_messages.items():
         for message in messages:

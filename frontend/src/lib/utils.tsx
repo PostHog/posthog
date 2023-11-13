@@ -527,6 +527,43 @@ export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+export function humanFriendlyLargeNumber(d: number): string {
+    if (isNaN(d)) {
+        return 'NaN'
+    } else if (!isFinite(d)) {
+        if (d > 0) {
+            return 'inf'
+        } else {
+            return '-inf'
+        }
+    }
+    const trillion = 1_000_000_000_000
+    const billion = 1_000_000_000
+    const million = 1_000_000
+    const thousand = 1_000
+
+    // handle positive number only to make life easier
+    const prefix = d >= 0 ? '' : '-'
+    d = Math.abs(d)
+
+    // round to 3 significant figures
+    d = parseFloat(d.toPrecision(3))
+
+    if (d >= trillion) {
+        return `${prefix}${(d / trillion).toString()}T`
+    } else if (d >= billion) {
+        return `${prefix}${(d / billion).toString()}B`
+    }
+    if (d >= million) {
+        return `${prefix}${(d / million).toString()}M`
+    }
+    if (d >= thousand) {
+        return `${prefix}${(d / thousand).toString()}K`
+    } else {
+        return `${prefix}${d}`
+    }
+}
+
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
     if (typeof timestamp !== 'number') {
         return undefined
@@ -1789,4 +1826,28 @@ export function shouldCancelQuery(error: any): boolean {
     // We cancel queries "manually" when the request times out or is aborted since in these cases
     // the query will continue running in ClickHouse
     return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+}
+
+export function flattenObject(ob: Record<string, any>): Record<string, any> {
+    const toReturn = {}
+
+    for (const i in ob) {
+        if (!ob.hasOwnProperty(i)) {
+            continue
+        }
+
+        if (typeof ob[i] == 'object') {
+            const flatObject = flattenObject(ob[i])
+            for (const x in flatObject) {
+                if (!flatObject.hasOwnProperty(x)) {
+                    continue
+                }
+
+                toReturn[i + '.' + x] = flatObject[x]
+            }
+        } else {
+            toReturn[i] = ob[i]
+        }
+    }
+    return toReturn
 }

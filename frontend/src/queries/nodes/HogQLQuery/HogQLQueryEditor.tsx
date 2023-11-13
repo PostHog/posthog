@@ -93,9 +93,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 overlay: (
                                     <div>
                                         Run SQL queries with{' '}
-                                        <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                                             HogQL
-                                        </a>
+                                        </Link>
                                         , our wrapper around ClickHouse SQL. Explore the{' '}
                                         <Link
                                             to={
@@ -238,25 +238,27 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {'Save as View'}
                         </LemonButton>
                     ) : null}
-                    <LemonButtonWithDropdown
-                        className="ml-2"
-                        icon={<IconInfo />}
-                        type="secondary"
-                        size="small"
-                        dropdown={{
-                            overlay: (
-                                <div>
-                                    Save a query as a view that can be referenced in another query. This is useful for
-                                    modeling data and organizing large queries into readable chunks.{' '}
-                                    <Link to={'https://posthog.com/docs/data-warehouse'}>More Info</Link>{' '}
-                                </div>
-                            ),
-                            placement: 'right-start',
-                            fallbackPlacements: ['left-start'],
-                            actionable: true,
-                            closeParentPopoverOnClickInside: true,
-                        }}
-                    />
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                        <LemonButtonWithDropdown
+                            className="ml-2"
+                            icon={<IconInfo />}
+                            type="secondary"
+                            size="small"
+                            dropdown={{
+                                overlay: (
+                                    <div>
+                                        Save a query as a view that can be referenced in another query. This is useful
+                                        for modeling data and organizing large queries into readable chunks.{' '}
+                                        <Link to={'https://posthog.com/docs/data-warehouse'}>More Info</Link>{' '}
+                                    </div>
+                                ),
+                                placement: 'right-start',
+                                fallbackPlacements: ['left-start'],
+                                actionable: true,
+                                closeParentPopoverOnClickInside: true,
+                            }}
+                        />
+                    )}
                 </div>
             </div>
         </div>

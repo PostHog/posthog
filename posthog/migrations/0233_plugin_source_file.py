@@ -33,7 +33,6 @@ def migrate_plugin_source(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0232_add_team_person_display_name_properties"),
     ]
@@ -45,12 +44,18 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("filename", models.CharField(max_length=200)),
                 ("source", models.TextField(blank=True, null=True)),
-                ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
+                (
+                    "plugin",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin"),
+                ),
             ],
         ),
         migrations.AddConstraint(

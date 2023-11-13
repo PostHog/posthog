@@ -107,7 +107,7 @@ def get_start_of_interval_sql(
     elif "%(timezone)s" not in source:
         source = f"toTimeZone(toDateTime({source}, 'UTC'), %(timezone)s)"
     trunc_func_args = [source]
-    if interval == "week":
+    if trunc_func == "toStartOfWeek":
         trunc_func_args.append((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)
     interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
     # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
@@ -155,7 +155,9 @@ def convert_to_datetime_aware(date_obj):
 
 
 def correct_result_for_sampling(
-    value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
+    value: Union[int, float],
+    sampling_factor: Optional[float],
+    entity_math: Optional[str] = None,
 ) -> Union[int, float]:
     from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 

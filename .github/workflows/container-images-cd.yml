@@ -80,7 +80,7 @@ jobs:
                   push: true
                   file: production-unit.Dockerfile
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
-                  platforms: linux/amd64
+                  platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: get deployer token

@@ -3,6 +3,12 @@
     column-gap: 10px;
 }
 
+@media screen and (max-width: 1024px) {
+    .masonry-container {
+        column-count: 2;
+    }
+}
+
 .masonry-item {
     margin: 0;
     display: grid;
@@ -16,9 +22,5 @@
 
 .masonry-item-text {
     max-height: 305px;
-    overflow: scroll;
-}
-
-.masonry-item-link {
-    background-color: #fafaf9;
+    overflow-y: scroll;
 }

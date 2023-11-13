@@ -1,6 +1,6 @@
 import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
-import { Empty, Tag } from 'antd'
+import { Empty } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -22,6 +22,7 @@ import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/De
 import { pluralize } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useState } from 'react'
+import { LemonTag } from '@posthog/lemon-ui'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -36,7 +37,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Stale</Tag>
+            <LemonTag>Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -64,7 +65,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Not seen</Tag>
+            <LemonTag>Not seen</LemonTag>
         </Tooltip>
     )
 }

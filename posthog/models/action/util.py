@@ -35,7 +35,9 @@ def format_action_filter(
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            from posthog.models.property.util import filter_element  # prevent circular import
+            from posthog.models.property.util import (
+                filter_element,
+            )  # prevent circular import
 
             if step.selector:
                 element_condition, element_params = filter_element(

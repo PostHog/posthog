@@ -5,7 +5,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0341_add_session_recording_storage_version"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="featureflag",
             name="usage_dashboard",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to="posthog.dashboard",
             ),
         ),
     ]

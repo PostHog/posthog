@@ -1,12 +1,11 @@
 import { useValues, useActions } from 'kea'
-import React, { useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom'
+import React, { HTMLProps, useEffect, useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ChartParams, TrendResult } from '~/types'
+import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
-import { ensureTooltipElement } from '../LineGraph/LineGraph'
+import { ensureTooltip } from '../LineGraph/LineGraph'
 import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
@@ -29,16 +28,17 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
 
     const svgRef = useRef<SVGSVGElement>(null)
 
+    const svgRect = svgRef.current?.getBoundingClientRect()
+    const [tooltipRoot, tooltipEl] = ensureTooltip()
+
     useEffect(() => {
-        const svgRect = svgRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         if (isTooltipShown) {
             tooltipEl.style.display = 'initial'
         }
 
         if (tooltipCoordinates) {
-            ReactDOM.render(
+            tooltipRoot.render(
                 <>
                     {currentTooltip && (
                         <InsightTooltip
@@ -68,33 +68,32 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
                         />
                     )}
-                </>,
-                tooltipEl,
-                () => {
-                    const tooltipRect = tooltipEl.getBoundingClientRect()
-                    // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-                    let xOffset: number
-                    if (
-                        svgRect &&
-                        tooltipRect &&
-                        tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX >
-                            svgRect.x + svgRect.width
-                    ) {
-                        xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
-                    } else {
-                        xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
-                    }
-                    tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-                    tooltipEl.style.top = `${
-                        window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX
-                    }px`
-                }
+                </>
             )
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
     }, [isTooltipShown, tooltipCoordinates, currentTooltip])
+
+    useEffect(() => {
+        if (tooltipCoordinates) {
+            const tooltipRect = tooltipEl.getBoundingClientRect()
+            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+            let xOffset: number
+            if (
+                svgRect &&
+                tooltipRect &&
+                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+            ) {
+                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
+            } else {
+                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
+            }
+            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
+            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
+        }
+    }, [currentTooltip, tooltipEl])
 
     return svgRef
 }
@@ -105,6 +104,10 @@ interface WorldMapSVGProps extends ChartParams {
     showTooltip: (countryCode: string, countrySeries: TrendResult | null) => void
     hideTooltip: () => void
     updateTooltipCoordinates: (x: number, y: number) => void
+    worldMapCountryProps?: (
+        countryCode: string,
+        countrySeries: TrendResult | undefined
+    ) => Omit<HTMLProps<SVGElement>, 'key'>
 }
 
 const WorldMapSVG = React.memo(
@@ -117,6 +120,7 @@ const WorldMapSVG = React.memo(
                 showTooltip,
                 hideTooltip,
                 updateTooltipCoordinates,
+                worldMapCountryProps,
             },
             ref
         ) => {
@@ -140,15 +144,23 @@ const WorldMapSVG = React.memo(
                         const fill = aggregatedValue
                             ? gradateColor(BRAND_BLUE_HSL, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
                             : undefined
-                        return React.cloneElement(countryElement, {
-                            key: countryCode,
-                            style: { color: fill, cursor: showPersonsModal && countrySeries ? 'pointer' : undefined },
-                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
-                            onMouseLeave: () => hideTooltip(),
-                            onMouseMove: (e: MouseEvent) => {
-                                updateTooltipCoordinates(e.clientX, e.clientY)
-                            },
-                            onClick: () => {
+
+                        const {
+                            onClick: propsOnClick,
+                            style,
+                            ...props
+                        } = worldMapCountryProps
+                            ? worldMapCountryProps(countryCode, countrySeries)
+                            : { onClick: undefined, style: undefined }
+
+                        let onClick: typeof propsOnClick
+                        if (propsOnClick) {
+                            onClick = (e) => {
+                                propsOnClick(e)
+                                hideTooltip()
+                            }
+                        } else if (showPersonsModal && countrySeries) {
+                            onClick = () => {
                                 if (showPersonsModal && countrySeries) {
                                     if (countrySeries.persons?.url) {
                                         openPersonsModal({
@@ -168,7 +180,19 @@ const WorldMapSVG = React.memo(
                                         })
                                     }
                                 }
+                            }
+                        }
+
+                        return React.cloneElement(countryElement, {
+                            key: countryCode,
+                            style: { color: fill, cursor: onClick ? 'pointer' : undefined, ...style },
+                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
+                            onMouseLeave: () => hideTooltip(),
+                            onMouseMove: (e: MouseEvent) => {
+                                updateTooltipCoordinates(e.clientX, e.clientY)
                             },
+                            onClick,
+                            ...props,
                         })
                     })}
                 </svg>
@@ -177,10 +201,11 @@ const WorldMapSVG = React.memo(
     )
 )
 
-export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
+export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
+    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
 
@@ -193,6 +218,7 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
             hideTooltip={hideTooltip}
             updateTooltipCoordinates={updateTooltipCoordinates}
             ref={svgRef}
+            worldMapCountryProps={renderingMetadata?.countryProps}
         />
     )
 }

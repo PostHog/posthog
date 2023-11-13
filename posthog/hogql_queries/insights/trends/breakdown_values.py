@@ -34,14 +34,14 @@ class BreakdownValues:
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
-    def get_breakdown_values(self) -> List[str]:
+    def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
             return [int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
                 alias="value",
-                expr=parse_expr(self.breakdown_field),
+                expr=parse_expr(str(self.breakdown_field)),
             )
         else:
             select_field = ast.Alias(
@@ -55,22 +55,20 @@ class BreakdownValues:
                 ),
             )
 
-        query = parse_select(
+        inner_events_query = parse_select(
             """
-                SELECT groupArray(value) FROM (
-                    SELECT
-                        {select_field},
-                        count(*) as count
-                    FROM
-                        events e
-                    WHERE
-                        {events_where}
-                    GROUP BY
-                        value
-                    ORDER BY
-                        count DESC,
-                        value DESC
-                )
+                SELECT
+                    {select_field},
+                    count(e.uuid) as count
+                FROM
+                    events e
+                WHERE
+                    {events_where}
+                GROUP BY
+                    value
+                ORDER BY
+                    count DESC,
+                    value DESC
             """,
             placeholders={
                 "events_where": self._where_filter(),
@@ -78,9 +76,17 @@ class BreakdownValues:
             },
         )
 
+        query = parse_select(
+            """
+                SELECT groupArray(value) FROM ({inner_events_query})
+            """,
+            placeholders={
+                "inner_events_query": inner_events_query,
+            },
+        )
+
         if self.histogram_bin_count is not None:
-            expr = self._to_bucketing_expression()
-            query.select = [expr]
+            query.select = [self._to_bucketing_expression()]
 
         response = execute_hogql_query(
             query_type="TrendsQueryBreakdownValues",
@@ -109,7 +115,12 @@ class BreakdownValues:
         )
 
         if self.event_name is not None:
-            filters.append(parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.event_name)}))
+            filters.append(
+                parse_expr(
+                    "event = {event}",
+                    placeholders={"event": ast.Constant(value=self.event_name)},
+                )
+            )
 
         return ast.And(exprs=filters)
 

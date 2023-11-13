@@ -18,6 +18,12 @@ module.exports = {
         react: {
             version: 'detect',
         },
+        'import/resolver': {
+            node: {
+                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
+            },
+        },
     },
     extends: [
         'eslint:recommended',
@@ -37,7 +43,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat', 'posthog'],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
@@ -76,11 +82,15 @@ module.exports = {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
                     },
+                    {
+                        name: '@ant-design/icons',
+                        message: 'Please use icons from the @posthog/icons package instead',
+                    },
                 ],
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -91,8 +101,8 @@ module.exports = {
                 ],
             },
         ],
-        'react/forbid-elements': [
-            1,
+        'posthog/warn-elements': [
+            'warn',
             {
                 forbid: [
                     {
@@ -103,10 +113,6 @@ module.exports = {
                     {
                         element: 'Col',
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Divider',
@@ -137,14 +143,18 @@ module.exports = {
                         message: 'use <LemonSelect> instead',
                     },
                     {
-                        element: 'a',
-                        message: 'use <Link> instead',
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
+                    {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
                     },
                 ],
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -154,6 +164,10 @@ module.exports = {
                     {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
+                    },
+                    {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Spin',
@@ -166,6 +180,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',
@@ -183,12 +201,17 @@ module.exports = {
                         element: 'ReactMarkdown',
                         message: 'use <LemonMarkdown> instead',
                     },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
-        'no-constant-condition': 0,
-        'no-prototype-builtins': 0,
-        'no-irregular-whitespace': 0,
+        'no-constant-binary-expression': 'error',
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
         {
@@ -234,6 +257,16 @@ module.exports = {
             files: ['*.js'],
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
+            },
+        },
+        {
+            files: 'eslint-rules/**/*',
+            extends: ['eslint:recommended'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+            },
+            env: {
+                node: true,
             },
         },
     ],

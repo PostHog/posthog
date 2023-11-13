@@ -103,7 +103,6 @@ export interface ActionFilterRowProps {
         propertyFiltersButton,
         renameRowButton,
         deleteButton,
-        orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
 }
 
@@ -204,8 +203,6 @@ export function ActionFilterRow({
         name = filter.name || String(filter.id)
         value = filter.name || filter.id
     }
-
-    const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
@@ -321,6 +318,7 @@ export function ActionFilterRow({
             className={'ActionFilterRow'}
             ref={setNodeRef}
             {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
@@ -337,7 +335,6 @@ export function ActionFilterRow({
                         propertyFiltersButton: propertyFiltersButton,
                         renameRowButton,
                         deleteButton,
-                        orLabel,
                     })
                 ) : (
                     <>
@@ -458,7 +455,6 @@ export function ActionFilterRow({
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
-                        style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}

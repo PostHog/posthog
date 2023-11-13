@@ -40,7 +40,10 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
+    return {
+        "join_algorithm": "direct,parallel_hash",
+        "distributed_replica_max_ignored_errors": 1000,
+    }
 
 
 @lru_cache(maxsize=1)
@@ -91,7 +94,10 @@ def sync_execute(
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
-        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
+        settings = {
+            **core_settings,
+            "log_comment": json.dumps(tags, separators=(",", ":")),
+        }
         try:
             result = client.execute(
                 prepared_sql,
@@ -102,7 +108,10 @@ def sync_execute(
             )
         except Exception as err:
             err = wrap_query_error(err)
-            statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
+            statsd.incr(
+                "clickhouse_sync_execution_failure",
+                tags={"failed": True, "reason": type(err).__name__},
+            )
 
             raise err
         finally:
@@ -147,7 +156,12 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
+def _prepare_query(
+    client: SyncClient,
+    query: str,
+    args: QueryArgs,
+    workload: Workload = Workload.DEFAULT,
+):
     """
     Given a string query with placeholders we do one of two things:
 
@@ -219,7 +233,9 @@ def format_sql(rendered_sql, colorize=True):
             import pygments.lexers
 
             return pygments.highlight(
-                formatted_sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter()
+                formatted_sql,
+                pygments.lexers.get_lexer_by_name("sql"),
+                pygments.formatters.TerminalFormatter(),
             )
         except:
             pass

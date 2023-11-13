@@ -18,7 +18,9 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -35,7 +37,9 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -60,17 +64,25 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Default", "pinned": "true"},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["tags"], [])
         self.assertEqual(TaggedItem.objects.all().count(), 0)
 
         id = response.json()["id"]
-        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{id}", {"tags": ["b", "c", "d", "e"]})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{id}",
+            {"tags": ["b", "c", "d", "e"]},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
         self.assertEqual(TaggedItem.objects.all().count(), 4)
@@ -79,11 +91,14 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true", "tags": ["nightly"]}
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Default", "pinned": "true", "tags": ["nightly"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -94,12 +109,15 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"tags": ["a", "b", "a"]},
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
@@ -108,7 +126,9 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")

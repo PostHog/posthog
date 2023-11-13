@@ -4,6 +4,7 @@ import { Card } from 'antd'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
+// eslint-disable-next-line no-restricted-imports
 import { CloseOutlined } from '@ant-design/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 

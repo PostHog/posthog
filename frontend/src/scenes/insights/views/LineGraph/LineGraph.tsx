@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
+import { Root, createRoot } from 'react-dom/client'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -38,16 +38,31 @@ import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 
-export function ensureTooltipElement(): HTMLElement {
+let tooltipRoot: Root
+
+export function ensureTooltip(): [Root, HTMLElement] {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (!tooltipEl) {
-        tooltipEl = document.createElement('div')
-        tooltipEl.id = 'InsightTooltipWrapper'
-        tooltipEl.classList.add('InsightTooltipWrapper')
-        tooltipEl.style.display = 'none'
-        document.body.appendChild(tooltipEl)
+
+    if (!tooltipEl || !tooltipRoot) {
+        if (!tooltipEl) {
+            tooltipEl = document.createElement('div')
+            tooltipEl.id = 'InsightTooltipWrapper'
+            tooltipEl.classList.add('InsightTooltipWrapper')
+            tooltipEl.style.display = 'none'
+            document.body.appendChild(tooltipEl)
+        }
+
+        tooltipRoot = createRoot(tooltipEl)
     }
-    return tooltipEl
+    return [tooltipRoot, tooltipEl]
+}
+
+function truncateString(str: string, num: number): string {
+    if (str.length > num) {
+        return str.slice(0, num) + ' ...'
+    } else {
+        return str
+    }
 }
 
 export function onChartClick(
@@ -365,7 +380,7 @@ export function LineGraph_({
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
-            color: '#2d2d2d' as Color,
+            color: colors.axisLabel as Color,
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
@@ -408,6 +423,9 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
+                        if (showValueOnSeries && inSurveyView) {
+                            return true
+                        }
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
@@ -430,7 +448,7 @@ export function LineGraph_({
                             return
                         }
 
-                        const tooltipEl = ensureTooltipElement()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip()
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return
@@ -457,7 +475,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ReactDOM.render(
+                            tooltipRoot.render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
@@ -513,8 +531,7 @@ export function LineGraph_({
                                             : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
-                                />,
-                                tooltipEl
+                                />
                             )
                         }
 
@@ -570,6 +587,9 @@ export function LineGraph_({
         }
 
         if (type === GraphType.Bar) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -578,8 +598,17 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         precision,
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                      weight: '600',
+                                  },
+                              }
+                            : {}),
                     },
-                    grid: gridOptions,
+                    grid: inSurveyView ? { display: false } : gridOptions,
                 },
                 y: {
                     display: !hideYAxis,
@@ -597,6 +626,9 @@ export function LineGraph_({
                 },
             }
         } else if (type === GraphType.Line) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -624,6 +656,9 @@ export function LineGraph_({
                 },
             }
         } else if (isHorizontal) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -642,6 +677,13 @@ export function LineGraph_({
                     display: true,
                     beforeFit: (scale) => {
                         if (inSurveyView) {
+                            scale.ticks = scale.ticks.map((tick) => {
+                                if (typeof tick.label === 'string') {
+                                    return { ...tick, label: truncateString(tick.label, 50) }
+                                }
+                                return tick
+                            })
+
                             const ROW_HEIGHT = 60
                             const dynamicHeight = scale.ticks.length * ROW_HEIGHT
                             const height = dynamicHeight
@@ -691,7 +733,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
         <div

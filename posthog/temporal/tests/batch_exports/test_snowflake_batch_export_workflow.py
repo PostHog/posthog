@@ -9,7 +9,6 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 import responses
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
 from requests.models import PreparedRequest
@@ -20,30 +19,21 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.test.test_organization import acreate_organization
-from posthog.api.test.test_team import acreate_team
-from posthog.temporal.client import connect
-from posthog.temporal.tests.batch_exports.base import (
-    EventValues,
-    insert_events,
-    to_isoformat,
-)
-from posthog.temporal.tests.batch_exports.fixtures import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.datetimes import to_isoformat
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
 )
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 def contains_queries_in_order(queries: list[str], *queries_to_find: str):
@@ -89,7 +79,18 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
                 staged_files.append(f.read())
 
             if fail == "put":
-                rowset = [("test", "test.gz", 456, 0, "NONE", "GZIP", "FAILED", "Some error on put")]
+                rowset = [
+                    (
+                        "test",
+                        "test.gz",
+                        456,
+                        0,
+                        "NONE",
+                        "GZIP",
+                        "FAILED",
+                        "Some error on put",
+                    )
+                ]
 
         else:
             if fail == "copy":
@@ -186,7 +187,12 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         "https://account.snowflakecomputing.com:443/session/v1/login-request",
         json={
             "success": True,
-            "data": {"token": "test-token", "masterToken": "test-token", "code": None, "message": None},
+            "data": {
+                "token": "test-token",
+                "masterToken": "test-token",
+                "code": None,
+                "message": None,
+            },
         },
     )
     rsps.add_callback(
@@ -198,21 +204,8 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
     return queries, staged_files
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the_right_team():
-    """Test that the whole workflow not just the activity works.
-
-    It should update the batch export run status to completed, as well as updating the record
-    count.
-    """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
+@pytest_asyncio.fixture
+async def snowflake_batch_export(ateam, interval, temporal_client):
     destination_data = {
         "type": "Snowflake",
         "config": {
@@ -227,107 +220,53 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
     }
 
     batch_export_data = {
-        "name": "my-production-snowflake-bucket-destination",
+        "name": "my-production-snowflake-export",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name=batch_export_data["name"],
         destination_data=batch_export_data["destination"],
         interval=batch_export_data["interval"],
     )
 
-    # Create enough events to ensure we span more than 5MB, the smallest
-    # multipart chunk size for multipart uploads to Snowflake.
-    events: list[EventValues] = [
-        {
-            "_timestamp": "2023-04-20 14:30:00",
-            "created_at": f"2023-04-20 14:30:00.{i:06d}",
-            "distinct_id": str(uuid4()),
-            "elements_chain": None,
-            "event": "test",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "person_id": str(uuid4()),
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "person_properties": {},
-            "team_id": team.pk,
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "uuid": str(uuid4()),
-        }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(2)
-    ]
+    yield batch_export
 
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
-        client=ch_client,
-        events=events,
-    )
+    await adelete_batch_export(batch_export, temporal_client)
 
-    other_team = await acreate_team(organization=organization)
 
-    # Insert some events before the hour and after the hour, as well as some
-    # events from another team to ensure that we only export the events from
-    # the team that the batch export is for.
-    await insert_events(
-        client=ch_client,
-        events=[
-            {
-                "_timestamp": "2023-04-20 13:30:00",
-                "created_at": "2023-04-20 13:30:00",
-                "distinct_id": str(uuid4()),
-                "elements_chain": None,
-                "event": "test",
-                "inserted_at": "2023-04-20 13:30:00",
-                "person_id": str(uuid4()),
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {},
-                "team_id": team.pk,
-                "timestamp": "2023-04-20 13:30:00",
-                "uuid": str(uuid4()),
-            },
-            {
-                "_timestamp": "2023-04-20 15:30:00",
-                "created_at": "2023-04-20 15:30:00",
-                "distinct_id": str(uuid4()),
-                "elements_chain": None,
-                "event": "test",
-                "inserted_at": "2023-04-20 15:30:00",
-                "person_id": str(uuid4()),
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {},
-                "team_id": team.pk,
-                "timestamp": "2023-04-20 15:30:00",
-                "uuid": str(uuid4()),
-            },
-            {
-                "_timestamp": "2023-04-20 14:30:00",
-                "created_at": "2023-04-20 14:30:00",
-                "distinct_id": str(uuid4()),
-                "elements_chain": None,
-                "event": "test",
-                "inserted_at": "2023-04-20 14:30:00",
-                "person_id": str(uuid4()),
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {},
-                "team_id": other_team.pk,
-                "timestamp": "2023-04-20 14:30:00",
-                "uuid": str(uuid4()),
-            },
-        ],
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+async def test_snowflake_export_workflow_exports_events(ateam, clickhouse_client, snowflake_batch_export, interval):
+    """Test that the whole workflow not just the activity works.
+
+    It should update the batch export run status to completed, as well as updating the record
+    count.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-20 14:40:00.000000",
-        **batch_export.destination.config,
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **snowflake_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -335,7 +274,11 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -379,6 +322,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     for event in json_data
                 ]
                 json_data.sort(key=lambda x: x["timestamp"])
+
                 # Drop _timestamp and team_id from events
                 expected_events = []
                 for event in events:
@@ -389,24 +333,27 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     }
                     expected_event["timestamp"] = to_isoformat(event["timestamp"])
                     expected_events.append(expected_event)
+                expected_events.sort(key=lambda x: x["timestamp"])
 
                 assert json_data[0] == expected_events[0]
                 assert json_data == expected_events
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Completed"
+    run = runs[0]
+    assert run.status == "Completed"
 
-    # Check that the workflow runs successfully for a period that has no
-    # events.
 
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval):
+    workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
         data_interval_end="2023-03-20 14:40:00.000000",
-        **batch_export.destination.config,
+        interval=interval,
+        **snowflake_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -414,7 +361,11 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -452,79 +403,38 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 json_data.sort(key=lambda x: x["timestamp"])
                 assert json_data == []
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 2
+        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+        assert len(runs) == 1
 
-        run = runs[1]
+        run = runs[0]
         assert run.status == "Completed"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_snowflake_export_workflow_raises_error_on_put_fail():
-    destination_data = {
-        "type": "Snowflake",
-        "config": {
-            "user": "hazzadous",
-            "password": "password",
-            "account": "account",
-            "database": "PostHog",
-            "schema": "test",
-            "warehouse": "COMPUTE_WH",
-            "table_name": "events",
-        },
-    }
+async def test_snowflake_export_workflow_raises_error_on_put_fail(
+    clickhouse_client, ateam, snowflake_batch_export, interval
+):
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
-    batch_export_data = {
-        "name": "my-production-snowflake-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    events: list[EventValues] = [
-        {
-            "_timestamp": "2023-04-20 14:30:00",
-            "created_at": "2023-04-20 14:30:00",
-            "distinct_id": str(uuid4()),
-            "elements_chain": None,
-            "event": "test",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "person_id": str(uuid4()),
-            "person_properties": None,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "uuid": str(uuid4()),
-        }
-        for i in range(2)
-    ]
-
-    await insert_events(
-        client=ch_client,
-        events=events,
+    _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-20 14:40:00.000000",
-        **batch_export.destination.config,
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **snowflake_batch_export.destination.config,
     )
 
     workflow_id = str(uuid4())
@@ -534,7 +444,11 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -558,72 +472,31 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
                 assert err.__cause__.__cause__.type == "SnowflakeFileNotUploadedError"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_snowflake_export_workflow_raises_error_on_copy_fail():
-    destination_data = {
-        "type": "Snowflake",
-        "config": {
-            "user": "hazzadous",
-            "password": "password",
-            "account": "account",
-            "database": "PostHog",
-            "schema": "test",
-            "warehouse": "COMPUTE_WH",
-            "table_name": "events",
-        },
-    }
+async def test_snowflake_export_workflow_raises_error_on_copy_fail(
+    clickhouse_client, ateam, snowflake_batch_export, interval
+):
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
-    batch_export_data = {
-        "name": "my-production-snowflake-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    events: list[EventValues] = [
-        {
-            "_timestamp": "2023-04-20 14:30:00",
-            "created_at": "2023-04-20 14:30:00",
-            "distinct_id": str(uuid4()),
-            "elements_chain": None,
-            "event": "test",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "person_id": str(uuid4()),
-            "person_properties": None,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "uuid": str(uuid4()),
-        }
-        for i in range(2)
-    ]
-
-    await insert_events(
-        client=ch_client,
-        events=events,
+    _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-20 14:40:00.000000",
-        **batch_export.destination.config,
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **snowflake_batch_export.destination.config,
     )
 
     workflow_id = str(uuid4())
@@ -633,7 +506,11 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -657,70 +534,14 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
                 assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
 
 
-@pytest_asyncio.fixture
-async def organization():
-    organization = await acreate_organization("test")
-    yield organization
-    await sync_to_async(organization.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def team(organization):
-    team = await acreate_team(organization=organization)
-    yield team
-    await sync_to_async(team.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def batch_export(team):
-    destination_data = {
-        "type": "Snowflake",
-        "config": {
-            "user": "hazzadous",
-            "password": "password",
-            "account": "account",
-            "database": "PostHog",
-            "schema": "test",
-            "warehouse": "COMPUTE_WH",
-            "table_name": "events",
-        },
-    }
-    batch_export_data = {
-        "name": "my-production-snowflake-export",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    yield batch_export
-
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-    await adelete_batch_export(batch_export, client)
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_snowflake_export_workflow_handles_insert_activity_errors(team, batch_export):
+async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, snowflake_batch_export):
     """Test that Snowflake Export Workflow can gracefully handle errors when inserting Snowflake data."""
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        **snowflake_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_snowflake_activity")
@@ -732,7 +553,11 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(team, ba
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity_mocked, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity_mocked,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
@@ -744,24 +569,22 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(team, ba
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Failed"
-        assert run.latest_error == "ValueError: A useful error message"
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "ValueError: A useful error message"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_snowflake_export_workflow_handles_cancellation(team, batch_export):
+async def test_snowflake_export_workflow_handles_cancellation(ateam, snowflake_batch_export):
     """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        **snowflake_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_snowflake_activity")
@@ -775,7 +598,11 @@ async def test_snowflake_export_workflow_handles_cancellation(team, batch_export
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, never_finish_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                never_finish_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await activity_environment.client.start_workflow(
@@ -791,9 +618,9 @@ async def test_snowflake_export_workflow_handles_cancellation(team, batch_export
             with pytest.raises(WorkflowFailureError):
                 await handle.result()
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Cancelled"
-        assert run.latest_error == "Cancelled"
+    run = runs[0]
+    assert run.status == "Cancelled"
+    assert run.latest_error == "Cancelled"

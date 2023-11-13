@@ -15,9 +15,9 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -153,6 +153,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (insightDataRaw): Record<string, any> => {
                 // :TRICKY: The queries return results as `results`, but insights expect `result`
                 return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+            },
+        ],
+
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
             },
         ],
     }),

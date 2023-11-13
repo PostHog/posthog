@@ -4,7 +4,7 @@ import { DataWarehouseSceneRow } from './types'
 import { DataWarehouseViewLink } from '~/types'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { viewLinkLogicType } from './viewLinkLogicType'
@@ -26,13 +26,13 @@ export interface KeySelectOption {
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
-        values: [dataWarehouseSavedQueriesLogic, ['savedQueries']],
-        actions: [databaseSceneLogic, ['loadDatabase']],
+        values: [dataWarehouseSavedQueriesLogic, ['savedQueries'], databaseTableListLogic, ['tableOptions']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     }),
     actions({
         selectView: (selectedView) => ({ selectedView }),
         setView: (view) => ({ view }),
-        selectTable: (selectedTable) => ({ selectedTable }),
+        selectTableName: (selectedTableName: string) => ({ selectedTableName }),
         toggleFieldModal: true,
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
@@ -53,10 +53,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 setView: (_, { view }) => view,
             },
         ],
-        selectedTable: [
-            null as DataWarehouseSceneRow | null,
+        selectedTableName: [
+            null as string | null,
             {
-                selectTable: (_, { selectedTable }) => selectedTable,
+                selectTableName: (_, { selectedTableName }) => selectedTableName,
             },
         ],
         isFieldModalOpen: [
@@ -132,6 +132,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
     selectors({
+        selectedTable: [
+            (s) => [s.selectedTableName, s.tableOptions],
+            (selectedTableName: string, tableOptions: DataWarehouseSceneRow[]) =>
+                tableOptions.find((row) => row.name === selectedTableName),
+        ],
         viewOptions: [
             (s) => [s.savedQueries],
             (savedQueries: DataWarehouseSceneRow[]) =>

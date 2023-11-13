@@ -7,6 +7,7 @@ import { RRWebEvent } from '../../../types'
 export type IncomingRecordingMessage = {
     metadata: TopicPartitionOffset & {
         timestamp: number
+        consoleLogIngestionEnabled: boolean
     }
 
     team_id: number

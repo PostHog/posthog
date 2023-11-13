@@ -36,5 +36,8 @@ class OrganizationResourceAccess(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization", "resource"], name="unique resource per organization")
+            models.UniqueConstraint(
+                fields=["organization", "resource"],
+                name="unique resource per organization",
+            )
         ]

@@ -6,23 +6,25 @@ from dataclasses import dataclass
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from temporalio import activity, exceptions, workflow
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    BYTES_EXPORTED,
+    ROWS_EXPORTED,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
-    get_batch_exports_logger,
+    execute_batch_export_insert_activity,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
@@ -98,9 +100,9 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
-        "Running BigQuery export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -126,7 +128,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to BigQuery", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -154,10 +156,25 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
         with bigquery_client(inputs) as bq_client:
             bigquery_table = create_table_in_bigquery(
-                inputs.project_id, inputs.dataset_id, inputs.table_id, table_schema, bq_client
+                inputs.project_id,
+                inputs.dataset_id,
+                inputs.table_id,
+                table_schema,
+                bq_client,
             )
 
             with BatchExportTemporaryFile() as jsonl_file:
+
+                def flush_to_bigquery():
+                    logger.debug(
+                        "Loading %s records of size %s bytes",
+                        jsonl_file.records_since_last_reset,
+                        jsonl_file.bytes_since_last_reset,
+                    )
+                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    ROWS_EXPORTED.labels(destination="bigquery").inc(jsonl_file.records_since_last_reset)
+                    BYTES_EXPORTED.labels(destination="bigquery").inc(jsonl_file.bytes_since_last_reset)
+
                 for result in results_iterator:
                     row = {
                         field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
@@ -169,26 +186,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Copying %s records of size %s bytes to BigQuery",
-                            jsonl_file.records_since_last_reset,
-                            jsonl_file.bytes_since_last_reset,
-                        )
-                        load_jsonl_file_to_bigquery_table(
-                            jsonl_file,
-                            bigquery_table,
-                            table_schema,
-                            bq_client,
-                        )
+                        flush_to_bigquery()
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    logger.info(
-                        "Copying %s records of size %s bytes to BigQuery",
-                        jsonl_file.records_since_last_reset,
-                        jsonl_file.bytes_since_last_reset,
-                    )
-                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    flush_to_bigquery()
 
 
 @workflow.defn(name="bigquery-export")
@@ -210,9 +212,13 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting BigQuery export batch %s - %s", data_interval_start, data_interval_end)
+        logger.info(
+            "Starting batch export %s - %s",
+            data_interval_start,
+            data_interval_end,
+        )
 
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
@@ -251,48 +257,18 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
         )
 
-        try:
-            await workflow.execute_activity(
-                insert_into_bigquery_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[],
-                ),
-            )
-
-        except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                logger.error("BigQuery BatchExport was cancelled.")
-                update_inputs.status = "Cancelled"
-            else:
-                logger.exception("BigQuery BatchExport failed.", exc_info=e.cause)
-                update_inputs.status = "Failed"
-
-            update_inputs.latest_error = str(e.cause)
-            raise
-
-        except Exception as e:
-            logger.exception("BigQuery BatchExport failed with an unexpected exception.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = "An unexpected error has ocurred"
-            raise
-
-        else:
-            logger.info("Successfully finished BigQuery export batch %s - %s", data_interval_start, data_interval_end)
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_bigquery_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # Raised on missing permissions.
+                "Forbidden",
+                # Invalid token.
+                "RefreshError",
+                # Usually means the dataset or project doesn't exist.
+                "NotFound",
+            ],
+            update_inputs=update_inputs,
+            # Disable heartbeat timeout until we add heartbeat support.
+            heartbeat_timeout_seconds=None,
+        )

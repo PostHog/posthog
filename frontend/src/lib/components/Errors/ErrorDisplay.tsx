@@ -2,8 +2,8 @@ import { EventType, RecordingEventType } from '~/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { IconFlag } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import posthog from 'posthog-js'
 import { Link } from 'lib/lemon-ui/Link'
+import posthog from 'posthog-js'
 
 interface StackFrame {
     filename: string
@@ -43,7 +43,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
         )
     } catch (e: any) {
         //very meta
-        posthog.captureException(e, { tag: 'error-display-stack-trace' })
+        posthog.capture('Cannot parse stack trace in Exception event', { tag: 'error-display-stack-trace', e })
         return <LemonTag type={'caution'}>Error parsing stack trace</LemonTag>
     }
 }

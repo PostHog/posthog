@@ -18,7 +18,12 @@ def argmax_select(
     fields_to_select: List[ast.Expr] = []
     for name, chain in select_fields.items():
         if name not in group_fields:
-            fields_to_select.append(ast.Alias(alias=name, expr=argmax_version(ast.Field(chain=[table_name] + chain))))
+            fields_to_select.append(
+                ast.Alias(
+                    alias=name,
+                    expr=argmax_version(ast.Field(chain=[table_name] + chain)),
+                )
+            )
     for key in group_fields:
         fields_to_group.append(ast.Field(chain=[table_name, key]))
         fields_to_select.append(ast.Alias(alias=key, expr=ast.Field(chain=[table_name, key])))

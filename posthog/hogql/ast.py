@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 from dataclasses import dataclass, field
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
+from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -557,3 +557,21 @@ class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
+
+
+@dataclass(kw_only=True)
+class HogQLXAttribute(AST):
+    name: str
+    value: Any
+
+
+@dataclass(kw_only=True)
+class HogQLXTag(AST):
+    kind: str
+    attributes: List[HogQLXAttribute]
+
+    def to_dict(self):
+        return {
+            "kind": self.kind,
+            **{a.name: a.value for a in self.attributes},
+        }

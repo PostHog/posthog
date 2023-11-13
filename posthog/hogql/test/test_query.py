@@ -15,9 +15,17 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
@@ -38,7 +46,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="bla",
                 event="random event",
                 team=self.team,
-                properties={"random_prop": "don't include", "random_uuid": random_uuid, "index": index},
+                properties={
+                    "random_prop": "don't include",
+                    "random_uuid": random_uuid,
+                    "index": index,
+                },
             )
         flush_persons_and_events()
         return random_uuid
@@ -241,7 +253,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "bla")
-            self.assertEqual(response.results[0][1], datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc))
+            self.assertEqual(
+                response.results[0][1],
+                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc),
+            )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_person_properties(self):
@@ -402,20 +417,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_prop_cohort_basic(self):
         with freeze_time("2020-01-10"):
-            _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_other_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something"},
+            )
             _create_person(
                 distinct_ids=["some_id"],
                 team_id=self.team.pk,
                 properties={"$some_prop": "something", "$another_prop": "something"},
             )
             _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
-            _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
             _create_event(
-                event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"}
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val"},
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_other_id",
+                properties={"attr": "some_val"},
             )
             cohort = Cohort.objects.create(
                 team=self.team,
-                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                groups=[
+                    {
+                        "properties": [
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
                 name="cohort",
             )
             recalculate_cohortpeople(cohort, pending_version=0)
@@ -425,7 +462,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
-                            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+                            {"type": "cohort", "key": "id", "value": cohort.pk},
+                            self.team,
                         )
                     },
                 )
@@ -441,7 +479,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
-                            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+                            {"type": "cohort", "key": "id", "value": cohort.pk},
+                            self.team,
                         )
                     },
                 )
@@ -456,16 +495,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_prop_cohort_static(self):
         with freeze_time("2020-01-10"):
-            _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_other_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something"},
+            )
             _create_person(
                 distinct_ids=["some_id"],
                 team_id=self.team.pk,
                 properties={"$some_prop": "something", "$another_prop": "something"},
             )
             _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
-            _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
             _create_event(
-                event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"}
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val"},
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_other_id",
+                properties={"attr": "some_val"},
             )
             cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
             cohort.insert_users_by_list(["some_id"])
@@ -476,7 +527,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
-                            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+                            {"type": "cohort", "key": "id", "value": cohort.pk},
+                            self.team,
                         )
                     },
                 )
@@ -493,7 +545,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
-                            {"type": "cohort", "key": "id", "value": cohort.pk}, self.team
+                            {"type": "cohort", "key": "id", "value": cohort.pk},
+                            self.team,
                         )
                     },
                 )
@@ -505,7 +558,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_join_with_property_materialized_session_id(self):
         with freeze_time("2020-01-10"):
-            _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something"},
+            )
             _create_event(
                 event="$pageview",
                 team=self.team,
@@ -519,7 +576,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"attr": "some_val", "$session_id": "111"},
             )
             produce_replay_summary(
-                distinct_id="some_id", session_id="111", first_timestamp=timezone.now(), team_id=self.team.pk
+                distinct_id="some_id",
+                session_id="111",
+                first_timestamp=timezone.now(),
+                team_id=self.team.pk,
             )
 
             response = execute_hogql_query(
@@ -544,7 +604,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_join_with_property_not_materialized(self):
         with freeze_time("2020-01-10"):
-            _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something"},
+            )
             _create_event(
                 event="$pageview",
                 team=self.team,
@@ -558,7 +622,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"attr": "some_val", "$$$session_id": "111"},
             )
             produce_replay_summary(
-                distinct_id="some_id", session_id="111", first_timestamp=timezone.now(), team_id=self.team.pk
+                distinct_id="some_id",
+                session_id="111",
+                first_timestamp=timezone.now(),
+                team_id=self.team.pk,
             )
 
             response = execute_hogql_query(
@@ -625,7 +692,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
             )
-            self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
+            self.assertEqual(
+                response.results,
+                [("0", [("random event", 1)]), ("1", [("random event", 1)])],
+            )
             assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
 
     def test_null_properties(self):
@@ -635,7 +705,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="bla",
                 event="empty event",
                 team=self.team,
-                properties={"empty_string": "", "null": None, "str_zero": "0", "num_zero": 0},
+                properties={
+                    "empty_string": "",
+                    "null": None,
+                    "str_zero": "0",
+                    "num_zero": 0,
+                },
             )
 
             query = """
@@ -881,7 +956,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
             )
-            self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
+            self.assertEqual(
+                response.results,
+                [("0", [("random event", 1)]), ("1", [("random event", 1)])],
+            )
             assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -917,7 +995,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
             )
-            self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
+            self.assertEqual(
+                response.results,
+                [("0", [("random event", 1)]), ("1", [("random event", 1)])],
+            )
             assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
 
     def test_property_access_with_arrays(self):
@@ -1308,7 +1389,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
         DataWarehouseViewLink.objects.create(
-            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+            saved_query=saved_query,
+            table="events",
+            to_join_key="fake",
+            from_join_key="distinct_id",
+            team=self.team,
         )
 
         response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
@@ -1366,7 +1451,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT event from events where {filters}"
         with self.assertRaises(HogQLException) as e:
             execute_hogql_query(
-                query, team=self.team, filters=HogQLFilters(), placeholders={"filters": ast.Constant(value=True)}
+                query,
+                team=self.team,
+                filters=HogQLFilters(),
+                placeholders={"filters": ast.Constant(value=True)},
             )
         self.assertEqual(
             str(e.exception),
@@ -1378,7 +1466,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
             query = "SELECT event, distinct_id from events e WHERE {filters}"
             filters = HogQLFilters(
-                properties=[EventPropertyFilter(key="random_uuid", operator="exact", value=random_uuid, type="event")]
+                properties=[
+                    EventPropertyFilter(
+                        key="random_uuid",
+                        operator="exact",
+                        value=random_uuid,
+                        type="event",
+                    )
+                ]
             )
             response = execute_hogql_query(query, team=self.team, filters=filters)
             self.assertEqual(
@@ -1397,3 +1492,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
         )
         assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+
+    def test_events_sessions_table(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            random_uuid = self._create_random_events()
+
+        with freeze_time("2020-01-10 12:10:00"):
+            _create_event(
+                distinct_id=random_uuid,
+                event="random event",
+                team=self.team,
+                properties={"$session_id": random_uuid},
+            )
+        with freeze_time("2020-01-10 12:20:00"):
+            _create_event(
+                distinct_id=random_uuid,
+                event="random event",
+                team=self.team,
+                properties={"$session_id": random_uuid},
+            )
+
+        query = "SELECT session.id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        response = execute_hogql_query(
+            query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
+        )
+        assert response.results == [
+            (random_uuid, 600),
+            (random_uuid, 600),
+        ]

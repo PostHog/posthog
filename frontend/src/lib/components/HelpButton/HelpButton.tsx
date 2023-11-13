@@ -1,5 +1,5 @@
 import './HelpButton.scss'
-import { kea, useActions, useValues } from 'kea'
+import { kea, useActions, useValues, props, key, path, connect, actions, reducers, listeners } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
@@ -27,21 +27,23 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
-export const helpButtonLogic = kea<helpButtonLogicType>({
-    props: {} as {
-        key?: string
-    },
-    key: (props: { key?: string }) => props.key || 'global',
-    path: (key) => ['lib', 'components', 'HelpButton', key],
-    connect: {
+export const helpButtonLogic = kea<helpButtonLogicType>([
+    props(
+        {} as {
+            key?: string
+        }
+    ),
+    key((props: { key?: string }) => props.key || 'global'),
+    path((key) => ['lib', 'components', 'HelpButton', key]),
+    connect({
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
-    },
-    actions: {
+    }),
+    actions({
         toggleHelp: true,
         showHelp: true,
         hideHelp: true,
-    },
-    reducers: {
+    }),
+    reducers({
         isHelpVisible: [
             false,
             {
@@ -50,8 +52,8 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
                 hideHelp: () => false,
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         showHelp: () => {
             actions.reportHelpButtonViewed()
         },
@@ -60,8 +62,8 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
                 actions.reportHelpButtonViewed()
             }
         },
-    }),
-})
+    })),
+])
 
 export interface HelpButtonProps {
     placement?: Placement
@@ -89,9 +91,9 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
-    const showSupportOptions: boolean = preflight?.cloud || false
+    const showSupportOptions: boolean = isCloudOrDev || false
 
     if (contactOnly && !showSupportOptions) {
         return null // We don't offer support for self-hosted instances

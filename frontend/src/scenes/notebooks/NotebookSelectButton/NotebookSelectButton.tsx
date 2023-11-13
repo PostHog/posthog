@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { IconNotebook, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
@@ -18,6 +18,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { IconNotebook } from '../IconNotebook'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -98,8 +99,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
 
         createNotebook(
-            title,
             NotebookTarget.Popover,
+            title,
             notebookResource ? [notebookResource] : undefined,
             (theNotebookLogic) => {
                 props.onNotebookOpened?.(theNotebookLogic)
@@ -118,8 +119,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     }, [])
 
     return (
-        <div className="space-y-2 flex flex-col flex-1 h-full overflow-hidden">
-            <div className="border-b space-y-2 flex-0">
+        <div className="flex flex-col flex-1 h-full overflow-hidden">
+            <div className="space-y-2 flex-0">
                 <LemonInput
                     type="search"
                     placeholder="Search notebooks..."
@@ -127,10 +128,25 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
+                <LemonButton
+                    data-attr="notebooks-select-button-create"
+                    fullWidth
+                    icon={<IconPlus />}
+                    onClick={openNewNotebook}
+                >
                     New notebook
                 </LemonButton>
+                <LemonButton
+                    fullWidth
+                    onClick={() => {
+                        setShowPopover(false)
+                        openAndAddToNotebook('scratchpad', false)
+                    }}
+                >
+                    My scratchpad
+                </LemonButton>
             </div>
+            <LemonDivider />
             <div className="overflow-y-auto flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
                     <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>

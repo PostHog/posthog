@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import HogQLException
@@ -8,7 +9,11 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
-from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
+from posthog.hogql.printer import (
+    prepare_ast_for_printing,
+    print_ast,
+    print_prepared_ast,
+)
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clone_expr
@@ -27,7 +32,7 @@ def execute_hogql_query(
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    default_limit: Optional[int] = None,
+    in_export_context: Optional[bool] = False,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
 ) -> HogQLQueryResponse:
@@ -61,15 +66,20 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+        from posthog.hogql.constants import (
+            DEFAULT_RETURNED_ROWS,
+            MAX_SELECT_RETURNED_ROWS,
+        )
 
         select_queries = (
             select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
         )
         for one_query in select_queries:
             if one_query.limit is None:
-                # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer.
-                one_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
+                # One more "max" of MAX_SELECT_RETURNED_ROWS (10k) in applied in the query printer.
+                one_query.limit = ast.Constant(
+                    value=MAX_SELECT_RETURNED_ROWS if in_export_context else DEFAULT_RETURNED_ROWS
+                )
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
@@ -102,7 +112,10 @@ def execute_hogql_query(
                 else:
                     print_columns.append(
                         print_prepared_ast(
-                            node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql]
+                            node=node,
+                            context=hogql_query_context,
+                            dialect="hogql",
+                            stack=[select_query_hogql],
                         )
                     )
 
@@ -115,7 +128,10 @@ def execute_hogql_query(
             modifiers=query_modifiers,
         )
         clickhouse_sql = print_ast(
-            select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLGlobalSettings()
+            select_query,
+            context=clickhouse_context,
+            dialect="clickhouse",
+            settings=settings or HogQLGlobalSettings(),
         )
 
     timings_dict = timings.to_dict()
@@ -128,16 +144,27 @@ def execute_hogql_query(
             timings=timings_dict,
         )
 
-        results, types = sync_execute(
-            clickhouse_sql,
-            clickhouse_context.values,
-            with_column_types=True,
-            workload=workload,
-            team_id=team.pk,
-            readonly=True,
-        )
+        error = None
+        try:
+            results, types = sync_execute(
+                clickhouse_sql,
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=workload,
+                team_id=team.pk,
+                readonly=True,
+            )
+        except Exception as e:
+            if explain:
+                results, types = None, None
+                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                    error = str(e)
+                else:
+                    error = "Unknown error"
+            else:
+                raise e
 
-    if explain:
+    if explain and error is None:  # If the query errored, explain will fail as well.
         with timings.measure("explain"):
             explain_results = sync_execute(
                 f"EXPLAIN {clickhouse_sql}",
@@ -155,6 +182,7 @@ def execute_hogql_query(
         query=query,
         hogql=hogql,
         clickhouse=clickhouse_sql,
+        error=error,
         timings=timings.to_list(),
         results=results,
         columns=print_columns,

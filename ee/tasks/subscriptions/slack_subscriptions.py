@@ -25,7 +25,10 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 
 
 def send_slack_subscription_report(
-    subscription: Subscription, assets: List[ExportedAsset], total_asset_count: int, is_new_subscription: bool = False
+    subscription: Subscription,
+    assets: List[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -54,10 +57,20 @@ def send_slack_subscription_report(
 
     blocks = []
 
-    blocks.extend([{"type": "section", "text": {"type": "mrkdwn", "text": title}}, _block_for_asset(first_asset)])
+    blocks.extend(
+        [
+            {"type": "section", "text": {"type": "mrkdwn", "text": title}},
+            _block_for_asset(first_asset),
+        ]
+    )
 
     if other_assets:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"}})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"},
+            }
+        )
 
     blocks.extend(
         [

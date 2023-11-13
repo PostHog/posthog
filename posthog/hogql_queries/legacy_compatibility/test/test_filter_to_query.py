@@ -58,8 +58,20 @@ insight_1 = {
 }
 insight_2 = {
     "events": [
-        {"id": "signed_up", "name": "signed_up", "type": "events", "order": 2, "custom_name": "Signed up"},
-        {"id": "upgraded_plan", "name": "upgraded_plan", "type": "events", "order": 4, "custom_name": "Upgraded plan"},
+        {
+            "id": "signed_up",
+            "name": "signed_up",
+            "type": "events",
+            "order": 2,
+            "custom_name": "Signed up",
+        },
+        {
+            "id": "upgraded_plan",
+            "name": "upgraded_plan",
+            "type": "events",
+            "order": 4,
+            "custom_name": "Upgraded plan",
+        },
     ],
     "actions": [{"id": 1, "name": "Interacted with file", "type": "actions", "order": 3}],
     "display": "FunnelViz",
@@ -76,17 +88,45 @@ insight_3 = {
     "properties": {
         "type": "AND",
         "values": [
-            {"type": "AND", "values": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}]}
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ],
+            }
         ],
     },
-    "target_entity": {"id": "signed_up", "name": "signed_up", "type": "events", "order": 0},
+    "target_entity": {
+        "id": "signed_up",
+        "name": "signed_up",
+        "type": "events",
+        "order": 0,
+    },
     "retention_type": "retention_first_time",
     "total_intervals": 9,
-    "returning_entity": {"id": 1, "name": "Interacted with file", "type": "actions", "order": 0},
+    "returning_entity": {
+        "id": 1,
+        "name": "Interacted with file",
+        "type": "actions",
+        "order": 0,
+    },
 }
 insight_4 = {
     "events": [],
-    "actions": [{"id": 1, "math": "total", "name": "Interacted with file", "type": "actions", "order": 0}],
+    "actions": [
+        {
+            "id": 1,
+            "math": "total",
+            "name": "Interacted with file",
+            "type": "actions",
+            "order": 0,
+        }
+    ],
     "compare": False,
     "display": "ActionsLineGraph",
     "insight": "LIFECYCLE",
@@ -128,7 +168,15 @@ insight_5 = {
     "filter_test_accounts": True,
 }
 insight_6 = {
-    "events": [{"id": "paid_bill", "math": "sum", "type": "events", "order": 0, "math_property": "amount_usd"}],
+    "events": [
+        {
+            "id": "paid_bill",
+            "math": "sum",
+            "type": "events",
+            "order": 0,
+            "math_property": "amount_usd",
+        }
+    ],
     "actions": [],
     "display": "ActionsLineGraph",
     "insight": "TRENDS",
@@ -170,7 +218,14 @@ insight_8 = {
         "values": [
             {
                 "type": "AND",
-                "values": [{"key": "$current_url", "type": "event", "value": "/files/", "operator": "not_icontains"}],
+                "values": [
+                    {
+                        "key": "$current_url",
+                        "type": "event",
+                        "value": "/files/",
+                        "operator": "not_icontains",
+                    }
+                ],
             }
         ],
     },
@@ -184,7 +239,12 @@ insight_9 = {
             "type": "events",
             "order": 0,
             "properties": [
-                {"key": "$current_url", "type": "event", "value": "https://hedgebox.net/", "operator": "exact"}
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": "https://hedgebox.net/",
+                    "operator": "exact",
+                }
             ],
             "custom_name": "Viewed homepage",
         },
@@ -194,11 +254,22 @@ insight_9 = {
             "type": "events",
             "order": 1,
             "properties": [
-                {"key": "$current_url", "type": "event", "value": "https://hedgebox.net/signup/", "operator": "regex"}
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": "https://hedgebox.net/signup/",
+                    "operator": "regex",
+                }
             ],
             "custom_name": "Viewed signup page",
         },
-        {"id": "signed_up", "name": "signed_up", "type": "events", "order": 2, "custom_name": "Signed up"},
+        {
+            "id": "signed_up",
+            "name": "signed_up",
+            "type": "events",
+            "order": 2,
+            "custom_name": "Signed up",
+        },
     ],
     "actions": [],
     "display": "FunnelViz",
@@ -279,9 +350,24 @@ insight_16 = {
 }
 insight_17 = {
     "events": [
-        {"id": "$pageview", "type": "events", "order": 0, "custom_name": "First page view"},
-        {"id": "$pageview", "type": "events", "order": 1, "custom_name": "Second page view"},
-        {"id": "$pageview", "type": "events", "order": 2, "custom_name": "Third page view"},
+        {
+            "id": "$pageview",
+            "type": "events",
+            "order": 0,
+            "custom_name": "First page view",
+        },
+        {
+            "id": "$pageview",
+            "type": "events",
+            "order": 1,
+            "custom_name": "Second page view",
+        },
+        {
+            "id": "$pageview",
+            "type": "events",
+            "order": 2,
+            "custom_name": "Third page view",
+        },
     ],
     "layout": "horizontal",
     "display": "FunnelViz",
@@ -303,7 +389,14 @@ insight_18 = {
             "name": "Pageviews",
             "type": "actions",
             "order": 0,
-            "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": None}],
+            "properties": [
+                {
+                    "key": "$browser",
+                    "type": "event",
+                    "value": "Chrome",
+                    "operator": None,
+                }
+            ],
             "math_property": None,
         }
     ],
@@ -392,7 +485,14 @@ insight_23 = {
     "interval": "day",
     "shown_as": "Volume",
     "breakdown": False,
-    "properties": [{"key": "$current_url", "type": "event", "value": "https://example.com/", "operator": "icontains"}],
+    "properties": [
+        {
+            "key": "$current_url",
+            "type": "event",
+            "value": "https://example.com/",
+            "operator": "icontains",
+        }
+    ],
     "breakdown_type": "undefined",
 }
 insight_24 = {
@@ -471,7 +571,12 @@ insight_29 = {
             "type": "events",
             "order": 1,
             "properties": [
-                {"key": "$current_url", "type": "event", "value": "posthog.com/signup$", "operator": "regex"}
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": "posthog.com/signup$",
+                    "operator": "regex",
+                }
             ],
             "custom_name": "Views on signup page",
         },
@@ -491,7 +596,15 @@ insight_30 = {
     "breakdown_group_type_index": 0,
 }
 insight_31 = {
-    "events": [{"id": "$autocapture", "math": "total", "name": "$autocapture", "type": "events", "order": 0}],
+    "events": [
+        {
+            "id": "$autocapture",
+            "math": "total",
+            "name": "$autocapture",
+            "type": "events",
+            "order": 0,
+        }
+    ],
     "insight": "STICKINESS",
     "entity_type": "events",
 }
@@ -592,7 +705,12 @@ properties_0 = []
 properties_1 = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
 properties_2 = [
     {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
-    {"key": "$current_url", "type": "event", "value": "/path", "operator": "not_icontains"},
+    {
+        "key": "$current_url",
+        "type": "event",
+        "value": "/path",
+        "operator": "not_icontains",
+    },
 ]
 properties_3 = {}
 properties_4 = {"type": "AND", "values": []}
@@ -603,8 +721,18 @@ properties_6 = {
         {
             "type": "AND",
             "values": [
-                {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
-                {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": "?",
+                    "operator": "not_icontains",
+                },
+                {
+                    "key": "$referring_domain",
+                    "type": "event",
+                    "value": "google",
+                    "operator": "icontains",
+                },
             ],
         }
     ],
@@ -612,10 +740,19 @@ properties_6 = {
 properties_7 = {
     "type": "AND",
     "values": [
-        {"type": "AND", "values": [{"type": "AND", "values": []}, {"type": "AND", "values": []}]},
         {
             "type": "AND",
-            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            "values": [{"type": "AND", "values": []}, {"type": "AND", "values": []}],
+        },
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "key": "dateDiff('minute', timestamp, now()) < 5",
+                    "type": "hogql",
+                    "value": None,
+                }
+            ],
         },
     ],
 }
@@ -624,11 +761,23 @@ properties_8 = {
     "values": [
         {
             "type": "AND",
-            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            "values": [
+                {
+                    "key": "dateDiff('minute', timestamp, now()) < 5",
+                    "type": "hogql",
+                    "value": None,
+                }
+            ],
         },
         {
             "type": "AND",
-            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            "values": [
+                {
+                    "key": "dateDiff('minute', timestamp, now()) < 5",
+                    "type": "hogql",
+                    "value": None,
+                }
+            ],
         },
     ],
 }
@@ -638,9 +787,24 @@ properties_9 = {
         {
             "type": "AND",
             "values": [
-                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"},
-                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"},
-                {"key": "$feature/hogql-insights", "value": ["true"], "operator": "exact", "type": "event"},
+                {
+                    "key": "$browser",
+                    "value": ["Chrome"],
+                    "operator": "exact",
+                    "type": "event",
+                },
+                {
+                    "key": "$browser",
+                    "value": ["Chrome"],
+                    "operator": "exact",
+                    "type": "person",
+                },
+                {
+                    "key": "$feature/hogql-insights",
+                    "value": ["true"],
+                    "operator": "exact",
+                    "type": "event",
+                },
                 {
                     "key": "site_url",
                     "value": ["http://localhost:8000"],
@@ -649,8 +813,18 @@ properties_9 = {
                     "group_type_index": 1,
                 },
                 {"key": "id", "value": 2, "type": "cohort"},
-                {"key": "tag_name", "value": ["elem"], "operator": "exact", "type": "element"},
-                {"key": "$session_duration", "value": None, "operator": "gt", "type": "session"},
+                {
+                    "key": "tag_name",
+                    "value": ["elem"],
+                    "operator": "exact",
+                    "type": "element",
+                },
+                {
+                    "key": "$session_duration",
+                    "value": None,
+                    "operator": "gt",
+                    "type": "session",
+                },
                 {"type": "hogql", "key": "properties.name", "value": None},
             ],
         },
@@ -659,7 +833,14 @@ properties_9 = {
 }
 properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
 properties_11 = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
-properties_12 = [{"key": "userId", "type": "event", "values": ["63ffaeae99ac3c4240976d60"], "operator": "exact"}]
+properties_12 = [
+    {
+        "key": "userId",
+        "type": "event",
+        "values": ["63ffaeae99ac3c4240976d60"],
+        "operator": "exact",
+    }
+]
 properties_13 = {"plan": "premium"}
 properties_14 = {"$current_url__icontains": "signin"}
 
@@ -783,7 +964,10 @@ class TestFilterToQuery(BaseTest):
 
     def test_series_order(self):
         filter = {
-            "events": [{"id": "$pageview", "order": 1}, {"id": "$pageview", "math": "dau", "order": 2}],
+            "events": [
+                {"id": "$pageview", "order": 1},
+                {"id": "$pageview", "math": "dau", "order": 2},
+            ],
             "actions": [{"id": 1, "order": 3}, {"id": 1, "math": "dau", "order": 0}],
         }
 
@@ -803,9 +987,20 @@ class TestFilterToQuery(BaseTest):
         filter = {
             "events": [
                 {"id": "$pageview", "math": "dau"},  # base math type
-                {"id": "$pageview", "math": "median", "math_property": "$math_prop"},  # property math type
-                {"id": "$pageview", "math": "avg_count_per_actor"},  # count per actor math type
-                {"id": "$pageview", "math": "unique_group", "math_group_type_index": 0},  # unique group
+                {
+                    "id": "$pageview",
+                    "math": "median",
+                    "math_property": "$math_prop",
+                },  # property math type
+                {
+                    "id": "$pageview",
+                    "math": "avg_count_per_actor",
+                },  # count per actor math type
+                {
+                    "id": "$pageview",
+                    "math": "unique_group",
+                    "math_group_type_index": 0,
+                },  # unique group
                 {
                     "id": "$pageview",
                     "math": "hogql",
@@ -821,10 +1016,22 @@ class TestFilterToQuery(BaseTest):
             [
                 EventsNode(event="$pageview", name="$pageview", math=BaseMathType.dau),
                 EventsNode(
-                    event="$pageview", name="$pageview", math=PropertyMathType.median, math_property="$math_prop"
+                    event="$pageview",
+                    name="$pageview",
+                    math=PropertyMathType.median,
+                    math_property="$math_prop",
                 ),
-                EventsNode(event="$pageview", name="$pageview", math=CountPerActorMathType.avg_count_per_actor),
-                EventsNode(event="$pageview", name="$pageview", math="unique_group", math_group_type_index=0),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    math=CountPerActorMathType.avg_count_per_actor,
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    math="unique_group",
+                    math_group_type_index=0,
+                ),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
@@ -840,21 +1047,52 @@ class TestFilterToQuery(BaseTest):
                 {"id": "$pageview", "properties": []},  # smoke test
                 {
                     "id": "$pageview",
-                    "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
+                    "properties": [
+                        {
+                            "key": "success",
+                            "type": "event",
+                            "value": ["true"],
+                            "operator": "exact",
+                        }
+                    ],
                 },
                 {
                     "id": "$pageview",
-                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "is_set",
+                            "operator": "is_set",
+                        }
+                    ],
                 },
                 {
                     "id": "$pageview",
-                    "properties": [{"key": "text", "value": ["some text"], "operator": "exact", "type": "element"}],
+                    "properties": [
+                        {
+                            "key": "text",
+                            "value": ["some text"],
+                            "operator": "exact",
+                            "type": "element",
+                        }
+                    ],
                 },
                 {
                     "id": "$pageview",
-                    "properties": [{"key": "$session_duration", "value": 1, "operator": "gt", "type": "session"}],
+                    "properties": [
+                        {
+                            "key": "$session_duration",
+                            "value": 1,
+                            "operator": "gt",
+                            "type": "session",
+                        }
+                    ],
                 },
-                {"id": "$pageview", "properties": [{"key": "id", "value": 2, "type": "cohort"}]},
+                {
+                    "id": "$pageview",
+                    "properties": [{"key": "id", "value": 2, "type": "cohort"}],
+                },
                 {
                     "id": "$pageview",
                     "properties": [
@@ -870,14 +1108,28 @@ class TestFilterToQuery(BaseTest):
                 {
                     "id": "$pageview",
                     "properties": [
-                        {"key": "dateDiff('minute', timestamp, now()) < 30", "type": "hogql", "value": None}
+                        {
+                            "key": "dateDiff('minute', timestamp, now()) < 30",
+                            "type": "hogql",
+                            "value": None,
+                        }
                     ],
                 },
                 {
                     "id": "$pageview",
                     "properties": [
-                        {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                        {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
+                        {
+                            "key": "$referring_domain",
+                            "type": "event",
+                            "value": "google",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "utm_source",
+                            "type": "event",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
                     ],
                 },
             ]
@@ -892,18 +1144,34 @@ class TestFilterToQuery(BaseTest):
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
-                    properties=[EventPropertyFilter(key="success", value=["true"], operator=PropertyOperator.exact)],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[PersonPropertyFilter(key="email", value="is_set", operator=PropertyOperator.is_set)],
+                    properties=[
+                        EventPropertyFilter(
+                            key="success",
+                            value=["true"],
+                            operator=PropertyOperator.exact,
+                        )
+                    ],
                 ),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
                     properties=[
-                        ElementPropertyFilter(key=Key.text, value=["some text"], operator=PropertyOperator.exact)
+                        PersonPropertyFilter(
+                            key="email",
+                            value="is_set",
+                            operator=PropertyOperator.is_set,
+                        )
+                    ],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[
+                        ElementPropertyFilter(
+                            key=Key.text,
+                            value=["some text"],
+                            operator=PropertyOperator.exact,
+                        )
                     ],
                 ),
                 EventsNode(
@@ -911,13 +1179,20 @@ class TestFilterToQuery(BaseTest):
                     name="$pageview",
                     properties=[SessionPropertyFilter(value=1, operator=PropertyOperator.gt)],
                 ),
-                EventsNode(event="$pageview", name="$pageview", properties=[CohortPropertyFilter(value=2)]),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[CohortPropertyFilter(value=2)],
+                ),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
                     properties=[
                         GroupPropertyFilter(
-                            key="name", value=["Hedgebox Inc."], operator=PropertyOperator.exact, group_type_index=2
+                            key="name",
+                            value=["Hedgebox Inc."],
+                            operator=PropertyOperator.exact,
+                            group_type_index=2,
                         )
                     ],
                 ),
@@ -931,9 +1206,15 @@ class TestFilterToQuery(BaseTest):
                     name="$pageview",
                     properties=[
                         EventPropertyFilter(
-                            key="$referring_domain", value="google", operator=PropertyOperator.icontains
+                            key="$referring_domain",
+                            value="google",
+                            operator=PropertyOperator.icontains,
                         ),
-                        EventPropertyFilter(key="utm_source", value="is_not_set", operator=PropertyOperator.is_not_set),
+                        EventPropertyFilter(
+                            key="utm_source",
+                            value="is_not_set",
+                            operator=PropertyOperator.is_not_set,
+                        ),
                     ],
                 ),
             ],
@@ -1070,7 +1351,11 @@ class TestFilterToQuery(BaseTest):
             "retention_type": "retention_first_time",
             # retention_reference="previous",
             "total_intervals": 12,
-            "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+            "returning_entity": {
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+            },
             "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             "period": "Week",
         }
@@ -1119,7 +1404,13 @@ class TestFilterToQuery(BaseTest):
             "funnel_filter": {
                 "insight": "FUNNELS",
                 "events": [
-                    {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
+                    {
+                        "type": "events",
+                        "id": "$pageview",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": "total",
+                    },
                     {"type": "events", "id": None, "order": 1, "math": "total"},
                 ],
                 "funnel_viz_type": "steps",
@@ -1152,7 +1443,13 @@ class TestFilterToQuery(BaseTest):
                 funnel_filter={
                     "insight": "FUNNELS",
                     "events": [
-                        {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
+                        {
+                            "type": "events",
+                            "id": "$pageview",
+                            "order": 0,
+                            "name": "$pageview",
+                            "math": "total",
+                        },
                         {"type": "events", "id": None, "order": 1, "math": "total"},
                     ],
                     "funnel_viz_type": "steps",
