@@ -7,7 +7,7 @@ from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.external_data_source.connection import retrieve_sync
 from urllib.parse import urlencode
 from posthog.ph_client import get_ph_client
-
+from typing import Any, Dict, List
 from posthog.celery import app
 import structlog
 
@@ -17,7 +17,7 @@ AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
 DEFAULT_DATE_TIME = datetime.datetime(2023, 11, 7, tzinfo=datetime.timezone.utc)
 
 
-def sync_resources():
+def sync_resources() -> None:
     resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
 
     for resource in resources:
@@ -25,7 +25,7 @@ def sync_resources():
 
 
 @app.task(ignore_result=True)
-def sync_resource(resource_id):
+def sync_resource(resource_id) -> None:
     resource = ExternalDataSource.objects.get(pk=resource_id)
 
     try:
@@ -83,7 +83,7 @@ ROWS_PER_DOLLAR = 66666  # 1 million rows per $15
 
 
 @app.task(ignore_result=True, max_retries=2)
-def check_external_data_source_billing_limit_by_team(team_id):
+def check_external_data_source_billing_limit_by_team(team_id) -> None:
     from posthog.warehouse.external_data_source.connection import deactivate_connection_by_id, activate_connection_by_id
     from ee.billing.quota_limiting import list_limited_team_tokens, QuotaResource
 
@@ -107,7 +107,7 @@ def check_external_data_source_billing_limit_by_team(team_id):
 
 
 @app.task(ignore_result=True, max_retries=2)
-def calculate_workspace_rows_synced_by_team(team_id):
+def calculate_workspace_rows_synced_by_team(team_id) -> None:
     ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -132,7 +132,7 @@ def calculate_workspace_rows_synced_by_team(team_id):
     ph_client.shutdown()
 
 
-def _traverse_jobs_by_field(ph_client, team, url, field, acc=[]):
+def _traverse_jobs_by_field(ph_client, team, url, field, acc=[]) -> List[Dict[str, Any]]:
     response = send_request(url, method="GET")
     response_data = response.get("data", [])
     response_next = response.get("next", None)
