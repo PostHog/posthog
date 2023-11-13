@@ -2,7 +2,7 @@ import json
 import re
 from typing import Dict
 
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import viewsets
@@ -102,19 +102,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(description="Query results"),
         },
     )
-    def list(self, request: Request, **kw) -> HttpResponse:
-        self._tag_client_query_id(request.GET.get("client_query_id"))
-        query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-        # allow lists as well as dicts in response with safe=False
-        try:
-            refresh_requested = refresh_requested_by_client(request)
-            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
-        except HogQLException as e:
-            raise ValidationError(str(e))
-        except ExposedCHQueryError as e:
-            raise ValidationError(str(e), e.code_name)
-
-    def post(self, request, *args, **kwargs):
+    def create(self, request, *args, **kwargs) -> JsonResponse:
         request_json = request.data
         query_json = request_json.get("query")
         self._tag_client_query_id(request_json.get("client_query_id"))
