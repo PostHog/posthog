@@ -311,7 +311,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
-                breakpoint(100)
+                await breakpoint(100)
                 await api.recordings.persist(props.sessionRecordingId)
 
                 return {
