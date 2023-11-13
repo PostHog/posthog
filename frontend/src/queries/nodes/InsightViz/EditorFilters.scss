@@ -2,11 +2,9 @@
 
 .EditorFiltersWrapper {
     --editor-panel-group-min-width: 20rem;
-    --editor-panel-min-width: 30rem;
 
     flex-shrink: 0;
     background: var(--bg-light);
-    container-type: inline-size;
 
     &:not(.EditorFiltersWrapper--embedded) {
         border: 1px solid var(--border);
@@ -26,40 +24,4 @@
             max-width: 100%;
         }
     }
-
-    &.EditorFiltersWrapper--singlecolumn {
-        min-width: var(--editor-panel-min-width);
-        max-width: 100%;
-    }
-
-    // &.EditorFiltersWrapper--singlecolumn {
-    //     border: none;
-    //     background: none;
-    //     padding: 0px;
-    //     margin-right: 1rem;
-    //     container-type: normal;
-
-    //     @include screen($xl) {
-    //         --editor-panel-width: max(25vw, 28rem);
-
-    //         .EditorFilters {
-    //             width: var(--editor-panel-width);
-    //             display: block;
-    //             padding-right: 1rem;
-    //         }
-    //     }
-
-    //     .EditorFilters {
-    //         flex-direction: column;
-    //         gap: 0rem;
-
-    //         .EditorFilterGroup {
-    //             width: auto;
-    //         }
-
-    //         > * + * {
-    //             margin-top: 1rem;
-    //         }
-    //     }
-    // }
 }

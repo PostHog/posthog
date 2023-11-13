@@ -287,7 +287,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 })}
             >
                 <div className="EditorFilters">
-                    {(isFunnels ? editorFilters : editorFilterGroups).map((editorFilterGroup) => (
+                    {editorFilterGroups.map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}

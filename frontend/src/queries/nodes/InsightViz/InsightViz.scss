@@ -3,13 +3,20 @@
     flex-direction: column;
     overflow: hidden;
     gap: 1rem;
+    container-type: inline-size;
 
     &.InsightViz--horizontal {
         flex-direction: row;
         align-items: start;
+        flex-wrap: wrap;
 
         .EditorFiltersWrapper {
-            min-width: 24rem;
+            width: 100%;
+            @container (min-width: 768px) {
+                width: 30%;
+                min-width: 26rem;
+                max-width: 30rem;
+            }
         }
     }
 }
