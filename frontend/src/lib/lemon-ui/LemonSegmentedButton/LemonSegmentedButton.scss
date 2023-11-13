@@ -48,6 +48,10 @@
         outline: 1px solid transparent;
         border-radius: 0;
         min-height: calc(var(--lemon-button-height) - 2px);
+
+        .LemonButton__content {
+            text-wrap: nowrap;
+        }
     }
     &:first-child,
     &:first-child .LemonButton {
