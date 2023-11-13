@@ -54,7 +54,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const showDateRange = !isRetention
     const disableDateRange = isFunnels && !!isEmptyFunnel
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
-    const showUnit = supportsDisplay && isTrends
+    const showUnit = isTrends
     const showChart = supportsDisplay
     const showInterval =
         isTrendsFunnel ||
