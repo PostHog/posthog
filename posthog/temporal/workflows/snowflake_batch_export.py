@@ -12,6 +12,8 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    BYTES_EXPORTED,
+    ROWS_EXPORTED,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
@@ -19,8 +21,6 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
-    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
@@ -304,14 +304,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting batch export %s - %s",
-            data_interval_start,
-            data_interval_end,
-        )
-
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
@@ -332,7 +324,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
