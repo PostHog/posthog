@@ -172,14 +172,11 @@ export async function query<N extends DataNode = DataNode>(
                         response,
                         legacyResponse,
                     })
-                    const sortedKeys = Array.from(
-                        new Set([...Object.keys(results), ...Object.keys(legacyResults)])
-                    ).sort()
+                    const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
+                        .filter((key) => !key.includes('.persons_urls.'))
+                        .sort()
                     const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
                     for (const key of sortedKeys) {
-                        if (key.includes('.persons_urls.')) {
-                            continue
-                        }
                         tableData.push([
                             results[key] === legacyResults[key] ? '✅' : '🚨',
                             key,
