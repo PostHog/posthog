@@ -15,8 +15,6 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import PostgresBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
-    BYTES_EXPORTED,
-    ROWS_EXPORTED,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
@@ -28,6 +26,7 @@ from posthog.temporal.workflows.batch_exports import (
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 @contextlib.contextmanager
@@ -222,6 +221,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         with BatchExportTemporaryFile() as pg_file:
             with postgres_connection(inputs) as connection:
+                rows_exported = get_rows_exported_metric()
+                bytes_exported = get_bytes_exported_metric()
 
                 async def flush_to_postgres():
                     logger.debug(
@@ -236,8 +237,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         inputs.table_name,
                         schema_columns,
                     )
-                    ROWS_EXPORTED.labels(destination="postgres").inc(pg_file.records_since_last_reset)
-                    BYTES_EXPORTED.labels(destination="postgres").inc(pg_file.bytes_since_last_reset)
+                    rows_exported.add(pg_file.records_since_last_reset)
+                    bytes_exported.add(pg_file.bytes_since_last_reset)
 
                 for result in results_iterator:
                     row = {

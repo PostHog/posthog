@@ -11,7 +11,6 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from prometheus_client import Counter
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -22,6 +21,7 @@ from posthog.batch_exports.service import (
     update_batch_export_run_status,
 )
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_export_finished_metric, get_export_started_metric
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -41,15 +41,6 @@ SELECT_QUERY_TEMPLATE = Template(
     $order_by
     $format
     """
-)
-
-ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
-BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
-EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
-EXPORT_FINISHED = Counter(
-    "batch_export_finished",
-    "Number of batch exports finished, for any reason (including failure).",
-    labelnames=("destination", "status"),
 )
 
 
@@ -495,6 +486,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
+    get_export_started_metric().add(1)
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
     logger.info(
         "Creating batch export for range %s - %s",
@@ -527,6 +519,8 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
+    get_export_finished_metric(status=inputs.status.lower()).add(1)
+
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
 
     batch_export_run = await sync_to_async(update_batch_export_run_status)(
@@ -643,8 +637,6 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    destination = workflow.info().workflow_type.lower()
-
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
         maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
@@ -652,7 +644,6 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
     try:
-        EXPORT_STARTED.labels(destination=destination).inc()
         await workflow.execute_activity(
             activity,
             inputs,
@@ -676,7 +667,6 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
-        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

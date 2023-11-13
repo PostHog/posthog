@@ -24,6 +24,7 @@ from posthog.temporal.workflows.batch_exports import (
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -178,11 +179,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
             rows_in_file = 0
 
+            rows_exported = get_rows_exported_metric()
+            bytes_exported = get_bytes_exported_metric()
+
             def flush_to_snowflake(lrf: tempfile._TemporaryFileWrapper, rows_in_file: int):
                 lrf.flush()
                 put_file_to_snowflake_table(cursor, lrf.name, inputs.table_name)
-                ROWS_EXPORTED.labels(destination="snowflake").inc(rows_in_file)
-                BYTES_EXPORTED.labels(destination="snowflake").inc(lrf.tell())
+                rows_exported.add(rows_in_file)
+                bytes_exported.add(lrf.tell())
 
             try:
                 while True:

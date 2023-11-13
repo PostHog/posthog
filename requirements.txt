@@ -503,7 +503,7 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.1.0
+temporalio==1.4.0
     # via -r requirements.in
 tenacity==6.1.0
     # via celery-redbeat
