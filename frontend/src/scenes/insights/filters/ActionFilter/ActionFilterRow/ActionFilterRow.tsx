@@ -103,7 +103,6 @@ export interface ActionFilterRowProps {
         propertyFiltersButton,
         renameRowButton,
         deleteButton,
-        orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
 }
 
@@ -204,8 +203,6 @@ export function ActionFilterRow({
         name = filter.name || String(filter.id)
         value = filter.name || filter.id
     }
-
-    const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
@@ -338,7 +335,6 @@ export function ActionFilterRow({
                         propertyFiltersButton: propertyFiltersButton,
                         renameRowButton,
                         deleteButton,
-                        orLabel,
                     })
                 ) : (
                     <>

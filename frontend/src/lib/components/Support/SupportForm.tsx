@@ -2,21 +2,27 @@ import { useActions, useValues } from 'kea'
 import { SupportTicketKind, TARGET_AREA_TO_NAME, supportLogic } from './supportLogic'
 import { Form } from 'kea-forms'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { Field } from 'lib/forms/Field'
-import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
+import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
-import { LemonButton, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    lemonToast,
+} from '@posthog/lemon-ui'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { userLogic } from 'scenes/userLogic'
 
-const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
+const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
-        value: 'bug',
-        label: 'Bug',
-        icon: <IconBugReport />,
+        value: 'support',
+        label: 'Question',
+        icon: <IconHelpOutline />,
     },
     {
         value: 'feedback',
@@ -24,9 +30,9 @@ const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
         icon: <IconFeedback />,
     },
     {
-        value: 'support',
-        label: 'Support',
-        icon: <IconSupport />,
+        value: 'bug',
+        label: 'Bug',
+        icon: <IconBugReport />,
     },
 ]
 
@@ -73,7 +79,7 @@ export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.El
                 </>
             )}
             <Field name="kind" label="What type of message is this?">
-                <LemonSelect fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </Field>
             <Field name="target_area" label="What area does this best relate to?">
                 <LemonSelect

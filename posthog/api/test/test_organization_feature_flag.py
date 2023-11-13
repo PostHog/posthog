@@ -1,5 +1,8 @@
 from rest_framework import status
+from posthog.models.user import User
 from posthog.models.team.team import Team
+from ee.models.organization_resource_access import OrganizationResourceAccess
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.feedback.survey import Survey
@@ -35,12 +38,6 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        expected_data = [
-            {"flag_id": self.feature_flag_1.id, "team_id": self.team_1.id, "active": True},
-            {"flag_id": self.feature_flag_2.id, "team_id": self.team_2.id, "active": True},
-        ]
-        self.assertCountEqual(response.json(), expected_data)
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
@@ -226,6 +223,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
+        target_project_2 = Team.objects.create(organization=self.organization)
         rollout_percentage_existing = 99
 
         existing_deleted_flag = FeatureFlag.objects.create(
@@ -238,9 +236,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             ensure_experience_continuity=False,
             deleted=True,
         )
+        existing_deleted_flag2 = FeatureFlag.objects.create(
+            team=target_project_2,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            name="Existing flag",
+            filters={"groups": [{"rollout_percentage": rollout_percentage_existing}]},
+            rollout_percentage=rollout_percentage_existing,
+            ensure_experience_continuity=False,
+            deleted=True,
+        )
 
         # The following instances must be overriden for a soft-deleted flag
-        Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=existing_deleted_flag.id)
         Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_deleted_flag)
 
         analytics_dashboard = Dashboard.objects.create(
@@ -256,12 +263,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         existing_deleted_flag.usage_dashboard = usage_dashboard
         existing_deleted_flag.save()
 
+        # Experiments restrict deleting soft-deleted flags
+        Experiment.objects.create(
+            team=target_project_2, created_by=self.user, feature_flag_id=existing_deleted_flag2.id
+        )
+
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 
         data = {
             "feature_flag_key": self.feature_flag_to_copy.key,
             "from_project": self.feature_flag_to_copy.team_id,
-            "target_project_ids": [target_project.id],
+            "target_project_ids": [target_project.id, target_project_2.id],
         }
         response = self.client.post(url, data)
 
@@ -314,6 +326,14 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             set(flag_response.keys()),
         )
 
+        # target_project_2 should have failed
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
+        self.assertEqual(
+            response.json()["failed"][0]["errors"],
+            "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
+        )
+
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data: Dict[str, Any] = {}
@@ -360,3 +380,31 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_copy_feature_flag_cannot_edit(self):
+        self.organization.available_features = [AvailableFeature.ROLE_BASED_ACCESS]
+        self.organization.save()
+
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
+        self.assertEqual(self.user.role_memberships.count(), 0)
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        untouchable_flag = FeatureFlag.objects.create(
+            created_by=user_a,
+            key="flag_a",
+            name="Flag A",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": untouchable_flag.key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

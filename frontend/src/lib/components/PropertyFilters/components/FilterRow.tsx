@@ -7,6 +7,7 @@ import './FilterRow.scss'
 import clsx from 'clsx'
 import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { OperandTag } from './OperandTag'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -51,7 +52,10 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx('property-filter-row flex items-center flex-nowrap', !disablePopover && 'wrap-filters')}
+                className={clsx(
+                    'property-filter-row flex items-center flex-nowrap space-x-2',
+                    !disablePopover && 'wrap-filters'
+                )}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
@@ -96,9 +100,7 @@ export const FilterRow = React.memo(function FilterRow({
                         )}
                     </Popover>
                 )}
-                {key && showConditionBadge && index + 1 < totalCount && (
-                    <span className="stateful-badge and ml-2">AND</span>
-                )}
+                {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}
             </div>
             {errorMessage}
         </>

@@ -1,4 +1,4 @@
-import { useState, useCallback, Dispatch, SetStateAction } from 'react'
+import { useState, useCallback, Dispatch, SetStateAction, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
@@ -70,7 +70,9 @@ function CreateKeyModal({
 
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
-    const { deleteKey } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
+
+    useEffect(() => loadKeys(), [])
 
     return (
         <LemonTable
