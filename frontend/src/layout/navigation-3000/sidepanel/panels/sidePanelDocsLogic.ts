@@ -4,7 +4,7 @@ import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog-git-app-docs-post-hog.vercel.app'
+export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog.com'
 
 const sanitizePath = (path: string): string => {
     return path[0] === '/' ? path : `/${path}`
