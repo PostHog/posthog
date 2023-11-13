@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React from 'react'
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
 
@@ -18,7 +18,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
 }
@@ -89,6 +89,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                             }}
                             icon={option.icon}
                             data-attr={option['data-attr']}
+                            center
                         >
                             {option.label}
                         </LemonButton>
