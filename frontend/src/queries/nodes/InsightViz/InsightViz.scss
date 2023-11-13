@@ -53,10 +53,32 @@
     }
 }
 
-.TrendsInsightContainer {
+.TrendsInsight {
+    // &--ActionsLineGraph
+    // &--ActionsLineGraphCumulative
+    // &--ActionsAreaGraph
+    // &--ActionsTable
+    // &--ActionsPie
+    // &--ActionsBar
+    // &--ActionsBarValue
+    // &--WorldMap
+    // &--BoldNumber
+
     position: relative;
     flex: 1;
     margin: 0.5rem;
+
+    &--ActionsTable,
+    &--WorldMap,
+    &--BoldNumber {
+        margin: 0;
+    }
+
+    &--BoldNumber {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 
     .LineGraph {
         height: calc(100% - 1rem) !important;

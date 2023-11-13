@@ -74,7 +74,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
         data[0] && data[0].labels ? (
             <div
                 className={clsx(
-                    'ActionsPie w-full',
+                    'ActionsPie flex-1 w-full h-full',
                     inCardView && 'flex flex-row h-full items-center',
                     trendsFilter?.show_legend && 'pr-4'
                 )}
