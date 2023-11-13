@@ -46,6 +46,12 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
                 return `${POSTHOG_WEBSITE_ORIGIN}${initialPath ?? ''}`
             },
         ],
+        currentUrl: [
+            (s) => [s.currentPath],
+            (currentPath) => {
+                return `${POSTHOG_WEBSITE_ORIGIN}${currentPath ?? ''}`
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
