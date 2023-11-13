@@ -1,6 +1,7 @@
-import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
 import {
     NodeKind,
     QuerySchema,
@@ -8,8 +9,10 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import { BaseMathType, ChartDisplayType, EventDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 import { isNotNil } from 'lib/utils'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -66,6 +69,11 @@ export enum GeographyTab {
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
+}
+
+export interface WebAnalyticsStatusCheck {
+    shouldWarnAboutNoPageviews: boolean
+    shouldWarnAboutNoPageleaves: boolean
 }
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
@@ -557,6 +565,45 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     })),
-    sharedListeners(() => ({})),
-    listeners(() => ({})),
+    loaders(() => ({
+        // load the status check query here and pass the response into the component, so the response
+        // is accessible in this logic
+        statusCheck: {
+            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
+                const [pageviewResult, pageleaveResult] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageview',
+                    }),
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageleave',
+                    }),
+                ])
+
+                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
+                // going to add enough reserved event names that match this search term to cause problems
+                const shouldWarnAboutNoPageviews =
+                    pageviewResult.status === 'fulfilled' &&
+                    !pageviewResult.value.next &&
+                    (pageviewResult.value.count === 0 ||
+                        !pageviewResult.value.results.some((r) => r.name === '$pageview'))
+                const shouldWarnAboutNoPageleaves =
+                    pageleaveResult.status === 'fulfilled' &&
+                    !pageleaveResult.value.next &&
+                    (pageleaveResult.value.count === 0 ||
+                        !pageleaveResult.value.results.some((r) => r.name === '$pageleave'))
+
+                return {
+                    shouldWarnAboutNoPageviews,
+                    shouldWarnAboutNoPageleaves,
+                }
+            },
+        },
+    })),
+
+    // start the loaders after mounting the logic
+    afterMount(({ actions }) => {
+        actions.loadStatusCheck()
+    }),
 ])
