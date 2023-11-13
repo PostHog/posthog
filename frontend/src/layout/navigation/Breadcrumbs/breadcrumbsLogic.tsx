@@ -1,4 +1,4 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
@@ -35,6 +35,17 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             ['currentTeam'],
         ],
     })),
+    actions({
+        setActionsContainer: (element: HTMLElement | null) => ({ element }),
+    }),
+    reducers({
+        actionsContainer: [
+            null as HTMLElement | null,
+            {
+                setActionsContainer: (_, { element }) => element,
+            },
+        ],
+    }),
     selectors(() => ({
         sceneBreadcrumbs: [
             (s) => [
