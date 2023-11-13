@@ -123,7 +123,7 @@ export function ReplayCostControl(): JSX.Element {
                     </Link>
                 </p>
                 <LemonBanner className="mb-4" type={'info'}>
-                    Requires posthog-js version 1.85.0 or greater
+                    Requires posthog-js version 1.88.2 or greater
                 </LemonBanner>
                 <div className={'flex flex-row justify-between'}>
                     <LemonLabel className="text-base">Sampling</LemonLabel>
