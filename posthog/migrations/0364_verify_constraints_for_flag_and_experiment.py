@@ -4,14 +4,10 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0362_alter_flag_and_experiment_constraints"),
+        ("posthog", "0363_update_created_by_flag_constraint"),
     ]
 
     operations = [
-        migrations.RunSQL(
-            'ALTER TABLE "posthog_experiment" VALIDATE CONSTRAINT "posthog_experiment_feature_flag_id_dc616b89_fk_posthog_f";',
-            reverse_sql=migrations.RunSQL.noop,
-        ),
         migrations.RunSQL(
             'ALTER TABLE "posthog_experiment" VALIDATE CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";',
             reverse_sql=migrations.RunSQL.noop,
