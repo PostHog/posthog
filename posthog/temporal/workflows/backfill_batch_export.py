@@ -20,9 +20,9 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
     create_batch_export_backfill_model,
-    get_batch_exports_logger,
     update_batch_export_backfill_model_status,
 )
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 class HeartbeatDetails(typing.NamedTuple):
@@ -284,10 +284,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id)
         logger.info(
-            "Starting Backfill for BatchExport %s: %s - %s",
-            inputs.batch_export_id,
+            "Starting Backfill for BatchExport: %s - %s",
             inputs.start_at,
             inputs.end_at,
         )

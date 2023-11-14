@@ -18,13 +18,13 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
     ROWS_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 from posthog.temporal.workflows.postgres_batch_export import (
     PostgresInsertInputs,
     create_table_in_postgres,
@@ -118,9 +118,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
     logger.info(
-        "Running Postgres export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -146,7 +146,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -225,7 +225,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RedshiftBatchExportInputs):
         """Workflow implementation to export data to Redshift."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
 

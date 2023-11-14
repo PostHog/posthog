@@ -35,11 +35,7 @@ function QueryDebug({ query, setQuery, queryKey }: QueryDebugProps): JSX.Element
                     query={query}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                     context={{
-                        showQueryEditor:
-                            parsed &&
-                            parsed.kind == 'DataTableNode' &&
-                            parsed.source.kind == 'HogQLQuery' &&
-                            (parsed.full || parsed.showHogQLEditor),
+                        showQueryEditor: true,
                     }}
                 />
             )}

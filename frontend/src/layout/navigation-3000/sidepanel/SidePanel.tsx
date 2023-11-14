@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconQuestion, IconInfo, IconGear } from '@posthog/icons'
+import { IconNotebook, IconInfo, IconSupport, IconGear } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
@@ -21,9 +21,9 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconNotebook,
         Content: NotebookPanel,
     },
-    [SidePanelTab.Feedback]: {
-        label: 'Feedback',
-        Icon: IconQuestion,
+    [SidePanelTab.Support]: {
+        label: 'Support',
+        Icon: IconSupport,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
