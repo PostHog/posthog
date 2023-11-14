@@ -495,6 +495,12 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger.info(
+        "Creating batch export for range %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -514,17 +520,33 @@ class UpdateBatchExportRunStatusInputs:
 
     id: str
     status: str
+    team_id: int
     latest_error: str | None = None
 
 
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_run_status)(
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+
+    batch_export_run = await sync_to_async(update_batch_export_run_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
     )  # type: ignore
+
+    if batch_export_run.status == "Failed":
+        logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
+
+    elif batch_export_run.status == "Cancelled":
+        logger.warning("BatchExport was cancelled.")
+
+    else:
+        logger.info(
+            "Successfully finished exporting batch %s - %s",
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+        )
 
 
 @dataclasses.dataclass
@@ -543,6 +565,12 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
     model instance to represent them in our database.
     """
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger.info(
+        "Creating historical export for batches in range %s - %s",
+        inputs.start_at,
+        inputs.end_at,
+    )
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -568,7 +596,23 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore
+    backfill = await sync_to_async(update_batch_export_backfill_status)(
+        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+    )  # type: ignore
+    logger = await bind_batch_exports_logger(team_id=backfill.team_id)
+
+    if backfill.status == "Failed":
+        logger.error("Historical export failed")
+
+    elif backfill.status == "Cancelled":
+        logger.warning("Historical export was cancelled.")
+
+    else:
+        logger.info(
+            "Successfully finished exporting historical batches in %s - %s",
+            backfill.start_at,
+            backfill.end_at,
+        )
 
 
 async def execute_batch_export_insert_activity(
@@ -600,7 +644,6 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     destination = workflow.info().workflow_type.lower()
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
 
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
@@ -617,27 +660,20 @@ async def execute_batch_export_insert_activity(
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
+
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
-            logger.error("BatchExport was cancelled.")
             update_inputs.status = "Cancelled"
         else:
-            logger.exception("BatchExport failed.", exc_info=e.cause)
             update_inputs.status = "Failed"
 
         update_inputs.latest_error = str(e.cause)
         raise
 
-    except Exception as e:
-        logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
+    except Exception:
         update_inputs.status = "Failed"
         update_inputs.latest_error = "An unexpected error has ocurred"
         raise
-
-    else:
-        logger.info(
-            "Successfully finished exporting batch %s - %s", inputs.data_interval_start, inputs.data_interval_end
-        )
 
     finally:
         EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()

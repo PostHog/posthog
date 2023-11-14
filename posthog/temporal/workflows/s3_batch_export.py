@@ -493,9 +493,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting batch export %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -515,7 +513,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
