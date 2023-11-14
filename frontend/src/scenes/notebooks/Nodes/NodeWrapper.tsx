@@ -39,6 +39,7 @@ import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
+import { IconGear } from '@posthog/icons'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -55,6 +56,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
+        settingsIcon,
     } = props
 
     useWhyDidIRender('NodeWrapper.props', props)
@@ -180,7 +182,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                             <LemonButton
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
-                                                                icon={<IconFilter />}
+                                                                icon={
+                                                                    typeof settingsIcon === 'string' ? (
+                                                                        settingsIcon === 'gear' ? (
+                                                                            <IconGear />
+                                                                        ) : (
+                                                                            <IconFilter />
+                                                                        )
+                                                                    ) : (
+                                                                        settingsIcon ?? <IconFilter />
+                                                                    )
+                                                                }
                                                                 active={editingNodeId === nodeId}
                                                             />
                                                         ) : null}
