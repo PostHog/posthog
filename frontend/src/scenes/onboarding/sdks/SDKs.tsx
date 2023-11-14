@@ -9,6 +9,7 @@ import React from 'react'
 import { SDKInstructionsMap } from '~/types'
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
 import { IconArrowLeft } from '@posthog/icons'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 export function SDKs({
     usersAction,
@@ -26,20 +27,16 @@ export function SDKs({
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
         useValues(sdksLogic)
     const { productKey } = useValues(onboardingLogic)
+    const { width } = useWindowSize()
     const minimumSideBySideSize = 768
 
     useEffect(() => {
-        const handleResize = (): void => {
-            setShowSideBySide(window.innerWidth > minimumSideBySideSize)
-        }
-        window.addEventListener('resize', handleResize)
-        return () => window.removeEventListener('resize', handleResize)
+        setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [])
 
     useEffect(() => {
-        setAvailableSDKInstructionsMap(sdkInstructionMap)
-        setShowSideBySide(window.innerWidth > minimumSideBySideSize)
-    }, [])
+        width && setShowSideBySide(width > minimumSideBySideSize)
+    }, [width])
 
     return (
         <OnboardingStep
