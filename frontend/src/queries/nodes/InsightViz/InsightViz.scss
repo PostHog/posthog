@@ -44,6 +44,7 @@
         .InsightVizDisplay__content__right {
             flex-shrink: 1;
             max-width: 45%;
+            height: var(--insight-viz-min-height);
             width: fit-content;
             margin: 1rem;
             display: flex;
