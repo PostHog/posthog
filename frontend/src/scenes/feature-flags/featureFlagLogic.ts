@@ -21,6 +21,7 @@ import {
     EarlyAccessFeatureType,
     Survey,
     SurveyQuestionType,
+    OrganizationFeatureFlag,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -109,12 +110,6 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
-
-export type ProjectsWithCurrentFlagResponse = {
-    flag_id: number
-    team_id: number
-    active: boolean
-}[]
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
@@ -524,10 +519,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: [
+        relatedInsights: [
             [] as InsightModel[],
             {
-                loadRecentInsights: async () => {
+                loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
@@ -583,7 +578,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         projectsWithCurrentFlag: {
-            __default: [] as Record<string, string>[],
+            __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
@@ -661,7 +656,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async () => {
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
@@ -1010,7 +1005,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloads = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloads)
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()

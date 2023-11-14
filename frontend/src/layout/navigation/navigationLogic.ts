@@ -21,10 +21,10 @@ export type ProjectNoticeVariant =
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
-    connect({
+    connect(() => ({
         values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
-    }),
+    })),
     actions({
         toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
         toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing

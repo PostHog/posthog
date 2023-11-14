@@ -39,4 +39,4 @@ async def truncate_events(clickhouse_client):
     This is useful if during the test setup we insert a lot of events we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE `sharded_events`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")

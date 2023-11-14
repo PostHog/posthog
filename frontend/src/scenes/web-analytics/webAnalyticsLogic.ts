@@ -238,7 +238,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: GraphsTab.UNIQUE_USERS,
-                                title: 'Unique Visitors',
+                                title: 'Unique visitors',
                                 linkText: 'Visitors',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
@@ -266,7 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
-                                title: 'Page Views',
+                                title: 'Page views',
                                 linkText: 'Views',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
@@ -332,7 +332,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: PathTab.PATH,
-                                title: 'Top Paths',
+                                title: 'Top paths',
                                 linkText: 'Path',
                                 query: {
                                     full: true,
@@ -347,7 +347,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: PathTab.INITIAL_PATH,
-                                title: 'Top Entry Paths',
+                                title: 'Top entry paths',
                                 linkText: 'Entry Path',
                                 query: {
                                     full: true,
@@ -371,7 +371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
-                                title: 'Top Referrers',
+                                title: 'Top referrers',
                                 linkText: 'Referrer',
                                 query: {
                                     full: true,
@@ -386,8 +386,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_SOURCE,
-                                title: 'Top Sources',
-                                linkText: 'UTM Source',
+                                title: 'Top sources',
+                                linkText: 'UTM source',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -401,8 +401,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CAMPAIGN,
-                                title: 'Top Campaigns',
-                                linkText: 'UTM Campaign',
+                                title: 'Top campaigns',
+                                linkText: 'UTM campaign',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -425,7 +425,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: DeviceTab.BROWSER,
-                                title: 'Top Browsers',
+                                title: 'Top browsers',
                                 linkText: 'Browser',
                                 query: {
                                     full: true,
@@ -455,8 +455,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top Device Types',
-                                linkText: 'Device Type',
+                                title: 'Top device types',
+                                linkText: 'Device type',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -479,7 +479,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: GeographyTab.MAP,
-                                title: 'World Map',
+                                title: 'World map',
                                 linkText: 'Map',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
@@ -508,7 +508,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: GeographyTab.COUNTRIES,
-                                title: 'Top Countries',
+                                title: 'Top countries',
                                 linkText: 'Countries',
                                 query: {
                                     full: true,
@@ -523,7 +523,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: GeographyTab.REGIONS,
-                                title: 'Top Regions',
+                                title: 'Top regions',
                                 linkText: 'Regions',
                                 query: {
                                     full: true,
@@ -538,7 +538,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: GeographyTab.CITIES,
-                                title: 'Top Cities',
+                                title: 'Top cities',
                                 linkText: 'Cities',
                                 query: {
                                     full: true,
