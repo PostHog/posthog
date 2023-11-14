@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { webAnalyticsLogic, WebAnalyticsStatusCheck } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
-    const statusCheck: WebAnalyticsStatusCheck | null = useValues(webAnalyticsLogic).statusCheck
+    const { statusCheck } = useValues(webAnalyticsLogic)
 
     // No need to show loading or error states for this warning
     if (!statusCheck) {

@@ -569,6 +569,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         // load the status check query here and pass the response into the component, so the response
         // is accessible in this logic
         statusCheck: {
+            __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
                 const [pageviewResult, pageleaveResult] = await Promise.allSettled([
                     api.eventDefinitions.list({
