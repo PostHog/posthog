@@ -59,9 +59,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             let path = urlOrPath
             try {
                 const url = new URL(urlOrPath)
-                if (url.origin === POSTHOG_WEBSITE_ORIGIN) {
-                    path = url.pathname + url.search
-                }
+                path = url.pathname + url.search
             } catch (e) {
                 // not a valid URL, continue
             }
