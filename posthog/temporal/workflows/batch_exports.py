@@ -29,9 +29,6 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        -- These 'timestamp' checks are a heuristic to exploit the sort key.
-        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
-        -- As a side-effect, this heuristic will discard historical loads older than 2 days.
         COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
@@ -44,8 +41,11 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 TIMESTAMP_PREDICATES = """
-timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 2 DAY
+-- These 'timestamp' checks are a heuristic to exploit the sort key.
+-- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
+-- As a side-effect, this heuristic will discard historical loads older than a day.
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 """
 
 ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
