@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import RedshiftBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    ROWS_EXPORTED,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
@@ -21,7 +22,6 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
@@ -225,9 +225,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RedshiftBatchExportInputs):
         """Workflow implementation to export data to Redshift."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -247,7 +245,11 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
