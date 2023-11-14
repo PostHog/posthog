@@ -132,6 +132,7 @@ export const NEW_SURVEY: NewSurvey = {
             type: SurveyQuestionType.Open,
             question: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].question,
             description: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].description,
+            buttonText: defaultSurveyFieldValues[SurveyQuestionType.Open].questions[0].buttonText,
         },
     ],
     type: SurveyType.Popover,
