@@ -98,7 +98,7 @@ def sync_org_quota_limits(organization: Organization):
         return None
 
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
-        team_attributes = get_team_attribute_by_quora_resource(organization, resource)
+        team_attributes = get_team_attribute_by_quota_resource(organization, resource)
         quota_limited_until = org_quota_limited_until(organization, resource)
 
         if quota_limited_until:
@@ -107,7 +107,7 @@ def sync_org_quota_limits(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes)
 
 
-def get_team_attribute_by_quora_resource(organization: Organization, resource: QuotaResource):
+def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
     if resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
         team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
