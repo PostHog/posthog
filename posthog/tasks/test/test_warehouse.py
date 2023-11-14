@@ -3,19 +3,17 @@ import datetime
 from unittest.mock import patch, MagicMock
 from posthog.tasks.warehouse import (
     _traverse_jobs_by_field,
-    calculate_workspace_rows_synced_by_team,
-    _get_data_warehouse_usage_limit,
+    capture_workspace_rows_synced_by_team,
     check_external_data_source_billing_limit_by_team,
 )
 from posthog.warehouse.models import ExternalDataSource
 from freezegun import freeze_time
-from ee.billing.billing_manager import BillingManager
 
 
 class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse.send_request")
     @freeze_time("2023-11-07")
-    def test_traverse_jobs_by_field(self, send_request_mock):
+    def test_traverse_jobs_by_field(self, send_request_mock: MagicMock) -> None:
         send_request_mock.return_value = {
             "data": [
                 {
@@ -68,85 +66,70 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team(self, mock_capture, traverse_jobs_mock):
+    def test_capture_workspace_rows_synced_by_team(
+        self, mock_capture: MagicMock, traverse_jobs_mock: MagicMock
+    ) -> None:
         traverse_jobs_mock.return_value = [
             {"count": 97747, "startTime": "2023-11-05T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 191100)
         self.assertEqual(
-            self.team.external_data_workspace_last_synced,
+            self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff(self, mock_capture, traverse_jobs_mock):
-        # external_data_workspace_last_synced unset
+    def test_capture_workspace_rows_synced_by_team_month_cutoff(
+        self, mock_capture: MagicMock, traverse_jobs_mock: MagicMock
+    ) -> None:
+        # external_data_workspace_last_synced_at unset
         traverse_jobs_mock.return_value = [
-            {"count": 97747, "startTime": "2023-10-30T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
         self.assertEqual(
-            self.team.external_data_workspace_last_synced,
+            self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
     @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_capture, traverse_jobs_mock):
-        self.team.external_data_workspace_last_synced = datetime.datetime(
+    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(
+        self, mock_capture: MagicMock, traverse_jobs_mock: MagicMock
+    ) -> None:
+        self.team.external_data_workspace_last_synced_at = datetime.datetime(
             2023, 10, 29, 18, 32, 41, tzinfo=datetime.timezone.utc
         )
+        self.team.save()
         traverse_jobs_mock.return_value = [
             {"count": 97747, "startTime": "2023-10-30T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        calculate_workspace_rows_synced_by_team(self.team.pk)
+        capture_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
         self.assertEqual(
-            self.team.external_data_workspace_last_synced,
+            self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.timezone.utc),
         )
 
-    @patch.object(
-        BillingManager,
-        "get_billing",
-        lambda _, __, ___: {
-            "products": [
-                {
-                    "name": "Data Warehouse",
-                    "usage_limit": 100,
-                    "current_usage": 0,
-                    "percentage_usage": 0,
-                }
-            ]
-        },
-    )
-    def test_external_data_source_get_usage_limit(self):
-        usage_limit = _get_data_warehouse_usage_limit(self.team.pk)
-        self.assertEqual(usage_limit, 100)
-
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
-    def test_external_data_source_billing_limit_deactivate(self, usage_limit_mock, send_request_mock):
-        usage_limit_mock.return_value = 100
-        self.team.external_data_workspace_rows_synced_in_month = 20000000
-        self.team.save()
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_external_data_source_billing_limit_deactivate(
+        self, usage_limit_mock: MagicMock, send_request_mock: MagicMock
+    ) -> None:
+        usage_limit_mock.return_value = [self.team.pk]
 
         external_source = ExternalDataSource.objects.create(
             source_id="test_id",
@@ -163,31 +146,11 @@ class TestWarehouse(APIBaseTest):
         self.assertEqual(external_source.status, "inactive")
 
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
-    def test_external_data_source_billing_limit_activate(self, usage_limit_mock, send_request_mock):
-        usage_limit_mock.return_value = 100
-        self.team.external_data_workspace_rows_synced_in_month = 10
-        self.team.save()
-
-        external_source = ExternalDataSource.objects.create(
-            source_id="test_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="inactive",
-            source_type="Stripe",
-        )
-
-        check_external_data_source_billing_limit_by_team(self.team.pk)
-
-        external_source.refresh_from_db()
-        self.assertEqual(external_source.status, "running")
-
-    @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("posthog.tasks.warehouse._get_data_warehouse_usage_limit")
-    def test_external_data_source_billing_limit_no_limit(self, usage_limit_mock, send_request_mock):
-        self.team.external_data_workspace_rows_synced_in_month = 10
-        self.team.save()
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_external_data_source_billing_limit_activate(
+        self, usage_limit_mock: MagicMock, send_request_mock: MagicMock
+    ) -> None:
+        usage_limit_mock.return_value = []
 
         external_source = ExternalDataSource.objects.create(
             source_id="test_id",

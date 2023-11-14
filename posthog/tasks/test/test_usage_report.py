@@ -399,6 +399,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_bytes_read": 0,
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
+                    "rows_synced_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -440,6 +441,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_bytes_read": 0,
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
+                            "rows_synced_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 11,
@@ -475,6 +477,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_bytes_read": 0,
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
+                            "rows_synced_in_period": 0,
                         },
                     },
                 },
@@ -533,6 +536,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_bytes_read": 0,
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
+                    "rows_synced_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -574,6 +578,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_bytes_read": 0,
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
+                            "rows_synced_in_period": 0,
                         }
                     },
                 },
@@ -1060,13 +1065,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["data_warehouse_rows_synced_in_period"] == 20
+        assert org_1_report["rows_synced_in_period"] == 20
 
-        assert org_1_report["teams"]["3"]["data_warehouse_rows_synced_in_period"] == 10
-        assert org_1_report["teams"]["4"]["data_warehouse_rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 10
 
         assert org_2_report["organization_name"] == "Org 2"
-        assert org_2_report["data_warehouse_rows_synced_in_period"] == 0
+        assert org_2_report["rows_synced_in_period"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -1125,6 +1130,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 "usage_summary": {
                     "events": {"usage": 10000, "limit": None},
                     "recordings": {
+                        "usage": 1000,
+                        "limit": None,
+                    },
+                    "rows_synced": {
                         "usage": 1000,
                         "limit": None,
                     },
@@ -1274,6 +1283,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert self.team.organization.usage == {
             "events": {"limit": None, "usage": 10000, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
+            "rows_synced": {"limit": None, "usage": 1000, "todays_usage": 0},
             "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
         }
 

@@ -262,11 +262,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
     results = []
-    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
+    limited_tokens_events = list_limited_team_attributes(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_attributes(QuotaResource.RECORDINGS)
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:

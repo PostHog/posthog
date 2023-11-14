@@ -13,6 +13,7 @@ import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
@@ -136,7 +137,7 @@ export const activationLogic = kea<activationLogicType>([
             0,
             {
                 loadCustomEvents: async (_, breakpoint) => {
-                    breakpoint(200)
+                    await breakpoint(200)
                     const url = api.eventDefinitions.determineListEndpoint({
                         event_type: EventDefinitionType.EventCustom,
                     })
@@ -375,4 +376,5 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
     })),
+    permanentlyMount(),
 ])

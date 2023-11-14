@@ -83,7 +83,7 @@ runs:
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1
+              custom_cache_key_element: v2
 
         - uses: syphar/restore-pip-download-cache@v1
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -172,7 +172,7 @@ runs:
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 \
+                  --durations=100 --durations-min=1.0 -vv \
                   $PYTEST_ARGS
 
         - name: Run /decide read replica tests
