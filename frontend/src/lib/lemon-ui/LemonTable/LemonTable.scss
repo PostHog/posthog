@@ -9,7 +9,7 @@
     flex: 1;
     --row-base-height: 3rem;
     .posthog-3000 & {
-        --row-base-height: 2rem;
+        --row-base-height: auto;
     }
     --row-horizontal-padding: 1rem;
     &.LemonTable--with-ribbon {
@@ -98,6 +98,8 @@
         > tr {
             > th {
                 font-weight: 700;
+                padding-top: 0.3rem;
+                padding-bottom: 0.3rem;
                 text-align: left;
             }
             &.LemonTable__row--grouping {
@@ -122,8 +124,8 @@
             }
             > td {
                 color: var(--text-secondary);
-                padding-top: 0.1rem;
-                padding-bottom: 0.1rem;
+                padding-top: 0.3rem;
+                padding-bottom: 0.3rem;
             }
         }
     }
