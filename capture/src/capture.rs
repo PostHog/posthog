@@ -26,7 +26,7 @@ use crate::{
     utils::uuid_v7,
 };
 
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(token, batch_size))]
 pub async fn event(
     state: State<router::State>,
     InsecureClientIp(ip): InsecureClientIp,
@@ -48,6 +48,8 @@ pub async fn event(
         _ => RawEvent::from_bytes(&meta, body),
     }?;
 
+    tracing::Span::current().record("batch_size", events.len());
+
     if events.is_empty() {
         return Err(CaptureError::EmptyBatch);
     }
@@ -56,6 +58,8 @@ pub async fn event(
         report_dropped_events("token_shape_invalid", events.len() as u64);
         err
     })?;
+
+    tracing::Span::current().record("token", &token);
 
     counter!("capture_events_received_total", events.len() as u64);
 
