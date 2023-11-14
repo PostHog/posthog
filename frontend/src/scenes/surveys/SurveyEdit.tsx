@@ -216,9 +216,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
                                                                                         }}
-                                                                                        question="Share your thoughts"
-                                                                                        description="Optional form description."
-                                                                                        type={SurveyQuestionType.Open}
+                                                                                        question={{
+                                                                                            type: SurveyQuestionType.Open,
+                                                                                            question:
+                                                                                                'Share your thoughts',
+                                                                                            description:
+                                                                                                'Optional form description',
+                                                                                        }}
                                                                                     />
                                                                                 ),
                                                                             },
@@ -232,11 +236,14 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         appearance={{
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
-                                                                                            submitButtonText:
-                                                                                                'Register',
                                                                                         }}
-                                                                                        question="Do you want to join our upcoming webinar?"
-                                                                                        type={SurveyQuestionType.Link}
+                                                                                        question={{
+                                                                                            type: SurveyQuestionType.Link,
+                                                                                            question:
+                                                                                                'Do you want to join our upcoming webinar?',
+                                                                                            buttonText: 'Register',
+                                                                                            link: '',
+                                                                                        }}
                                                                                     />
                                                                                 ),
                                                                             },
@@ -251,16 +258,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
                                                                                         }}
-                                                                                        question="How satisfied are you with our product?"
-                                                                                        description="Optional form description."
                                                                                         ratingSurveyQuestion={{
+                                                                                            question:
+                                                                                                'How satisfied are you with our product?',
+                                                                                            description:
+                                                                                                'Optional form description.',
                                                                                             display: 'number',
                                                                                             lowerBoundLabel:
                                                                                                 'Not great',
                                                                                             upperBoundLabel:
                                                                                                 'Fantastic',
-                                                                                            question:
-                                                                                                'How satisfied are you with our product?',
                                                                                             scale: 5,
                                                                                             type: SurveyQuestionType.Rating,
                                                                                         }}
@@ -518,6 +525,14 @@ export default function SurveyEdit(): JSX.Element {
                                                                         </Field>
                                                                     </div>
                                                                 )}
+                                                                <Field name="buttonText" label="Button text">
+                                                                    <LemonInput
+                                                                        value={
+                                                                            question.buttonText ||
+                                                                            survey.appearance.submitButtonText
+                                                                        }
+                                                                    />
+                                                                </Field>
                                                             </div>
                                                         </Group>
                                                     ),
