@@ -90,8 +90,11 @@ async def get_schedule_frequency(schedule_id: str) -> float:
 
     try:
         desc = await handle.describe()
-    except temporalio.service.RPCError:
-        raise TemporalScheduleNotFoundError(schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise TemporalScheduleNotFoundError(schedule_id)
+        else:
+            raise
 
     interval = desc.schedule.spec.intervals[0]
     return interval.every.total_seconds()
@@ -274,8 +277,11 @@ async def check_temporal_schedule_exists(client: temporalio.client.Client, sched
 
     try:
         await handle.describe()
-    except temporalio.service.RPCError:
-        return False
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        else:
+            raise
     return True
 
 
