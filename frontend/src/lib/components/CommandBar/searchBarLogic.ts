@@ -1,4 +1,4 @@
-import { kea, path, actions, reducers, selectors, listeners, connect, afterMount } from 'kea'
+import { kea, path, actions, reducers, selectors, listeners, connect, afterMount, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -8,12 +8,12 @@ import { InsightShortId } from '~/types'
 import { commandBarLogic } from './commandBarLogic'
 
 import type { searchBarLogicType } from './searchBarLogicType'
-import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
+import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
-        actions: [commandBarLogic, ['hideCommandBar']],
+        actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar']],
     }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -93,8 +93,40 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.hideCommandBar()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
+        // load initial results
         actions.setSearchQuery('')
+
+        // register keyboard shortcuts
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Enter') {
+                // open result
+                event.preventDefault()
+                actions.openResult(values.activeResultIndex)
+            } else if (event.key === 'ArrowDown') {
+                // navigate to next result
+                event.preventDefault()
+                actions.onArrowDown(values.activeResultIndex, values.maxIndex)
+            } else if (event.key === 'ArrowUp') {
+                // navigate to previous result
+                event.preventDefault()
+                actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+            } else if (event.key === 'Escape') {
+                // hide command bar
+                actions.hideCommandBar()
+            } else if (event.key === '>') {
+                if (values.searchQuery.length === 0) {
+                    // transition to actions when entering '>' with empty input
+                    event.preventDefault()
+                    actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                }
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        // unregister keyboard shortcuts
+        window.removeEventListener('keydown', cache.onKeyDown)
     }),
 ])
 
