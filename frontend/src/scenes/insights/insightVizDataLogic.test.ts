@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { useMocks } from '~/mocks/jest'
@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
+import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 
 const Insight123 = '123' as InsightShortId
 
@@ -372,6 +373,31 @@ describe('insightVizDataLogic', () => {
                     queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
                 )
             }).toMatchValues({ isFunnelWithEnoughSteps: true })
+        })
+    })
+
+    describe('areExclusionFiltersValid', () => {
+        it('for standard funnel', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                areExclusionFiltersValid: true,
+            })
+        })
+
+        it('for invalid exclusion', async () => {
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
+            }).toMatchValues({
+                areExclusionFiltersValid: false,
+            })
         })
     })
 })

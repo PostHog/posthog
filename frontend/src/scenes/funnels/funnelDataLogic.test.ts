@@ -15,7 +15,6 @@ import {
     funnelResultTrends,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
-    funnelInvalidExclusionError,
 } from './__mocks__/funnelDataLogicMocks'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
@@ -748,31 +747,6 @@ describe('funnelDataLogic', () => {
                             ],
                         }),
                     ],
-                })
-            })
-        })
-
-        describe('areExclusionFiltersValid', () => {
-            it('for standard funnel', async () => {
-                const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
-                    result: funnelResult.result,
-                }
-
-                await expectLogic(logic, () => {
-                    builtDataNodeLogic.actions.loadDataSuccess(insight)
-                }).toMatchValues({
-                    areExclusionFiltersValid: true,
-                })
-            })
-
-            it('for invalid exclusion', async () => {
-                await expectLogic(logic, () => {
-                    builtDataNodeLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
-                }).toMatchValues({
-                    areExclusionFiltersValid: false,
                 })
             })
         })
