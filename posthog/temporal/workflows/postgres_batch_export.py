@@ -273,13 +273,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting Postgres export batch %s - %s",
-            data_interval_start,
-            data_interval_end,
-        )
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -299,7 +293,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = PostgresInsertInputs(
             team_id=inputs.team_id,
