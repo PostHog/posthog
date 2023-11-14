@@ -145,6 +145,7 @@ body:not(.posthog-3000) {
         width: 1.5rem;
 
         &.LemonButtonWithSideAction__spacer--divider {
+            opacity: 0.17;
             padding-left: 0.375rem;
         }
 

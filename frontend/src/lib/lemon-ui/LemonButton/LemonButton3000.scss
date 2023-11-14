@@ -32,8 +32,10 @@
             text-align: left;
             transition: var(--transition);
 
-            .LemonButton__icon {
+            .LemonButton__icon:first-child {
                 transition: var(--transition);
+                color: var(--default);
+                opacity: 0.5;
             }
         }
 
@@ -107,7 +109,7 @@
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
-                    .LemonButton__icon {
+                    .LemonButton__icon:first-child {
                         opacity: 0.8;
                     }
                 }
@@ -119,10 +121,6 @@
                     }
                 }
             }
-        }
-
-        .LemonButton__icon {
-            color: var(--muted);
         }
 
         &.LemonButton--with-motion {
@@ -164,10 +162,6 @@
                 &.LemonButton--active {
                     border-color: var(--primary-3000-button-border-hover);
                 }
-                .LemonButton__icon {
-                    color: #111;
-                    opacity: 0.5;
-                }
             }
         }
 
@@ -185,11 +179,6 @@
 
             > span {
                 color: var(--default);
-
-                .LemonButton__icon {
-                    color: var(--default);
-                    opacity: 0.5;
-                }
             }
         }
 
@@ -198,11 +187,6 @@
             > span {
                 background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
-
-                .LemonButton__icon {
-                    color: var(--default);
-                    opacity: 0.5;
-                }
             }
         }
 
@@ -227,13 +211,13 @@
     }
 
     .LemonButtonWithSideAction__spacer {
+        color: var(--muted);
         height: 1.25rem;
         width: 1.25rem;
 
         &.LemonButtonWithSideAction__spacer--divider {
             margin-left: 0.25rem;
             padding: 0;
-            opacity: 0.7;
         }
     }
 
