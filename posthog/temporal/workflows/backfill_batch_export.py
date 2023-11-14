@@ -22,7 +22,6 @@ from posthog.temporal.workflows.batch_exports import (
     create_batch_export_backfill_model,
     update_batch_export_backfill_model_status,
 )
-from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 class HeartbeatDetails(typing.NamedTuple):
@@ -284,13 +283,6 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id)
-        logger.info(
-            "Starting Backfill for BatchExport: %s - %s",
-            inputs.start_at,
-            inputs.end_at,
-        )
-
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
@@ -347,16 +339,13 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                logger.error("Backfill was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("Backfill failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             raise
 
-        except Exception as e:
-            logger.exception("Backfill failed with an unexpected error.", exc_info=e)
+        except Exception:
             update_inputs.status = "Failed"
             raise
 

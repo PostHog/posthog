@@ -165,14 +165,12 @@ def get_temporal_context() -> dict[str, str | int]:
     * workflow_run_id: The ID of the Temporal Workflow Execution running the batch export.
     * workflow_type: The name of the Temporal Workflow.
 
-    We attempt to fetch the context from the activity information, and then from the workflow
-    information. If both are undefined, an empty dict is returned. When running this in
-    an activity or a workflow, at least one context will be defined.
+    We attempt to fetch the context from the activity information. If undefined, an empty dict
+    is returned. When running this in an activity the context will be defined.
     """
     activity_info = attempt_to_fetch_activity_info()
-    workflow_info = attempt_to_fetch_workflow_info()
 
-    info = activity_info or workflow_info
+    info = activity_info
 
     if info is None:
         return {}
@@ -218,25 +216,6 @@ def attempt_to_fetch_activity_info() -> Info | None:
         workflow_type = activity_info.workflow_type
         workflow_run_id = activity_info.workflow_run_id
         attempt = activity_info.attempt
-
-    return (workflow_id, workflow_type, workflow_run_id, attempt)
-
-
-def attempt_to_fetch_workflow_info() -> Info | None:
-    """Fetch Workflow information from Temporal.
-
-    Returns:
-        None if calling outside a Workflow, else the relevant Info.
-    """
-    try:
-        workflow_info = temporalio.workflow.info()
-    except RuntimeError:
-        return None
-    else:
-        workflow_id = workflow_info.workflow_id
-        workflow_type = workflow_info.workflow_type
-        workflow_run_id = workflow_info.run_id
-        attempt = workflow_info.attempt
 
     return (workflow_id, workflow_type, workflow_run_id, attempt)
 
