@@ -336,56 +336,62 @@ export function ItemPerformanceEvent({
                     )}
 
                     <LemonDivider dashed />
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(newKey) => setActiveTab(newKey)}
-                            tabs={[
-                                {
-                                    key: 'timings',
-                                    label: 'timings',
-                                    content: <SimpleKeyValueList item={sanitizedProps} />,
-                                },
-                                {
-                                    key: 'headers',
-                                    label: 'Headers',
-                                    content: (
-                                        <HeadersDisplay
-                                            request={item.request_headers}
-                                            response={item.response_headers}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && {
-                                    key: 'payload',
-                                    label: 'Payload',
-                                    content: (
-                                        <BodyDisplay
-                                            content={item.request_body}
-                                            headers={item.request_headers}
-                                            emptyMessage={'No request body captured'}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && item.response_body
-                                    ? {
-                                          key: 'response_body',
-                                          label: 'Response',
-                                          content: (
-                                              <BodyDisplay
-                                                  content={item.response_body}
-                                                  headers={item.response_headers}
-                                                  emptyMessage={'No response body captured'}
-                                              />
-                                          ),
-                                      }
-                                    : false,
-                            ]}
-                        />
-                    </FlaggedFeature>
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
+                    {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
+                        <>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                                <LemonTabs
+                                    activeKey={activeTab}
+                                    onChange={(newKey) => setActiveTab(newKey)}
+                                    tabs={[
+                                        {
+                                            key: 'timings',
+                                            label: 'timings',
+                                            content: <SimpleKeyValueList item={sanitizedProps} />,
+                                        },
+                                        {
+                                            key: 'headers',
+                                            label: 'Headers',
+                                            content: (
+                                                <HeadersDisplay
+                                                    request={item.request_headers}
+                                                    response={item.response_headers}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && {
+                                            key: 'payload',
+                                            label: 'Payload',
+                                            content: (
+                                                <BodyDisplay
+                                                    content={item.request_body}
+                                                    headers={item.request_headers}
+                                                    emptyMessage={'No request body captured'}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && item.response_body
+                                            ? {
+                                                  key: 'response_body',
+                                                  label: 'Response',
+                                                  content: (
+                                                      <BodyDisplay
+                                                          content={item.response_body}
+                                                          headers={item.response_headers}
+                                                          emptyMessage={'No response body captured'}
+                                                      />
+                                                  ),
+                                              }
+                                            : false,
+                                    ]}
+                                />
+                            </FlaggedFeature>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
+                                <SimpleKeyValueList item={sanitizedProps} />
+                            </FlaggedFeature>
+                        </>
+                    ) : (
                         <SimpleKeyValueList item={sanitizedProps} />
-                    </FlaggedFeature>
+                    )}
                 </div>
             )}
         </div>
