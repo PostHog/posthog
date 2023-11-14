@@ -396,9 +396,11 @@ export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTab
  * Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
  * @see ChartRenderingMetadata
  * **/
-export interface VizSpecificSettings {
+export interface VizSpecificOptions {
     [InsightType.RETENTION]?: {
-        hideLineGraph?: true
+        hideLineGraph?: boolean
+        hideSizeColumn?: boolean
+        useSmallLayout?: boolean
     }
 }
 
@@ -422,7 +424,7 @@ interface InsightVizNodeViewProps {
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
 
-    vizSpecificSettings?: VizSpecificSettings
+    vizSpecificOptions?: VizSpecificOptions
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

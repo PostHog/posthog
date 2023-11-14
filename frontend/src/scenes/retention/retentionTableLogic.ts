@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { kea, props, key, path, connect, selectors } from 'kea'
 import { range } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { retentionLogic } from './retentionLogic'
@@ -36,7 +36,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'breakdown'],
+            ['dateRange', 'retentionFilter', 'breakdown', 'vizSpecificOptions'],
             retentionLogic(props),
             ['results'],
         ],
@@ -47,7 +47,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
         ],
 
-        hideSizeColumn: [(s) => [s.retentionFilter], (retentionFilter) => retentionFilter?.hide_size_column],
+        retentionVizOptions: [
+            (s) => [s.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[InsightType.RETENTION],
+        ],
+        hideSizeColumn: [(s) => [s.retentionVizOptions], (retentionVizOptions) => retentionVizOptions?.hideSizeColumn],
 
         maxIntervalsCount: [
             (s) => [s.results],

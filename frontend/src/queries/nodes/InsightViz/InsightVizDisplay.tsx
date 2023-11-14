@@ -74,7 +74,7 @@ export function InsightVizDisplay({
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
-        vizSpecificSettings,
+        vizSpecificOptions,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -135,7 +135,7 @@ export function InsightVizDisplay({
                 return (
                     <RetentionContainer
                         context={context}
-                        vizSpecificSettings={vizSpecificSettings?.[InsightType.RETENTION]}
+                        vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                     />
                 )
             case InsightType.PATHS:

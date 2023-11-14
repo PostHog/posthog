@@ -169,7 +169,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
-        vizSpecificSettings: [(s) => [s.query], (q: Node) => isInsightVizNode(q) && q.vizSpecificSettings],
+        vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

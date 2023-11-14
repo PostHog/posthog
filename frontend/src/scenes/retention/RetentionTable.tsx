@@ -1,4 +1,4 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,11 +11,16 @@ import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn } = useValues(retentionTableLogic(insightProps))
+    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
+        retentionTableLogic(insightProps)
+    )
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     return (
-        <table className="RetentionTable" data-attr="retention-table">
+        <table
+            className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
+            data-attr="retention-table"
+        >
             <tbody>
                 <tr>
                     {tableHeaders.map((heading) => (

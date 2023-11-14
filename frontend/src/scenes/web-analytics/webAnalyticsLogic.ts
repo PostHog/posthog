@@ -593,12 +593,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     retention_reference: 'total',
                                     total_intervals: isGreaterThanMd ? 8 : 5,
                                     period: RetentionPeriod.Week,
-                                    hide_size_column: !isGreaterThanMd,
                                 },
                             },
-                            vizSpecificSettings: {
+                            vizSpecificOptions: {
                                 [InsightType.RETENTION]: {
                                     hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
                                 },
                             },
                         },

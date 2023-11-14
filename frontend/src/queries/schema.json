@@ -1732,6 +1732,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "source"],
@@ -2644,6 +2647,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "shortId"],
@@ -3087,6 +3093,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VizSpecificOptions": {
+            "additionalProperties": false,
+            "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
+            "properties": {
+                "RETENTION": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hideLineGraph": {
+                            "type": "boolean"
+                        },
+                        "hideSizeColumn": {
+                            "type": "boolean"
+                        },
+                        "useSmallLayout": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "WebAnalyticsPropertyFilter": {
