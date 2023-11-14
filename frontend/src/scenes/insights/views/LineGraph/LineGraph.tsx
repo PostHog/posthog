@@ -221,7 +221,6 @@ export interface LineGraphProps {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
-    inCardView?: boolean
     inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
@@ -255,7 +254,6 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     compare = false,
-    inCardView,
     inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
