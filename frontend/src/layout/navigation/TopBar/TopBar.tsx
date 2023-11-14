@@ -19,7 +19,7 @@ import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/Activa
 import { organizationLogic } from 'scenes/organizationLogic'
 import { LemonButtonWithDropdown, Lettermark } from '@posthog/lemon-ui'
 import { ProjectSwitcherOverlay } from '../ProjectSwitcher'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { topBarLogic } from './topBarLogic'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
@@ -27,8 +27,8 @@ export function TopBar(): JSX.Element {
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isProjectSwitcherShown } = useValues(ingestionLogic)
-    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(ingestionLogic)
+    const { isProjectSwitcherShown } = useValues(topBarLogic)
+    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(topBarLogic)
 
     const hasNotebooks = !!featureFlags[FEATURE_FLAGS.NOTEBOOKS]
 
