@@ -21,10 +21,12 @@ import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigatio
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { GlobalModals } from '~/layout/GlobalModals'
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic]),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic, actionsModel, cohortsModel]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

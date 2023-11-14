@@ -1,5 +1,8 @@
 from rest_framework import status
+from posthog.models.user import User
 from posthog.models.team.team import Team
+from ee.models.organization_resource_access import OrganizationResourceAccess
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.feedback.survey import Survey
@@ -37,8 +40,22 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         expected_data = [
-            {"flag_id": self.feature_flag_1.id, "team_id": self.team_1.id, "active": True},
-            {"flag_id": self.feature_flag_2.id, "team_id": self.team_2.id, "active": True},
+            {
+                "flag_id": flag.id,
+                "team_id": flag.team.id,
+                "created_by": {
+                    "id": self.user.id,
+                    "uuid": str(self.user.uuid),
+                    "distinct_id": self.user.distinct_id,
+                    "first_name": self.user.first_name,
+                    "email": self.user.email,
+                    "is_email_verified": self.user.is_email_verified,
+                },
+                "filters": flag.filters,
+                "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
+                "active": flag.active,
+            }
+            for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
         self.assertCountEqual(response.json(), expected_data)
 
@@ -383,3 +400,31 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_copy_feature_flag_cannot_edit(self):
+        self.organization.available_features = [AvailableFeature.ROLE_BASED_ACCESS]
+        self.organization.save()
+
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
+        self.assertEqual(self.user.role_memberships.count(), 0)
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        untouchable_flag = FeatureFlag.objects.create(
+            created_by=user_a,
+            key="flag_a",
+            name="Flag A",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": untouchable_flag.key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
