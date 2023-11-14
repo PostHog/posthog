@@ -21,7 +21,7 @@ const taxonomicGroupFor = (
 
 const updateBreakdown = jest.fn()
 const updateDisplay = jest.fn()
-const insightProps: InsightLogicProps = {}
+const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
 
 describe('taxonomicBreakdownFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicBreakdownFilterLogic.build>
