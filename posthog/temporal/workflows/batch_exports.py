@@ -486,7 +486,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    get_export_started_metric().add(1)
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
     logger.info(
         "Creating batch export for range %s - %s",
@@ -519,8 +518,6 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    get_export_finished_metric(status=inputs.status.lower()).add(1)
-
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
 
     batch_export_run = await sync_to_async(update_batch_export_run_status)(
@@ -637,6 +634,7 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
+    get_export_started_metric().add(1)
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
         maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
@@ -667,6 +665,7 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
+        get_export_finished_metric(status=update_inputs.status.lower()).add(1)
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,
