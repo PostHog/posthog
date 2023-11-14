@@ -6,6 +6,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
+const iframeRegex = /(?:<iframe[^>]*)(?:(?:\/>)|(?:>.*?<\/iframe>))/
+
+const getIframeSrc = (src: string): string | null => {
+    const matches = src.match(iframeRegex)
+    if (matches) {
+        const iframe = matches[0]
+        const srcMatch = iframe.match(/src="([^"]*)"/)
+        if (srcMatch) {
+            return srcMatch[1]
+        }
+    }
+    return null
+}
+
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes>): JSX.Element => {
     const src = attributes.src
     const { setTitlePlaceholder, toggleEditing } = useActions(notebookNodeLogic)
@@ -51,7 +65,14 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeEmbedAttributes>): JSX.Element => {
     const [localUrl, setLocalUrl] = useState(attributes.src)
 
-    const save = (): void => updateAttributes({ src: localUrl })
+    const save = (): void => {
+        if (!localUrl) {
+            return
+        }
+        const newValue = getIframeSrc(localUrl) ?? localUrl
+        setLocalUrl(newValue)
+        updateAttributes({ src: newValue })
+    }
 
     useEffect(() => setLocalUrl(attributes.src), [attributes.src])
 
@@ -63,7 +84,7 @@ const Settings = ({
                 value={localUrl}
                 onChange={setLocalUrl}
                 onPressEnter={save}
-                placeholder="URL: e.g. https://example.com"
+                placeholder="Enter URL or <iframe> code"
                 className="flex-1"
             />
             <LemonButton type="primary" onClick={save} disabledReason={!hasChanges ? 'Not changed' : null}>
