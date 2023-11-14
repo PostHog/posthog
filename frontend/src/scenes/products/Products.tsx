@@ -1,5 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BillingProductV2Type, ProductKey } from '~/types'
 import { useActions, useValues } from 'kea'
@@ -14,6 +13,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { router } from 'kea-router'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { productsLogic } from './productsLogic'
+import * as Icons from '@posthog/icons'
 
 export const scene: SceneExport = {
     component: Products,
@@ -64,19 +64,17 @@ function OnboardingNotCompletedButton({ url, productKey }: { url: string; produc
     )
 }
 
+export function getProductIcon(iconKey?: string | null, className?: string): JSX.Element {
+    return Icons[iconKey || 'IconLogomark']({ className })
+}
+
 function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     return (
         <LemonCard className={`max-w-80 flex flex-col`} key={product.type}>
             <div className="flex mb-2">
-                <div className="bg-mid rounded p-2 flex">
-                    {product.image_url ? (
-                        <img className="w-6 h-6" alt={`Logo for PostHog ${product.name}`} src={product.image_url} />
-                    ) : (
-                        <IconBarChart className="w-6 h-6" />
-                    )}
-                </div>
+                <div className="bg-mid rounded p-2 flex">{getProductIcon(product.icon_key, 'text-2xl')}</div>
             </div>
             <div className="mb-2">
                 <h3 className="bold mb-0">{product.name}</h3>

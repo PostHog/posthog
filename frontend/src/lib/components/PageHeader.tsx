@@ -1,6 +1,10 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -22,23 +26,30 @@ export function PageHeader({
     tabbedPage,
     delimited,
     notebookProps,
-}: PageHeaderProps): JSX.Element {
+}: PageHeaderProps): JSX.Element | null {
+    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { actionsContainer } = useValues(breadcrumbsLogic)
+
     return (
         <>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="page-title-row flex justify-between" style={style}>
-                <div className="min-w-0">
-                    {notebookProps ? (
-                        <DraggableToNotebook {...notebookProps}>
-                            <h1 className="page-title">{title}</h1>
-                        </DraggableToNotebook>
-                    ) : (
-                        <h1 className="page-title">{title}</h1>
-                    )}
-                    <span className="page-description">{description}</span>
+            {}
+            {(!is3000 || description) && (
+                <div className="page-title-row flex justify-between" style={style}>
+                    <div className="min-w-0">
+                        {!is3000 &&
+                            (notebookProps ? (
+                                <DraggableToNotebook {...notebookProps}>
+                                    <h1 className="page-title">{title}</h1>
+                                </DraggableToNotebook>
+                            ) : (
+                                <h1 className="page-title">{title}</h1>
+                            ))}
+                        {description && <span className="page-description">{description}</span>}
+                    </div>
+                    {!is3000 && <div className="page-buttons">{buttons}</div>}
                 </div>
-                <div className="page-buttons">{buttons}</div>
-            </div>
+            )}
+            {is3000 && buttons && actionsContainer && createPortal(buttons, actionsContainer)}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
             {delimited && <LemonDivider className="my-4" />}
