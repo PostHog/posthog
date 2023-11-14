@@ -67,7 +67,12 @@ export const SidePanelDocs = (): JSX.Element => {
     }, [ref.current])
 
     useEffect(() => {
-        return unmountIframe
+        window.addEventListener('beforeunload', unmountIframe)
+
+        return () => {
+            window.removeEventListener('beforeunload', unmountIframe)
+            unmountIframe()
+        }
     }, [])
 
     return (

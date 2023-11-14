@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners, connect, selectors, afterMount, beforeUnmount } from 'kea'
+import { actions, kea, reducers, path, listeners, connect, selectors } from 'kea'
 
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
@@ -81,14 +81,4 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             router.actions.push(getPathFromUrl(urlOrPath))
         },
     })),
-
-    afterMount(({ actions, cache }) => {
-        // Call actions.unmountIframe when the window unloads
-        cache.beforeUnload = () => actions.unmountIframe()
-        window.addEventListener('beforeunload', cache.beforeUnload)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('beforeunload', cache.beforeUnload)
-    }),
 ])
