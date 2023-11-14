@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
 
 const Insight123 = '123' as InsightShortId
@@ -347,6 +347,31 @@ describe('insightVizDataLogic', () => {
                     week: { label: 'week', newDateFrom: '-30d' },
                 },
             })
+        })
+    })
+
+    describe('isFunnelWithEnoughSteps', () => {
+        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
+            kind: NodeKind.FunnelsQuery,
+            series,
+        })
+
+        it('with enough/not enough steps', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.RetentionQuery,
+                } as InsightQueryNode)
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(queryWithSeries([]))
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(
+                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
+                )
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 })

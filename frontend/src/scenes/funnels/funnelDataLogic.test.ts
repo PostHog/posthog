@@ -7,7 +7,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
     funnelResultTimeToConvert,
@@ -775,29 +775,6 @@ describe('funnelDataLogic', () => {
                     areExclusionFiltersValid: false,
                 })
             })
-        })
-    })
-
-    describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
-            kind: NodeKind.FunnelsQuery,
-            series,
-        })
-
-        it('with enough/not enough steps', () => {
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery } as InsightQueryNode)
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource(
-                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
-                )
-            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 
