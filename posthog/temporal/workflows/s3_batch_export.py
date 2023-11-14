@@ -15,8 +15,6 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import S3BatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
-    BYTES_EXPORTED,
-    ROWS_EXPORTED,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
@@ -28,6 +26,7 @@ from posthog.temporal.workflows.batch_exports import (
 )
 from posthog.temporal.workflows.clickhouse import get_client
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -431,6 +430,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
+                rows_exported = get_rows_exported_metric()
+                bytes_exported = get_bytes_exported_metric()
 
                 async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
                     logger.debug(
@@ -442,8 +443,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     )
 
                     await s3_upload.upload_part(local_results_file)
-                    ROWS_EXPORTED.labels(destination="s3").inc(local_results_file.records_since_last_reset)
-                    BYTES_EXPORTED.labels(destination="s3").inc(local_results_file.bytes_since_last_reset)
+                    rows_exported.add(local_results_file.records_since_last_reset)
+                    bytes_exported.add(local_results_file.bytes_since_last_reset)
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
@@ -493,9 +494,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting batch export %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -515,7 +514,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
