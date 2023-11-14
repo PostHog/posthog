@@ -42,11 +42,11 @@ def infer_taxonomy_for_team(team_id: int) -> Tuple[int, int, int]:
     )
 
     # (event, property) pairs
-    event_properties = _get_event_properties(team_id)
+    event_property_pairs = _get_event_property_pairs(team_id)
     event_properties = EventProperty.objects.bulk_create(
         [
             EventProperty(team_id=team_id, event=event, property=property_key)
-            for event, property_key in event_properties
+            for event, property_key in event_property_pairs
         ],
         batch_size=1000,
         ignore_conflicts=True,
@@ -94,7 +94,7 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     return None
 
 
-def _get_event_properties(team_id: int) -> List[Tuple[str, str]]:
+def _get_event_property_pairs(team_id: int) -> List[Tuple[str, str]]:
     """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.client import sync_execute
 
