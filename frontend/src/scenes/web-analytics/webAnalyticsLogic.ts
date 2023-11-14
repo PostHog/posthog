@@ -224,6 +224,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.geographyTab,
                 s.dateFrom,
                 s.dateTo,
+                () => values.isGreaterThanMd,
             ],
             (
                 webAnalyticsFilters,
@@ -233,7 +234,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 sourceTab,
                 geographyTab,
                 dateFrom,
-                dateTo
+                dateTo,
+                isGreaterThanMd: boolean
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -589,9 +591,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 retentionFilter: {
                                     retention_type: RETENTION_FIRST_TIME,
                                     retention_reference: 'total',
-                                    total_intervals: values.isGreaterThanMd ? 8 : 5,
+                                    total_intervals: isGreaterThanMd ? 8 : 5,
                                     period: RetentionPeriod.Week,
-                                    hide_size_column: true,
+                                    hide_size_column: !isGreaterThanMd,
                                 },
                             },
                             vizSpecificSettings: {
