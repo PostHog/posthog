@@ -426,6 +426,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
+        assert result[0]["label"] == "$pageview - new"
 
         assertLifecycleResults(
             result,
@@ -437,7 +438,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_lifecycle_trend_any_event(self):
+    def test_lifecycle_trend_all_events(self):
         self._create_events(
             event="$pageview",
             data=[
@@ -475,6 +476,8 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
+
+        assert result[0]["label"] == "All events - new"
 
         assertLifecycleResults(
             result,
