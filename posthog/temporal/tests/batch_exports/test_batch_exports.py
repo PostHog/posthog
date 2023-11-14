@@ -162,7 +162,7 @@ async def test_get_rows_count_ignores_timestamp_predicates(clickhouse_client):
     # All events are outside timestamp bounds (a year difference with inserted_at)
     assert row_count == 0
 
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[team_id]):
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
         row_count = await get_rows_count(
             clickhouse_client,
             team_id,
@@ -405,7 +405,7 @@ async def test_get_results_iterator_ignores_timestamp_predicates(clickhouse_clie
 
     assert len(rows) == 0
 
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[team_id]):
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
         iter_ = get_results_iterator(
             clickhouse_client,
             team_id,
