@@ -350,6 +350,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
+    session_recording_network_payload_capture_config:
+        | { recordHeaders?: boolean; recordBody?: boolean }
+        | undefined
+        | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -1058,6 +1062,18 @@ export interface RecentPerformancePageView extends PerformancePageView {
     duration: number
 }
 
+// copied from rrweb/network@1
+export type Body =
+    | string
+    | Document
+    | Blob
+    | ArrayBufferView
+    | ArrayBuffer
+    | FormData
+    | URLSearchParams
+    | ReadableStream<Uint8Array>
+    | null
+
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1119,6 +1135,12 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+
+    // request/response capture - merged in from rrweb/network@1 payloads
+    request_headers?: Record<string, string>
+    response_headers?: Record<string, string>
+    request_body?: Body
+    response_body?: Body
 }
 
 export interface CurrentBillCycleType {
@@ -1152,6 +1174,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description?: string | null
+    icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
     free_allocation?: number
@@ -1188,6 +1211,7 @@ export interface BillingProductV2AddonType {
     description: string
     price_description: string | null
     image_url: string | null
+    icon_key?: string
     docs_url: string | null
     type: string
     tiers: BillingV2TierType[] | null
@@ -2249,6 +2273,17 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
+}
+
+export interface OrganizationFeatureFlag {
+    flag_id: number | null
+    team_id: number | null
+    created_by: UserBasicType | null
+    created_at: string | null
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+    filters: FeatureFlagFilters
+    active: boolean
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -3335,7 +3370,7 @@ export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
-    Feedback = 'feedback',
+    Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
