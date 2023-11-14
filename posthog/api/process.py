@@ -1,8 +1,11 @@
+import hashlib
+import json
 from typing import Any, Dict, List, Optional, cast
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.metadata import get_hogql_metadata
@@ -12,6 +15,8 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import HogQLMetadata
+from posthog.settings import CLICKHOUSE_CLUSTER
+from statshog.defaults.django import statsd
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
@@ -92,3 +97,16 @@ def process_query(
             return process_query(team, query_json["source"])
 
         raise ValidationError(f"Unsupported query kind: {query_kind}")
+
+
+def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
+    sync_execute(
+        f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
+        {"client_query_id": f"{team_id}_{client_query_id}%"},
+    )
+    statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": team_id})
+
+
+def query_hash(query: Dict, team_id: int) -> str:
+    query_str = json.dumps(query, sort_keys=True)
+    return hashlib.md5(f"{team_id}_{query_str}".encode("utf-8")).hexdigest()

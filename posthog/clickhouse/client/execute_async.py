@@ -1,5 +1,6 @@
-import hashlib
 import json
+import uuid
+
 import structlog
 import time
 from dataclasses import asdict as dataclass_asdict
@@ -10,6 +11,7 @@ from posthog import celery
 
 from posthog import redis
 from posthog.celery import process_query_task
+from posthog.clickhouse.query_tagging import tag_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -31,9 +33,8 @@ class QueryStatus:
     task_id: Optional[str] = None
 
 
-def generate_redis_results_key(query_id):
-    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_id}"
-    return key
+def generate_redis_results_key(query_id: str, team_id: int) -> str:
+    return f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{team_id}:{query_id}"
 
 
 def execute_process_query(
@@ -49,7 +50,7 @@ def execute_process_query(
     Once complete save results to redis
     """
 
-    key = generate_redis_results_key(query_id)
+    key = generate_redis_results_key(query_id, team_id)
     redis_client = redis.get_client()
 
     query_status = QueryStatus(team_id, task_id=task_id)
@@ -60,6 +61,7 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
 
     try:
+        tag_queries(client_query_id=query_id, team_id=team_id)
         results = process_query(
             team=team, query_json=query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
         )
@@ -90,16 +92,16 @@ def execute_process_query(
 def enqueue_process_query_task(
     team_id,
     query_json,
+    query_id=None,
     refresh_requested=False,
     in_export_context=False,
     bypass_celery=False,
-    query_id=None,
     force=False,
 ):
     if not query_id:
-        query_str = json.dumps(query_json, sort_keys=True)
-        query_id = _query_hash(query_str, team_id)
-    key = generate_redis_results_key(query_id)
+        query_id = uuid.uuid4().hex
+
+    key = generate_redis_results_key(query_id, team_id)
     redis_client = redis.get_client()
 
     if force:
@@ -146,7 +148,7 @@ def get_query_status(team_id, query_id):
     Error payload of failed query
     """
     redis_client = redis.get_client()
-    key = generate_redis_results_key(query_id)
+    key = generate_redis_results_key(query_id, team_id)
     try:
         byte_results = redis_client.get(key)
         if byte_results:
@@ -161,12 +163,18 @@ def get_query_status(team_id, query_id):
     return query_status
 
 
-def _query_hash(query: str, team_id: int, *args: Any) -> str:
-    """
-    Takes a query and returns a hex encoded hash of the query and args
-    """
-    if args:
-        key = hashlib.md5((str(team_id) + query + json.dumps(args)).encode("utf-8")).hexdigest()
-    else:
-        key = hashlib.md5((str(team_id) + query).encode("utf-8")).hexdigest()
-    return key
+def cancel_query(team_id, query_id):
+    query_status = get_query_status(team_id, query_id)
+
+    if query_status.task_id:
+        celery.app.control.revoke(query_status.task_id, terminate=True)
+
+        from posthog.api.process import cancel_query_on_cluster
+
+        cancel_query_on_cluster(team_id, query_id)
+
+    redis_client = redis.get_client()
+    key = generate_redis_results_key(query_id, team_id)
+    redis_client.delete(key)
+
+    return True

@@ -16,9 +16,9 @@ from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
-from posthog.api.process import process_query
+from posthog.api.process import process_query, query_hash
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import cancel_query, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
@@ -95,7 +95,15 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             OpenApiParameter(
                 "client_query_id",
                 OpenApiTypes.STR,
-                description="Client provided query ID. Can be used to cancel queries.",
+                description="Client provided query ID. Can be used to retrieve the status or cancel the query.",
+            ),
+            OpenApiParameter(
+                "async",
+                OpenApiTypes.BOOL,
+                description=(
+                    "Whether to run the query asynchronously. Defaults to False."
+                    " If True, the `id` of the query can be used to check the status and to cancel it."
+                ),
             ),
         ],
         responses={
@@ -105,22 +113,41 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def create(self, request, *args, **kwargs) -> JsonResponse:
         request_json = request.data
         query_json = request_json.get("query")
-        self._tag_client_query_id(request_json.get("client_query_id"))
+        query_async = request_json.get("async") is True
         refresh_requested = refresh_requested_by_client(request)
-        slow_lane = request_json.get("async") is True
-        if slow_lane:
+
+        client_query_id = request_json.get("client_query_id")
+        if not client_query_id:
+            client_query_id = query_hash(query_json, self.team.pk)
+
+        self._tag_client_query_id(client_query_id)
+
+        if query_async:
             query_id = enqueue_process_query_task(
                 team_id=self.team.pk,
                 query_json=query_json,
+                query_id=client_query_id,
                 refresh_requested=refresh_requested,
             )
             return JsonResponse(
-                {"status": "slow_lane", "query_id": query_id},
+                {
+                    "id": query_id,
+                    "async": True,
+                },
                 safe=False,
             )
-        # allow lists as well as dicts in response with safe=False
+
         try:
-            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
+            result = process_query(self.team, query_json, refresh_requested=refresh_requested)
+            # allow lists as well as dicts in response with safe=False
+            return JsonResponse(
+                {
+                    "id": client_query_id,
+                    "async": False,
+                    **result,
+                },
+                safe=False,
+            )
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -131,24 +158,17 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise e
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "query_id",
-                OpenApiTypes.STR,
-                description="Query ID to get status for.",
-            ),
-        ],
         responses={
             200: OpenApiResponse(description="Query status"),
         },
     )
-    @action(methods=["GET"], detail=False)
-    def status(self, request: Request, *args, **kwargs) -> JsonResponse:
-        query_id = request.query_params.get("query_id")
-        if not query_id:
-            raise ValidationError({"query_id": ["This field is required."]}, code="required")
-        status = get_query_status(self.team.pk, query_id)
+    def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
+        status = get_query_status(team_id=self.team.pk, query_id=pk)
         return JsonResponse(status.__dict__, safe=False)
+
+    def destroy(self, request, pk=None, *args, **kwargs):
+        cancel_query(self.team.pk, pk)
+        return Response(status=204)
 
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
@@ -177,8 +197,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return
 
     def _tag_client_query_id(self, query_id: str | None):
-        if query_id is not None:
-            tag_queries(client_query_id=query_id)
+        if query_id is None:
+            return
+
+        tag_queries(client_query_id=query_id)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
