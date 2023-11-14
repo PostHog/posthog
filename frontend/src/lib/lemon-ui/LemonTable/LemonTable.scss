@@ -126,6 +126,11 @@
                 color: var(--text-secondary);
                 padding-top: 0.3rem;
                 padding-bottom: 0.3rem;
+
+                .LemonButton {
+                    margin-top: -0.2rem;
+                    margin-bottom: -0.2rem;
+                }
             }
         }
     }
