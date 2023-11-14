@@ -1067,7 +1067,7 @@
 ---
 # name: TestFeatureFlag.test_creating_static_cohort.9
   '
-  DECLARE "_django_curs_139686745766784_sync_103" NO SCROLL
+  DECLARE "_django_curs_139871167331200_sync_103" NO SCROLL
   CURSOR WITHOUT HOLD
   FOR
   SELECT "posthog_person"."id",
