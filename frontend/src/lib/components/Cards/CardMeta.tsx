@@ -5,6 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import './CardMeta.scss'
+import { Transition } from 'react-transition-group'
 
 export interface Resizeable {
     showResizeHandles?: boolean
@@ -90,10 +91,13 @@ export function CardMeta({
                     height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
                 }}
             >
-                <div className="CardMeta__details__content" ref={detailsRef}>
-                    {/* Stops the padding getting in the height calc  */}
-                    <div className="p-4">{metaDetails}</div>
-                </div>
+                {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
+                <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                    <div className="CardMeta__details__content" ref={detailsRef}>
+                        {/* Stops the padding getting in the height calc  */}
+                        <div className="p-4">{metaDetails}</div>
+                    </div>
+                </Transition>
             </div>
         </div>
     )
