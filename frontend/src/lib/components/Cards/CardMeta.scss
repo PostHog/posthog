@@ -82,11 +82,10 @@
         right: 0;
         top: 100%;
         max-height: 18rem;
-
+        margin-top: -1px; // To cause overlap with the divider when closed
         border-bottom-width: 1px;
         background: var(--bg-light);
-        border-bottom-width: 1px;
-        transition: box-shadow 200ms ease, height 200ms ease;
+        transition: box-shadow 200ms ease, height 200ms ease, margin 200ms ease;
         overflow-y: auto;
 
         .CardMeta__details__content {
@@ -95,9 +94,10 @@
         }
     }
 
-    &--details-shown {
+    &.CardMeta--details-shown {
         .CardMeta__details {
             box-shadow: var(--shadow-elevation);
+            margin-top: 0;
 
             .CardMeta__details__content {
                 opacity: 1;
