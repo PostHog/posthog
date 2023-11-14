@@ -2185,6 +2185,7 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
+    // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string

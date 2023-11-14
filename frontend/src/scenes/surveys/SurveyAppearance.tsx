@@ -139,11 +139,6 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     <></>
                 </PayGateMini>
             )}
-            <div className="mt-2">Button text</div>
-            <LemonInput
-                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-            />
             <div className="mt-2">Background color</div>
             <LemonInput
                 value={appearance?.backgroundColor}

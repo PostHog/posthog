@@ -19,7 +19,6 @@ export const SurveyUrlMatchTypeLabels = {
 
 export const defaultSurveyAppearance = {
     backgroundColor: '#eeeded',
-    submitButtonText: 'Submit',
     submitButtonColor: 'black',
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
@@ -38,10 +37,10 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.Open,
                 question: 'Give us feedback on our product!',
                 description: '',
+                buttonText: 'Submit',
             },
         ],
         appearance: {
-            submitButtonText: 'Submit',
             thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
@@ -51,10 +50,10 @@ export const defaultSurveyFieldValues = {
                 type: SurveyQuestionType.Link,
                 question: 'Do you want to join our upcoming webinar?',
                 description: '',
+                buttonText: 'Register',
             },
         ],
         appearance: {
-            submitButtonText: 'Register',
             thankYouMessageHeader: 'Redirecting ...',
         },
     },
@@ -81,10 +80,10 @@ export const defaultSurveyFieldValues = {
                 question: 'Have you found this tutorial useful?',
                 description: '',
                 choices: ['Yes', 'No'],
+                buttonText: 'Submit',
             },
         ],
         appearance: {
-            submitButtonText: 'Submit',
             thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
@@ -95,10 +94,10 @@ export const defaultSurveyFieldValues = {
                 question: 'Which types of content would you like to see more of?',
                 description: '',
                 choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
+                buttonText: 'Submit',
             },
         ],
         appearance: {
-            submitButtonText: 'Submit',
             thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
@@ -166,9 +165,9 @@ export const defaultSurveyTemplates = [
                 question: 'Would you be interested in participating in a customer interview?',
                 description: 'We are looking for feedback on our product and would love to hear from you!',
                 link: 'https://calendly.com/',
+                buttonText: 'Schedule',
             },
         ],
-        appearance: { submitButtonText: 'Schedule' },
         description: <>Send users straight to your calendar.</>,
     },
     {
