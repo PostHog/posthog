@@ -43,6 +43,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         usage_summary={
             "events": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_features=[],
@@ -96,6 +97,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         usage_summary={
             "events": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
