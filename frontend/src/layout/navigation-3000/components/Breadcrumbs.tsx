@@ -36,7 +36,6 @@ export function Breadcrumbs(): JSX.Element | null {
         <div
             className="Breadcrumbs3000"
             style={
-                // eslint-disable-line react/forbid-dom-props
                 {
                     '--breadcrumbs-compaction-rate': compactionRate,
                 } as React.CSSProperties
