@@ -64,12 +64,6 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
                 <>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <StatusesTemplate {...props} type={type} />
-                    <body className="posthog-3000" theme="light">
-                        <StatusesTemplate {...props} type={type} />
-                    </body>
-                    <body className="posthog-3000" theme="dark">
-                        <StatusesTemplate {...props} type={type} />
-                    </body>
                 </>
             ))}
         </div>
