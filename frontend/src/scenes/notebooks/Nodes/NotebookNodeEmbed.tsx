@@ -103,10 +103,7 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
     titlePlaceholder: 'Embed',
     Component,
     Settings,
-    serializedText: () => {
-        // TODO file is null when this runs... should it be?
-        return '(embedded iframe)'
-    },
+    serializedText: (attrs) => `(embedded iframe:${attrs.src})`,
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,
@@ -116,14 +113,4 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
         file: {},
         src: {},
     },
-    // rawPasteOptions: [{
-    //     editor: this.editor,
-    //     type: NotebookNodeType.Embed,
-
-    //     posthogNodePasteRule({
-    //                       editor: this.editor,
-    //                       type: this.type,
-    //                       ...pasteOptions,
-    //                   }),
-    // }],
 })
