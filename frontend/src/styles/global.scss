@@ -626,6 +626,18 @@ body {
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
+        .Link {
+            .text-link {
+                color: var(--text-3000);
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--primary-3000);
+                }
+            }
+        }
+
         --shadow-elevation: var(--shadow-elevation-3000);
 
         * > {
