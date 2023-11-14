@@ -323,6 +323,14 @@ order by count() desc
             return chain
         },
     },
+    {
+        title: 'Embedded iframe',
+        search: 'iframe embed',
+        icon: <IconUploadFile />,
+        command: async (chain, pos) => {
+            return chain.insertContentAt(pos, { type: NotebookNodeType.Embed })
+        },
+    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
