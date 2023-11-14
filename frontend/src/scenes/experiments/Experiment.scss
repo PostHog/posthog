@@ -14,43 +14,6 @@
         justify-content: space-between;
     }
 
-    // TODO: Remove these overrides
-    .InsightVizDisplay {
-        margin-bottom: 1rem;
-
-        .display-config-inner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            overflow-x: auto;
-        }
-
-        .ant-card-body {
-            padding: 0;
-        }
-
-        .InsightVizDisplay__row__ {
-            .InsightVizDisplay__row__left {
-                width: 100%;
-            }
-
-            .InsightVizDisplay__row__right {
-                width: 100%;
-                height: min(calc(90vh - 16rem), 36rem); // same as .TrendsInsightContainer
-                max-width: 300px;
-                padding: 0 1rem 1rem 0;
-                display: flex;
-                align-items: center;
-            }
-        }
-
-        .LineGraph {
-            width: calc(100% - 2rem);
-            height: calc(100% - 2rem) !important;
-            margin-top: 1rem;
-        }
-    }
-
     .experiment-preview {
         margin-bottom: 1rem;
         border-bottom: 1px solid var(--border);

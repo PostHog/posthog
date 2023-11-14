@@ -8,7 +8,6 @@
 
     &.InsightViz--horizontal {
         flex-direction: row;
-        // align-items: start;
         flex-wrap: wrap;
 
         .EditorFiltersWrapper {
@@ -43,7 +42,6 @@
         }
 
         .InsightVizDisplay__content__right {
-            height: min(calc(90vh - 16rem), 36rem); // same as .TrendsInsightContainer
             flex-shrink: 1;
             max-width: 45%;
             width: fit-content;
