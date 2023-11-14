@@ -11,6 +11,7 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
+from sentry_sdk.api import capture_exception, push_scope
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -634,6 +635,14 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
+
+    def capture_exception_with_metadata(e: BaseException):
+        with push_scope() as scope:
+            scope.set_extra("run_id", update_inputs.id)
+            scope.set_tag("team_id", update_inputs.team_id)
+            scope.set_tag("workflow_type", workflow.info().workflow_type.lower())
+            capture_exception(e)
+
     get_export_started_metric().add(1)
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
@@ -655,13 +664,15 @@ async def execute_batch_export_insert_activity(
             update_inputs.status = "Cancelled"
         else:
             update_inputs.status = "Failed"
+            capture_exception_with_metadata(e.cause or e)
 
         update_inputs.latest_error = str(e.cause)
         raise
 
-    except Exception:
+    except Exception as e:
         update_inputs.status = "Failed"
         update_inputs.latest_error = "An unexpected error has ocurred"
+        capture_exception_with_metadata(e)
         raise
 
     finally:
