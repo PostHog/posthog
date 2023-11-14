@@ -41,7 +41,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
-            <Form logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
+            <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
@@ -119,7 +119,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 data-attr="save-cohort"
                                 htmlType="submit"
                                 loading={cohortLoading || cohort.is_calculating}
-                                disabled={cohortLoading || cohort.is_calculating}
+                                form="cohort"
                             >
                                 Save
                             </LemonButton>
