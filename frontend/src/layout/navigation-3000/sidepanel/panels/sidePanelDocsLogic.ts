@@ -5,7 +5,7 @@ import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 import { router } from 'kea-router'
 
-export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog-git-app-docs-post-hog.vercel.app' // 'https://posthog.com'
+export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog.com'
 
 const sanitizePath = (path: string): string => {
     return path[0] === '/' ? path : `/${path}`
@@ -15,7 +15,6 @@ export const getPathFromUrl = (urlOrPath: string): string => {
     // NOTE: This is not a perfect function - it is mostly meant for the specific use cases of these docs
     try {
         const url = new URL(urlOrPath)
-        console.log(url)
         return url.pathname + url.search + url.hash
     } catch (e) {
         return urlOrPath

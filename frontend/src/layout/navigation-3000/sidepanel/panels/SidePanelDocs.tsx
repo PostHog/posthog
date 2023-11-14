@@ -6,7 +6,6 @@ import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { IconExternal } from '@posthog/icons'
 import { themeLogic } from '../../themeLogic'
-import { router } from 'kea-router'
 
 function SidePanelDocsSkeleton(): JSX.Element {
     return (
