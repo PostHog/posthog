@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
@@ -14,19 +15,19 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import PostgresBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    BYTES_EXPORTED,
+    ROWS_EXPORTED,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
-    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 @contextlib.contextmanager
@@ -56,7 +57,7 @@ def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.
         connection.close()
 
 
-def copy_tsv_to_postgres(
+async def copy_tsv_to_postgres(
     tsv_file,
     postgres_connection: psycopg2.extensions.connection,
     schema: str,
@@ -77,7 +78,8 @@ def copy_tsv_to_postgres(
     with postgres_connection.cursor() as cursor:
         if schema:
             cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-        cursor.copy_from(
+        await asyncio.to_thread(
+            cursor.copy_from,
             tsv_file,
             table_name,
             null="",
@@ -145,9 +147,9 @@ class PostgresInsertInputs:
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
-        "Running Postgres export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -173,7 +175,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -221,13 +223,13 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         with BatchExportTemporaryFile() as pg_file:
             with postgres_connection(inputs) as connection:
 
-                def flush_to_postgres():
-                    logger.info(
-                        "Copying %s records of size %s bytes to Postgres",
+                async def flush_to_postgres():
+                    logger.debug(
+                        "Copying %s records of size %s bytes",
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )
-                    copy_tsv_to_postgres(
+                    await copy_tsv_to_postgres(
                         pg_file,
                         connection,
                         inputs.schema,
@@ -245,11 +247,11 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        flush_to_postgres()
+                        await flush_to_postgres()
                         pg_file.reset()
 
                 if pg_file.tell() > 0:
-                    flush_to_postgres()
+                    await flush_to_postgres()
 
 
 @workflow.defn(name="postgres-export")
@@ -271,7 +273,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info(
             "Starting Postgres export batch %s - %s",

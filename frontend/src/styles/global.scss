@@ -474,43 +474,6 @@ input::-ms-clear {
     }
 }
 
-// Stateful badges
-
-.stateful-badge {
-    padding: 2px 8px;
-    border-radius: 2px;
-    font-weight: bold;
-
-    &.or {
-        background-color: #d2dbff;
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.or-light-grey {
-        font-family: var(--font-sans);
-        background-color: var(--mid);
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.width-locked {
-        width: 40px;
-        text-align: center;
-    }
-
-    &.and {
-        background-color: var(--mark);
-        color: var(--primary-alt);
-    }
-
-    &.pos-center-end {
-        position: absolute;
-        top: 50%;
-        left: -30px;
-    }
-}
-
 // Tags
 
 .simple-tag {
@@ -591,6 +554,20 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
+        --link: var(--link-3000-light);
+        --shadow-elevation-3000: var(--shadow-elevation-3000-light);
+
+        --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+        --primary-3000-frame-border: var(--primary-3000-frame-border-light);
+        --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+        --primary-3000-button-border: var(--primary-3000-button-border-light);
+        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+
+        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+        --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
+        --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+        --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
     }
 
     &.posthog-3000[theme='dark'] {
@@ -611,6 +588,20 @@ body {
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+        --link: var(--link-3000-dark);
+        --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+
+        --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+        --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
+        --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+        --primary-3000-button-border: var(--primary-3000-button-border-dark);
+        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+
+        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
+        --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
+        --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
+        --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
+        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
     }
 
     &.posthog-3000 {
@@ -623,6 +614,8 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
+
+        --shadow-elevation: var(--shadow-elevation-3000);
 
         * > {
             ::-webkit-scrollbar {
@@ -800,5 +793,15 @@ body {
     .ant-radio-button-wrapper {
         background: var(--secondary-3000);
         border-color: transparent;
+    }
+}
+
+.posthog-3000[theme='dark'] {
+    .ant-empty-img-simple-path {
+        fill: var(--border-3000);
+    }
+
+    .ant-empty-img-simple-ellipse {
+        fill: var(--border-3000);
     }
 }

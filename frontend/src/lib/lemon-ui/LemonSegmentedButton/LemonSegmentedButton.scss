@@ -47,6 +47,13 @@
             outline 200ms ease;
         outline: 1px solid transparent;
         border-radius: 0;
+        min-height: calc(var(--lemon-button-height) - 2px);
+
+        &:hover {
+            > span {
+                border-color: none !important;
+            }
+        }
     }
     &:first-child,
     &:first-child .LemonButton {

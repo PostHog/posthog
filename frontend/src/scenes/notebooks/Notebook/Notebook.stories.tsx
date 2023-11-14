@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { router } from 'kea-router'
@@ -347,63 +347,68 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function NotebooksList(): JSX.Element {
+export const NotebooksList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebooks())
     }, [])
     return <App />
 }
 
-export function Headings(): JSX.Element {
+export const Headings: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('headings'))
     }, [])
     return <App />
 }
 
-export function TextFormats(): JSX.Element {
+export const TextFormats: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('text-formats'))
     }, [])
     return <App />
 }
 
-export function NumberedList(): JSX.Element {
+export const NumberedList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('numbered-list'))
     }, [])
     return <App />
 }
 
-export function BulletList(): JSX.Element {
+export const BulletList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('bullet-list'))
     }, [])
     return <App />
 }
 
-export function RecordingsPlaylist(): JSX.Element {
+export const RecordingsPlaylist: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('recordings-playlist'))
     }, [])
     return <App />
 }
+RecordingsPlaylist.parameters = {
+    testOptions: {
+        waitForSelector: '.NotebookNode__content', // All stories with widget-style nodes needs this
+    },
+}
 
-export function TextOnlyNotebook(): JSX.Element {
+export const TextOnlyNotebook: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('12345'))
     }, [])
     return <App />
 }
 
-export function EmptyNotebook(): JSX.Element {
+export const EmptyNotebook: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('empty'))
     }, [])
     return <App />
 }
 
-export function NotebookNotFound(): JSX.Element {
+export const NotebookNotFound: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('abcde'))
     }, [])

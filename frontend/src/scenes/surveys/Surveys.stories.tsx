@@ -3,8 +3,15 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
-import { Meta } from '@storybook/react'
+import {
+    FeatureFlagBasicType,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
+import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
@@ -103,26 +110,6 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     archived: false,
 }
 
-// const MOCK_SURVEY_DISMISSED = {
-//     "clickhouse": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
-//     "columns": [
-//         "survey dismissed"
-//     ],
-//     "hogql": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(event, 'survey dismissed'), equals(properties.$survey_id, '0188e637-3b72-0000-f407-07a338652af9')) LIMIT 100",
-//     "query": "select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '0188e637-3b72-0000-f407-07a338652af9'",
-//     "results": [
-//         [
-//             0
-//         ]
-//     ],
-//     "types": [
-//         [
-//             "survey dismissed",
-//             "UInt64"
-//         ]
-//     ]
-// }
-
 const MOCK_SURVEY_SHOWN = {
     clickhouse:
         "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
@@ -170,34 +157,42 @@ const meta: Meta = {
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag]),
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
-                    if ((req.body as any).kind == 'EventsQuery') {
-                        return MOCK_SURVEY_RESULTS
+                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                    const body = await req.json()
+                    if (body.kind == 'EventsQuery') {
+                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                    } else {
+                        return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
-                    return MOCK_SURVEY_SHOWN
                 },
             },
         }),
     ],
 }
 export default meta
-export function SurveysList(): JSX.Element {
+export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
     }, [])
     return <App />
 }
 
-export function NewSurvey(): JSX.Element {
+export const NewSurvey: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
     }, [])
     return <App />
 }
 
-export function NewSurveyCustomisationSection(): JSX.Element {
+export const NewSurveyCustomisationSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -206,7 +201,7 @@ export function NewSurveyCustomisationSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyPresentationSection(): JSX.Element {
+export const NewSurveyPresentationSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -215,7 +210,7 @@ export function NewSurveyPresentationSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyTargetingSection(): JSX.Element {
+export const NewSurveyTargetingSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -233,7 +228,7 @@ export function NewSurveyTargetingSection(): JSX.Element {
     return <App />
 }
 
-export function NewSurveyAppearanceSection(): JSX.Element {
+export const NewSurveyAppearanceSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
@@ -242,21 +237,26 @@ export function NewSurveyAppearanceSection(): JSX.Element {
     return <App />
 }
 
-export function SurveyView(): JSX.Element {
+export const SurveyView: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
     }, [])
     return <App />
 }
+SurveyView.parameters = {
+    testOptions: {
+        skip: true, // FIXME: Fix the mocked data so that survey results can actually load
+    },
+}
 
-export function SurveyTemplates(): JSX.Element {
+export const SurveyTemplates: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveyTemplates())
     }, [])
     return <App />
 }
 
-export function SurveyNotFound(): JSX.Element {
+export const SurveyNotFound: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('1234566789'))
     }, [])

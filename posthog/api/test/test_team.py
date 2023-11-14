@@ -654,6 +654,64 @@ class TestTeamAPI(APIBaseTest):
         second_get_response = self.client.get("/api/projects/@current/")
         assert second_get_response.json()["session_recording_linked_flag"] is None
 
+    @parameterized.expand(
+        [
+            [
+                "string",
+                "Marple bridge",
+                "invalid_input",
+                "Must provide a dictionary or None.",
+            ],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no recordX",
+                {"key": "something"},
+                "invalid_input",
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_network_payload_capture_config(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_network_payload_capture_config": provided_value}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_network_payload_capture_config",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
+        # can set just one
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_recording_network_payload_capture_config": {"recordHeaders": True}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_network_payload_capture_config"] == {"recordHeaders": True}
+
+        # can set the other
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_recording_network_payload_capture_config": {"recordBody": False}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_network_payload_capture_config"] == {"recordBody": False}
+
+        # can unset both
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_network_payload_capture_config": None}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        second_get_response = self.client.get("/api/projects/@current/")
+        assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
+
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """

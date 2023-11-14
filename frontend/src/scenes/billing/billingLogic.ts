@@ -231,7 +231,7 @@ export const billingLogic = kea<billingLogicType>([
                 license: !license ? 'Please enter your license key' : undefined,
             }),
             submit: async ({ license }, breakpoint) => {
-                breakpoint(500)
+                await breakpoint(500)
                 try {
                     await api.update('api/billing-v2/license', {
                         license,

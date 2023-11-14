@@ -213,12 +213,18 @@ export const notebookLogic = kea<notebookLogicType>([
                     } else if (props.shortId.startsWith('template-')) {
                         response =
                             values.notebookTemplates.find((template) => template.short_id === props.shortId) || null
+                        if (!response) {
+                            return null
+                        }
                     } else {
-                        response = await api.notebooks.get(props.shortId)
-                    }
-
-                    if (!response) {
-                        throw new Error('Notebook not found')
+                        try {
+                            response = await api.notebooks.get(props.shortId)
+                        } catch (e: any) {
+                            if (e.status === 404) {
+                                return null
+                            }
+                            throw e
+                        }
                     }
 
                     const notebook = migrate(response)
