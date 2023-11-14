@@ -2179,6 +2179,8 @@ export interface SurveyAppearance {
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     position?: string
+    nextButtonText?: string
+    closeButtonText?: string
 }
 
 export interface SurveyQuestionBase {
