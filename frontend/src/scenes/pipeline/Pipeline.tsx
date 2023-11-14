@@ -1,26 +1,24 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { humanFriendlyTabName, pipelineLogic, singularName } from './pipelineLogic'
+import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { PipelineTabs } from '~/types'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Transformations } from './Transformations'
+import { NewButton } from './NewButton'
 
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
-    const singular = singularName(currentTab)
     return (
         <div className="pipeline-scene">
             <PageHeader
                 title="Pipeline"
-                buttons={
-                    <LemonButton data-attr={`new-${singular}`} to={urls.pipelineNew(currentTab)} type="primary">
-                        New {singular}
-                    </LemonButton>
-                }
+                caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
+                buttons={<NewButton tab={currentTab} />}
             />
             <LemonTabs
                 activeKey={currentTab}
@@ -30,6 +28,8 @@ export function Pipeline(): JSX.Element {
                     key: tab,
                 }))}
             />
+
+            {!currentTab ? <Spinner /> : currentTab === PipelineTabs.Transformations ? <Transformations /> : null}
         </div>
     )
 }

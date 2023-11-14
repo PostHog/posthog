@@ -9,6 +9,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
 
     return (
         <TaxonomicBreakdownFilter
+            insightProps={insightProps}
             breakdownFilter={breakdown}
             display={display}
             isTrends={isTrends}

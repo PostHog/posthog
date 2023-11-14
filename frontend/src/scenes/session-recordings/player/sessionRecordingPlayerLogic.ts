@@ -102,6 +102,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'snapshotsLoaded',
                 'sessionPlayerData',
+                'sessionPlayerMetaData',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
             ],
