@@ -1,9 +1,6 @@
 {
     "extends": "stylelint-config-standard-scss",
-    "plugins": ["stylelint-order"],
     "rules": {
-        "order/order": ["dollar-variables", "custom-properties", "declarations", "rules", "at-rules"],
-        "order/properties-order": ["width", "height"],
         "selector-class-pattern": [
             "^[A-Za-z0-9-]+(__[A-Za-z0-9-]+)?(--[A-Za-z0-9-]+)?$",
             {
