@@ -23,6 +23,9 @@ from posthog.models import (
     PluginAttachment,
     PluginConfig,
     Team,
+    Cohort,
+    Experiment,
+    Survey,
     Dashboard,
     DashboardTile,
     Text,
@@ -30,7 +33,6 @@ from posthog.models import (
 )
 from posthog.warehouse.models import DataWarehouseTable
 
-admin.site.register(FeatureFlag)
 admin.site.register(DataWarehouseTable)
 
 
@@ -146,6 +148,98 @@ class GroupTypeMappingInline(admin.TabularInline):
     classes = ("collapse",)
     max_num = 5
     min_num = 5
+
+
+@admin.register(Cohort)
+class CohortAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, cohort: Cohort):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            cohort.team.pk,
+            cohort.team.name,
+        )
+
+
+@admin.register(FeatureFlag)
+class FeatureFlagAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "key",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "key")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "key", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, flag: FeatureFlag):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            flag.team.pk,
+            flag.team.name,
+        )
+
+
+@admin.register(Experiment)
+class ExperimentAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, experiment: Experiment):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            experiment.team.pk,
+            experiment.team.name,
+        )
+
+
+@admin.register(Survey)
+class SurveyAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, experiment: Experiment):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            experiment.team.pk,
+            experiment.team.name,
+        )
 
 
 @admin.register(Team)
