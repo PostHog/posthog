@@ -216,15 +216,19 @@ export function InsightVizDisplay({
                     <>
                         {(isFunnels || isPaths || showComputationMetadata) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                {showComputationMetadata && (
-                                    <InsightResultMetadata
-                                        disableLastComputation={disableLastComputation}
-                                        disableLastComputationRefresh={disableLastComputationRefresh}
-                                    />
-                                )}
+                                <div className="flex items-center gap-2">
+                                    {showComputationMetadata && (
+                                        <InsightResultMetadata
+                                            disableLastComputation={disableLastComputation}
+                                            disableLastComputationRefresh={disableLastComputationRefresh}
+                                        />
+                                    )}
+                                </div>
 
-                                {isPaths && <PathCanvasLabel />}
-                                {isFunnels && <FunnelCanvasLabel />}
+                                <div className="flex items-center gap-2">
+                                    {isPaths && <PathCanvasLabel />}
+                                    {isFunnels && <FunnelCanvasLabel />}
+                                </div>
                             </div>
                         )}
 
