@@ -48,6 +48,7 @@ AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 """
 
+
 async def get_rows_count(
     client,
     team_id: int,
