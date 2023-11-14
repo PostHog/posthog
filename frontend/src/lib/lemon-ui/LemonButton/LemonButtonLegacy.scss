@@ -11,7 +11,8 @@ body:not(.posthog-3000) {
             --lemon-button-height: 1.5rem;
         }
 
-        &.LemonButton--small {
+        &.LemonButton--small,
+        .Breadcrumbs3000 & {
             padding: 0.125rem 0.5rem;
             --lemon-button-height: 2rem;
 
