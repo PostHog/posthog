@@ -54,6 +54,7 @@ import {
     NotebookNodeResource,
     ExternalDataStripeSourceCreatePayload,
     ExternalDataStripeSource,
+    QueryStatus,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -540,6 +541,10 @@ class ApiRequest {
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
+    }
+
+    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(queryId)
     }
 
     // Notebooks
@@ -1722,6 +1727,12 @@ const api = {
         },
     },
 
+    queryStatus: {
+        async get(queryId: string): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -1730,7 +1741,8 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean
+        refresh?: boolean,
+        slowLane?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1740,7 +1752,7 @@ const api = {
     > {
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async: slowLane } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

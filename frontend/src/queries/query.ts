@@ -25,12 +25,15 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { toParams } from 'lib/utils'
+import { delay, toParams } from 'lib/utils'
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+
+const QUERY_ASYNC_DELAY_MILLISECONDS = 1000
+const QUERY_ASYNC_MAX_POLL_SECONDS = 300
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -90,6 +93,34 @@ export function queryExportContext<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
+async function executeQuery<N extends DataNode = DataNode>(
+    queryNode: N,
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean,
+    queryId?: string
+): Promise<NonNullable<N['response']>> {
+    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
+    const excludedKinds = ['HogQLMetadata']
+    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+
+    if (!queryAsync || !response.async) {
+        return response
+    }
+
+    const pollStart = performance.now()
+    while (performance.now() - pollStart < QUERY_ASYNC_MAX_POLL_SECONDS * 1000) {
+        await delay(QUERY_ASYNC_DELAY_MILLISECONDS)
+
+        const statusResponse = await api.queryStatus.get(response.id)
+
+        if (statusResponse.complete || statusResponse.error) {
+            return statusResponse.results
+        }
+    }
+    throw new Error('Query timed out')
+}
+
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     queryNode: N,
@@ -139,7 +170,7 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else {
-            response = await api.query(queryNode, methodOptions, queryId, refresh)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
