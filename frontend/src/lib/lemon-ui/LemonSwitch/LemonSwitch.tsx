@@ -57,6 +57,7 @@ export function LemonSwitch({
         <button
             id={id}
             className="LemonSwitch__button"
+            type="button"
             role="switch"
             onClick={() => {
                 if (onChange) {

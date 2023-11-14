@@ -30,7 +30,7 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
     const results = (response as WebOverviewQueryResponse | undefined)?.results
 
     return (
-        <EvenlyDistributedRows className="w-full gap-2" minWidthRems={8}>
+        <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
             {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
         </EvenlyDistributedRows>
     )

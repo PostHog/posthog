@@ -474,43 +474,6 @@ input::-ms-clear {
     }
 }
 
-// Stateful badges
-
-.stateful-badge {
-    padding: 2px 8px;
-    border-radius: 2px;
-    font-weight: bold;
-
-    &.or {
-        background-color: #d2dbff;
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.or-light-grey {
-        font-family: var(--font-sans);
-        background-color: var(--mid);
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.width-locked {
-        width: 40px;
-        text-align: center;
-    }
-
-    &.and {
-        background-color: var(--mark);
-        color: var(--primary-alt);
-    }
-
-    &.pos-center-end {
-        position: absolute;
-        top: 50%;
-        left: -30px;
-    }
-}
-
 // Tags
 
 .simple-tag {
@@ -572,6 +535,8 @@ body {
     --bg-light: #fff;
     --link: var(--primary);
 
+    touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
         --muted-3000: var(--muted-3000-light);
@@ -619,6 +584,7 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
+        overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
         * > {
             ::-webkit-scrollbar {
@@ -796,5 +762,15 @@ body {
     .ant-radio-button-wrapper {
         background: var(--secondary-3000);
         border-color: transparent;
+    }
+}
+
+.posthog-3000[theme='dark'] {
+    .ant-empty-img-simple-path {
+        fill: var(--border-3000);
+    }
+
+    .ant-empty-img-simple-ellipse {
+        fill: var(--border-3000);
     }
 }

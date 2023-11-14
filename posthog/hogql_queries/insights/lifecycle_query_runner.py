@@ -117,7 +117,7 @@ class LifecycleQueryRunner(QueryRunner):
                 },
             )
 
-    def calculate(self):
+    def calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team.pk)
 
@@ -147,10 +147,33 @@ class LifecycleQueryRunner(QueryRunner):
                 for item in val[0]
             ]
 
-            label = "{} - {}".format("", val[2])  # entity.name
+            # legacy response compatibility object
+            action_object = {}
+            label = "{} - {}".format("", val[2])
+            if isinstance(self.query.series[0], ActionsNode):
+                action = Action.objects.get(pk=int(self.query.series[0].id), team=self.team)
+                label = "{} - {}".format(action.name, val[2])
+                action_object = {
+                    "id": str(action.pk),
+                    "name": action.name,
+                    "type": "actions",
+                    "order": 0,
+                    "math": "total",
+                }
+            elif isinstance(self.query.series[0], EventsNode):
+                label = "{} - {}".format(self.query.series[0].event, val[2])
+                action_object = {
+                    "id": self.query.series[0].event,
+                    "name": self.query.series[0].event,
+                    "type": "events",
+                    "order": 0,
+                    "math": "total",
+                }
+
             additional_values = {"label": label, "status": val[2]}
             res.append(
                 {
+                    "action": action_object,
                     "data": [float(c) for c in counts],
                     "count": float(sum(counts)),
                     "labels": labels,

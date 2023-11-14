@@ -1,5 +1,6 @@
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.models import FeatureFlag, Team
 from posthog.permissions import OrganizationMemberPermissions
 from django.core.exceptions import ObjectDoesNotExist
@@ -39,6 +40,16 @@ class OrganizationFeatureFlagView(
             {
                 "flag_id": flag.id,
                 "team_id": flag.team_id,
+                "created_by": {
+                    "id": flag.created_by.id,
+                    "uuid": flag.created_by.uuid,
+                    "distinct_id": flag.created_by.distinct_id,
+                    "first_name": flag.created_by.first_name,
+                    "email": flag.created_by.email,
+                    "is_email_verified": flag.created_by.is_email_verified,
+                },
+                "filters": flag.filters,
+                "created_at": flag.created_at,
                 "active": flag.active,
             }
             for flag in flags
@@ -56,10 +67,18 @@ class OrganizationFeatureFlagView(
         if not feature_flag_key or not from_project or not target_project_ids:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Fetch the flag to copy
         try:
             flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team_id=from_project)
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the user is allowed to edit the flag
+        can_edit_feature_flag = CanEditFeatureFlag()
+        if not can_edit_feature_flag.has_object_permission(self.request, None, flag_to_copy):
+            return Response(
+                {"error": "You do not have permission to copy this flag."}, status=status.HTTP_403_FORBIDDEN
+            )
 
         successful_projects = []
         failed_projects = []
