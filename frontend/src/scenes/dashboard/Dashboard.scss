@@ -14,19 +14,23 @@
         white-space: nowrap;
         display: flex;
         align-items: center;
+
         .ant-btn {
             .anticon {
                 vertical-align: baseline;
             }
+
             margin-left: 10px;
+
             &.button-box {
                 padding: 4px 8px;
             }
         }
     }
 
-    @media (max-width: 768px) {
+    @media (width <= 768px) {
         flex-direction: column;
+
         .dashboard-meta {
             padding-top: 1rem;
             justify-content: flex-end;

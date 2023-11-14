@@ -42,13 +42,10 @@
                     position: relative;
                     overflow: visible;
 
-                    &:before {
+                    &::before {
                         content: '';
                         position: absolute;
-                        top: -5px;
-                        bottom: -5px;
-                        left: -10px;
-                        right: -50px;
+                        inset: -5px -50px -5px -10px;
                         height: 22px;
                     }
                 }
@@ -81,6 +78,7 @@
         .LemonTable__expansion {
             .event-properties-wrapper {
                 padding: 1rem 0 1rem 1rem;
+
                 .event-properties-header {
                     font-weight: 600;
                 }

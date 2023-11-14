@@ -1,25 +1,31 @@
 .flags-button-window {
     width: min(350px, 100vw);
 }
+
 .toolbar-block {
     .feature-flag-row {
         .feature-flag-row-header {
             background-color: #fafafa;
             min-height: 38px;
+
             > * {
                 margin: 0 5px;
             }
+
             .feature-flag-title {
                 font-size: 13px;
             }
+
             .feature-flag-external-link {
-                color: rgba(0, 0, 0, 0.5);
+                color: rgb(0 0 0 / 50%);
                 line-height: normal;
+
                 &:hover {
-                    color: rgba(0, 0, 0, 0.8);
+                    color: rgb(0 0 0 / 80%);
                 }
             }
         }
+
         .feature-flag-row-header.overridden {
             background-color: var(--mark);
         }
@@ -27,10 +33,12 @@
         .variant-radio-group {
             border-left: 2px solid #fafafa;
         }
+
         .variant-radio-group.overridden {
             border-left-color: var(--mark);
         }
     }
+
     .local-feature-flag-override-note {
         color: var(--default);
         background-color: #fafafa;

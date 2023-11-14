@@ -5,6 +5,7 @@
     background: var(--bg-light);
     border-radius: var(--radius);
     border: 1px solid var(--border);
+
     > ul {
         z-index: 1; // Place above slider
         list-style: none;
@@ -28,10 +29,12 @@
     width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
     transform: translateX(var(--lemon-segmented-button-slider-offset));
     background: var(--primary);
+
     &.LemonSegmentedButton__slider--first {
         border-top-left-radius: var(--radius);
         border-bottom-left-radius: var(--radius);
     }
+
     &.LemonSegmentedButton__slider--last {
         border-top-right-radius: var(--radius);
         border-bottom-right-radius: var(--radius);
@@ -41,6 +44,7 @@
 .LemonSegmentedButton__option {
     display: flex;
     flex: 1;
+
     .LemonButton {
         // Original transition with outline added
         transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
@@ -49,32 +53,39 @@
         border-radius: 0;
         min-height: calc(var(--lemon-button-height) - 2px);
     }
+
     &:first-child,
     &:first-child .LemonButton {
         border-top-left-radius: var(--radius);
         border-bottom-left-radius: var(--radius);
     }
+
     &:last-child,
     &:last-child .LemonButton {
         border-top-right-radius: var(--radius);
         border-bottom-right-radius: var(--radius);
     }
+
     &:not(:last-child) {
         border-right: 1px solid var(--border);
     }
-    &:not(.LemonSegmentedButton__option--disabled):not(.LemonSegmentedButton__option--selected) {
+
+    &:not(.LemonSegmentedButton__option--disabled, .LemonSegmentedButton__option--selected) {
         &:hover .LemonButton {
             outline-color: var(--primary);
         }
+
         &:active .LemonButton {
             outline-color: var(--primary-dark);
         }
     }
+
     &.LemonSegmentedButton__option--selected {
         .LemonButton,
         .LemonButton__icon {
             color: #fff;
         }
+
         .LemonButton {
             &:hover,
             &:active {

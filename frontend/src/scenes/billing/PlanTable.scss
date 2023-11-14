@@ -1,11 +1,14 @@
 .PlanTable {
     max-width: 1200px;
+
     table {
         table-layout: fixed;
+
         td {
             vertical-align: top;
             padding: 1.25rem;
         }
+
         th {
             vertical-align: top;
             padding: 1.25rem;
@@ -13,7 +16,7 @@
             text-align: left;
 
             &.PlanTable__th__section {
-                padding: 0.25rem 1.25rem 0.25rem;
+                padding: 0.25rem 1.25rem;
                 font-weight: 500;
             }
 
@@ -27,7 +30,8 @@
             }
         }
     }
+
     .PlanTable__tr__border {
-        border-bottom: 3px rgba(0, 0, 0, 0.07) dotted;
+        border-bottom: 3px rgb(0 0 0 / 7%) dotted;
     }
 }

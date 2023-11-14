@@ -74,10 +74,10 @@
             &:hover,
             &.NotebookNode--selected {
                 border-color: var(--border-color);
+
                 .NotebookNode__meta {
                     height: var(--notebook-node-meta-height);
                     padding: var(--notebook-node-meta-padding);
-
                     pointer-events: all;
                     visibility: visible;
                 }
@@ -108,6 +108,7 @@
     &--editable {
         border-radius: var(--radius);
         transition: background-color 150ms linear;
+
         &:hover {
             background-color: var(--border);
         }
