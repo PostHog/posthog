@@ -13,6 +13,7 @@ export function PersonDeleteModal(): JSX.Element | null {
             isOpen={!!personDeleteModal}
             onClose={() => showPersonDeleteModal(null)}
             title={`Are you sure you want to delete "${asDisplay(personDeleteModal)}"?`}
+            width="50rem"
             description={
                 <>
                     <p>This action cannot be undone.</p>
