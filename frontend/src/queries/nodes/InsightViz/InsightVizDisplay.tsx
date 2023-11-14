@@ -215,7 +215,7 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <>
                         {(isFunnels || isPaths || showComputationMetadata) && (
-                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap border-b">
+                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
                                 {showComputationMetadata && (
                                     <InsightResultMetadata
                                         disableLastComputation={disableLastComputation}
