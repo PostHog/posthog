@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
@@ -454,7 +454,7 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                 },
                 aggregated_value: 0,
                 label: '$pageview - control',
-                count: 11.421053, // eslint-disable-line no-loss-of-precision
+                count: 11.421053,
                 data: [
                     2.4210526315789473, 1.4210526315789473, 3.4210526315789473, 0.4210526315789473, 3.4210526315789473,
                 ],
@@ -598,7 +598,7 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function ExperimentsList(): JSX.Element {
+export const ExperimentsList: StoryFn = () => {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiments())
@@ -606,15 +606,20 @@ export function ExperimentsList(): JSX.Element {
     return <App />
 }
 
-export function CompleteFunnelExperiment(): JSX.Element {
+export const CompleteFunnelExperiment: StoryFn = () => {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
     }, [])
     return <App />
 }
+CompleteFunnelExperiment.parameters = {
+    testOptions: {
+        waitForSelector: '.card-secondary',
+    },
+}
 
-export function RunningTrendExperiment(): JSX.Element {
+export const RunningTrendExperiment: StoryFn = () => {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_TREND_EXPERIMENT.id))
@@ -622,22 +627,27 @@ export function RunningTrendExperiment(): JSX.Element {
 
     return <App />
 }
+RunningTrendExperiment.parameters = {
+    testOptions: {
+        waitForSelector: '.card-secondary',
+    },
+}
 
-export function ExperimentsListPayGate(): JSX.Element {
+export const ExperimentsListPayGate: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiments())
     }, [])
     return <App />
 }
 
-export function ViewExperimentPayGate(): JSX.Element {
+export const ViewExperimentPayGate: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
     }, [])
     return <App />
 }
 
-export function ExperimentNotFound(): JSX.Element {
+export const ExperimentNotFound: StoryFn = () => {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment('1200000'))

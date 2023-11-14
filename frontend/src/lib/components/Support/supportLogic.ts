@@ -43,9 +43,9 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
-    bug: 'Report a bug',
+    support: 'Ask a question',
     feedback: 'Give feedback',
-    support: 'Get support',
+    bug: 'Report a bug',
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -115,10 +115,7 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({
+        openSupportForm: (kind: SupportTicketKind = 'support', target_area: SupportTicketTargetArea | null = null) => ({
             kind,
             target_area,
         }),
@@ -154,10 +151,10 @@ export const supportLogic = kea<supportLogicType>([
     })),
     forms(({ actions }) => ({
         sendSupportRequest: {
-            defaults: {} as unknown as {
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
+            defaults: {
+                kind: 'support' as SupportTicketKind,
+                target_area: null as SupportTicketTargetArea | null,
+                message: '',
             },
             errors: ({ message, kind, target_area }) => {
                 return {
@@ -215,7 +212,7 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             })
 
-            actions.openSidePanel(SidePanelTab.Feedback)
+            actions.openSidePanel(SidePanelTab.Support)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({

@@ -128,6 +128,7 @@
 
 .SeriesDisplay__raw-name {
     display: inline-flex;
+    align-items: center;
     padding: 0.125rem 0.25rem;
     margin: 0 0.25rem;
     background: var(--primary-bg-hover);
@@ -136,12 +137,12 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    vertical-align: -0.3em;
     &.SeriesDisplay__raw-name--action,
     &.SeriesDisplay__raw-name--event {
         padding: 0.25rem;
         &::before {
             display: inline-block;
+            flex-shrink: 0;
             text-align: center;
             width: 1rem;
             border-radius: 0.25rem;
@@ -170,5 +171,4 @@
     margin-right: 0.25rem;
     color: var(--border-bold);
     font-size: 1.25rem;
-    vertical-align: middle;
 }

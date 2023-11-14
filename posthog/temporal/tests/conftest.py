@@ -63,7 +63,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     client = ClickHouseClient(
@@ -76,14 +76,7 @@ def clickhouse_client():
     yield client
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(

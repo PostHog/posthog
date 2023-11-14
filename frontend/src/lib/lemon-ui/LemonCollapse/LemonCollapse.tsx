@@ -112,6 +112,7 @@ function LemonCollapsePanel({ header, content, isExpanded, onChange }: LemonColl
                                   }
                                 : undefined
                         }
+                        aria-busy={status.endsWith('ing')}
                     >
                         <div className="LemonCollapsePanel__content" ref={contentRef}>
                             {content}
