@@ -82,14 +82,12 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <>
-                    <div className="text-center">
-                        <Animation type={AnimationType.LaptopHog} />
-                    </div>
+                <div className="flex flex-col flex-1 justify-center items-center">
+                    <Animation type={AnimationType.LaptopHog} />
                     {!!timedOutQueryId && (
                         <InsightTimeoutState isLoading={true} queryId={timedOutQueryId} insightProps={insightProps} />
                     )}
-                </>
+                </div>
             )
         }
 
