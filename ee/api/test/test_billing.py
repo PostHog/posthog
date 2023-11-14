@@ -366,7 +366,7 @@ class TestBillingAPI(APILicensedTest):
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
-                "row_synced": {"limit": None, "usage": 0},
+                "rows_synced": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
