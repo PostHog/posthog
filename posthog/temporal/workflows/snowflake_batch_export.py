@@ -12,8 +12,6 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
-    BYTES_EXPORTED,
-    ROWS_EXPORTED,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,

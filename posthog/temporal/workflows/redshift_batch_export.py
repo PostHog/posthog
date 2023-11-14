@@ -14,7 +14,6 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import RedshiftBatchExportInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
-    ROWS_EXPORTED,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
