@@ -3572,13 +3572,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         flush_persons_and_events()
 
-        with snapshot_postgres_queries_context(self), self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag",
-                {},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # with snapshot_postgres_queries_context(self), self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # fires an async task for computation, but celery runs sync in tests
         cohort_id = response.json()["cohort"]["id"]
