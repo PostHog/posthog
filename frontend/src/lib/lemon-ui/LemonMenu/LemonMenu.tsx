@@ -165,11 +165,11 @@ export function LemonMenuSectionList({
     let rollingItemIndex = 0
 
     return (
-        <ul>
+        <ul className="LemonMenu__list">
             {sections.map((section, i) => {
                 const sectionElement = (
                     <li key={i}>
-                        <section className="space-y-px">
+                        <section>
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5>{section.title}</h5>
@@ -216,7 +216,7 @@ export function LemonMenuItemList({
     let rollingItemIndex = 0
 
     return (
-        <ul className="space-y-px">
+        <ul className="LemonMenu__list space-y-px">
             {items.map((item, index) => (
                 <li key={index}>
                     <LemonMenuItemButton
@@ -254,6 +254,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     fullWidth
                     role="menuitem"
                     size={size}
+                    motion={false}
                     {...buttonProps}
                 >
                     {label as ReactNode}

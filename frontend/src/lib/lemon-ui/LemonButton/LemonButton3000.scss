@@ -254,17 +254,46 @@
     }
 
     // Menu items
-    .Popover {
+    .Popover__box {
+        padding: 0 !important;
+
+        .Popover__content {
+            border-radius: 5px;
+        }
+    }
+
+    .Popover__box,
+    .LemonMenu__list {
+        h5 {
+            background-color: #eeeeee;
+            margin: 0px;
+            padding: 0.25rem 0.4rem;
+            border-bottom: 1px solid var(--border-3000);
+        }
+
+        li:last-child li:last-child .LemonButton {
+            border-bottom: none;
+        }
+
+        .LemonDivider {
+            height: 0px;
+        }
+
         .LemonButton {
             padding: 0px 1px;
             border: none;
+            border-bottom: 1px solid var(--border-3000);
+            border-radius: 0px;
             min-height: 0px;
+            background-color: var(--bg-light);
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
+                padding-bottom: 0px !important;
+                border-radius: 0px !important;
+
                 > span {
-                    background-color: var(--bg-light) !important;
-                    border-color: var(--bg-light) !important;
+                    background-color: var(--bg-3000) !important;
                 }
             }
 
@@ -272,6 +301,7 @@
                 top: 0px !important;
                 background: none !important;
                 border-color: transparent !important;
+                border-radius: 0px !important;
             }
         }
     }
