@@ -7,9 +7,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
+import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -71,74 +72,78 @@ export function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            <CardMeta
-                showEditingControls={showEditingControls}
-                showDetailsControls={false}
-                moreButtons={
-                    <>
-                        <LemonButton
-                            status="stealth"
-                            fullWidth
-                            onClick={() => dashboardId && push(urls.dashboardTextTile(dashboardId, textTile.id))}
-                            data-attr="edit-text"
-                        >
-                            Edit text
-                        </LemonButton>
-
-                        {moveToDashboard && otherDashboards.length > 0 && (
-                            <LemonButtonWithDropdown
-                                status="stealth"
-                                dropdown={{
-                                    overlay: otherDashboards.map((otherDashboard) => (
-                                        <LemonButton
-                                            key={otherDashboard.id}
-                                            status="stealth"
-                                            onClick={() => {
-                                                moveToDashboard(otherDashboard)
-                                            }}
-                                            fullWidth
-                                        >
-                                            {otherDashboard.name || <i>Untitled</i>}
-                                        </LemonButton>
-                                    )),
-                                    placement: 'right-start',
-                                    fallbackPlacements: ['left-start'],
-                                    actionable: true,
-                                    closeParentPopoverOnClickInside: true,
-                                }}
-                                fullWidth
-                            >
-                                Move to
-                            </LemonButtonWithDropdown>
-                        )}
-                        <LemonButton
-                            status="stealth"
-                            onClick={duplicate}
-                            fullWidth
-                            data-attr={'duplicate-text-from-dashboard'}
-                        >
-                            Duplicate
-                        </LemonButton>
-                        {moreButtons && (
+            {showEditingControls && (
+                <div className="border-b flex justify-end">
+                    <More
+                        overlay={
                             <>
+                                <LemonButton
+                                    status="stealth"
+                                    fullWidth
+                                    onClick={() =>
+                                        dashboardId && push(urls.dashboardTextTile(dashboardId, textTile.id))
+                                    }
+                                    data-attr="edit-text"
+                                >
+                                    Edit text
+                                </LemonButton>
+
+                                {moveToDashboard && otherDashboards.length > 0 && (
+                                    <LemonButtonWithDropdown
+                                        status="stealth"
+                                        dropdown={{
+                                            overlay: otherDashboards.map((otherDashboard) => (
+                                                <LemonButton
+                                                    key={otherDashboard.id}
+                                                    status="stealth"
+                                                    onClick={() => {
+                                                        moveToDashboard(otherDashboard)
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    {otherDashboard.name || <i>Untitled</i>}
+                                                </LemonButton>
+                                            )),
+                                            placement: 'right-start',
+                                            fallbackPlacements: ['left-start'],
+                                            actionable: true,
+                                            closeParentPopoverOnClickInside: true,
+                                        }}
+                                        fullWidth
+                                    >
+                                        Move to
+                                    </LemonButtonWithDropdown>
+                                )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={duplicate}
+                                    fullWidth
+                                    data-attr={'duplicate-text-from-dashboard'}
+                                >
+                                    Duplicate
+                                </LemonButton>
+                                {moreButtons && (
+                                    <>
+                                        <LemonDivider />
+                                        {moreButtons}
+                                    </>
+                                )}
                                 <LemonDivider />
-                                {moreButtons}
+                                {removeFromDashboard && (
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={removeFromDashboard}
+                                        fullWidth
+                                        data-attr="remove-text-tile-from-dashboard"
+                                    >
+                                        Remove from dashboard
+                                    </LemonButton>
+                                )}
                             </>
-                        )}
-                        <LemonDivider />
-                        {removeFromDashboard && (
-                            <LemonButton
-                                status="danger"
-                                onClick={removeFromDashboard}
-                                fullWidth
-                                data-attr="remove-text-tile-from-dashboard"
-                            >
-                                Remove from dashboard
-                            </LemonButton>
-                        )}
-                    </>
-                }
-            />
+                        }
+                    />
+                </div>
+            )}
 
             <div className="TextCard__body w-full">
                 <TextContent text={text.body} />

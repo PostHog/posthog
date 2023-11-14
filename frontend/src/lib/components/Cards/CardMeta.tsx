@@ -91,7 +91,7 @@ export function CardMeta({
                 }}
             >
                 <div className="CardMeta__details__content" ref={detailsRef}>
-                    {/* Stops the padding getting in the height callc  */}
+                    {/* Stops the padding getting in the height calc  */}
                     <div className="p-4">{metaDetails}</div>
                 </div>
             </div>
