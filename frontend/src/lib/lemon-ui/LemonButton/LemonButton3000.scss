@@ -1,8 +1,41 @@
 .posthog-3000 {
+    --transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 200ms ease;
+
     .LemonButton {
-        &:not(.LemonButton--no-padding) {
-            > span {
-                padding: 0.25rem 0.5rem;
+        font-size: 0.8125rem;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+        min-height: 2em;
+        padding: 0;
+        position: relative;
+        outline: none;
+        transition: var(--transition);
+
+        > span {
+            align-items: center;
+            background: none;
+            border-width: 1px;
+            border-style: solid;
+            border-color: transparent;
+            cursor: pointer;
+            display: flex;
+            flex-direction: row;
+            flex-shrink: 0;
+            font-weight: 500;
+            gap: 0.5rem;
+            justify-content: flex-start;
+            line-height: 1.5rem;
+            min-height: 2em;
+            position: relative;
+            text-align: left;
+            transition: var(--transition);
+
+            .LemonButton__icon:first-child {
+                transition: var(--transition);
+                color: var(--default);
+                opacity: 0.5;
             }
         }
 
@@ -76,7 +109,7 @@
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
-                    .LemonButton__icon {
+                    .LemonButton__icon:first-child {
                         opacity: 0.8;
                     }
                 }
@@ -88,38 +121,6 @@
                     }
                 }
             }
-        }
-
-        font-size: 0.8125rem;
-        border-width: 1px;
-        border-style: solid;
-        border-color: transparent;
-        min-height: 2em;
-        padding: 0;
-        position: relative;
-        outline: none;
-
-        > span {
-            align-items: center;
-            background: none;
-            border-width: 1px;
-            border-style: solid;
-            border-color: transparent;
-            cursor: pointer;
-            display: flex;
-            flex-direction: row;
-            flex-shrink: 0;
-            font-weight: 500;
-            gap: 0.5rem;
-            justify-content: flex-start;
-            line-height: 1.5rem;
-            min-height: 2em;
-            position: relative;
-            text-align: left;
-        }
-
-        .LemonButton__icon {
-            color: var(--muted);
         }
 
         &.LemonButton--with-motion {
@@ -161,15 +162,12 @@
                 &.LemonButton--active {
                     border-color: var(--primary-3000-button-border-hover);
                 }
-                .LemonButton__icon {
-                    color: #111;
-                    opacity: 0.5;
-                }
             }
         }
 
         &.LemonButton--secondary,
-        &.LemonButton--active {
+        &.LemonButton--active,
+        &.LemonButton--tertiary:hover {
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
             border-radius: 6px;
@@ -181,63 +179,45 @@
 
             > span {
                 color: var(--default);
+            }
+        }
+
+        &.LemonButton--secondary,
+        &.LemonButton--tertiary:hover:not(.LemonButton--active) {
+            > span {
                 background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
-
-                .LemonButton__icon {
-                    color: var(--default);
-                    opacity: 0.5;
-                }
             }
         }
 
         &.LemonButton--tertiary {
-            > span {
-                color: var(--default);
-            }
-        }
+            padding-bottom: 1px;
 
-        &.LemonButton--tertiary {
             > span {
                 color: var(--muted-3000);
                 background: transparent;
                 border-color: transparent;
                 top: 1px;
-
-                &:hover {
-                    border-color: transparent !important;
-                }
-            }
-
-            &:hover {
-                > span {
-                    border-color: var(--secondary-3000-button-border-hover) !important;
-                }
             }
         }
 
         &.LemonButton--active {
-            &:not([aria-disabled='true']):hover > span {
-                border-color: var(--secondary-3000-button-border-hover) !important;
-            }
-
             > span {
                 color: var(--default);
                 background: var(--bg-light);
-                border-color: var(--secondary-3000-frame-border);
-                top: -1px !important;
+                border-color: var(--secondary-3000-button-border-hover);
             }
         }
     }
 
     .LemonButtonWithSideAction__spacer {
+        color: var(--muted);
         height: 1.25rem;
         width: 1.25rem;
 
         &.LemonButtonWithSideAction__spacer--divider {
             margin-left: 0.25rem;
             padding: 0;
-            opacity: 0.7;
         }
     }
 
@@ -274,17 +254,46 @@
     }
 
     // Menu items
-    .Popover {
+    .Popover__box {
+        padding: 0 !important;
+
+        .Popover__content {
+            border-radius: 5px;
+        }
+    }
+
+    .Popover__box,
+    .LemonMenu__list {
+        h5 {
+            background-color: #eeeeee;
+            margin: 0px;
+            padding: 0.25rem 0.4rem;
+            border-bottom: 1px solid var(--border-3000);
+        }
+
+        li:last-child li:last-child .LemonButton {
+            border-bottom: none;
+        }
+
+        .LemonDivider {
+            height: 0px;
+        }
+
         .LemonButton {
             padding: 0px 1px;
             border: none;
+            border-bottom: 1px solid var(--border-3000);
+            border-radius: 0px;
             min-height: 0px;
+            background-color: var(--bg-light);
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
+                padding-bottom: 0px !important;
+                border-radius: 0px !important;
+
                 > span {
-                    background-color: var(--bg-light) !important;
-                    border-color: var(--bg-light) !important;
+                    background-color: var(--bg-3000) !important;
                 }
             }
 
@@ -292,6 +301,7 @@
                 top: 0px !important;
                 background: none !important;
                 border-color: transparent !important;
+                border-radius: 0px !important;
             }
         }
     }
