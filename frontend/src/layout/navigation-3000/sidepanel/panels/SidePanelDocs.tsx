@@ -80,7 +80,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     targetBlank
                     onClick={() => closeSidePanel()}
                 >
-                    Open on posthog.com
+                    Open in new tab
                 </LemonButton>
             </SidePanelPaneHeader>
             <div className="relative flex-1">
