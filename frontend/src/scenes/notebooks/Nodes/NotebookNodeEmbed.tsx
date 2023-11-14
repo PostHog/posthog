@@ -53,7 +53,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
     return (
         <>
             {validUrl ? (
-                <iframe className="w-full h-full" src={validUrl.toString()} />
+                <iframe className="w-full h-full" src={validUrl.toString()} allowFullScreen />
             ) : (
                 <div className="flex-1 flex flex-col justify-center items-center">
                     {src ? <p>The given URL is not valid.</p> : <p>No URL configured</p>}
