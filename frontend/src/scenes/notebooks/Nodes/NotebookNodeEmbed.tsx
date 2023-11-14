@@ -6,22 +6,29 @@ import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const iframeRegex = /(?:<iframe[^>]*)(?:(?:\/>)|(?:>.*?<\/iframe>))/
+type NotebookNodeEmbedAttributes = {
+    src?: string
+    width?: string | number
+    height?: string | number
+}
 
-const getIframeSrc = (src: string): string | null => {
-    const matches = src.match(iframeRegex)
-    if (matches) {
-        const iframe = matches[0]
-        const srcMatch = iframe.match(/src="([^"]*)"/)
-        if (srcMatch) {
-            return srcMatch[1]
+const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null => {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(input, 'text/html')
+    const firstIframe = doc.getElementsByTagName('iframe')
+
+    if (firstIframe[0]) {
+        return {
+            src: firstIframe[0].src,
+            height: firstIframe[0].height,
         }
     }
+
     return null
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes>): JSX.Element => {
-    const src = attributes.src
+    const { src } = attributes
     const { setTitlePlaceholder, toggleEditing } = useActions(notebookNodeLogic)
 
     const validUrl = useMemo(() => {
@@ -69,9 +76,11 @@ const Settings = ({
         if (!localUrl) {
             return
         }
-        const newValue = getIframeSrc(localUrl) ?? localUrl
-        setLocalUrl(newValue)
-        updateAttributes({ src: newValue })
+        const params = parseIframeString(localUrl) ?? {
+            src: localUrl,
+        }
+        setLocalUrl(params.src)
+        updateAttributes(params)
     }
 
     useEffect(() => setLocalUrl(attributes.src), [attributes.src])
@@ -94,10 +103,6 @@ const Settings = ({
     )
 }
 
-type NotebookNodeEmbedAttributes = {
-    src?: string
-}
-
 export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttributes>({
     nodeType: NotebookNodeType.Embed,
     titlePlaceholder: 'Embed',
@@ -110,7 +115,8 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
     expandable: false,
     autoHideMetadata: false,
     attributes: {
-        file: {},
         src: {},
+        width: {},
+        height: {},
     },
 })
