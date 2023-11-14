@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightType, FilterType } from '~/types'
+import { FilterType } from '~/types'
 import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,6 +12,7 @@ import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export function TrendsSeries(): JSX.Element | null {
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula } = useValues(insightVizDataLogic)
@@ -52,7 +53,7 @@ export function TrendsSeries(): JSX.Element | null {
                         | StickinessQuery
                         | LifecycleQuery)
                 }}
-                typeKey={`trends_${InsightType.TRENDS}_data_exploration`}
+                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-TrendsSeries`}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow
