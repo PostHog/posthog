@@ -9,6 +9,7 @@ import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -179,6 +180,10 @@ export function ItemPerformanceEvent({
             return acc
         }
 
+        if (key.includes('time') || key.includes('end') || key.includes('start')) {
+            return acc
+        }
+
         return {
             ...acc,
             [key]: typeof value === 'number' ? Math.round(value) : value,
@@ -334,7 +339,6 @@ export function ItemPerformanceEvent({
                             </p>
                         </>
                     )}
-
                     <LemonDivider dashed />
                     {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
                         <>
@@ -346,7 +350,13 @@ export function ItemPerformanceEvent({
                                         {
                                             key: 'timings',
                                             label: 'timings',
-                                            content: <SimpleKeyValueList item={sanitizedProps} />,
+                                            content: (
+                                                <>
+                                                    <SimpleKeyValueList item={sanitizedProps} />
+                                                    <LemonDivider dashed />
+                                                    <NetworkRequestTiming performanceEvent={item} />
+                                                </>
+                                            ),
                                         },
                                         {
                                             key: 'headers',
@@ -387,10 +397,16 @@ export function ItemPerformanceEvent({
                             </FlaggedFeature>
                             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
                                 <SimpleKeyValueList item={sanitizedProps} />
+                                <LemonDivider dashed />
+                                <NetworkRequestTiming performanceEvent={item} />
                             </FlaggedFeature>
                         </>
                     ) : (
-                        <SimpleKeyValueList item={sanitizedProps} />
+                        <>
+                            <SimpleKeyValueList item={sanitizedProps} />
+                            <LemonDivider dashed />
+                            <NetworkRequestTiming performanceEvent={item} />
+                        </>
                     )}
                 </div>
             )}
