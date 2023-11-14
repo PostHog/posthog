@@ -75,7 +75,7 @@ async def get_rows_count(
         events_to_include_tuple = ()
 
     timestamp_predicates = TIMESTAMP_PREDICATES
-    if team_id in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         timestamp_predicates = ""
 
     query = SELECT_QUERY_TEMPLATE.substitute(
@@ -165,7 +165,7 @@ def get_results_iterator(
         events_to_include_tuple = ()
 
     timestamp_predicates = TIMESTAMP_PREDICATES
-    if team_id in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         timestamp_predicates = ""
 
     query = SELECT_QUERY_TEMPLATE.substitute(
