@@ -187,6 +187,8 @@
         }
 
         &.LemonButton--tertiary {
+            padding-bottom: 1px;
+
             > span {
                 color: var(--muted-3000);
                 background: transparent;
