@@ -75,6 +75,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             }}
             className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
             fullWidth
+            motion={true}
             {...buttonProps}
         >
             {content}

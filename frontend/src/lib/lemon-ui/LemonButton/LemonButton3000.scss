@@ -1,4 +1,7 @@
 .posthog-3000 {
+    --transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 200ms ease;
+
     .LemonButton {
         font-size: 0.8125rem;
         border-width: 1px;
@@ -8,6 +11,7 @@
         padding: 0;
         position: relative;
         outline: none;
+        transition: var(--transition);
 
         > span {
             align-items: center;
@@ -26,6 +30,11 @@
             min-height: 2em;
             position: relative;
             text-align: left;
+            transition: var(--transition);
+
+            .LemonButton__icon {
+                transition: var(--transition);
+            }
         }
 
         &:not(.LemonButton--small):not(.LemonButton--large) {
@@ -176,6 +185,17 @@
 
             > span {
                 color: var(--default);
+
+                .LemonButton__icon {
+                    color: var(--default);
+                    opacity: 0.5;
+                }
+            }
+        }
+
+        &.LemonButton--secondary,
+        &.LemonButton--tertiary:hover:not(.LemonButton--active) {
+            > span {
                 background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
 
@@ -198,15 +218,10 @@
         }
 
         &.LemonButton--active {
-            &:not([aria-disabled='true']):hover > span {
-                border-color: var(--secondary-3000-button-border-hover) !important;
-            }
-
             > span {
                 color: var(--default);
                 background: var(--bg-light);
-                border-color: var(--secondary-3000-frame-border);
-                top: -1px !important;
+                border-color: var(--secondary-3000-button-border-hover);
             }
         }
     }

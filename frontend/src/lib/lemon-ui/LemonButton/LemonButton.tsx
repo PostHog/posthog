@@ -157,6 +157,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
+            const withMotion = motion === undefined ? type != 'tertiary' : motion
+
             let workingButton = (
                 <ButtonComponent
                     ref={ref as any}
@@ -173,7 +175,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
-                        motion && type != 'tertiary' && 'LemonButton--with-motion',
+                        withMotion && 'LemonButton--with-motion',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}
