@@ -46,6 +46,7 @@ export function SDKs({
             title={`Where are you ${usersAction || 'collecting data'} from?`}
             subtitle={subtitle || 'Pick one or two to start and add more sources later.'}
             stepKey={stepKey}
+            continueOverride={!showSideBySide && panel === 'options' ? <></> : undefined}
         >
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
