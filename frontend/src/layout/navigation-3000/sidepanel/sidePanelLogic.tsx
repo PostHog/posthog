@@ -35,10 +35,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
-                if (featureFlags[FEATURE_FLAGS.SIDE_PANEL_DOCS]) {
-                    tabs.push(SidePanelTab.Docs)
-                }
-
+                tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activation)
 
