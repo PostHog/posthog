@@ -11,7 +11,7 @@ import { CopyToClipboardInline } from '../CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
+import { NewProperty } from 'scenes/persons/NewProperty'
 import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyDefinitionType } from '~/types'
@@ -351,7 +351,7 @@ export function PropertiesTable({
                             )}
                         </span>
 
-                        {onEdit && <NewPropertyComponent editProperty={onEdit} />}
+                        {onEdit && <NewProperty onSave={onEdit} />}
                     </div>
                 )}
 
