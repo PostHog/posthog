@@ -28,6 +28,7 @@
         position: relative;
         z-index: 1;
         display: flex;
+        flex-direction: column;
 
         .LemonTable {
             border: none;
@@ -36,7 +37,9 @@
         }
 
         .InsightCard__viz {
-            min-height: 80vh;
+            // We can't use the viewport height, as the screenshotter will resize the height of the window to capture the full content
+            // Instead we try to make it roughly rectangular
+            min-height: 50vw;
         }
     }
 
