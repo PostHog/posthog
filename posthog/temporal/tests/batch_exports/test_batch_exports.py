@@ -6,6 +6,7 @@ import operator
 from random import randint
 
 import pytest
+from django.test import override_settings
 
 from posthog.temporal.tests.utils.datetimes import (
     to_isoformat,
@@ -127,6 +128,48 @@ async def test_get_rows_count_can_include_events(clickhouse_client):
         include_events=include_events,
     )
     assert row_count == 2500
+
+
+async def test_get_rows_count_ignores_timestamp_predicates(clickhouse_client):
+    """Test the count of rows returned by get_rows_count can ignore timestamp predicates."""
+    team_id = randint(1, 1000000)
+
+    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = inserted_at + dt.timedelta(hours=1)
+
+    # Insert some data with timestamps a couple of years before inserted_at
+    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
+    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=timestamp_start,
+        end_time=timestamp_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        inserted_at=inserted_at,
+    )
+
+    row_count = await get_rows_count(
+        clickhouse_client,
+        team_id,
+        inserted_at.isoformat(),
+        data_interval_end.isoformat(),
+    )
+    # All events are outside timestamp bounds (a year difference with inserted_at)
+    assert row_count == 0
+
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
+        row_count = await get_rows_count(
+            clickhouse_client,
+            team_id,
+            inserted_at.isoformat(),
+            data_interval_end.isoformat(),
+        )
+    assert row_count == 10
 
 
 @pytest.mark.parametrize("include_person_properties", (False, True))
@@ -307,6 +350,72 @@ async def test_get_results_iterator_can_include_events(clickhouse_client, includ
     rows = [row for row in iter_]
 
     all_expected = sorted(events[5000:], key=operator.itemgetter("event"))
+    all_result = sorted(rows, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_result)
+    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
+
+    for expected, result in zip(all_expected, all_result):
+        for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
+            # Some keys will be missing from result, so let's only check the ones we have.
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator_ignores_timestamp_predicates(clickhouse_client, include_person_properties):
+    """Test the rows returned by get_results_iterator ignores timestamp predicates when configured."""
+    team_id = randint(1, 1000000)
+
+    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = inserted_at + dt.timedelta(hours=1)
+
+    # Insert some data with timestamps a couple of years before inserted_at
+    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
+    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=timestamp_start,
+        end_time=timestamp_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        inserted_at=inserted_at,
+    )
+
+    iter_ = get_results_iterator(
+        clickhouse_client,
+        team_id,
+        inserted_at.isoformat(),
+        data_interval_end.isoformat(),
+        include_person_properties=include_person_properties,
+    )
+    rows = [row for row in iter_]
+
+    assert len(rows) == 0
+
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
+        iter_ = get_results_iterator(
+            clickhouse_client,
+            team_id,
+            inserted_at.isoformat(),
+            data_interval_end.isoformat(),
+            include_person_properties=include_person_properties,
+        )
+        rows = [row for row in iter_]
+
+    all_expected = sorted(events, key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_result)
