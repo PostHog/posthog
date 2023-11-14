@@ -88,9 +88,9 @@ ROWS_PER_DOLLAR = 66666  # 1 million rows per $15
 @app.task(ignore_result=True, max_retries=2)
 def check_external_data_source_billing_limit_by_team(team_id: int) -> None:
     from posthog.warehouse.external_data_source.connection import deactivate_connection_by_id, activate_connection_by_id
-    from ee.billing.quota_limiting import list_limited_team_tokens, QuotaResource
+    from ee.billing.quota_limiting import list_limited_team_attributes, QuotaResource
 
-    limited_teams_rows_synced = list_limited_team_tokens(QuotaResource.ROWS_SYNCED)
+    limited_teams_rows_synced = list_limited_team_attributes(QuotaResource.ROWS_SYNCED)
 
     team = Team.objects.get(pk=team_id)
     all_active_connections = ExternalDataSource.objects.filter(team=team, status__in=["running", "succeeded"])
@@ -115,7 +115,6 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)
     begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
-    end = now
 
     params = {
         "workspaceIds": team.external_data_workspace_id,
@@ -124,12 +123,12 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
         "status": "succeeded",
         "orderBy": "createdAt|ASC",
         "updatedAtStart": begin.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "updatedAtEnd": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "updatedAtEnd": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     result_totals = _traverse_jobs_by_field(ph_client, team, AIRBYTE_JOBS_URL + "?" + urlencode(params), "rowsSynced")
 
     # TODO: check assumption that ordering is possible with API
-    team.external_data_workspace_last_synced_at = result_totals[-1]["startTime"] if result_totals else end
+    team.external_data_workspace_last_synced_at = result_totals[-1]["startTime"] if result_totals else now
     team.save()
 
     ph_client.shutdown()

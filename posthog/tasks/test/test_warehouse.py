@@ -125,7 +125,7 @@ class TestWarehouse(APIBaseTest):
         )
 
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("ee.billing.quota_limiting.list_limited_team_tokens")
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_external_data_source_billing_limit_deactivate(
         self, usage_limit_mock: MagicMock, send_request_mock: MagicMock
     ) -> None:
@@ -146,7 +146,7 @@ class TestWarehouse(APIBaseTest):
         self.assertEqual(external_source.status, "inactive")
 
     @patch("posthog.warehouse.external_data_source.connection.send_request")
-    @patch("ee.billing.quota_limiting.list_limited_team_tokens")
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_external_data_source_billing_limit_activate(
         self, usage_limit_mock: MagicMock, send_request_mock: MagicMock
     ) -> None:

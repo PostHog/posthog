@@ -9,7 +9,7 @@ from freezegun import freeze_time
 from ee.billing.quota_limiting import (
     QUOTA_LIMITER_CACHE_KEY,
     QuotaResource,
-    list_limited_team_tokens,
+    list_limited_team_attributes,
     org_quota_limited_until,
     replace_limited_team_tokens,
     set_org_usage_summary,
@@ -241,23 +241,23 @@ class TestQuotaLimiting(BaseTest):
             }
 
             sync_org_quota_limits(self.organization)
-            assert list_limited_team_tokens(QuotaResource.EVENTS) == ["1234"]
-            assert list_limited_team_tokens(QuotaResource.ROWS_SYNCED) == ["1337"]
+            assert list_limited_team_attributes(QuotaResource.EVENTS) == ["1234"]
+            assert list_limited_team_attributes(QuotaResource.ROWS_SYNCED) == ["1337"]
 
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
             sync_org_quota_limits(self.organization)
-            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(
+            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(
                 ["1234", self.team.api_token, other_team.api_token]
             )
 
             # rows_synced uses teams, not tokens
-            assert sorted(list_limited_team_tokens(QuotaResource.ROWS_SYNCED)) == sorted(
+            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(
                 ["1337", str(self.team.pk), str(other_team.pk)]
             )
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
             sync_org_quota_limits(self.organization)
-            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(["1234"])
-            assert sorted(list_limited_team_tokens(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])
+            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(["1234"])
+            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])

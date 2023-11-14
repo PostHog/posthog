@@ -56,7 +56,7 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> No
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
+def list_limited_team_attributes(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
@@ -234,7 +234,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     }
 
     for field in quota_limited_orgs:
-        previously_quota_limited_team_tokens[field] = list_limited_team_tokens(QuotaResource(field))
+        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
 
     quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
