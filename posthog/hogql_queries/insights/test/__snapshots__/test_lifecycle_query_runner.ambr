@@ -1,7 +1,7 @@
 # name: TestLifecycleQueryRunner.test_sampling
   '
   SELECT groupArray(start_of_period) AS date,
-         groupArray(counts) AS total,
+         groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
          status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
