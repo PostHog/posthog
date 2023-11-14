@@ -8,10 +8,8 @@
     background: var(--bg-light);
     display: flex;
     flex-direction: column;
-
-    &--fit-screen {
-        height: 100%;
-    }
+    height: 100%;
+    flex: 1;
 
     .ExportedInsight__header {
         padding: 1rem;
@@ -30,7 +28,16 @@
         position: relative;
         z-index: 1;
         display: flex;
-        flex-direction: column;
+
+        .LemonTable {
+            border: none;
+            border-radius: 0;
+            background: none;
+        }
+
+        .InsightCard__viz {
+            min-height: 80vh;
+        }
     }
 
     .ExportedInsight__watermark {
