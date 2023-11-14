@@ -87,7 +87,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
         useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
         useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
@@ -538,6 +538,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     type="secondary"
                                                 >
                                                     View Recordings
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        createStaticCohort()
+                                                    }}
+                                                    type="secondary"
+                                                >
+                                                    Create Cohort
                                                 </LemonButton>
                                                 <LemonDivider vertical />
                                                 <LemonButton

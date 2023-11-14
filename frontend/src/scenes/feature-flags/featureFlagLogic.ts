@@ -22,6 +22,7 @@ import {
     Survey,
     SurveyQuestionType,
     OrganizationFeatureFlag,
+    CohortType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -574,6 +575,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ],
                     }
                     return await api.surveys.create(newSurvey as NewSurvey)
+                },
+            },
+        ],
+        newCohort: [
+            null as CohortType | null,
+            {
+                createStaticCohort: async () => {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                        return await api.featureFlags.createStaticCohort(props.id)
+                    }
+                    return null
                 },
             },
         ],

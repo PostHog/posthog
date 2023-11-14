@@ -1,5 +1,12 @@
 import csv
 import json
+
+from posthog.models.feature_flag.flag_matching import (
+    FeatureFlagMatcher,
+    FlagsMatcherCache,
+    get_feature_flag_hash_key_overrides,
+)
+from posthog.models.person.person import PersonDistinctId
 from posthog.queries.insight import insight_sync_execute
 import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
@@ -67,6 +74,7 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
+    insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     update_cohort,
 )
@@ -116,6 +124,8 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        elif context.get("from_feature_flag_key"):
+            insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -538,4 +548,64 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.save(update_fields=["errors_calculating", "is_calculating"])
+        capture_exception(err)
+
+
+def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int):
+    # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
+    try:
+        feature_flag = FeatureFlag.objects.get(team_id=team_id, key=flag)
+    except FeatureFlag.DoesNotExist:
+        return []
+
+    if not feature_flag.active or feature_flag.deleted:
+        return []
+
+    batchsize = 5_000
+    cohort = Cohort.objects.get(pk=cohort_id)
+    matcher_cache = FlagsMatcherCache(team_id)
+    uuids_to_add_to_cohort = []
+
+    # TODO: Make sure we don't go to db for flag evaluation.
+    # We can do this because we're already fetching all properties for the person.
+    # For props that don't exist, let's just add default empty values.
+    # .... except for 'is not set' operator? which çan bork this.
+    # so judge based on operator as well.
+
+    # add tests for deleted, active, experience continuity, and group flags flags.
+    # then for variable rollout % and variable distinct id selection :grimacing:
+    # add a test for batching as well
+
+    try:
+        for person in Person.objects.filter(team_id=team_id).all().iterator(chunk_size=batchsize):
+            # TODO: Make sure we're not querying all IDs here
+            distinct_id = PersonDistinctId.objects.filter(person=person, team_id=team_id).values_list(
+                "distinct_id", flat=True
+            )[0]
+            person_overrides = {}
+            if feature_flag.ensure_experience_continuity:
+                person_overrides = get_feature_flag_hash_key_overrides(team_id, [distinct_id])
+
+            match = FeatureFlagMatcher(
+                [feature_flag],
+                distinct_id,
+                groups={},
+                cache=matcher_cache,
+                hash_key_overrides=person_overrides,
+                property_value_overrides=person.properties,
+                group_property_value_overrides={},
+            ).get_match(feature_flag)
+            if match.match:
+                uuids_to_add_to_cohort.append(str(person.uuid))
+
+            if len(uuids_to_add_to_cohort) >= 999:
+                cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True)
+                uuids_to_add_to_cohort = []
+
+        if len(uuids_to_add_to_cohort) > 0:
+            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True)
+
+    except Exception as err:
+        if settings.DEBUG:
+            raise err
         capture_exception(err)
