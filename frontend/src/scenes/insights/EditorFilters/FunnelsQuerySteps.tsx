@@ -14,6 +14,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -50,7 +51,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 bordered
                 filters={actionFilters}
                 setFilters={setActionFilters}
-                typeKey={`EditFunnel-action`}
+                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-FunnelsQuerySteps`}
                 mathAvailability={MathAvailability.None}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"

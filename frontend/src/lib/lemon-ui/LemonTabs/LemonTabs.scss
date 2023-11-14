@@ -3,6 +3,10 @@
     display: flex;
     flex-direction: column;
     align-self: stretch;
+    .Navigation3000__scene > &:first-child,
+    .Navigation3000__scene > :first-child > &:first-child {
+        margin-top: -0.75rem;
+    }
 }
 
 .LemonTabs__bar {

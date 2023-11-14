@@ -92,7 +92,7 @@ describe('Trends', () => {
         cy.get('.taxonomic-infinite-list').find('.taxonomic-list-row').contains('Pageview').click({ force: true })
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
-        cy.get('[data-attr=insight-filters-add-filter-group]').click()
+        cy.get('[data-attr$=add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })

@@ -538,6 +538,8 @@ body {
     --bg-light: #fff;
     --link: var(--primary-3000);
 
+    touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
         --text-secondary-3000: var(--text-secondary-3000-light);
@@ -620,6 +622,7 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
+        overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
         --shadow-elevation: var(--shadow-elevation-3000);
 

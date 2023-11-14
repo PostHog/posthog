@@ -95,7 +95,10 @@
         }
     }
 
-    &.LemonButton--small {
+    &.LemonButton--small,
+    .Breadcrumbs3000 & {
+        --lemon-button-height: 2rem;
+        padding: 0.125rem 0.5rem;
         gap: 0.25rem;
 
         .LemonButton__icon {

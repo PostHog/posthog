@@ -165,10 +165,10 @@ export function Experiment(): JSX.Element {
             {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Form
+                        id="experiment"
                         logic={experimentLogic}
                         formKey="experiment"
                         props={props}
-                        id="experiment-form"
                         enableFormOnSubmit
                         className="space-y-4 experiment-form"
                     >
@@ -196,7 +196,7 @@ export function Experiment(): JSX.Element {
                                         data-attr="save-experiment"
                                         htmlType="submit"
                                         loading={experimentLoading}
-                                        disabled={experimentLoading}
+                                        form="experiment"
                                     >
                                         {editingExistingExperiment ? 'Save' : 'Save as draft'}
                                     </LemonButton>
@@ -512,7 +512,7 @@ export function Experiment(): JSX.Element {
                                 data-attr="save-experiment"
                                 htmlType="submit"
                                 loading={experimentLoading}
-                                disabled={experimentLoading}
+                                form="experiment"
                             >
                                 {editingExistingExperiment ? 'Save' : 'Save as draft'}
                             </LemonButton>
@@ -810,7 +810,7 @@ export function Experiment(): JSX.Element {
                                 },
                             ]}
                         />
-                        {!experiment?.start_date && (
+                        {experiment && !experiment.start_date && (
                             <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experiment} />
                             </div>
