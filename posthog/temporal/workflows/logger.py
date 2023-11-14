@@ -10,6 +10,7 @@ from django.conf import settings
 from structlog.processors import EventRenamer
 from structlog.typing import FilteringBoundLogger
 
+from posthog.kafka_client.helper import get_kafka_ssl_context
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
@@ -254,6 +255,7 @@ class KafkaLogProducerFromQueue:
                 security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
                 api_version="2.5.0",
+                ssl_context=get_kafka_ssl_context(),
             )
         )
         self.logger = structlog.get_logger()
