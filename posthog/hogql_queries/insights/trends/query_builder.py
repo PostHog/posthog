@@ -1,7 +1,7 @@
 from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
@@ -10,6 +10,7 @@ from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, ChartDisplayType, EventsNode, TrendsQuery
@@ -37,12 +38,15 @@ class TrendsQueryBuilder:
         self.timings = timings
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        date_subqueries = self._get_date_subqueries()
-        event_query = self._get_events_subquery(False)
+        if self._trends_display.should_aggregate_values():
+            events_query = self._get_events_subquery(False)
+        else:
+            date_subqueries = self._get_date_subqueries()
+            event_query = self._get_events_subquery(False)
 
-        date_events_union = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
+            events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
-        inner_select = self._inner_select_query(date_events_union)
+        inner_select = self._inner_select_query(events_query)
         full_query = self._outer_select_query(inner_select)
 
         return full_query
@@ -139,21 +143,24 @@ class TrendsQueryBuilder:
             parse_select(
                 """
                 SELECT
-                    {aggregation_operation} AS total,
-                    {day_start}
+                    {aggregation_operation} AS total
                 FROM events AS e
                 SAMPLE {sample}
                 WHERE {events_filter}
-                GROUP BY day_start
             """,
                 placeholders={
-                    "events_filter": self._events_filter(),
+                    "events_filter": self._events_filter(ignore_breakdowns=False),
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
-                    "day_start": day_start,
                 },
             ),
         )
+
+        default_query.group_by = []
+
+        if not self._trends_display.should_aggregate_values():
+            default_query.select.append(day_start)
+            default_query.group_by.append(ast.Field(chain=["day_start"]))
 
         # No breakdowns and no complex series aggregation
         if (
@@ -163,7 +170,7 @@ class TrendsQueryBuilder:
         # Both breakdowns and complex series aggregation
         elif self._breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
             orchestrator = self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(),
+                events_where_clause=self._events_filter(ignore_breakdowns=False),
                 sample_value=self._sample_value(),
             )
 
@@ -184,7 +191,7 @@ class TrendsQueryBuilder:
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(),
+                events_where_clause=self._events_filter(ignore_breakdowns=False),
                 sample_value=self._sample_value(),
             ).build()
 
@@ -213,21 +220,26 @@ class TrendsQueryBuilder:
 
         return query
 
-    def _inner_select_query(self, inner_query: ast.SelectUnionQuery) -> ast.SelectQuery:
+    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
                 """
                 SELECT
-                    sum(total) AS count,
-                    day_start
+                    sum(total) AS count
                 FROM {inner_query}
-                GROUP BY day_start
-                ORDER BY day_start ASC
             """,
                 placeholders={"inner_query": inner_query},
             ),
         )
+
+        query.group_by = []
+        query.order_by = []
+
+        if not self._trends_display.should_aggregate_values():
+            query.select.append(ast.Field(chain=["day_start"]))
+            query.group_by.append(ast.Field(chain=["day_start"]))
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
         if self._breakdown.enabled:
             query.select.append(ast.Field(chain=["breakdown_value"]))
@@ -241,7 +253,7 @@ class TrendsQueryBuilder:
 
         return query
 
-    def _events_filter(self) -> ast.Expr:
+    def _events_filter(self, ignore_breakdowns: bool = False) -> ast.Expr:
         series = self.series
         filters: List[ast.Expr] = []
 
@@ -250,7 +262,7 @@ class TrendsQueryBuilder:
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from}",
+                        "timestamp >= {date_from_start_of_interval}",
                         placeholders=self.query_date_range.to_placeholders(),
                     ),
                     parse_expr(
@@ -286,11 +298,17 @@ class TrendsQueryBuilder:
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
 
+        # Actions
+        if isinstance(series, ActionsNode):
+            action = Action.objects.get(pk=int(series.id), team=self.team)
+            filters.append(action_to_expr(action))
+
         # Breakdown
-        if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
-            breakdown_filter = self._breakdown.events_where_filter()
-            if breakdown_filter is not None:
-                filters.append(breakdown_filter)
+        if not ignore_breakdowns:
+            if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
+                breakdown_filter = self._breakdown.events_where_filter()
+                if breakdown_filter is not None:
+                    filters.append(breakdown_filter)
 
         if len(filters) == 0:
             return ast.Constant(value=True)
@@ -313,11 +331,12 @@ class TrendsQueryBuilder:
             series=self.series,
             query_date_range=self.query_date_range,
             timings=self.timings,
+            events_filter=self._events_filter(ignore_breakdowns=True),
         )
 
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
-        return AggregationOperations(self.series, self.query_date_range)
+        return AggregationOperations(self.series, self.query_date_range, self._trends_display.should_aggregate_values())
 
     @cached_property
     def _trends_display(self) -> TrendsDisplay:

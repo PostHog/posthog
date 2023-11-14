@@ -14,6 +14,7 @@ class TrendsDisplay:
             or self.display_type == ChartDisplayType.ActionsPie
             or self.display_type == ChartDisplayType.ActionsBarValue
             or self.display_type == ChartDisplayType.WorldMap
+            or self.display_type == ChartDisplayType.ActionsTable
         )
 
     def wrap_inner_query(self, inner_query: ast.SelectQuery, breakdown_enabled: bool) -> ast.SelectQuery:

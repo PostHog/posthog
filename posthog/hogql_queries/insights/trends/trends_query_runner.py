@@ -234,6 +234,7 @@ class TrendsQueryRunner(QueryRunner):
             if self.query.breakdown is not None and self.query.breakdown.breakdown is not None:
                 if self._is_breakdown_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
+
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdown.breakdown_type == "cohort":
@@ -243,8 +244,12 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
                     series_object["breakdown_value"] = "all" if cohort_id == 0 else cohort_id
                 else:
-                    series_object["label"] = "{} - {}".format(series_object["label"], get_value("breakdown_value", val))
-                    series_object["breakdown_value"] = get_value("breakdown_value", val)
+                    remapped_label = get_value("breakdown_value", val)
+                    if remapped_label == "":
+                        remapped_label = "none"
+
+                    series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    series_object["breakdown_value"] = remapped_label
 
             res.append(series_object)
         return res
@@ -285,7 +290,12 @@ class TrendsQueryRunner(QueryRunner):
 
         if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
             updated_series = []
-            for cohort_id in self.query.breakdown.breakdown:
+            if isinstance(self.query.breakdown.breakdown, List):
+                cohort_ids = self.query.breakdown.breakdown
+            else:
+                cohort_ids = [self.query.breakdown.breakdown]
+
+            for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
                     copied_query.breakdown.breakdown = cohort_id

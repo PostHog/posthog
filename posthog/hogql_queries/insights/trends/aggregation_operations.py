@@ -13,7 +13,7 @@ class QueryAlternator:
     _group_bys: List[ast.Expr]
     _select_from: ast.JoinExpr | None
 
-    def __init__(self, query: ast.SelectQuery):
+    def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
         assert isinstance(query, ast.SelectQuery)
 
         self._query = query
@@ -21,7 +21,7 @@ class QueryAlternator:
         self._group_bys = []
         self._select_from = None
 
-    def build(self) -> ast.SelectQuery:
+    def build(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if len(self._selects) > 0:
             self._query.select.extend(self._selects)
 
@@ -49,10 +49,14 @@ class QueryAlternator:
 class AggregationOperations:
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
+    should_aggregate_values: bool
 
-    def __init__(self, series: EventsNode | ActionsNode, query_date_range: QueryDateRange) -> None:
+    def __init__(
+        self, series: EventsNode | ActionsNode, query_date_range: QueryDateRange, should_aggregate_values: bool
+    ) -> None:
         self.series = series
         self.query_date_range = query_date_range
+        self.should_aggregate_values = should_aggregate_values
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
@@ -86,8 +90,6 @@ class AggregationOperations:
                 return self._math_quantile(0.95, None)
             elif self.series.math == "p99":
                 return self._math_quantile(0.99, None)
-            else:
-                raise NotImplementedError()
 
         return parse_expr("count(e.uuid)")  # All "count per actor" get replaced during query orchestration
 
@@ -153,16 +155,24 @@ class AggregationOperations:
                 "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=30)]),
             }
 
-        raise NotImplementedError()
+        return {
+            "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
+            "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
+        }
 
     def _parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self._is_count_per_actor_variant():
-            return parse_select(
-                "SELECT total, day_start FROM {inner_query}",
+            query = parse_select(
+                "SELECT total FROM {inner_query}",
                 placeholders={"inner_query": inner_query},
             )
+
+            if not self.should_aggregate_values:
+                query.select.append(ast.Field(chain=["day_start"]))
+
+            return query
 
         day_start = ast.Alias(
             alias="day_start",
@@ -171,20 +181,22 @@ class AggregationOperations:
             ),
         )
 
-        return parse_select(
+        query = parse_select(
             """
-                SELECT
-                    counts AS total,
-                    {day_start}
+                SELECT counts AS total
                 FROM {inner_query}
                 WHERE timestamp >= {date_from} AND timestamp <= {date_to}
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 "inner_query": inner_query,
-                "day_start": day_start,
             },
         )
+
+        if not self.should_aggregate_values:
+            query.select.append(day_start)
+
+        return query
 
     def _inner_select_query(
         self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
@@ -209,18 +221,23 @@ class AggregationOperations:
 
             total_alias = ast.Alias(alias="total", expr=math_func)
 
-            return parse_select(
+            query = parse_select(
                 """
                     SELECT
-                        {total_alias}, day_start
+                        {total_alias}
                     FROM {inner_query}
-                    GROUP BY day_start
                 """,
                 placeholders={
                     "inner_query": cross_join_select_query,
                     "total_alias": total_alias,
                 },
             )
+
+            if not self.should_aggregate_values:
+                query.select.append(ast.Field(chain=["day_start"]))
+                query.group_by = [ast.Field(chain=["day_start"])]
+
+            return query
 
         return parse_select(
             """
@@ -278,22 +295,26 @@ class AggregationOperations:
                 ),
             )
 
-            return parse_select(
+            query = parse_select(
                 """
                     SELECT
-                        count(e.uuid) AS total,
-                        {day_start}
+                        count(e.uuid) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
-                    GROUP BY e.person_id, day_start
+                    GROUP BY e.person_id
                 """,
                 placeholders={
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
-                    "day_start": day_start,
                 },
             )
+
+            if not self.should_aggregate_values:
+                query.select.append(day_start)
+                query.group_by.append(ast.Field(chain=["day_start"]))
+
+            return query
 
         return parse_select(
             """

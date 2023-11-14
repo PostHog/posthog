@@ -290,7 +290,9 @@ def property_to_expr(
 
     # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
-    raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
+    raise NotImplementedException(
+        f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
+    )
 
 
 def action_to_expr(action: Action) -> ast.Expr:

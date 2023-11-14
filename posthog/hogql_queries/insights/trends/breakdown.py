@@ -19,6 +19,7 @@ class Breakdown:
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
     timings: HogQLTimings
+    events_filter: ast.Expr
 
     def __init__(
         self,
@@ -27,12 +28,14 @@ class Breakdown:
         series: EventsNode | ActionsNode,
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
+        events_filter: ast.Expr,
     ):
         self.team = team
         self.query = query
         self.series = series
         self.query_date_range = query_date_range
         self.timings = timings
+        self.events_filter = events_filter
 
     @cached_property
     def enabled(self) -> bool:
@@ -112,7 +115,7 @@ class Breakdown:
         return ast.Array(exprs=[ast.Constant(value=v) for v in self._get_breakdown_values])
 
     @cached_property
-    def _get_breakdown_values(self) -> ast.Array:
+    def _get_breakdown_values(self) -> List[str | int]:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
@@ -120,6 +123,7 @@ class Breakdown:
                 breakdown_field=self.query.breakdown.breakdown,
                 breakdown_type=self.query.breakdown.breakdown_type,
                 query_date_range=self.query_date_range,
+                events_filter=self.events_filter,
                 histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
                 group_type_index=self.query.breakdown.breakdown_group_type_index,
             )
