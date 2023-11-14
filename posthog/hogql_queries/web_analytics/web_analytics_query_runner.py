@@ -20,11 +20,7 @@ from posthog.schema import (
     PersonPropertyFilter,
 )
 
-WebQueryNode = Union[
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
-]
+WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
