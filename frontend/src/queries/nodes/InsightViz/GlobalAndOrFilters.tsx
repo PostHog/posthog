@@ -7,6 +7,7 @@ import { getAllEventNames } from './utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { EditorFilterProps } from '~/types'
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { actions: allActions } = useValues(actionsModel)
@@ -27,7 +28,8 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
 
     return (
         <PropertyGroupFilters
-            pageKey="insight-filters"
+            insightProps={insightProps}
+            pageKey={`${keyForInsightLogicProps('new')(insightProps)}-GlobalAndOrFilters`}
             query={querySource as TrendsQuery | StickinessQuery}
             setQuery={updateQuerySource}
             eventNames={getAllEventNames(querySource as TrendsQuery | StickinessQuery, allActions)}
