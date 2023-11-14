@@ -29,6 +29,8 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: 'right',
+    nextButtonText: 'Next',
+    closeButtonText: 'Close',
 }
 
 export const defaultSurveyFieldValues = {

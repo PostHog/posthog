@@ -34,7 +34,9 @@ export function SurveyFormAppearance({
                     }
                     appearance={{
                         ...(survey.appearance || defaultSurveyAppearance),
-                        ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
+                        ...(survey.questions.length > 1
+                            ? { submitButtonText: survey.appearance.nextButtonText || 'Next' }
+                            : null),
                     }}
                 />
             )}

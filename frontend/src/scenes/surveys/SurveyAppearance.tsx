@@ -145,8 +145,39 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
             )}
             <div className="mt-2">Button text</div>
             <LemonInput
-                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                value={appearance?.submitButtonText}
                 onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+                onBlur={(event) =>
+                    !event.target.value &&
+                    onAppearanceChange({
+                        ...appearance,
+                        submitButtonText: defaultSurveyAppearance.submitButtonText,
+                    })
+                }
+            />
+            <div className="mt-2">Next Button text</div>
+            <LemonInput
+                value={appearance?.nextButtonText}
+                onChange={(nextButtonText) => onAppearanceChange({ ...appearance, nextButtonText })}
+                onBlur={(event) =>
+                    !event.target.value &&
+                    onAppearanceChange({
+                        ...appearance,
+                        nextButtonText: defaultSurveyAppearance.nextButtonText,
+                    })
+                }
+            />
+            <div className="mt-2">Close Button text</div>
+            <LemonInput
+                value={appearance?.closeButtonText}
+                onChange={(closeButtonText) => onAppearanceChange({ ...appearance, closeButtonText })}
+                onBlur={(event) =>
+                    !event.target.value &&
+                    onAppearanceChange({
+                        ...appearance,
+                        closeButtonText: defaultSurveyAppearance.closeButtonText,
+                    })
+                }
             />
             <div className="mt-2">Background color</div>
             <LemonInput
@@ -668,7 +699,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance?.thankYouMessageDescription || '') }}
                 />
                 <Button appearance={appearance} onSubmit={() => undefined}>
-                    Close
+                    {appearance?.closeButtonText || 'Close'}
                 </Button>
                 {!appearance.whiteLabel && (
                     <Link to="https://posthog.com" target="_blank" className="footer-branding">

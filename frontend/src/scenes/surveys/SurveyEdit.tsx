@@ -607,11 +607,6 @@ export default function SurveyEdit(): JSX.Element {
                                                             <IconLock className="ml-1 text-base text-muted" />
                                                         )
                                                     }
-                                                    disabledReason={
-                                                        surveysMultipleQuestionsAvailable
-                                                            ? null
-                                                            : 'Subscribe to surveys for multiple questions'
-                                                    }
                                                     onClick={() => {
                                                         setSurveyValue('questions', [
                                                             ...survey.questions,
