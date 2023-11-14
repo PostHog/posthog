@@ -145,7 +145,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
-        utcnow = dt.datetime.utcnow()
+        utcnow = dt.datetime.now(dt.timezone.utc)
 
         if jitter is not None:
             backfill_end_at = backfill_end_at + jitter
