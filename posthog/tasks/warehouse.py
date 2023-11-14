@@ -135,7 +135,9 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     ph_client.shutdown()
 
 
-def _traverse_jobs_by_field(ph_client: "Posthog", team: Team, url: str, field: str, acc=[]) -> List[Dict[str, Any]]:
+def _traverse_jobs_by_field(
+    ph_client: "Posthog", team: Team, url: str, field: str, acc: List[Dict[str, Any]] = []
+) -> List[Dict[str, Any]]:
     response = send_request(url, method="GET")
     response_data = response.get("data", [])
     response_next = response.get("next", None)
