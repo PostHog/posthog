@@ -334,9 +334,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="sync datawarehouse sources that have settled in s3 bucket",
     )
 
-    # Every 2 hours try to retrieve and calculate total rows synced in period
+    # Every 30 minutes try to retrieve and calculate total rows synced in period
     sender.add_periodic_task(
-        crontab(minute="*", hour="*/2"),
+        crontab(minute="*/30"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
     )
