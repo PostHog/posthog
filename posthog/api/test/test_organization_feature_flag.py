@@ -39,6 +39,26 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        expected_data = [
+            {
+                "flag_id": flag.id,
+                "team_id": flag.team.id,
+                "created_by": {
+                    "id": self.user.id,
+                    "uuid": str(self.user.uuid),
+                    "distinct_id": self.user.distinct_id,
+                    "first_name": self.user.first_name,
+                    "email": self.user.email,
+                    "is_email_verified": self.user.is_email_verified,
+                },
+                "filters": flag.filters,
+                "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
+                "active": flag.active,
+            }
+            for flag in [self.feature_flag_1, self.feature_flag_2]
+        ]
+        self.assertCountEqual(response.json(), expected_data)
+
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
         response = self.client.get(url)
