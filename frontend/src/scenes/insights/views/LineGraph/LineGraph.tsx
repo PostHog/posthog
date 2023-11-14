@@ -725,7 +725,7 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
-        <div className={`w-full h-full overflow-hidden ${'LineGraph absolute'}`} data-attr={dataAttr}>
+        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
