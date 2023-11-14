@@ -29,6 +29,7 @@ export const OnboardingOtherProductsStep = ({
                         key={suggestedProduct.type}
                         getStartedActionOverride={() => completeOnboarding(suggestedProduct.type)}
                         orientation={horizontalCard ? 'horizontal' : 'vertical'}
+                        className="w-full"
                     />
                 ))}
             </div>

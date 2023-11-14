@@ -84,10 +84,12 @@ export function ProductCard({
     product,
     getStartedActionOverride,
     orientation = 'vertical',
+    className,
 }: {
     product: BillingProductV2Type
     getStartedActionOverride: () => void
     orientation?: 'horizontal' | 'vertical'
+    className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
@@ -95,7 +97,7 @@ export function ProductCard({
 
     return (
         <LemonCard
-            className={`flex gap-x-4 gap-y-4 ${vertical ? 'flex-col max-w-80' : 'items-center'}`}
+            className={`flex gap-x-4 gap-y-4 ${vertical ? 'flex-col max-w-80' : 'items-center'} ${className}`}
             key={product.type}
         >
             <div className="flex">
