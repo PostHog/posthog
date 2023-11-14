@@ -3,11 +3,23 @@ import { actions, kea, reducers, path, listeners, connect, selectors } from 'kea
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+import { router } from 'kea-router'
 
-export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog.com'
+export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog-git-app-docs-post-hog.vercel.app' // 'https://posthog.com'
 
 const sanitizePath = (path: string): string => {
     return path[0] === '/' ? path : `/${path}`
+}
+
+export const getPathFromUrl = (urlOrPath: string): string => {
+    // NOTE: This is not a perfect function - it is mostly meant for the specific use cases of these docs
+    try {
+        const url = new URL(urlOrPath)
+        console.log(url)
+        return url.pathname + url.search + url.hash
+    } catch (e) {
+        return urlOrPath
+    }
 }
 
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
@@ -21,6 +33,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         updatePath: (path: string) => ({ path }),
         setInitialPath: (path: string) => ({ path }),
         unmountIframe: true,
+        handleExternalUrl: (urlOrPath: string) => ({ urlOrPath }),
     }),
 
     reducers(() => ({
@@ -56,15 +69,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
     listeners(({ actions, values }) => ({
         openDocsPage: ({ urlOrPath }) => {
-            let path = urlOrPath
-            try {
-                const url = new URL(urlOrPath)
-                path = url.pathname + url.search
-            } catch (e) {
-                // not a valid URL, continue
-            }
-
-            actions.setInitialPath(path)
+            actions.setInitialPath(getPathFromUrl(urlOrPath))
             actions.openSidePanel(SidePanelTab.Docs)
         },
 
@@ -73,6 +78,10 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             actions.setInitialPath(values.currentPath ?? '/docs')
 
             // TODO: Do we need to call this before the window unloads?
+        },
+
+        handleExternalUrl: ({ urlOrPath }) => {
+            router.actions.push(getPathFromUrl(urlOrPath))
         },
     })),
 ])

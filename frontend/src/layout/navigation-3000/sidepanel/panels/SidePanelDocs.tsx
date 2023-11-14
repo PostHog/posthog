@@ -6,6 +6,7 @@ import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { IconExternal } from '@posthog/icons'
 import { themeLogic } from '../../themeLogic'
+import { router } from 'kea-router'
 
 function SidePanelDocsSkeleton(): JSX.Element {
     return (
@@ -24,7 +25,7 @@ function SidePanelDocsSkeleton(): JSX.Element {
 
 export const SidePanelDocs = (): JSX.Element => {
     const { iframeSrc, currentUrl } = useValues(sidePanelDocsLogic)
-    const { updatePath, unmountIframe, closeSidePanel } = useActions(sidePanelDocsLogic)
+    const { updatePath, unmountIframe, closeSidePanel, handleExternalUrl } = useActions(sidePanelDocsLogic)
     const ref = useRef<HTMLIFrameElement>(null)
     const [ready, setReady] = useState(false)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -42,12 +43,22 @@ export const SidePanelDocs = (): JSX.Element => {
     useEffect(() => {
         const onMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
-                if (event.data.type === 'internal-navigation' && event.data.url) {
+                if (event.data.type === 'internal-navigation') {
                     updatePath(event.data.url)
+                    return
                 }
                 if (event.data.type === 'docs-ready') {
                     setReady(true)
+                    return
                 }
+
+                if (event.data.type === 'external-navigation') {
+                    // This should only be triggered for app|eu.posthog.com links
+                    handleExternalUrl(event.data.url)
+                    return
+                }
+
+                console.warn('Unhandled iframe message from Docs:', event.data)
             }
         }
 
