@@ -89,7 +89,7 @@ function Pages(): JSX.Element {
                     dropdown: {
                         visible: isProjectSwitcherShown,
                         onClickOutside: hideProjectSwitcher,
-                        overlay: <ProjectSwitcherOverlay />,
+                        overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
                         actionable: true,
                     },
                 }}

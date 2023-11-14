@@ -810,7 +810,7 @@ export function Experiment(): JSX.Element {
                                 },
                             ]}
                         />
-                        {!experiment?.start_date && (
+                        {experiment && !experiment.start_date && (
                             <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experiment} />
                             </div>

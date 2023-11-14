@@ -1174,6 +1174,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description?: string | null
+    icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
     free_allocation?: number
@@ -1210,6 +1211,7 @@ export interface BillingProductV2AddonType {
     description: string
     price_description: string | null
     image_url: string | null
+    icon_key?: string
     docs_url: string | null
     type: string
     tiers: BillingV2TierType[] | null
@@ -2271,6 +2273,17 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
+}
+
+export interface OrganizationFeatureFlag {
+    flag_id: number | null
+    team_id: number | null
+    created_by: UserBasicType | null
+    created_at: string | null
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+    filters: FeatureFlagFilters
+    active: boolean
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
