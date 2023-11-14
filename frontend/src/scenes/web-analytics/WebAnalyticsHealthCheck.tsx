@@ -13,7 +13,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
 
     if (statusCheck.shouldWarnAboutNoPageviews) {
         return (
-            <LemonBanner type={'warning'}>
+            <LemonBanner type={'warning'} className={'mt-2'}>
                 <p>
                     No <code>$pageview</code>{' '}
                     {statusCheck.shouldWarnAboutNoPageleaves ? (
@@ -29,7 +29,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         )
     } else if (statusCheck.shouldWarnAboutNoPageleaves) {
         return (
-            <LemonBanner type={'warning'}>
+            <LemonBanner type={'warning'} className={'mt-2'}>
                 <p>
                     No <code>$pageleave</code> events have been received, this means that Bounce rate and Session
                     Duration might be inaccurate. Please read{' '}
