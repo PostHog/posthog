@@ -520,6 +520,7 @@ input::-ms-clear {
 body {
     // Until we have 3000 rolled out we fallback to standard colors
     --text-3000: var(--default);
+    --text-secondary-3000: var(--text-secondary);
     --muted-3000: var(--muted);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary);
@@ -539,6 +540,7 @@ body {
 
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
+        --text-secondary-3000: var(--text-secondary-3000-light);
         --muted-3000: var(--muted-3000-light);
         --trace-3000: var(--trace-3000-light);
         --primary-3000: var(--primary-3000-light);
@@ -554,6 +556,7 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
+        --bg-table: rgba(255, 255, 255, 0.5);
         --link: var(--link-3000-light);
         --shadow-elevation-3000: var(--shadow-elevation-3000-light);
 
@@ -572,6 +575,7 @@ body {
 
     &.posthog-3000[theme='dark'] {
         --text-3000: var(--text-3000-dark);
+        --text-secondary-3000: var(--text-secondary-3000-dark);
         --muted-3000: var(--muted-3000-dark);
         --trace-3000: var(--trace-3000-dark);
         --primary-3000: var(--primary-3000-dark);
@@ -587,6 +591,7 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-dark);
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
+        --bg-table: #232429;
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
         --link: var(--link-3000-dark);
         --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
@@ -606,6 +611,7 @@ body {
 
     &.posthog-3000 {
         --default: var(--text-3000);
+        --text-secondary: var(--text-secondary-3000);
         --muted: var(--muted-3000);
         --muted-alt: var(--muted-3000);
         --primary-alt: var(--text-3000);

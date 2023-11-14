@@ -1,12 +1,16 @@
 .LemonTable {
     position: relative;
     width: 100%;
-    background: var(--bg-light);
+    background: var(--bg-table);
     border-radius: var(--radius);
     border: 1px solid var(--border);
+    font-size: 13px;
     overflow: hidden;
     flex: 1;
     --row-base-height: 3rem;
+    .posthog-3000 & {
+        --row-base-height: 2rem;
+    }
     --row-horizontal-padding: 1rem;
     &.LemonTable--with-ribbon {
         --row-ribbon-width: 0.25rem;
@@ -74,6 +78,10 @@
         max-width: 30rem;
         font-size: 0.75rem;
     }
+
+    a.Link {
+        color: var(--default);
+    }
 }
 
 .LemonTable__content > table {
@@ -113,8 +121,9 @@
                 font-weight: 600;
             }
             > td {
-                padding-top: 0.5rem;
-                padding-bottom: 0.5rem;
+                color: var(--text-secondary);
+                padding-top: 0.1rem;
+                padding-bottom: 0.1rem;
             }
         }
     }
