@@ -263,4 +263,13 @@
     span::selection {
         color: var(--primary);
     }
+
+    // Overrides for insight controls
+
+    .InsightVizDisplay {
+        .InsightDisplayConfig {
+            padding: 0;
+            border-bottom-width: 0;
+        }
+    }
 }

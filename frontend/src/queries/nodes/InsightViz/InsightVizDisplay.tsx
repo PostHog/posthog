@@ -211,11 +211,7 @@ export function InsightVizDisplay({
                 className={clsx('InsightVizDisplay ph-no-capture', !embedded && 'border rounded bg-bg-light')}
                 data-attr="insights-graph"
             >
-                {disableHeader ? null : (
-                    <div className="p-2 border-b">
-                        <InsightDisplayConfig />
-                    </div>
-                )}
+                {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
                         {(isFunnels || isPaths || showComputationMetadata) && (
