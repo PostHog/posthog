@@ -147,7 +147,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             <ErrorBoundary>
                                 {!inView ? (
                                     <>
-                                        <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                        <div className="h-10" /> {/* Placeholder for the drag handle */}
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <div style={{ height: heightEstimate }}>
                                             <LemonSkeleton className="h-full" />

@@ -1,7 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -32,6 +32,7 @@ const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null =>
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes>): JSX.Element => {
     const { src } = attributes
     const { setTitlePlaceholder, toggleEditing } = useActions(notebookNodeLogic)
+    const [loaded, setLoaded] = useState(false)
 
     const validUrl = useMemo(() => {
         if (!src) {
@@ -55,7 +56,17 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
     return (
         <>
             {validUrl ? (
-                <iframe className="w-full h-full" src={validUrl.toString()} allowFullScreen />
+                <>
+                    <iframe
+                        className="w-full h-full"
+                        src={validUrl.toString()}
+                        allowFullScreen
+                        onLoad={() => {
+                            setLoaded(true)
+                        }}
+                    />
+                    {!loaded ? <SpinnerOverlay /> : null}
+                </>
             ) : (
                 <div className="flex-1 flex flex-col justify-center items-center">
                     {src ? <p>The given URL is not valid.</p> : <p>No URL configured</p>}
@@ -73,6 +84,7 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeEmbedAttributes>): JSX.Element => {
     const [localUrl, setLocalUrl] = useState(attributes.src)
+    const { toggleEditing } = useActions(notebookNodeLogic)
 
     const save = (): void => {
         if (!localUrl) {
@@ -83,6 +95,7 @@ const Settings = ({
         }
         setLocalUrl(params.src)
         updateAttributes(params)
+        toggleEditing(false)
     }
 
     useEffect(() => setLocalUrl(attributes.src), [attributes.src])
