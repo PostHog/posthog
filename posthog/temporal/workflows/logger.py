@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import ssl
 
 import aiokafka
 import structlog
@@ -254,6 +255,7 @@ class KafkaLogProducerFromQueue:
                 security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
                 api_version="2.5.0",
+                ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
             )
         )
         self.logger = structlog.get_logger()
@@ -297,3 +299,13 @@ class KafkaLogProducerFromQueue:
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
+
+
+def configure_default_ssl_context():
+    """Setup a default SSL context for Kafka."""
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.options |= ssl.OP_NO_SSLv3
+    context.verify_mode = ssl.CERT_OPTIONAL
+    context.load_default_certs()
+    return context

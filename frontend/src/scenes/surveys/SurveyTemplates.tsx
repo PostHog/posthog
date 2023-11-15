@@ -55,7 +55,6 @@ export function SurveyTemplates(): JSX.Element {
                                     <SurveyAppearance
                                         key={idx}
                                         type={template.questions[0].type}
-                                        question={template.questions[0].question}
                                         appearance={{
                                             ...defaultSurveyAppearance,
                                             whiteLabel: true,
