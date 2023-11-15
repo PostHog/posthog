@@ -103,7 +103,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise e
 
         try:
-            new_connection = create_connection(new_source.source_id, new_destination.destination_id)
+            new_connection = create_connection(payload_type, new_source.source_id, new_destination.destination_id)
         except Exception as e:
             delete_source(new_source.source_id)
             delete_destination(new_destination.destination_id)

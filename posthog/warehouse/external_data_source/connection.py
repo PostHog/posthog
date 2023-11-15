@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from posthog.warehouse.external_data_source.client import send_request
 from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.external_data_source.source_definitions import SOURCE_TYPE_MAPPING
 import structlog
 from typing import List
 
@@ -19,17 +20,22 @@ class ExternalDataConnection(BaseModel):
     workspace_id: str
 
 
-def create_connection(source_id: str, destination_id: str) -> ExternalDataConnection:
+def create_connection(source_type: str, source_id: str, destination_id: str) -> ExternalDataConnection:
+    default_streams_by_type = SOURCE_TYPE_MAPPING[source_type]["default_streams"]
     payload = {
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
+        "configurations": {
+            "streams": [
+                {"name": streamName, "syncMode": "full_refresh_overwrite"} for streamName in default_streams_by_type
+            ]
+        },
         "namespaceFormat": None,
         "sourceId": source_id,
         "destinationId": destination_id,
+        "prefix": f"{source_type}_",
     }
 
     response = send_request(AIRBYTE_CONNECTION_URL, method="POST", payload=payload)
-
-    update_connection_stream(response["connectionId"], ["customers"])
 
     return ExternalDataConnection(
         source_id=response["sourceId"],
@@ -70,14 +76,12 @@ def update_connection_status_by_id(connection_id: str, status: str):
 def update_connection_stream(connection_id: str, streams: List):
     connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
 
-    # TODO: hardcoded to stripe stream right now
     payload = {
         "configurations": {
             "streams": [{"name": streamName, "syncMode": "full_refresh_overwrite"} for streamName in streams]
         },
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
         "namespaceFormat": None,
-        "prefix": "stripe_",
     }
 
     send_request(connection_id_url, method="PATCH", payload=payload)
