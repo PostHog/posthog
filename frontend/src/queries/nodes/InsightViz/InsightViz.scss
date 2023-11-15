@@ -23,10 +23,14 @@
 }
 
 .InsightVizDisplay {
-    --insight-viz-min-height: calc(80vh - 4rem);
+    --insight-viz-min-height: calc(80vh - 6rem);
     display: flex;
     flex-direction: column;
-    min-height: var(--insight-viz-min-height);
+
+    .NotebookNode & {
+        height: 100%;
+        flex: 1;
+    }
 
     .InsightVizDisplay__content {
         display: flex;
@@ -44,7 +48,7 @@
         .InsightVizDisplay__content__right {
             flex-shrink: 1;
             max-width: 45%;
-            height: var(--insight-viz-min-height);
+            // height: var(--insight-viz-min-height);
             width: fit-content;
             margin: 1rem;
             display: flex;
@@ -55,6 +59,53 @@
     .InsightDisplayConfig {
         border-bottom-width: 1px;
         padding: 0.5rem;
+    }
+
+    &--type-trends {
+    }
+    &--type-stickiness {
+    }
+    &--type-lifecycle {
+    }
+    &--type-funnels {
+    }
+    &--type-retention {
+    }
+    &--type-paths {
+    }
+    &--type-json {
+    }
+    &--type-sql {
+    }
+}
+
+.RetentionContainer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+
+    .RetentionContainer__graph {
+        flex: 1;
+    }
+
+    .RetentionContainer__table {
+        flex-shrink: 0;
+    }
+
+    .LineGraph {
+        position: relative;
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+        height: 300px;
+        width: 100%;
+    }
+
+    .NotebookNode & {
+        .LineGraph {
+            position: relative;
+            min-height: 300px;
+            max-height: 300px;
+        }
     }
 }
 
@@ -74,11 +125,18 @@
     margin: 0.5rem;
     display: flex;
     flex-direction: column;
+    min-height: var(--insight-viz-min-height);
+    width: 100%;
+
+    .NotebookNode & {
+        min-height: auto;
+    }
 
     &--ActionsTable,
     &--WorldMap,
     &--BoldNumber {
         margin: 0;
+        min-height: auto;
     }
 
     &--BoldNumber {
@@ -92,6 +150,17 @@
     display: flex;
     flex-direction: column;
     flex: 1;
+    width: 100%;
+
+    &--type-steps-vertical,
+    &--type-time_to_convert,
+    &--type-trends {
+        min-height: var(--insight-viz-min-height);
+
+        .NotebookNode & {
+            min-height: auto;
+        }
+    }
 }
 
 .funnel-significance-highlight {

@@ -27,12 +27,12 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import clsx from 'clsx'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -130,7 +130,7 @@ export function InsightVizDisplay({
             case InsightType.LIFECYCLE:
                 return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
             case InsightType.FUNNELS:
-                return <FunnelInsight />
+                return <Funnel />
             case InsightType.RETENTION:
                 return <RetentionContainer />
             case InsightType.PATHS:
@@ -206,7 +206,10 @@ export function InsightVizDisplay({
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
-                className={clsx('InsightVizDisplay ph-no-capture', !embedded && 'border rounded bg-bg-light')}
+                className={clsx(
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
+                    !embedded && 'border rounded bg-bg-light'
+                )}
                 data-attr="insights-graph"
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
