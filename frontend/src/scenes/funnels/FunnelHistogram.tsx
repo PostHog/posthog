@@ -25,7 +25,7 @@ export function FunnelHistogram(): JSX.Element | null {
 
     return (
         <div
-            className={clsx('funnel-histogram-outer-container', {
+            className={clsx('FunnelHistogram', {
                 scrollable: !isInDashboardContext,
                 'dashboard-wrapper': isInDashboardContext,
             })}
@@ -37,7 +37,7 @@ export function FunnelHistogram(): JSX.Element | null {
                 data={histogramGraphData}
                 width={width}
                 isDashboardItem={isInDashboardContext}
-                height={isInDashboardContext ? height : undefined}
+                height={height}
                 formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
             />
         </div>

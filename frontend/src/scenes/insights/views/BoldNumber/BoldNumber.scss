@@ -3,7 +3,11 @@
 .BoldNumber {
     width: 100%;
     padding: 2rem 0 3rem;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    flex: 1;
 
     @include screen($md) {
         padding: 3rem 0 5rem;
