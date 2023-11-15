@@ -12,6 +12,7 @@
         position: relative;
         outline: none;
         transition: var(--transition);
+        border-radius: 6px;
 
         > span {
             border-radius: 6px;
@@ -137,8 +138,6 @@
         &.LemonButton--primary {
             background: var(--primary-3000-frame-bg);
             border-color: var(--primary-3000-frame-border);
-            border-radius: 6px;
-            padding-bottom: 1px;
 
             > span {
                 background: var(--primary-3000-button-bg);
@@ -163,7 +162,6 @@
         &.LemonButton--active:not(.LemonButton--tertiary) {
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
-            border-radius: 6px;
 
             &:not([aria-disabled='true']):hover > span {
                 border-color: var(--secondary-3000-button-border-hover);
