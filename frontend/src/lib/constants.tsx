@@ -168,6 +168,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    CMD_K_SEARCH: 'cmd-k-search', // owner: @thmsobrmlr
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring

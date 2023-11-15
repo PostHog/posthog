@@ -6,9 +6,25 @@ import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import squeakFile from 'public/squeak.mp3'
-import './index.scss'
+import './CommandPalette.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import CommandBar from '../CommandBar/CommandBar'
 
-export function CommandPalette(): JSX.Element | null {
+/** Use the new Cmd+K search when the respective feature flag is enabled. */
+export function CommandPalette(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.CMD_K_SEARCH]
+
+    if (isUsingCmdKSearch) {
+        return <CommandBar />
+    } else {
+        return <_CommandPalette />
+    }
+}
+
+function _CommandPalette(): JSX.Element | null {
     useMountedLogic(commandPaletteLogic)
 
     const { setInput, hidePalette, togglePalette, backFlow } = useActions(commandPaletteLogic)
