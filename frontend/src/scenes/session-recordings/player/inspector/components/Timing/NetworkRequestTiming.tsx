@@ -282,7 +282,7 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
 
 const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
     const timingProperties = Object.entries(performanceEvent).reduce((acc, [key, val]) => {
-        if (['_start', '_end', '_time'].some((suffix) => key.endsWith(suffix))) {
+        if (key.includes('time') || key.includes('end') || key.includes('start')) {
             acc[key] = val
         }
         return acc
