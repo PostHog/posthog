@@ -599,5 +599,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         destination_cohort = Cohort.objects.filter(name=cohort_name, team=target_project).first()
-        # check destination valua not overwritten
-        self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
+        self.assertTrue(destination_cohort is not None)
+        # check destination value not overwritten
+
+        if destination_cohort is not None:
+            self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)

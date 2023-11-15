@@ -101,7 +101,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache = {}
+            seen_cohorts_cache: Dict[str, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_creation_order=True
             )
@@ -140,7 +140,9 @@ class OrganizationFeatureFlagView(
                             created_by=request.user,
                             last_calculation=timezone.now(),
                         )
-                    name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id  # this line
+
+                    if destination_cohort is not None:
+                        name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
             for group in flag_to_copy.filters.get("groups", []):

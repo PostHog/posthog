@@ -1,6 +1,6 @@
 import json
 import structlog
-from typing import Dict, List, Optional, cast
+from typing import Dict, Set, List, Optional, cast
 
 from django.core.cache import cache
 from django.db import models
@@ -312,8 +312,8 @@ class FeatureFlag(models.Model):
         return f"{self.key} ({self.pk})"
 
 
-def get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache):
-    dependency_graph = {}
+def get_sorted_cohort_ids(cohort_ids: Set[int], seen_cohorts_cache: Dict[str, Cohort]):
+    dependency_graph: Dict[int, List[int]] = {}
     seen = set()
 
     # build graph (adjacency list)
@@ -331,6 +331,11 @@ def get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache):
                     seen.add(cohort.id)
                     traverse(neighbor_cohort)
 
+    for cohort_id in cohort_ids:
+        str_cohort_id = str(cohort_id)
+        cohort = seen_cohorts_cache[str_cohort_id]
+        traverse(cohort)
+
     # post-order DFS (children first, then the parent)
     def dfs(node, seen, sorted_arr):
         neighbors = dependency_graph.get(node, [])
@@ -340,7 +345,7 @@ def get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache):
         sorted_arr.append(node)
         seen.add(node)
 
-    sorted_cohort_ids = []
+    sorted_cohort_ids: List[int] = []
     seen = set()
     for cohort_id in cohort_ids:
         if cohort_id not in seen:
