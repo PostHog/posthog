@@ -198,7 +198,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
 
                 it('mounts and loads the recording when a recording is opened', () => {
-                    expectLogic(logic, () => logic.actions.setSelectedRecordingId('abcd'))
+                    expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
                         .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
                         .toDispatchActions(['loadEntireRecording'])
                 })
