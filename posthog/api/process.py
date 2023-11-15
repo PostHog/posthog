@@ -1,5 +1,6 @@
 import hashlib
 import json
+import structlog
 from typing import Any, Dict, List, Optional, cast
 
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ from posthog.queries.time_to_see_data.sessions import get_session_events, get_se
 from posthog.schema import HogQLMetadata
 from posthog.settings import CLICKHOUSE_CLUSTER
 from statshog.defaults.django import statsd
+
+logger = structlog.get_logger(__name__)
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
@@ -100,10 +103,11 @@ def process_query(
 
 
 def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
-    sync_execute(
+    result = sync_execute(
         f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
         {"client_query_id": f"{team_id}_{client_query_id}%"},
     )
+    logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
     statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": team_id})
 
 

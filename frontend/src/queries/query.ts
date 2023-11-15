@@ -113,6 +113,12 @@ async function executeQuery<N extends DataNode = DataNode>(
     while (performance.now() - pollStart < QUERY_ASYNC_MAX_POLL_SECONDS * 1000) {
         await delay(QUERY_ASYNC_DELAY_MILLISECONDS)
 
+        if (methodOptions?.signal?.aborted) {
+            const customAbortError = new Error('Query aborted')
+            customAbortError.name = 'AbortError'
+            throw customAbortError
+        }
+
         const statusResponse = await api.queryStatus.get(response.id)
 
         if (statusResponse.complete || statusResponse.error) {
