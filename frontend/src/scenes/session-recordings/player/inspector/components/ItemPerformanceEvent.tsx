@@ -497,7 +497,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
         )
     }
 
-    return (
+    return methodRow || statusRow ? (
         <p>
             <div className="text-xs space-y-1 max-w-full">
                 {methodRow}
@@ -505,5 +505,5 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
             </div>
             <LemonDivider dashed />
         </p>
-    )
+    ) : null
 }
