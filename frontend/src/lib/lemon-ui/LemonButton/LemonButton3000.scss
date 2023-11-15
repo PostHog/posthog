@@ -86,28 +86,6 @@
             }
         }
 
-        @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
-            &.LemonButton--status-#{$status} {
-                > span {
-                    color: var(--#{$status}, var(--primary));
-                }
-
-                &:not([aria-disabled='true']):hover,
-                &.LemonButton--active {
-                    .LemonButton__icon:first-child {
-                        opacity: 0.8;
-                    }
-                }
-
-                // Primary - blocked color style
-                &.LemonButton--primary {
-                    > span {
-                        padding: 0.25rem 0.5rem;
-                    }
-                }
-            }
-        }
-
         &:not(.LemonButton--tertiary) {
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
@@ -170,6 +148,14 @@
             > span {
                 color: var(--default);
             }
+
+            &.LemonButton--active {
+                > span {
+                    color: var(--default);
+                    background: var(--bg-light);
+                    border-color: var(--secondary-3000-button-border-hover);
+                }
+            }
         }
 
         &.LemonButton--secondary {
@@ -189,14 +175,6 @@
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background-color: var(--bg-3000);
-            }
-        }
-
-        &.LemonButton--active:not(.LemonButton--tertiary) {
-            > span {
-                color: var(--default);
-                background: var(--bg-light);
-                border-color: var(--secondary-3000-button-border-hover);
             }
         }
     }
