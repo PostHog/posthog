@@ -551,7 +551,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
             self.assertTrue(found_cohort)
 
-    def test_copy_feature_flag_cohort_exists_in_destination(self):
+    def test_copy_feature_flag_destination_cohort_not_overridden(self):
         cohort_name = "cohort-1"
         target_project = self.team_2
         original_cohort = Cohort.objects.create(
