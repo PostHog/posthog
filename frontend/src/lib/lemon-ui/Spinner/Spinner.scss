@@ -8,7 +8,7 @@
     --spinner-color: var(--brand-blue);
 
     &.Spinner--textColored {
-        --spinner-color: currentcolor;
+        --spinner-color: currentColor;
     }
 }
 

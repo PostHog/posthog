@@ -24,13 +24,13 @@
     background-color: var(--bg-3000-dark);
     overflow: hidden;
 
-    @media (width <= 500px) {
+    @media (max-width: 500px) {
         top: 10%;
         max-height: 80%;
         width: 100%;
     }
 
-    @media (height <= 500px) {
+    @media (max-height: 500px) {
         top: 0%;
         max-height: 100%;
         max-width: 90%;

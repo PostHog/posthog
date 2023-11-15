@@ -434,7 +434,7 @@ input::-ms-clear {
         cursor: pointer;
     }
 
-    @media screen and (width >= 750px) {
+    @media screen and (min-width: 750px) {
         font-size: 1rem;
         line-height: 2rem;
 

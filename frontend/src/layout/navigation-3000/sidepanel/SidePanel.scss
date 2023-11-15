@@ -12,7 +12,7 @@
         max-width: 60%;
         min-width: 30rem;
 
-        @media (width <= 1200px) {
+        @media (max-width: 1200px) {
             position: fixed;
             top: 0;
             right: 0;

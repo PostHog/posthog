@@ -4,7 +4,7 @@
         display: flex;
         column-gap: 1rem;
 
-        @media (width <= 960px) {
+        @media (max-width: 960px) {
             display: block;
             width: auto;
         }
@@ -17,7 +17,7 @@
     .HalfColumn {
         width: 50%;
 
-        @media (width <= 960px) {
+        @media (max-width: 960px) {
             width: 100%;
         }
     }
