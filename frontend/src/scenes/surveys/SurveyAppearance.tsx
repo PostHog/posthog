@@ -30,11 +30,8 @@ import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
-    question: string
     appearance: SurveyAppearanceType
     surveyQuestionItem: SurveyQuestion
-    description?: string | null
-    link?: string | null
     preview?: boolean
 }
 
@@ -89,10 +86,8 @@ const Button = ({
 
 export function SurveyAppearance({
     type,
-    question,
     appearance,
     surveyQuestionItem,
-    description,
     preview,
 }: SurveyAppearanceProps): JSX.Element {
     return (
@@ -111,8 +106,6 @@ export function SurveyAppearance({
                     preview={preview}
                     multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
                     appearance={appearance}
-                    question={question}
-                    description={description}
                     onSubmit={() => undefined}
                 />
             )}
@@ -536,17 +529,13 @@ export function SurveyRatingAppearance({
 export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
-    question,
     onSubmit,
-    description,
     preview,
     initialChecked,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
-    question: string
     onSubmit: () => void
-    description?: string | null
     preview?: boolean
     initialChecked?: number[]
 }): JSX.Element {
@@ -584,9 +573,15 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
-                {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
+                <div
+                    className="survey-question"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.question) }}
+                />
+                {multipleChoiceQuestion.description && (
+                    <div
+                        className="description"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.description) }}
+                    />
                 )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (

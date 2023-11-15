@@ -287,7 +287,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                 ...survey.appearance,
                                                                                                 whiteLabel: true,
                                                                                             }}
-                                                                                            question="Have you found this tutorial useful?"
                                                                                             multipleChoiceQuestion={{
                                                                                                 type: SurveyQuestionType.SingleChoice,
                                                                                                 choices: ['Yes', 'No'],
@@ -309,7 +308,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                 ...survey.appearance,
                                                                                                 whiteLabel: true,
                                                                                             }}
-                                                                                            question="Which types of content would you like to see more of?"
                                                                                             multipleChoiceQuestion={{
                                                                                                 type: SurveyQuestionType.MultipleChoice,
                                                                                                 choices: [
@@ -692,13 +690,6 @@ export default function SurveyEdit(): JSX.Element {
                                                             preview
                                                             type={survey.questions[0].type}
                                                             surveyQuestionItem={survey.questions[0]}
-                                                            question={survey.questions[0].question}
-                                                            description={survey.questions[0].description}
-                                                            link={
-                                                                survey.questions[0].type === SurveyQuestionType.Link
-                                                                    ? survey.questions[0].link
-                                                                    : undefined
-                                                            }
                                                             appearance={{
                                                                 ...(survey.appearance || defaultSurveyAppearance),
                                                                 ...(survey.questions.length > 1
