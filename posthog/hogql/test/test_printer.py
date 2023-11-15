@@ -964,10 +964,36 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_equals(self):
-        generated_sql_statements = self._select(
-            "SELECT min_first_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_replay_events"
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "min_first_timestamp = toStartOfMonth(now()), "
+            "now() = now(), "
+            "1 = now(), "
+            "now() = 1, "
+            "1 = 1, "
+            "click_count = 1, "
+            "1 = click_count, "
+            "click_count = keypress_count, "
+            "click_count = null, "
+            "null = click_count "
+            "FROM session_replay_events"
         )
-        assert generated_sql_statements == (
+        generated_sql_statements2 = self._select(
+            "SELECT "
+            "equals(min_first_timestamp, toStartOfMonth(now())), "
+            "equals(now(), now()), "
+            "equals(1, now()), "
+            "equals(now(), 1), "
+            "equals(1, 1), "
+            "equals(click_count, 1), "
+            "equals(1, click_count), "
+            "equals(click_count, keypress_count), "
+            "equals(click_count, null), "
+            "equals(null, click_count) "
+            "FROM session_replay_events"
+        )
+        assert generated_sql_statements1 == generated_sql_statements2
+        assert generated_sql_statements1 == (
             f"SELECT "
             # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
@@ -996,12 +1022,18 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_not_equals(self):
-        generated_sql = self._select(
+        generated_sql1 = self._select(
             "SELECT min_first_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
             "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
             "FROM session_replay_events"
         )
-        assert generated_sql == (
+        generated_sql2 = self._select(
+            "SELECT notEquals(min_first_timestamp, toStartOfMonth(now())), notEquals(now(), now()), notEquals(1, now()), notEquals(now(), 1), notEquals(1, 1), "
+            "notEquals(click_count, 1), notEquals(1, click_count), notEquals(click_count, keypress_count), notEquals(click_count, null), notEquals(null, click_count) "
+            "FROM session_replay_events"
+        )
+        assert generated_sql1 == generated_sql2
+        assert generated_sql1 == (
             f"SELECT "
             # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
