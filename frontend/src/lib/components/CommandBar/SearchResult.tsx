@@ -76,9 +76,9 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
 export const SearchResultSkeleton = (): JSX.Element => (
     <div className="w-full pl-3 pr-2 bg-secondary-3000 border-b">
         <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-            <LemonSkeleton className="w-32 opacity-75" height={3} />
-            <LemonSkeleton className="w-80" />
-            <LemonSkeleton className="w-100 opacity-75" height={3} />
+            <LemonSkeleton className="w-32 opacity-75 h-3" />
+            <LemonSkeleton className="w-80 h-4" />
+            <LemonSkeleton className="w-100 opacity-75 h-3" />
         </div>
     </div>
 )

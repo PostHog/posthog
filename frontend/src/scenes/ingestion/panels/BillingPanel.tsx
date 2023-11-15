@@ -19,8 +19,8 @@ export function BillingPanel(): JSX.Element {
             <CardContainer>
                 <div className="space-y-4" style={{ width: 550 }}>
                     <LemonSkeleton className="w-full h-10" />
-                    <LemonSkeleton className="w-full" />
-                    <LemonSkeleton className="w-full" />
+                    <LemonSkeleton className="w-full h-4" />
+                    <LemonSkeleton className="w-full h-4" />
                     <div className="h-20" />
                     <div className="h-20" />
                     <LemonSkeleton className="w-full h-10" />
