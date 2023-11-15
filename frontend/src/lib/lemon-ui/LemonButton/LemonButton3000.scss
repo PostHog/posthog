@@ -227,13 +227,8 @@
             }
         }
 
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
+        &:not([aria-disabled='true']):hover {
             background: rgb(0 0 0 / 10%);
-
-            .LemonButton__icon {
-                color: var(--default);
-            }
         }
     }
 }
