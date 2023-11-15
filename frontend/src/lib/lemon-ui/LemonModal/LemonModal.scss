@@ -48,6 +48,12 @@
     transform: scale(0.85);
     opacity: 0;
 
+    --modal-padding: 1.5rem;
+
+    .posthog-3000 & {
+        --modal-padding: 0.75rem;
+    }
+
     &.LemonModal--fullscreen {
         max-width: 100%;
         max-height: 100%;
@@ -64,16 +70,12 @@
     }
     .LemonModal__close {
         position: absolute;
-        top: 1.25rem;
-        right: 1.25rem;
+        top: var(--modal-padding);
+        right: var(--modal-padding);
         z-index: 1;
+
         &.LemonModal__close--highlighted {
             animation: tilt-shake 400ms;
-        }
-
-        .posthog-3000 & {
-            top: 0.75rem;
-            right: 0.75rem;
         }
     }
 
@@ -106,7 +108,8 @@
 }
 
 .LemonModal__header {
-    padding: 1.5rem;
+    margin: var(--modal-padding) var(--modal-padding) 0 var(--modal-padding);
+    padding-bottom: var(--modal-padding);
     border-bottom: 1px solid var(--border);
 
     h3 {
@@ -121,10 +124,6 @@
         margin-top: 0.25rem;
         margin-bottom: 0;
     }
-
-    .posthog-3000 & {
-        padding: 1rem;
-    }
 }
 
 .LemonModal__footer {
@@ -133,13 +132,10 @@
     justify-content: flex-end;
     gap: 0.5rem;
     border-top: 1px solid var(--border);
-    padding: 1.5rem;
+    margin: 0 var(--modal-padding) var(--modal-padding) var(--modal-padding);
+    padding-top: var(--modal-padding);
     white-space: nowrap;
     align-items: center;
-
-    .posthog-3000 & {
-        padding: 0.5rem;
-    }
 }
 
 .LemonModal__header + .LemonModal__footer {
