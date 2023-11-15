@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React, { useContext } from 'react'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -9,6 +9,7 @@ import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { PopoverReferenceContext } from '../Popover'
+import { IconChevronDown } from '@posthog/icons'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -65,7 +66,8 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
-    motion?: boolean
+    /** Hides the button chrome until hover. */
+    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -95,7 +97,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
-                motion = false,
+                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -116,10 +118,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (popoverPlacement) {
                 if (!children) {
                     if (icon === undefined) {
-                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                     }
                 } else if (sideIcon === undefined) {
-                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                 }
             }
             if (loading) {
@@ -157,8 +159,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            const withMotion = motion || type != 'tertiary'
-
             let workingButton = (
                 <ButtonComponent
                     ref={ref as any}
@@ -175,7 +175,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
-                        withMotion && 'LemonButton--with-motion',
+                        stealth && 'LemonButton--is-stealth',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}

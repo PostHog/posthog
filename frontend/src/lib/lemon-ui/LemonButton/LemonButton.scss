@@ -135,16 +135,16 @@
 
     @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
         &.LemonButton--status-#{$status} {
-            color: var(--#{$status}, var(--primary));
+            color: var(--#{$status}-3000, --#{$status}, var(--primary));
 
             .LemonButton__icon {
-                color: var(--#{$status});
+                color: var(--#{$status}-3000, --#{$status});
             }
 
             // Primary - blocked color style
             &.LemonButton--primary {
                 color: #fff;
-                background: var(--#{$status});
+                background: var(--#{$status}-3000, --#{$status});
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
