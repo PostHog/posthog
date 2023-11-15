@@ -22,6 +22,8 @@ class Command(BaseCommand):
                 f"Checking Lifecycle Insight {insight.id} {insight.short_id} - {insight.name} "
                 f"(team {insight.team_id})... Interval: {insight.filters.get('interval')}"
             )
+            if insight.filters.get("aggregation_group_type_index", None) is not None:
+                del insight.filters["aggregation_group_type_index"]
             filter = Filter(insight.filters, team=insight.team)
             legacy_results = Trends().run(filter, insight.team)
             for row in legacy_results:
