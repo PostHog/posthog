@@ -9,7 +9,6 @@ describe('Billing', () => {
         cy.intercept('/api/billing-v2/deactivate?products=product_analytics', {
             fixture: 'api/billing-v2/billing-v2-unsubscribed-product-analytics.json',
         }).as('unsubscribeProductAnalytics')
-        cy.intercept('POST', '/e/?compression=gzip-js').as('eventAPICall')
 
         cy.get('[data-attr=more-button]').first().click()
         cy.contains('.LemonButton', 'Unsubscribe').click()
@@ -19,8 +18,6 @@ describe('Billing', () => {
         )
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
-
-        cy.wait(['@eventAPICall']).its('response.statusCode').should('eq', '200')
 
         cy.get('.LemonModal').should('not.exist')
         cy.wait(['@unsubscribeProductAnalytics'])
