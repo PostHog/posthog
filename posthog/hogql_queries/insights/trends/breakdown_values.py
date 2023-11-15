@@ -103,7 +103,7 @@ class BreakdownValues:
         values: List[Any] = response.results[0][0]
 
         if self.histogram_bin_count is None:
-            values.insert(0, "")
+            values.insert(0, None)
 
         return values
 

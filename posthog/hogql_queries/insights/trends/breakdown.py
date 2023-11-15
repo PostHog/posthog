@@ -96,11 +96,18 @@ class Breakdown:
         else:
             left = ast.Field(chain=self._properties_chain)
 
-        return ast.CompareOperation(
-            left=left,
-            op=ast.CompareOperationOp.In,
-            right=self._breakdown_values_ast,
-        )
+        compare_ops = [
+            ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
+            for v in self._get_breakdown_values
+        ]
+
+        return ast.Or(exprs=compare_ops)
+
+        # return ast.CompareOperation(
+        #     left=left,
+        #     op=ast.CompareOperationOp.In,
+        #     right=self._breakdown_values_ast,
+        # )
 
     @cached_property
     def _breakdown_buckets_ast(self) -> ast.Array:

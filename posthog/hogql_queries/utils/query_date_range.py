@@ -81,9 +81,6 @@ class QueryDateRange:
                 days=DEFAULT_DATE_FROM_DAYS
             )
 
-        if not self.is_hourly:
-            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-
         return date_from
 
     @cached_property
@@ -156,7 +153,49 @@ class QueryDateRange:
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
 
-    def date_from_to_start_of_week_hogql(self) -> ast.Call:
+    # Returns whether we should wrap `date_from` with `toStartOf<Interval>` dependent on the interval period
+    def use_start_of_interval(self):
+        if self._date_range is None or self._date_range.date_from is None:
+            return True
+
+        _date_from, delta_mapping, _position = relative_date_parse_with_delta_mapping(
+            self._date_range.date_from,
+            self._team.timezone_info,
+            always_truncate=True,
+            now=self.now_with_timezone,
+        )
+
+        is_relative = delta_mapping is not None
+        interval = self._interval
+
+        if not is_relative or not interval:
+            return True
+
+        is_delta_hours = delta_mapping.get("hours", None) is not None
+        is_delta_days = delta_mapping.get("days", None) is not None
+        is_delta_weeks = delta_mapping.get("weeks", None) is not None
+
+        if interval == IntervalType.hour:
+            return False
+        elif interval == IntervalType.day:
+            if is_delta_hours:
+                return False
+            else:
+                return True
+        elif interval == IntervalType.week:
+            if is_delta_hours or is_delta_days:
+                return False
+            else:
+                return True
+        elif interval == IntervalType.month:
+            if is_delta_hours or is_delta_days or is_delta_weeks:
+                return False
+            else:
+                return True
+
+        return True
+
+    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         match self.interval_name:
             case "hour":
                 return ast.Call(name="toStartOfHour", args=[self.date_from_as_hogql()])
@@ -169,7 +208,7 @@ class QueryDateRange:
             case _:
                 raise HogQLException(message="Unknown interval name")
 
-    def date_to_to_start_of_week_hogql(self) -> ast.Call:
+    def date_to_to_start_of_interval_hogql(self) -> ast.Call:
         match self.interval_name:
             case "hour":
                 return ast.Call(name="toStartOfHour", args=[self.date_to_as_hogql()])
@@ -189,8 +228,11 @@ class QueryDateRange:
             "number_interval_period": self.number_interval_periods(),
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
-            "date_from_start_of_interval": self.date_from_to_start_of_week_hogql(),
-            "date_to_start_of_interval": self.date_to_to_start_of_week_hogql(),
+            "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
+            "date_to_start_of_interval": self.date_to_to_start_of_interval_hogql(),
+            "date_from_with_adjusted_start_of_interval": self.date_from_to_start_of_interval_hogql()
+            if self.use_start_of_interval()
+            else self.date_from_as_hogql(),
         }
 
     def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:

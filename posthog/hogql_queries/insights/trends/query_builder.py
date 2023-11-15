@@ -214,7 +214,12 @@ class TrendsQueryBuilder:
         query = self._trends_display.modify_outer_query(outer_query=query, inner_query=inner_query)
 
         if self._breakdown.enabled:
-            query.select.append(ast.Field(chain=["breakdown_value"]))
+            query.select.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Call(name="ifNull", args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value="")]),
+                )
+            )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
             query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC")]
 
@@ -262,7 +267,7 @@ class TrendsQueryBuilder:
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_start_of_interval}",
+                        "timestamp >= {date_from_with_adjusted_start_of_interval}",
                         placeholders=self.query_date_range.to_placeholders(),
                     ),
                     parse_expr(

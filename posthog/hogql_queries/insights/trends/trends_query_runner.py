@@ -25,6 +25,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
@@ -245,7 +246,10 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["breakdown_value"] = "all" if cohort_id == 0 else cohort_id
                 else:
                     remapped_label = get_value("breakdown_value", val)
-                    if remapped_label == "":
+                    if remapped_label == "" or remapped_label is None:
+                        # Skip the "none" series if it doesn't have any data
+                        if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
+                            continue
                         remapped_label = "none"
 
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
@@ -275,6 +279,10 @@ class TrendsQueryRunner(QueryRunner):
     def series_event(self, series: EventsNode | ActionsNode) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
+        if isinstance(series, ActionsNode):
+            # TODO: Can we load the Action in more efficiently?
+            action = Action.objects.get(pk=int(series.id), team=self.team)
+            return action.name
         return None
 
     def setup_series(self) -> List[SeriesWithExtras]:

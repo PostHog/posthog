@@ -72,7 +72,7 @@ class AggregationOperations:
         elif self.series.math == "unique_session":
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
-            return parse_expr(f'count(DISTINCT e."$group_{self.series.math_group_type_index}")')
+            return parse_expr(f'count(DISTINCT e."$group_{int(self.series.math_group_type_index)}")')
         elif self.series.math_property is not None:
             if self.series.math == "avg":
                 return self._math_func("avg", None)

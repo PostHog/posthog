@@ -20,6 +20,7 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    clean_entity_properties,
     clean_properties,
 )
 from posthog.models import (
@@ -98,8 +99,8 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _props(filter: Filter):
-    props = filter.to_dict().get("properties", None)
+def _props(dict: Dict):
+    props = dict.get("properties", None)
     if not props:
         return None
 
@@ -120,31 +121,52 @@ def _props(filter: Filter):
 def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     filter_as_dict = filter.to_dict()
 
-    events: List[EventsNode] = [
-        EventsNode(
-            event=event.id,
-            name=event.name,
-            custom_name=event.custom_name,
-            math=event.math,
-            math_property=event.math_property,
-            math_hogql=event.math_hogql,
-            math_group_type_index=event.math_group_type_index,
-        )
-        for event in filter.events
-    ]
+    events: List[EventsNode] = []
+    actions: List[ActionsNode] = []
 
-    actions: List[ActionsNode] = [
-        ActionsNode(
-            id=action.id,
-            name=action.name,
-            custom_name=action.custom_name,
-            math=action.math,
-            math_property=action.math_property,
-            math_hogql=action.math_hogql,
-            math_group_type_index=action.math_group_type_index,
+    for event in filter.events:
+        if isinstance(event._data.get("properties", None), List):
+            properties = clean_entity_properties(event._data.get("properties", None))
+        elif event._data.get("properties", None) is not None:
+            values = event._data.get("properties", None).get("values", None)
+            properties = clean_entity_properties(values)
+        else:
+            properties = None
+
+        events.append(
+            EventsNode(
+                event=event.id,
+                name=event.name,
+                custom_name=event.custom_name,
+                math=event.math,
+                math_property=event.math_property,
+                math_hogql=event.math_hogql,
+                math_group_type_index=event.math_group_type_index,
+                properties=properties,
+            )
         )
-        for action in filter.actions
-    ]
+
+    for action in filter.actions:
+        if isinstance(action._data.get("properties", None), List):
+            properties = clean_entity_properties(action._data.get("properties", None))
+        elif action._data.get("properties", None) is not None:
+            values = action._data.get("properties", None).get("values", None)
+            properties = clean_entity_properties(values)
+        else:
+            properties = None
+
+        actions.append(
+            ActionsNode(
+                id=action.id,
+                name=action.name,
+                custom_name=action.custom_name,
+                math=action.math,
+                math_property=action.math_property,
+                math_hogql=action.math_hogql,
+                math_group_type_index=action.math_group_type_index,
+                properties=properties,
+            )
+        )
 
     series: List[EventsNode | ActionsNode] = [*events, *actions]
 
@@ -167,7 +189,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             breakdown_group_type_index=filter.breakdown_group_type_index,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
         ),
-        properties=_props(filter),
+        properties=_props(filter.to_dict()),
         interval=filter.interval,
         trendsFilter=TrendsFilter(
             display=filter.display,

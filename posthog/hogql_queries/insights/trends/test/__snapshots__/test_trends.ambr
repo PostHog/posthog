@@ -202,7 +202,7 @@
   '
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             day_start,
@@ -218,7 +218,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['finance', 'technology'] AS breakdown_value) ARRAY
+             (SELECT [NULL, 'finance', 'technology'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(e.uuid) AS total,
@@ -233,7 +233,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(in(e__group_0.properties___industry, ['finance', 'technology']), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(e__group_0.properties___industry), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_0.properties___industry, 'technology'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -304,7 +304,7 @@
   '
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             day_start,
@@ -320,7 +320,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['finance'] AS breakdown_value) ARRAY
+             (SELECT [NULL, 'finance'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(e.uuid) AS total,
@@ -335,7 +335,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(in(e__group_0.properties___industry, ['finance']), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0), or(isNull(e__group_0.properties___industry), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -366,7 +366,7 @@
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
   '
   SELECT sum(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             breakdown_value
@@ -392,7 +392,7 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), ['val', 'bor']), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -427,7 +427,7 @@
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
   '
   SELECT sum(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             breakdown_value
@@ -453,7 +453,7 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), ifNull(in(nullIf(nullIf(e.mat_key, ''), 'null'), ['val', 'bor']), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(isNull(nullIf(nullIf(e.mat_key, ''), 'null')), ifNull(equals(nullIf(nullIf(e.mat_key, ''), 'null'), 'val'), 0), ifNull(equals(nullIf(nullIf(e.mat_key, ''), 'null'), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -463,6 +463,130 @@
         WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0)))
      GROUP BY breakdown_value
      ORDER BY breakdown_value ASC)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
+  '
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+  '
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(breakdown_value, '') AS breakdown_value
+  FROM
+    (SELECT sum(total) AS count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT 0 AS total,
+               ticks.day_start AS day_start,
+               sec.breakdown_value
+        FROM
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+           UNION ALL SELECT assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')) AS day_start) AS ticks
+        CROSS JOIN
+          (SELECT breakdown_value
+           FROM
+             (SELECT [NULL, 'other_value', 'value'] AS breakdown_value) ARRAY
+           JOIN breakdown_value AS breakdown_value) AS sec
+        ORDER BY sec.breakdown_value ASC, day_start ASC
+        UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
+        FROM events AS e SAMPLE 1.0
+        INNER JOIN
+          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                  person_distinct_id2.distinct_id AS distinct_id
+           FROM person_distinct_id2
+           WHERE equals(person_distinct_id2.team_id, 2)
+           GROUP BY person_distinct_id2.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0)))
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY day_start ASC, breakdown_value ASC)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+  '
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+  '
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(breakdown_value, '') AS breakdown_value
+  FROM
+    (SELECT sum(total) AS count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT 0 AS total,
+               ticks.day_start AS day_start,
+               sec.breakdown_value
+        FROM
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+           UNION ALL SELECT assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')) AS day_start) AS ticks
+        CROSS JOIN
+          (SELECT breakdown_value
+           FROM
+             (SELECT [NULL, 'other_value', 'value'] AS breakdown_value) ARRAY
+           JOIN breakdown_value AS breakdown_value) AS sec
+        ORDER BY sec.breakdown_value ASC, day_start ASC
+        UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
+        FROM events AS e SAMPLE 1.0
+        INNER JOIN
+          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                  person_distinct_id2.distinct_id AS distinct_id
+           FROM person_distinct_id2
+           WHERE equals(person_distinct_id2.team_id, 2)
+           GROUP BY person_distinct_id2.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0)))
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY day_start ASC, breakdown_value ASC)
   GROUP BY breakdown_value
   ORDER BY breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -981,7 +1105,7 @@
   '
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             day_start,
@@ -997,7 +1121,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['Mac'] AS breakdown_value) ARRAY
+             (SELECT [NULL, 'Mac'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
@@ -1011,7 +1135,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), ['Mac']), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1170,7 +1294,7 @@
   '
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             day_start,
@@ -1186,7 +1310,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['Mac'] AS breakdown_value) ARRAY
+             (SELECT [NULL, 'Mac'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
@@ -1200,7 +1324,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), ['Mac']), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1359,7 +1483,7 @@
   '
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
-         breakdown_value
+         ifNull(breakdown_value, '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
             day_start,
@@ -1375,7 +1499,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['Mac'] AS breakdown_value) ARRAY
+             (SELECT [NULL, 'Mac'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
@@ -1389,7 +1513,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), ['Mac']), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1956,6 +2080,133 @@
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative
+  '
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative.1
+  '
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(breakdown_value, '') AS breakdown_value
+  FROM
+    (SELECT day_start,
+            sum(count) OVER (PARTITION BY breakdown_value
+                             ORDER BY day_start ASC) AS count,
+                            breakdown_value
+     FROM
+       (SELECT sum(total) AS count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT 0 AS total,
+                  ticks.day_start AS day_start,
+                  sec.breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+              FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+              UNION ALL SELECT assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')) AS day_start) AS ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [NULL, 'value', 'other_value'] AS breakdown_value) ARRAY
+              JOIN breakdown_value AS breakdown_value) AS sec
+           ORDER BY sec.breakdown_value ASC, day_start ASC
+           UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
+                            toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           INNER JOIN
+             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     person_distinct_id2.distinct_id AS distinct_id
+              FROM person_distinct_id2
+              WHERE equals(person_distinct_id2.team_id, 2)
+              GROUP BY person_distinct_id2.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC))
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2
+  '
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
+  '
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(breakdown_value, '') AS breakdown_value
+  FROM
+    (SELECT day_start,
+            sum(count) OVER (PARTITION BY breakdown_value
+                             ORDER BY day_start ASC) AS count,
+                            breakdown_value
+     FROM
+       (SELECT sum(total) AS count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT 0 AS total,
+                  ticks.day_start AS day_start,
+                  sec.breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+              FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+              UNION ALL SELECT assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')) AS day_start) AS ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [NULL, 'value', 'other_value'] AS breakdown_value) ARRAY
+              JOIN breakdown_value AS breakdown_value) AS sec
+           ORDER BY sec.breakdown_value ASC, day_start ASC
+           UNION ALL SELECT count(DISTINCT e.person_id) AS total,
+                            toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC))
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
