@@ -31,6 +31,7 @@ import NotebookIconHeading from './NotebookIconHeading'
 import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
+import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 
 type SlashCommandConditionalProps =
     | {
@@ -328,7 +329,7 @@ order by count() desc
         search: 'iframe embed',
         icon: <IconUploadFile />,
         command: async (chain, pos) => {
-            return chain.insertContentAt(pos, { type: NotebookNodeType.Embed })
+            return chain.insertContentAt(pos, buildNodeEmbed())
         },
     },
 ]

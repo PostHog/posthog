@@ -24,7 +24,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
 > & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
-        find: string
+        find: string | RegExp
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>

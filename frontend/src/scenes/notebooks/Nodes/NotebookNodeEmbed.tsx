@@ -1,6 +1,6 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'
@@ -11,6 +11,8 @@ type NotebookNodeEmbedAttributes = {
     width?: string | number
     height?: string | number
 }
+
+const IFRAME_MATCHER = /(?:<iframe[^>]*)(?:(?:\/>)|(?:>.*?<\/iframe>))/gi
 
 const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null => {
     const parser = new DOMParser()
@@ -57,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
             ) : (
                 <div className="flex-1 flex flex-col justify-center items-center">
                     {src ? <p>The given URL is not valid.</p> : <p>No URL configured</p>}
-                    <LemonButton type="primary" onClick={() => toggleEditing()}>
+                    <LemonButton type="primary" onClick={() => toggleEditing(true)}>
                         Configure
                     </LemonButton>
                 </div>
@@ -120,4 +122,21 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
         width: {},
         height: {},
     },
+    pasteOptions: {
+        find: IFRAME_MATCHER,
+        getAttributes: async (match) => {
+            return parseIframeString(match[0]) ?? {}
+        },
+    },
 })
+
+export function buildNodeEmbed(): JSONContent {
+    return {
+        type: NotebookNodeType.Embed,
+        attrs: {
+            __init: {
+                showSettings: true,
+            },
+        },
+    }
+}
