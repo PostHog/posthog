@@ -567,6 +567,7 @@ body {
         --primary-3000-button-bg: var(--primary-3000-button-bg-light);
         --primary-3000-button-border: var(--primary-3000-button-border-light);
         --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
 
         --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
         --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
@@ -603,6 +604,7 @@ body {
         --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
         --primary-3000-button-border: var(--primary-3000-button-border-dark);
         --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
 
         --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
         --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
@@ -621,6 +623,7 @@ body {
         --border-bold: var(--border-bold-3000);
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
+        --primary-alt-highlight: var(--primary-alt-highlight-3000);
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
