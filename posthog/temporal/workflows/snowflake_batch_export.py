@@ -16,14 +16,13 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
-    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -100,9 +99,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
     logger.info(
-        "Running Snowflake export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -128,7 +127,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Snowflake", count)
+        logger.info("BatchExporting %s rows", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -178,11 +177,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
             rows_in_file = 0
 
+            rows_exported = get_rows_exported_metric()
+            bytes_exported = get_bytes_exported_metric()
+
             def flush_to_snowflake(lrf: tempfile._TemporaryFileWrapper, rows_in_file: int):
                 lrf.flush()
                 put_file_to_snowflake_table(cursor, lrf.name, inputs.table_name)
-                ROWS_EXPORTED.labels(destination="snowflake").inc(rows_in_file)
-                BYTES_EXPORTED.labels(destination="snowflake").inc(lrf.tell())
+                rows_exported.add(rows_in_file)
+                bytes_exported.add(lrf.tell())
 
             try:
                 while True:
@@ -304,14 +306,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
-        logger = get_batch_exports_logger(inputs=inputs)
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting Snowflake export batch %s - %s",
-            data_interval_start,
-            data_interval_end,
-        )
-
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
@@ -332,7 +326,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,

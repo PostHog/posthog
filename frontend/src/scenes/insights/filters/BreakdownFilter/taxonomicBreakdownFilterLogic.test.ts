@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { InsightLogicProps } from '~/types'
 
 const taxonomicGroupFor = (
     type: TaxonomicFilterGroupType,
@@ -20,6 +21,7 @@ const taxonomicGroupFor = (
 
 const updateBreakdown = jest.fn()
 const updateDisplay = jest.fn()
+const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
 
 describe('taxonomicBreakdownFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicBreakdownFilterLogic.build>
@@ -31,6 +33,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
     describe('addBreakdown', () => {
         it('sets breakdown for events', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,
@@ -54,6 +57,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for cohorts', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {
                     breakdown_type: 'cohort',
                     breakdown: ['all', 1],
@@ -84,6 +88,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for person properties', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,
@@ -106,6 +111,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for group properties', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,

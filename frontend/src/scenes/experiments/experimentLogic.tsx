@@ -548,8 +548,11 @@ export const experimentLogic = kea<experimentLogicType>([
                         )
                         return response as Experiment
                     } catch (error: any) {
-                        actions.setExperimentMissing()
-                        throw error
+                        if (error.status === 404) {
+                            actions.setExperimentMissing()
+                        } else {
+                            throw error
+                        }
                     }
                 }
                 return NEW_EXPERIMENT

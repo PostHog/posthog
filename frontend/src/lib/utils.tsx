@@ -1827,3 +1827,27 @@ export function shouldCancelQuery(error: any): boolean {
     // the query will continue running in ClickHouse
     return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
 }
+
+export function flattenObject(ob: Record<string, any>): Record<string, any> {
+    const toReturn = {}
+
+    for (const i in ob) {
+        if (!ob.hasOwnProperty(i)) {
+            continue
+        }
+
+        if (typeof ob[i] == 'object') {
+            const flatObject = flattenObject(ob[i])
+            for (const x in flatObject) {
+                if (!flatObject.hasOwnProperty(x)) {
+                    continue
+                }
+
+                toReturn[i + '.' + x] = flatObject[x]
+            }
+        } else {
+            toReturn[i] = ob[i]
+        }
+    }
+    return toReturn
+}

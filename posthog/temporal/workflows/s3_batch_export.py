@@ -20,14 +20,13 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
-    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -305,7 +304,7 @@ class S3InsertInputs:
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
     key = get_s3_key(inputs)
 
     s3_upload = S3MultiPartUpload(
@@ -325,19 +324,22 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        logger.info(
-            f"Did not receive details from previous activity Excecution. Export will start from the beginning: {interval_start}"
+        logger.debug(
+            "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
+            interval_start,
         )
     except Exception:
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
         logger.warning(
-            f"Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning: {interval_start}",
+            "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
+            interval_start,
         )
     else:
         logger.info(
-            f"Received details from previous activity. Export will attempt to resume from: {interval_start}",
+            "Received details from previous activity. Export will attempt to resume from %s",
+            interval_start,
         )
         s3_upload.continue_from_state(upload_state)
 
@@ -346,7 +348,8 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             interval_start = inputs.data_interval_start
 
             logger.info(
-                f"Export will start from the beginning as we are using brotli compression: {interval_start}",
+                f"Export will start from the beginning as we are using brotli compression: %s",
+                interval_start,
             )
             await s3_upload.abort()
 
@@ -364,9 +367,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     runs, timing out after say 30 seconds or something and upload multiple
     files.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
     logger.info(
-        "Running S3 export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -427,10 +430,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
+                rows_exported = get_rows_exported_metric()
+                bytes_exported = get_bytes_exported_metric()
 
                 async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
-                    logger.info(
-                        "Uploading %spart %s containing %s records with size %s bytes to S3",
+                    logger.debug(
+                        "Uploading %spart %s containing %s records with size %s bytes",
                         "last " if last else "",
                         s3_upload.part_number + 1,
                         local_results_file.records_since_last_reset,
@@ -438,8 +443,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     )
 
                     await s3_upload.upload_part(local_results_file)
-                    ROWS_EXPORTED.labels(destination="s3").inc(local_results_file.records_since_last_reset)
-                    BYTES_EXPORTED.labels(destination="s3").inc(local_results_file.bytes_since_last_reset)
+                    rows_exported.add(local_results_file.records_since_last_reset)
+                    bytes_exported.add(local_results_file.bytes_since_last_reset)
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
@@ -489,9 +494,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting S3 export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -511,7 +514,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,

@@ -12,13 +12,14 @@ from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
 async def start_worker(
     host,
     port,
+    metrics_port,
     namespace,
     task_queue,
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,
 ):
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:8596")))
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
     client = await connect(
         host,
         port,

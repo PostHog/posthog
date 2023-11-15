@@ -6,6 +6,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 /** Features that can only be toggled if you fall under the `${flagKey}-preview` flag */
 export const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([FEATURE_FLAGS.POSTHOG_3000])
@@ -106,5 +107,26 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         }
                     }),
         ],
+    }),
+    urlToAction(({ actions }) => ({
+        '*': (_, _search, hashParams) => {
+            if (hashParams['panel'] === 'feature-previews') {
+                actions.showFeaturePreviewsModal()
+            }
+        },
+    })),
+    actionToUrl(() => {
+        return {
+            showFeaturePreviewsModal: () => {
+                const hashParams = router.values.hashParams
+                hashParams['panel'] = 'feature-previews'
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+            hideFeaturePreviewsModal: () => {
+                const hashParams = router.values.hashParams
+                delete hashParams['panel']
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+        }
     }),
 ])

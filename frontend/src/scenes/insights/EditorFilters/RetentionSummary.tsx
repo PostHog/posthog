@@ -15,6 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { IconInfo } from '@posthog/icons'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
@@ -52,7 +53,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                                 updateInsightFilter({ target_entity: undefined })
                             }
                         }}
-                        typeKey="retention-table"
+                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-RetentionSummary`}
                     />
                 </span>
                 <LemonSelect

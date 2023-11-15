@@ -6,11 +6,11 @@ import { InsightModel } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function RecentFeatureFlagInsights(): JSX.Element {
-    const { recentInsights, recentInsightsLoading, featureFlag } = useValues(featureFlagLogic)
+    const { relatedInsights, relatedInsightsLoading, featureFlag } = useValues(featureFlagLogic)
     return (
         <CompactList
             title="Insights that use this feature flag"
-            loading={recentInsightsLoading}
+            loading={relatedInsightsLoading}
             emptyMessage={{
                 title: 'You have no insights that use this feature flag',
                 description: "Explore this feature flag's insights by creating one below.",
@@ -21,7 +21,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                     breakdown: `$feature/${featureFlag.key}`,
                 }),
             }}
-            items={recentInsights.slice(0, 5)}
+            items={relatedInsights.slice(0, 5)}
             renderRow={(insight: InsightModel, index) => <InsightRow key={index} insight={insight} />}
         />
     )

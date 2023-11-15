@@ -1,11 +1,12 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { BreakdownFilter } from '~/queries/schema'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { EditableBreakdownTag } from './BreakdownTag'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
+    insightProps: InsightLogicProps
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
@@ -14,6 +15,7 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({
+    insightProps,
     breakdownFilter,
     display,
     isTrends,
@@ -21,6 +23,7 @@ export function TaxonomicBreakdownFilter({
     updateDisplay,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
+        insightProps,
         isTrends,
         display,
         breakdownFilter: breakdownFilter || {},

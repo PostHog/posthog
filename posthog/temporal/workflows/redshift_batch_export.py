@@ -1,13 +1,13 @@
 import collections.abc
+import contextlib
 import datetime as dt
+import itertools
 import json
 import typing
 from dataclasses import dataclass
 
-import psycopg2
-import psycopg2.extensions
-import psycopg2.extras
-from psycopg2 import sql
+import psycopg
+from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -18,13 +18,13 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_rows_exported_metric
 from posthog.temporal.workflows.postgres_batch_export import (
     PostgresInsertInputs,
     create_table_in_postgres,
@@ -32,9 +32,9 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 
 
-def insert_records_to_redshift(
+async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
-    redshift_connection: psycopg2.extensions.connection,
+    redshift_connection: psycopg.AsyncConnection,
     schema: str,
     table: str,
     batch_size: int = 100,
@@ -58,36 +58,59 @@ def insert_records_to_redshift(
             make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
             can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
-    batch = [next(records)]
+    first_record = next(records)
+    columns = first_record.keys()
 
-    columns = batch[0].keys()
+    pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
+        table=sql.Identifier(schema, table),
+        fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
+    )
+    template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
+    rows_exported = get_rows_exported_metric()
 
-    with redshift_connection.cursor() as cursor:
-        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES {placeholder}").format(
-            table=sql.Identifier(schema, table),
-            fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
-            placeholder=sql.Placeholder(),
-        )
-        template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
+    async with async_client_cursor_from_connection(redshift_connection) as cursor:
+        batch = [pre_query.as_string(cursor).encode("utf-8")]
 
-        def flush_to_redshift():
-            psycopg2.extras.execute_values(cursor, query, batch, template)
-            ROWS_EXPORTED.labels(destination="redshift").inc(len(batch))
+        async def flush_to_redshift(batch):
+            await cursor.execute(b"".join(batch))
+            rows_exported.add(len(batch) - 1)
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
 
-        for record in records:
-            batch.append(record)
+        for record in itertools.chain([first_record], records):
+            batch.append(cursor.mogrify(template, record).encode("utf-8"))
 
             if len(batch) < batch_size:
+                batch.append(b",")
                 continue
 
-            flush_to_redshift()
-            batch = []
+            await flush_to_redshift(batch)
+            batch = [pre_query.as_string(cursor).encode("utf-8")]
 
         if len(batch) > 0:
-            flush_to_redshift()
+            await flush_to_redshift(batch[:-1])
+
+
+@contextlib.asynccontextmanager
+async def async_client_cursor_from_connection(
+    psycopg_connection: psycopg.AsyncConnection,
+) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
+    """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
+
+    Keeps track of the current cursor_factory to set it after we are done.
+    """
+    current_factory = psycopg_connection.cursor_factory
+    psycopg_connection.cursor_factory = psycopg.AsyncClientCursor
+
+    try:
+        async with psycopg_connection.cursor() as cursor:
+            # Not a fan of typing.cast, but we know this is an psycopg.AsyncClientCursor
+            # as we have just set cursor_factory.
+            cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
+            yield cursor
+    finally:
+        psycopg_connection.cursor_factory = current_factory
 
 
 @dataclass
@@ -118,9 +141,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
     logger.info(
-        "Running Postgres export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -146,7 +169,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -158,8 +181,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
-        with postgres_connection(inputs) as connection:
-            create_table_in_postgres(
+        async with postgres_connection(inputs) as connection:
+            await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
@@ -200,8 +223,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                 for key in schema_columns
             }
 
-        with postgres_connection(inputs) as connection:
-            insert_records_to_redshift(
+        async with postgres_connection(inputs) as connection:
+            await insert_records_to_redshift(
                 (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
             )
 
@@ -225,9 +248,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RedshiftBatchExportInputs):
         """Workflow implementation to export data to Redshift."""
-        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -247,7 +268,11 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
