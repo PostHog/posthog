@@ -26,6 +26,9 @@ table.PlanComparison {
         &.PlanTable__th__feature {
             padding: 0.75rem 1.25rem 0.75rem 3.25rem;
             font-weight: 600;
+            &.PlanTable__th__feature--reduced_padding {
+                padding: 0.75rem 1.25rem 0.75rem;
+            }
         }
 
         &.PlanTable__th__last-feature {
