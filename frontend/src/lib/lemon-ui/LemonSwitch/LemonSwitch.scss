@@ -74,6 +74,7 @@
     border-radius: 0.625rem;
     background-color: var(--border);
     transition: background-color 100ms ease;
+
     .LemonSwitch--checked & {
         background-color: var(--primary-highlight);
     }
@@ -99,9 +100,11 @@
         background-color: var(--primary);
         border-color: var(--primary);
     }
+
     .LemonSwitch--active & {
         transform: scale(1.1);
     }
+
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: translateX(1rem) scale(1.1);
     }

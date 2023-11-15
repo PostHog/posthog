@@ -8,10 +8,12 @@
     border: 1px solid var(--border);
     z-index: 3;
     background: var(--bg-light);
+
     &--highlighted {
         border-color: var(--primary);
         outline: 1px solid var(--primary);
     }
+
     .ant-alert {
         margin: 1rem;
         width: 100%;
@@ -29,19 +31,23 @@
     min-height: 0;
     width: 100%;
     overflow: auto;
+
     .LineGraph,
     .AnnotationsOverlay {
         padding: 1rem;
     }
+
     .insight-empty-state {
         height: 100%; // Fix wonkiness when SpinnerOverlay is shown
         font-size: 0.875rem; // Reduce font size
         padding-top: 0;
         padding-bottom: 0;
     }
+
     > :first-child {
         margin-top: auto;
     }
+
     > :last-child {
         margin-bottom: auto;
     }
@@ -50,12 +56,15 @@
 .InsightDetails {
     font-size: 0.8125rem;
     line-height: 1.5rem;
+
     h5 {
         margin-bottom: 0.125rem;
     }
+
     section:not(:last-child) {
         margin-bottom: 0.5rem;
     }
+
     .LemonRow {
         min-height: 2rem;
         font-size: inherit;
@@ -67,6 +76,7 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     background: var(--side);
+
     .LemonRow {
         padding-left: 0;
         padding-right: 0;
@@ -82,9 +92,11 @@
 
 .InsightDetails__series {
     margin: -0.125rem 0;
+
     &:not(:first-child) {
         margin-top: 0.5rem;
     }
+
     .LemonDivider {
         width: calc(100% - 1.5rem);
         margin-left: 1.5rem;
@@ -104,13 +116,16 @@
 .InsightDetails__footer {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
+
     .profile-package {
         vertical-align: middle;
     }
+
     .tz-label {
         line-height: normal;
         vertical-align: middle;
     }
+
     .taxonomic-breakdown-filter.tag-pill {
         font-size: 0.8125rem;
         padding: 0;
@@ -136,9 +151,11 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
+
     &.SeriesDisplay__raw-name--action,
     &.SeriesDisplay__raw-name--event {
         padding: 0.25rem;
+
         &::before {
             display: inline-block;
             flex-shrink: 0;
@@ -153,9 +170,11 @@
             font-weight: 700;
         }
     }
+
     &.SeriesDisplay__raw-name--action::before {
         content: 'A';
     }
+
     &.SeriesDisplay__raw-name--event::before {
         content: 'E';
     }

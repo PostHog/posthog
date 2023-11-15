@@ -30,6 +30,7 @@
         padding-top: 10px;
         padding-left: 10px;
         font-weight: 600;
+
         &.with-border {
             border-top: 1px solid var(--border-light);
         }
@@ -48,10 +49,12 @@
             color: var(--link);
             background: var(--side);
             border-color: var(--side);
+
             &.taxonomic-count-zero {
                 color: var(--muted);
                 cursor: not-allowed;
             }
+
             &.taxonomic-pill-active {
                 color: #fff;
                 background: var(--link);

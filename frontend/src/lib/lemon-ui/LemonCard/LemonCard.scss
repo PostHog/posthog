@@ -1,5 +1,6 @@
 .LemonCard {
     transition: 200ms ease;
+
     &.LemonCard--hoverEffect {
         &:hover {
             transform: scale(1.01);

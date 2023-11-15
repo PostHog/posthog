@@ -2,8 +2,7 @@
     .DashboardTemplateChooser {
         max-width: 780px;
         grid-template-columns: repeat(3, 1fr);
-        column-gap: 0.5em;
-        row-gap: 0.5em;
+        gap: 0.5em 0.5em;
         display: grid;
     }
 
