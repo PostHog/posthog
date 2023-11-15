@@ -65,6 +65,7 @@ class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
+    rate = "600/minute"
 
 
 class CanEditFeatureFlag(BasePermission):
