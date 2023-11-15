@@ -61,6 +61,13 @@ jobs:
             - name: Check if "schema.json" is up to date
               run: pnpm schema:build:json && git diff --exit-code
 
+            - name: Check toolbar bundle size
+              uses: preactjs/compressed-size-action@v2
+              with:
+                  build-script: 'build'
+                  compression: 'none'
+                  pattern: 'frontend/dist/toolbar.js'
+
     jest:
         runs-on: ubuntu-latest
         name: Jest test (${{ matrix.chunk }})
