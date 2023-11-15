@@ -192,10 +192,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations Redirect',
     },
-    [Scene.Ingestion]: {
-        projectBased: true,
-        layout: 'plain',
-    },
     [Scene.Products]: {
         projectBased: true,
         layout: 'plain',
@@ -464,8 +460,6 @@ export const routes: Record<string, Scene> = {
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.ingestion()]: Scene.Ingestion,
-    [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
     [urls.verifyEmail()]: Scene.VerifyEmail,
