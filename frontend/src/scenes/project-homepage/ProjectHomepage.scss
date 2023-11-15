@@ -17,6 +17,16 @@
                     margin: 0;
                 }
             }
+
+            .posthog-3000 & {
+                a {
+                    color: var(--default);
+
+                    &:hover {
+                        color: var(--primary-3000);
+                    }
+                }
+            }
         }
     }
 

@@ -8,7 +8,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { IconCottage } from 'lib/lemon-ui/icons'
+import { IconHome } from '@posthog/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { RecentRecordings } from './RecentRecordings'
@@ -86,7 +86,7 @@ export function ProjectHomepage(): JSX.Element {
                             {!dashboard && <LemonSkeleton className="w-20" />}
                             {dashboard?.name && (
                                 <>
-                                    <IconCottage className="mr-2 text-warning text-2xl" />
+                                    <IconHome className="mr-2 text-2xl opacity-50" />
                                     <Link
                                         className="font-semibold text-xl text-default"
                                         to={urls.dashboard(dashboard.id)}
