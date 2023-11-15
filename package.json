@@ -302,7 +302,7 @@
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "ruff format",
-            "ruff check"
+            "ruff check --fix"
         ]
     },
     "browserslist": {
