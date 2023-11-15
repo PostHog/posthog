@@ -35,7 +35,7 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
                 hasRenderedInitiallyRef.current = true
             }
         }
-    }, [currentValue, containerWidth, transitioning]) // FIXME: transitioning is only needed here to trigger a re-render
+    }, [currentValue, containerWidth])
 
     return {
         containerRef,
