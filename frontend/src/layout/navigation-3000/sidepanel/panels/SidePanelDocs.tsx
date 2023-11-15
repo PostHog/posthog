@@ -81,9 +81,9 @@ export const SidePanelDocs = (): JSX.Element => {
                 <LemonButton
                     size="small"
                     sideIcon={<IconExternal />}
-                    to={currentUrl}
                     targetBlank
-                    onClick={() => closeSidePanel()}
+                    // We can't use the normal `to` property as that is intercepted to open this panel :D
+                    onClick={() => window.open(currentUrl, '_blank')}
                 >
                     Open in new tab
                 </LemonButton>
