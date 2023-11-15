@@ -49,6 +49,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -257,9 +258,8 @@ function InsightCardInternal(
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelDataLogic(insightLogicProps)
-    )
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false

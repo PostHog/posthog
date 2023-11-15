@@ -59,9 +59,8 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightProps))
     const {
         isTrends,
         isFunnels,
