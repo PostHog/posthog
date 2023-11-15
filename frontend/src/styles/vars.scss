@@ -98,10 +98,10 @@ $colors: (
     'bg-light': #fff,
     'side': #fafaf9,
     'mid': #f2f2f2,
-    'border': rgba(0, 0, 0, 15%),
-    'border-light': rgba(0, 0, 0, 8%),
-    'border-bold': rgba(0, 0, 0, 24%),
-    'border-active': rgba(0, 0, 0, 36%),
+    'border': rgb(0 0 0 / 15%),
+    'border-light': rgb(0 0 0 / 8%),
+    'border-bold': rgb(0 0 0 / 24%),
+    'border-active': rgb(0 0 0 / 36%),
     'transparent': transparent,
     'link': var(--link),
     // Colors of the PostHog logo
@@ -139,7 +139,7 @@ $colors: (
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
-    'link-3000-dark': rgb(47, 129, 247),
+    'link-3000-dark': rgb(47 129 247),
     // The derived colors
     'text-3000': var(--text-3000),
     'muted-3000': var(--muted-3000),
