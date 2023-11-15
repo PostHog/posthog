@@ -32,6 +32,7 @@ import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
+import { IconCode } from '@posthog/icons'
 
 type SlashCommandConditionalProps =
     | {
@@ -327,7 +328,7 @@ order by count() desc
     {
         title: 'Embedded iframe',
         search: 'iframe embed',
-        icon: <IconUploadFile />,
+        icon: <IconCode />,
         command: async (chain, pos) => {
             return chain.insertContentAt(pos, buildNodeEmbed())
         },
