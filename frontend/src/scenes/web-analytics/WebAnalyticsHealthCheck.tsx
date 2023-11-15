@@ -25,11 +25,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                 </p>
                 <p>
                     Please see{' '}
-                    <Link to={'https://posthog.com/docs/libraries/js'}>documentation for how to set up posthog-js</Link>{' '}
-                    and, if you are using a SPA (Single Page Apps) framework{' '}
-                    <Link to={'https://posthog.com/tutorials/single-page-app-pageviews'}>
-                        a tutorial for sending page views in a SPA
-                    </Link>
+                    <Link to={'https://posthog.com/docs/libraries/js'}>documentation for how to set up posthog-js</Link>
                     .
                 </p>
             </LemonBanner>
@@ -39,11 +35,12 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
             <LemonBanner type={'warning'} className={'mt-2'}>
                 <p>
                     No <code>$pageleave</code> events have been received, this means that Bounce rate and Session
-                    Duration might be inaccurate.
+                    duration might be inaccurate.
                 </p>
                 <p>
                     Please see{' '}
                     <Link to={'https://posthog.com/docs/libraries/js'}>documentation for how to set up posthog-js</Link>
+                    .
                 </p>
             </LemonBanner>
         )
