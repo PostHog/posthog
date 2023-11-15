@@ -1,4 +1,5 @@
 import copy
+from typing import Dict
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
@@ -106,7 +107,7 @@ class OrganizationFeatureFlagView(
             )
 
             # destination cohort id is different from original cohort id - create mapping
-            name_to_dest_cohort_id = {}
+            name_to_dest_cohort_id: Dict[str, int] = {}
             # create cohorts in the destination project
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
@@ -139,7 +140,7 @@ class OrganizationFeatureFlagView(
                             created_by=request.user,
                             last_calculation=timezone.now(),
                         )
-                    name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
+                    name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id  # this line
 
             # reference correct destination cohort ids in the flag
             for group in flag_to_copy.filters.get("groups", []):
