@@ -13,11 +13,9 @@ export function ToolbarMenu({
         <div className={clsx('space-y-2 w-full h-full flex flex-col overflow-hidden')}>
             {header}
 
-            <div className={clsx('flex flex-col flex-1 space-y-2 h-full overflow-hidden overflow-y-auto px-2')}>
-                {body}
-            </div>
+            <div className={clsx('flex flex-col flex-1 h-full overflow-hidden overflow-y-auto')}>{body}</div>
 
-            <div className={clsx('flex flex-row space-y-2')}>{footer}</div>
+            <div className={clsx('flex flex-row')}>{footer}</div>
         </div>
     )
 }

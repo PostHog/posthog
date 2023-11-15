@@ -39,10 +39,10 @@ const MenuBody = (): JSX.Element => {
             {filteredFlags.length > 0 ? (
                 filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                     <div
-                        className={clsx('FeatureFlagRow', hasOverride && 'FeatureFlagRow__overridden')}
+                        className={clsx('FeatureFlagRow px-2 py-1', hasOverride && 'FeatureFlagRow__overridden')}
                         key={feature_flag.key}
                     >
-                        <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header', 'py-1')}>
+                        <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header')}>
                             <div className="flex-1 truncate">
                                 <Link
                                     className="text-text-3000 flex flex-row items-center"

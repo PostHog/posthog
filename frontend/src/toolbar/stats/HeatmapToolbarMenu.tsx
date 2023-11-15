@@ -31,8 +31,8 @@ const MenuBody = (): JSX.Element => {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
-        <>
-            <div className="flex items-center gap-2">
+        <div className={'flex flex-col space-y-2 px-2'}>
+            <div className="flex flex-row items-center space-x-2">
                 <DateFilter
                     dateFrom={heatmapFilter.date_from ?? '-7d'}
                     dateTo={heatmapFilter.date_to}
@@ -99,7 +99,7 @@ const MenuBody = (): JSX.Element => {
                     )
                 })}
             </div>
-        </>
+        </div>
     )
 }
 
