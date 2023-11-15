@@ -640,6 +640,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     ) -> PluginConfig:
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
+        # One can delete apps in the UI, plugin-server doesn't use that field
+        # if deleted is set to true we always want to disable the app
+        if "deleted" in validated_data and validated_data["deleted"] is True:
+            validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
         secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
@@ -678,7 +682,10 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
-        return super().get_queryset().order_by("order", "plugin_id")
+        queryset = super().get_queryset()
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+        return queryset.order_by("order", "plugin_id")
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
@@ -823,3 +830,17 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
     legacy_team_compatibility = True
+
+
+class PipelineTransformationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
+
+
+class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
+        )

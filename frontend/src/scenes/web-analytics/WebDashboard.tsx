@@ -16,6 +16,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 
 const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
@@ -148,6 +149,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <div className="w-full flex flex-col pt-2">
             <WebAnalyticsNotice />
             <Filters />
+            <WebAnalyticsHealthCheck />
             <Tiles />
         </div>
     )

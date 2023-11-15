@@ -1435,8 +1435,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             order=2,
             name="ui name",
             description="ui description",
-            deleted=True,
         )
+        PluginConfig.objects.create(plugin=plugin, team=self.team, order=3, deleted=True)
 
         create_app_metric(
             team_id=self.team.pk,
@@ -1482,7 +1482,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "updated_at": mock.ANY,
                     "name": "ui name",
                     "description": "ui description",
-                    "deleted": True,
+                    "deleted": False,
                 },
             ],
         )

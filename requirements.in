@@ -59,6 +59,7 @@ Pillow==9.2.0
 posthoganalytics==3.0.1
 prance==0.22.2.22.0
 psycopg2-binary==2.9.7
+psycopg==3.1
 pyarrow==12.0.1
 pydantic==2.3.0
 pyjwt==2.4.0
@@ -79,7 +80,7 @@ social-auth-core==4.3.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.1.0
+temporalio==1.4.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1
