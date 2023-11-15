@@ -4,6 +4,15 @@ from typing import Optional
 import datetime as dt
 
 
+class PostgresSourcePayload(BaseModel):
+    host: str
+    port: int
+    database: str
+    schemas: Optional[list[str]] = None
+    username: str
+    password: Optional[str] = None
+
+
 class SalesforceSourcePayload(BaseModel):
     client_id: str
     client_secret: str
@@ -50,5 +59,9 @@ SOURCE_TYPE_MAPPING = {
     "salesforce": {
         "payload_type": SalesforceSourcePayload,
         "default_streams": ["accounts"],
+    },
+    "postgres": {
+        "payload_type": PostgresSourcePayload,
+        "default_streams": None,
     },
 }

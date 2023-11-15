@@ -44,3 +44,26 @@ class TestSource(APIBaseTest):
         self.assertEqual(data_source.name, "salesforce source")
         self.assertEqual(data_source.source_type, "salesforce")
         self.assertEqual(data_source.workspace_id, "456")
+
+    @patch("posthog.warehouse.external_data_source.source.send_request")
+    def test_create_postgres_source(self, send_request_mock):
+        send_request_mock.return_value = {
+            "sourceId": "123",
+            "name": "postgres source",
+            "sourceType": "postgres",
+            "workspaceId": "456",
+        }
+
+        source_payload = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "test-db",
+            "username": "posthog",
+        }
+
+        data_source = create_source("postgres", source_payload, "456")
+
+        self.assertEqual(data_source.source_id, "123")
+        self.assertEqual(data_source.name, "postgres source")
+        self.assertEqual(data_source.source_type, "postgres")
+        self.assertEqual(data_source.workspace_id, "456")

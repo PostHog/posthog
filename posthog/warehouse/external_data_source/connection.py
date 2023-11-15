@@ -24,16 +24,18 @@ def create_connection(source_type: str, source_id: str, destination_id: str) -> 
     default_streams_by_type = SOURCE_TYPE_MAPPING[source_type]["default_streams"]
     payload = {
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
-        "configurations": {
-            "streams": [
-                {"name": streamName, "syncMode": "full_refresh_overwrite"} for streamName in default_streams_by_type
-            ]
-        },
         "namespaceFormat": None,
         "sourceId": source_id,
         "destinationId": destination_id,
         "prefix": f"{source_type}_",
     }
+
+    if default_streams_by_type:
+        payload["configurations"] = {
+            "streams": [
+                {"name": streamName, "syncMode": "full_refresh_overwrite"} for streamName in default_streams_by_type
+            ]
+        }
 
     response = send_request(AIRBYTE_CONNECTION_URL, method="POST", payload=payload)
 
