@@ -20,8 +20,6 @@
 
 .LemonSegmentedButton__slider {
     // This is a real element and not ::after to avoid initial transition from 0 width
-    transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
-    will-change: width, transform, border-radius;
     position: absolute;
     top: -1px; // 1px of border
     left: -1px; // 1px of border
@@ -38,6 +36,11 @@
     &.LemonSegmentedButton__slider--last {
         border-top-right-radius: var(--radius);
         border-bottom-right-radius: var(--radius);
+    }
+
+    .LemonSegmentedButton--transitioning & {
+        transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
+        will-change: width, transform, border-radius;
     }
 }
 

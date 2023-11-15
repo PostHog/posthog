@@ -540,6 +540,26 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$variant}#{$char}-4\/5 {
             #{$variant}#{$kind}: 80%;
         }
+
+        .#{$variant}#{$char}-1\/6 {
+            #{$variant}#{$kind}: 16.66667%;
+        }
+
+        .#{$variant}#{$char}-2\/6 {
+            #{$variant}#{$kind}: 33.33333%;
+        }
+
+        .#{$variant}#{$char}-3\/6 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-4\/6 {
+            #{$variant}#{$kind}: 66.66667%;
+        }
+
+        .#{$variant}#{$char}-5\/6 {
+            #{$variant}#{$kind}: 83.33333%;
+        }
     }
 }
 

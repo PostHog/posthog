@@ -14,8 +14,8 @@
     display: grid;
     grid-template-rows: 1fr auto;
     margin-bottom: 10px;
-    break-inside: avoid; /* add this */ /* Firefox */
-    box-sizing: border-box; /* Older Webkit browsers */
+    break-inside: avoid;
+    box-sizing: border-box;
 }
 
 .masonry-item-text {

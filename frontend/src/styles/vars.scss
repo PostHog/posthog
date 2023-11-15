@@ -185,6 +185,7 @@ $_lifecycle_dormant: $_danger;
 
     // Non-color vars
     --radius: 4px;
+    --shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%);
     --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
@@ -251,7 +252,7 @@ $_lifecycle_dormant: $_danger;
     --recording-highlight-event: var(--mark);
     --recording-highlight-event-dark: #946508;
 
-    // Z-indexes, synced with vars.ts
+    // Z-indexes
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;

@@ -9,6 +9,7 @@ import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -179,6 +180,10 @@ export function ItemPerformanceEvent({
             return acc
         }
 
+        if (key.includes('time') || key.includes('end') || key.includes('start')) {
+            return acc
+        }
+
         return {
             ...acc,
             [key]: typeof value === 'number' ? Math.round(value) : value,
@@ -334,58 +339,75 @@ export function ItemPerformanceEvent({
                             </p>
                         </>
                     )}
-
                     <LemonDivider dashed />
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(newKey) => setActiveTab(newKey)}
-                            tabs={[
-                                {
-                                    key: 'timings',
-                                    label: 'timings',
-                                    content: <SimpleKeyValueList item={sanitizedProps} />,
-                                },
-                                {
-                                    key: 'headers',
-                                    label: 'Headers',
-                                    content: (
-                                        <HeadersDisplay
-                                            request={item.request_headers}
-                                            response={item.response_headers}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && {
-                                    key: 'payload',
-                                    label: 'Payload',
-                                    content: (
-                                        <BodyDisplay
-                                            content={item.request_body}
-                                            headers={item.request_headers}
-                                            emptyMessage={'No request body captured'}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && item.response_body
-                                    ? {
-                                          key: 'response_body',
-                                          label: 'Response',
-                                          content: (
-                                              <BodyDisplay
-                                                  content={item.response_body}
-                                                  headers={item.response_headers}
-                                                  emptyMessage={'No response body captured'}
-                                              />
-                                          ),
-                                      }
-                                    : false,
-                            ]}
-                        />
-                    </FlaggedFeature>
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
-                        <SimpleKeyValueList item={sanitizedProps} />
-                    </FlaggedFeature>
+                    {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
+                        <>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                                <LemonTabs
+                                    activeKey={activeTab}
+                                    onChange={(newKey) => setActiveTab(newKey)}
+                                    tabs={[
+                                        {
+                                            key: 'timings',
+                                            label: 'Timings',
+                                            content: (
+                                                <>
+                                                    <SimpleKeyValueList item={sanitizedProps} />
+                                                    <LemonDivider dashed />
+                                                    <NetworkRequestTiming performanceEvent={item} />
+                                                </>
+                                            ),
+                                        },
+                                        {
+                                            key: 'headers',
+                                            label: 'Headers',
+                                            content: (
+                                                <HeadersDisplay
+                                                    request={item.request_headers}
+                                                    response={item.response_headers}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && {
+                                            key: 'payload',
+                                            label: 'Payload',
+                                            content: (
+                                                <BodyDisplay
+                                                    content={item.request_body}
+                                                    headers={item.request_headers}
+                                                    emptyMessage={'No request body captured'}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && item.response_body
+                                            ? {
+                                                  key: 'response_body',
+                                                  label: 'Response',
+                                                  content: (
+                                                      <BodyDisplay
+                                                          content={item.response_body}
+                                                          headers={item.response_headers}
+                                                          emptyMessage={'No response body captured'}
+                                                      />
+                                                  ),
+                                              }
+                                            : false,
+                                    ]}
+                                />
+                            </FlaggedFeature>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
+                                <SimpleKeyValueList item={sanitizedProps} />
+                                <LemonDivider dashed />
+                                <NetworkRequestTiming performanceEvent={item} />
+                            </FlaggedFeature>
+                        </>
+                    ) : (
+                        <>
+                            <SimpleKeyValueList item={sanitizedProps} />
+                            <LemonDivider dashed />
+                            <NetworkRequestTiming performanceEvent={item} />
+                        </>
+                    )}
                 </div>
             )}
         </div>

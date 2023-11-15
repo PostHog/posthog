@@ -248,3 +248,43 @@ def test_batch_export_run_log_api(client, batch_export, team):
     assert results[0]["message"] == "Test log. Much INFO."
     assert results[0]["level"] == BatchExportLogEntryLevel.INFO
     assert results[0]["batch_export_id"] == str(batch_export["id"])
+
+
+@pytest.mark.django_db
+def test_batch_export_run_log_api_with_level_filter(client, batch_export, team):
+    """Test fetching batch export run log entries using the API."""
+    run_id = str(uuid.uuid4())
+
+    create_batch_export_log_entry(
+        team_id=team.pk,
+        batch_export_id=str(batch_export["id"]),
+        run_id=run_id,
+        message="Test log. Much INFO.",
+        level=BatchExportLogEntryLevel.INFO,
+    )
+
+    create_batch_export_log_entry(
+        team_id=team.pk,
+        batch_export_id=str(batch_export["id"]),
+        run_id=run_id,
+        message="Test log. Much DEBUG.",
+        level=BatchExportLogEntryLevel.DEBUG,
+    )
+
+    response = get_batch_export_run_log_entries(
+        client,
+        team_id=team.pk,
+        batch_export_id=batch_export["id"],
+        run_id=run_id,
+        level_filter="info",
+    )
+
+    json_response = response.json()
+    results = json_response["results"]
+
+    assert response.status_code == 200
+    assert json_response["count"] == 1
+    assert len(results) == 1
+    assert results[0]["message"] == "Test log. Much INFO."
+    assert results[0]["level"] == BatchExportLogEntryLevel.INFO
+    assert results[0]["batch_export_id"] == str(batch_export["id"])
