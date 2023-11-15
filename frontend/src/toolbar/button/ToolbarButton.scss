@@ -14,29 +14,6 @@
     --glass-bg-3000: var(--glass-bg-3000-light);
     --glass-border-3000: var(--glass-border-3000-light);
     --bg-light: #fff;
-}
-
-#button-toolbar[theme='dark'] {
-    --text-3000: var(--text-3000-dark);
-    --muted-3000: var(--muted-3000-dark);
-    --trace-3000: var(--trace-3000-dark);
-    --primary-3000: var(--primary-3000-dark);
-    --primary-3000-hover: var(--primary-3000-hover-dark);
-    --secondary-3000: var(--secondary-3000-dark);
-    --secondary-3000-hover: var(--secondary-3000-hover-dark);
-    --accent-3000: var(--accent-3000-dark);
-    --bg-3000: var(--bg-3000-dark);
-    --border-3000: var(--border-3000-dark);
-    --border-bold-3000: var(--border-bold-3000-dark);
-    --glass-bg-3000: var(--glass-bg-3000-dark);
-    --glass-border-3000: var(--glass-border-3000-dark);
-    --bg-light: var(--accent-3000);
-    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
-    --mark: var(--secondary-3000-hover-dark);
-    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-}
-
-#button-toolbar {
     --default: var(--text-3000);
     --muted: var(--muted-3000);
     --muted-alt: var(--muted-3000);
@@ -45,6 +22,7 @@
     --border-bold: var(--border-bold-3000);
     --mid: var(--bg-3000);
     --side: var(--bg-3000);
+
     user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
     * > {
@@ -79,6 +57,27 @@
     }
 }
 
+#button-toolbar[theme='dark'] {
+    --text-3000: var(--text-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --accent-3000: var(--accent-3000-dark);
+    --bg-3000: var(--bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --bg-light: var(--accent-3000);
+
+    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+    --mark: var(--secondary-3000-hover-dark);
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+}
+
 .Toolbar3000 {
     background-color: var(--bg-3000);
     color: var(--text-3000);
@@ -94,6 +93,7 @@
 
     // fixed width so that animations work when changing width
     width: 15.5rem;
+
     &.Toolbar3000--minimized-width {
         width: 2.5rem;
     }
