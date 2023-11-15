@@ -110,6 +110,7 @@ const Settings = ({
                 onPressEnter={save}
                 placeholder="Enter URL or <iframe> code"
                 className="flex-1"
+                autoFocus
             />
             <LemonButton type="primary" onClick={save} disabledReason={!hasChanges ? 'Not changed' : null}>
                 Save
