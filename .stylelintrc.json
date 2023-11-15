@@ -4,6 +4,12 @@
         "no-descending-specificity": null,
         "color-function-notation": null,
         "number-max-precision": 5,
+        "value-keyword-case": [
+            "lower",
+            {
+                "camelCaseSvgKeywords": true
+            }
+        ],
         "selector-class-pattern": [
             "^[A-Za-z0-9_-]+(__[A-Za-z0-9_-]+)?(--[A-Za-z0-9-]+)?$",
             {

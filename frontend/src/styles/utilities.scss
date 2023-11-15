@@ -413,7 +413,7 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .decoration-current {
-    text-decoration-color: currentcolor;
+    text-decoration-color: currentColor;
 }
 
 .decoration-transparent {
@@ -448,7 +448,7 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .text-current {
-    color: currentcolor;
+    color: currentColor;
 }
 
 @each $name, $hex in $colors {
