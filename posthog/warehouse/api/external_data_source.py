@@ -7,7 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.external_data_source.workspace import get_or_create_workspace
-from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
+from posthog.warehouse.external_data_source.source import create_source, delete_source
+from posthog.warehouse.external_data_source.source_definitions import SOURCE_TYPE_MAPPING
 from posthog.warehouse.external_data_source.connection import (
     create_connection,
     start_sync,
@@ -83,16 +84,17 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        account_id = request.data["account_id"]
-        client_secret = request.data["client_secret"]
+        payload = request.data["payload"]
+        payload_type = request.data["payload_type"]
+
+        if payload_type not in SOURCE_TYPE_MAPPING.keys():
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": f"Payload type {payload_type} is not supported."},
+            )
 
         workspace_id = get_or_create_workspace(self.team_id)
-
-        stripe_payload = StripeSourcePayload(
-            account_id=account_id,
-            client_secret=client_secret,
-        )
-        new_source = create_stripe_source(stripe_payload, workspace_id)
+        new_source = create_source(payload_type, payload, workspace_id)
 
         try:
             new_destination = create_destination(self.team_id, workspace_id)
@@ -113,7 +115,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             destination_id=new_destination.destination_id,
             team=self.team,
             status="running",
-            source_type="Stripe",
+            source_type=payload_type,
         )
 
         start_sync(new_connection.connection_id)
