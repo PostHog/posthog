@@ -324,3 +324,54 @@ $_lifecycle_dormant: $_danger;
     --notebook-column-left-width: 27rem;
     --notebook-column-right-width: 20rem;
 }
+
+// defined here so that they can be shared with the toolbar
+@mixin light-mode-3000-variables {
+    --text-3000: var(--text-3000-light);
+    --muted-3000: var(--muted-3000-light);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary-3000-light);
+    --primary-3000-hover: var(--primary-3000-hover-light);
+    --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --accent-3000: var(--accent-3000-light);
+    --bg-3000: var(--bg-3000-light);
+    --border-3000: var(--border-3000-light);
+    --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: var(--glass-border-3000-light);
+    --bg-light: #fff;
+    --link: var(--link-3000-light);
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin dark-mode-3000-variables {
+    --text-3000: var(--text-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --accent-3000: var(--accent-3000-dark);
+    --bg-3000: var(--bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --bg-light: var(--accent-3000);
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+    --link: var(--link-3000-dark);
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin posthog-3000-variables {
+    --default: var(--text-3000);
+    --muted: var(--muted-3000);
+    --muted-alt: var(--muted-3000);
+    --primary-alt: var(--text-3000);
+    --border: var(--border-3000);
+    --border-bold: var(--border-bold-3000);
+    --mid: var(--bg-3000);
+    --side: var(--bg-3000);
+}

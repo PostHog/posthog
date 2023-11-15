@@ -544,51 +544,15 @@ body {
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
-        --text-3000: var(--text-3000-light);
-        --muted-3000: var(--muted-3000-light);
-        --trace-3000: var(--trace-3000-light);
-        --primary-3000: var(--primary-3000-light);
-        --primary-3000-hover: var(--primary-3000-hover-light);
-        --secondary-3000: var(--secondary-3000-light);
-        --secondary-3000-hover: var(--secondary-3000-hover-light);
-        --accent-3000: var(--accent-3000-light);
-        --bg-3000: var(--bg-3000-light);
-        --border-3000: var(--border-3000-light);
-        --border-bold-3000: var(--border-bold-3000-light);
-        --glass-bg-3000: var(--glass-bg-3000-light);
-        --glass-border-3000: var(--glass-border-3000-light);
-        --bg-light: #fff;
-        --link: var(--link-3000-light);
+        @include light-mode-3000-variables;
     }
 
     &.posthog-3000[theme='dark'] {
-        --text-3000: var(--text-3000-dark);
-        --muted-3000: var(--muted-3000-dark);
-        --trace-3000: var(--trace-3000-dark);
-        --primary-3000: var(--primary-3000-dark);
-        --primary-3000-hover: var(--primary-3000-hover-dark);
-        --secondary-3000: var(--secondary-3000-dark);
-        --secondary-3000-hover: var(--secondary-3000-hover-dark);
-        --accent-3000: var(--accent-3000-dark);
-        --bg-3000: var(--bg-3000-dark);
-        --border-3000: var(--border-3000-dark);
-        --border-bold-3000: var(--border-bold-3000-dark);
-        --glass-bg-3000: var(--glass-bg-3000-dark);
-        --glass-border-3000: var(--glass-border-3000-dark);
-        --bg-light: var(--accent-3000);
-        --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-        --link: var(--link-3000-dark);
+        @include dark-mode-3000-variables;
     }
 
     &.posthog-3000 {
-        --default: var(--text-3000);
-        --muted: var(--muted-3000);
-        --muted-alt: var(--muted-3000);
-        --primary-alt: var(--text-3000);
-        --border: var(--border-3000);
-        --border-bold: var(--border-bold-3000);
-        --mid: var(--bg-3000);
-        --side: var(--bg-3000);
+        @include posthog-3000-variables;
 
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
@@ -765,7 +729,7 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
+    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
     .LemonTabs__bar::after, // Active tab slider
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
