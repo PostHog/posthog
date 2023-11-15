@@ -81,7 +81,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <p>
                 You can enter a regular expression that matches values of{' '}
                 <PropertyKeyInfo value={'$exception_message'} /> here to ignore them. One per line. For example, if you
-                want to drop all errors that contain the word "bot", or you can enter "bot" here. Or if you want to drop
+                want to drop all errors that contain the word "bot", you can enter "bot" here. Or if you want to drop
                 all errors that are exactly "bot", you can enter "^bot$".
             </p>
             <p>Only up to 300 characters of config are allowed here.</p>
