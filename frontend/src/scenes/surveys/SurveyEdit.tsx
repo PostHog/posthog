@@ -528,8 +528,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                 <Field name="buttonText" label="Button text">
                                                                     <LemonInput
                                                                         value={
-                                                                            question.buttonText ||
-                                                                            survey.appearance.submitButtonText
+                                                                            question.buttonText === undefined
+                                                                                ? survey.appearance.submitButtonText
+                                                                                : question.buttonText
                                                                         }
                                                                     />
                                                                 </Field>
