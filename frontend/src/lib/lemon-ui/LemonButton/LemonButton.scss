@@ -95,7 +95,8 @@
         }
     }
 
-    &.LemonButton--small {
+    &.LemonButton--small,
+    .Breadcrumbs3000 & {
         gap: 0.25rem;
 
         .LemonButton__icon {

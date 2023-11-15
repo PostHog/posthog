@@ -1,9 +1,7 @@
-import random
 from typing import Dict, List, Literal, Optional, cast, Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
-from django.conf import settings
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
@@ -57,8 +55,7 @@ def parse_expr(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
     if not backend:
-        backend = "cpp" if settings.TEST else random.choice(("cpp", "python"))
-        assert backend is not None
+        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -78,8 +75,7 @@ def parse_order_expr(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
     if not backend:
-        backend = "cpp" if settings.TEST else random.choice(("cpp", "python"))
-        assert backend is not None
+        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
@@ -99,8 +95,7 @@ def parse_select(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if not backend:
-        backend = "cpp" if settings.TEST else random.choice(("cpp", "python"))
-        assert backend is not None
+        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):

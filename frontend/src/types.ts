@@ -116,6 +116,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
 }
 
 export enum LicensePlan {
@@ -1471,6 +1472,8 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
+export type AppType = PluginType
+
 /** Config passed to app component and logic as props. Sent in Django's app context */
 export interface FrontendAppConfig {
     pluginId: number
@@ -1515,6 +1518,19 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+}
+
+// TODO: Rename to PluginConfigType once the are removed from the frontend
+export interface PluginConfigTypeNew {
+    id: number
+    plugin: number
+    team_id: number
+    enabled: boolean
+    order: number
+    error?: PluginErrorType
+    name: string
+    description?: string
+    updated_at: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -2169,6 +2185,7 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
+    // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
@@ -2185,6 +2202,7 @@ export interface SurveyQuestionBase {
     question: string
     description?: string | null
     optional?: boolean
+    buttonText?: string
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {

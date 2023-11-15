@@ -819,9 +819,16 @@ Using the correct cache and enriching the response with dashboard specific confi
         except HogQLException as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
+
+        params_breakdown_limit = request.GET.get("breakdown_limit")
+        if params_breakdown_limit is not None and params_breakdown_limit != "":
+            breakdown_values_limit = int(params_breakdown_limit)
+        else:
+            breakdown_values_limit = BREAKDOWN_VALUES_LIMIT
+
         next = (
-            format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
-            if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
+            format_paginated_url(request, filter.offset, breakdown_values_limit)
+            if len(result["result"]) >= breakdown_values_limit
             else None
         )
         if self.request.accepted_renderer.format == "csv":

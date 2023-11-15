@@ -1,4 +1,4 @@
-import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
+import { kea, path, connect, actions, reducers, props, selectors, listeners, key } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -6,12 +6,14 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightLogicProps } from '~/types'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
-    path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
     props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
         actions: [insightVizDataLogic(props), ['updateQuerySource']],
