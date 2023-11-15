@@ -11,6 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
@@ -253,10 +254,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 if (!values.buttonActionsVisible) {
                     actions.showButtonActions()
                 }
-                // TODO what's going on here then?
-                // if (!toolbarButtonLogic.values.actionsInfoVisible) {
-                //     toolbarButtonLogic.actions.showActionsInfo()
-                // }
+
+                toolbarButtonLogic.actions.setVisibleMenu('actions')
             }
         },
         inspectElementSelected: ({ element, index }) => {
