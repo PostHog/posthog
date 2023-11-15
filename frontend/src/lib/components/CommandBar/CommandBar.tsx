@@ -7,8 +7,8 @@ import { commandBarLogic } from './commandBarLogic'
 import { BarStatus } from './types'
 
 import './index.scss'
-import SearchBar from './SearchBar'
-import ActionBar from './ActionBar'
+import { SearchBar } from './SearchBar'
+import { ActionBar } from './ActionBar'
 
 const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
     <div
@@ -25,7 +25,7 @@ const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.El
     </div>
 )
 
-function CommandBar(): JSX.Element | null {
+export function CommandBar(): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { barStatus } = useValues(commandBarLogic)
     const { hideCommandBar } = useActions(commandBarLogic)
@@ -47,5 +47,3 @@ function CommandBar(): JSX.Element | null {
         </CommandBarOverlay>
     )
 }
-
-export default CommandBar

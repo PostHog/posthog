@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 
 import { searchBarLogic } from './searchBarLogic'
-import SearchBarTab from './SearchBarTab'
+import { SearchBarTab } from './SearchBarTab'
 import { ResultType } from './types'
 
-const SearchTabs = (): JSX.Element | null => {
+export const SearchTabs = (): JSX.Element | null => {
     const { searchResponse, activeTab } = useValues(searchBarLogic)
 
     if (!searchResponse) {
@@ -20,4 +20,3 @@ const SearchTabs = (): JSX.Element | null => {
         </div>
     )
 }
-export default SearchTabs

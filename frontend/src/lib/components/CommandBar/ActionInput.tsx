@@ -19,7 +19,7 @@ const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null 
     }
 }
 
-const ActionInput = (): JSX.Element => {
+export const ActionInput = (): JSX.Element => {
     const { input, activeFlow } = useValues(actionBarLogic)
     const { setInput } = useActions(actionBarLogic)
 
@@ -39,5 +39,3 @@ const ActionInput = (): JSX.Element => {
         </div>
     )
 }
-
-export default ActionInput

@@ -10,7 +10,7 @@ type SearchBarTabProps = {
     count?: number | null
 }
 
-const SearchBarTab = ({ type, active, count }: SearchBarTabProps): JSX.Element => {
+export const SearchBarTab = ({ type, active, count }: SearchBarTabProps): JSX.Element => {
     const { setActiveTab } = useActions(searchBarLogic)
     return (
         <div className={`px-3 py-2 cursor-pointer text-xs ${active && 'font-bold'}`} onClick={() => setActiveTab(type)}>
@@ -19,5 +19,3 @@ const SearchBarTab = ({ type, active, count }: SearchBarTabProps): JSX.Element =
         </div>
     )
 }
-
-export default SearchBarTab

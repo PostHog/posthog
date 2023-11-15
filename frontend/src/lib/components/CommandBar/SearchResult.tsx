@@ -13,7 +13,7 @@ type SearchResultProps = {
     keyboardFocused: boolean
 }
 
-const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
+export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
     const { isAutoScrolling } = useValues(searchBarLogic)
     const { onMouseEnterResult, onMouseLeaveResult, openResult, setIsAutoScrolling } = useActions(searchBarLogic)
 
@@ -82,5 +82,3 @@ export const SearchResultSkeleton = (): JSX.Element => (
         </div>
     </div>
 )
-
-export default SearchResult
