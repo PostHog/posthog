@@ -59,7 +59,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
-        toggleEditing: true,
+        toggleEditing: (visible?: boolean) => ({ visible }),
         scrollIntoView: true,
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
@@ -246,10 +246,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
         },
-        toggleEditing: () => {
-            props.notebookLogic.actions.setEditingNodeId(
-                props.notebookLogic.values.editingNodeId === values.nodeId ? null : values.nodeId
-            )
+        toggleEditing: ({ visible }) => {
+            const shouldShowThis = typeof visible === 'boolean' ? visible : !values.notebookLogic.values.editingNodeId
+            props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
         },
         initializeNode: () => {
             const { __init } = values.nodeAttributes
@@ -259,7 +258,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     actions.setExpanded(true)
                 }
                 if (__init.showSettings) {
-                    actions.toggleEditing()
+                    actions.toggleEditing(true)
                 }
                 props.updateAttributes({ __init: null })
             }
