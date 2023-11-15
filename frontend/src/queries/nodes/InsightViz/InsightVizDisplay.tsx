@@ -232,7 +232,12 @@ export function InsightVizDisplay({
                             </div>
                         )}
 
-                        <div className="InsightVizDisplay__content">
+                        <div
+                            className={clsx(
+                                'InsightVizDisplay__content',
+                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
+                            )}
+                        >
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
                             ) : supportsDisplay && showLegend ? (

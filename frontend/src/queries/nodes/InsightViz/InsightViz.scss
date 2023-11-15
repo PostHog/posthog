@@ -36,6 +36,11 @@
         display: flex;
         flex: 1;
         position: relative;
+        flex-direction: column;
+
+        &--with-legend {
+            flex-direction: row;
+        }
 
         .InsightVizDisplay__content__left {
             display: flex;
@@ -48,8 +53,7 @@
         .InsightVizDisplay__content__right {
             flex-shrink: 1;
             max-width: 45%;
-
-            // height: var(--insight-viz-min-height);
+            max-height: var(--insight-viz-min-height);
             width: fit-content;
             margin: 1rem;
             display: flex;
@@ -60,30 +64,6 @@
     .InsightDisplayConfig {
         border-bottom-width: 1px;
         padding: 0.5rem;
-    }
-
-    &--type-trends {
-    }
-
-    &--type-stickiness {
-    }
-
-    &--type-lifecycle {
-    }
-
-    &--type-funnels {
-    }
-
-    &--type-retention {
-    }
-
-    &--type-paths {
-    }
-
-    &--type-json {
-    }
-
-    &--type-sql {
     }
 }
 
@@ -116,16 +96,6 @@
 }
 
 .TrendsInsight {
-    // &--ActionsLineGraph
-    // &--ActionsLineGraphCumulative
-    // &--ActionsAreaGraph
-    // &--ActionsTable
-    // &--ActionsPie
-    // &--ActionsBar
-    // &--ActionsBarValue
-    // &--WorldMap
-    // &--BoldNumber
-
     position: relative;
     flex: 1;
     margin: 0.5rem;
