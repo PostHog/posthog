@@ -11,7 +11,7 @@ export function AutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportIngestionAutocaptureToggled } = useActions(eventUsageLogic)
+    const { reportAutocaptureToggled } = useActions(eventUsageLogic)
 
     return (
         <>
@@ -33,7 +33,7 @@ export function AutocaptureSettings(): JSX.Element {
                         updateCurrentTeam({
                             autocapture_opt_out: !checked,
                         })
-                        reportIngestionAutocaptureToggled(!checked)
+                        reportAutocaptureToggled(!checked)
                     }}
                     checked={!currentTeam?.autocapture_opt_out}
                     disabled={userLoading}
@@ -49,7 +49,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportIngestionAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
+    const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
     const { errorsToIgnoreRules, rulesCharacters } = useValues(autocaptureExceptionsLogic)
     const { setErrorsToIgnoreRules } = useActions(autocaptureExceptionsLogic)
@@ -62,7 +62,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                     updateCurrentTeam({
                         autocapture_exceptions_opt_in: checked,
                     })
-                    reportIngestionAutocaptureExceptionsToggled(checked)
+                    reportAutocaptureExceptionsToggled(checked)
                 }}
                 checked={!!currentTeam?.autocapture_exceptions_opt_in}
                 disabled={userLoading}

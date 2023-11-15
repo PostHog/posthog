@@ -438,6 +438,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
         reportIngestionContinueWithoutVerifying: true,
+        reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
+        reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
@@ -1028,6 +1030,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
+        },
+        reportAutocaptureToggled: ({ autocapture_opt_out }) => {
+            posthog.capture('autocapture toggled', {
+                autocapture_opt_out,
+            })
+        },
+        reportAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
+            posthog.capture('autocapture exceptions toggled', {
+                autocapture_opt_in,
+            })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
