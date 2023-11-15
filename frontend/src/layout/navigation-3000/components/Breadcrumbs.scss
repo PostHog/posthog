@@ -1,5 +1,6 @@
 .Breadcrumbs3000 {
     --breadcrumbs-compaction-rate: 0;
+
     z-index: var(--z-main-nav);
     position: sticky;
     top: 0;
@@ -48,6 +49,7 @@
     font-weight: 700;
     overflow: hidden;
     height: calc(1em * 1.2 * (1 - var(--breadcrumbs-compaction-rate)));
+
     > span {
         position: absolute;
         bottom: 0;
@@ -69,6 +71,7 @@
 
     &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;
+
         > span {
             opacity: 1;
             transform: translateY(calc(100% * (1 - var(--breadcrumbs-compaction-rate))));
@@ -77,6 +80,7 @@
 
     &.Breadcrumbs3000__breadcrumb--actionable {
         cursor: pointer;
+
         &:hover > span,
         &.Breadcrumbs3000__breadcrumb--open > span {
             opacity: 1;
@@ -103,6 +107,7 @@
     flex-shrink: 0;
     margin: 0 0.5rem;
     opacity: 0.5;
+
     &::after {
         content: '/';
     }

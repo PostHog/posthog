@@ -4,12 +4,12 @@
 
     background: linear-gradient(
         90deg,
-        rgba(190, 190, 190, 0.2) 25%,
-        rgba(129, 129, 129, 0.24) 45%,
-        rgba(190, 190, 190, 0.2) 65%
+        rgb(190 190 190 / 20%) 25%,
+        rgb(129 129 129 / 24%) 45%,
+        rgb(190 190 190 / 20%) 65%
     );
     background-size: 400% 100%;
-    animation: lemon-skeleton-loading 2s ease infinite;
+    animation: LemonSkeleton__shimmer 2s ease infinite;
 
     @media (prefers-reduced-motion) {
         animation: none;
@@ -30,7 +30,7 @@
     }
 }
 
-@keyframes lemon-skeleton-loading {
+@keyframes LemonSkeleton__shimmer {
     0% {
         background-position: 100% 50%;
     }

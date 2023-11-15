@@ -1,6 +1,6 @@
 .definition-popover {
     width: 20rem;
-    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
+    padding: 0.5rem 0.75rem 0.75rem;
 
     .definition-popover-header {
         display: flex;
@@ -94,6 +94,7 @@
         .definition-popover-timemeta-user {
             display: inline-flex;
         }
+
         .definition-popover-timemeta-spacer {
             margin-right: 0.5rem;
         }

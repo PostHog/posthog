@@ -69,9 +69,9 @@
                 // same as chart-js
                 font-size: 12px;
                 font-weight: normal;
-                font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
-
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
                 fill: var(--white);
+
                 &.outside {
                     fill: #0f0f0f;
                 }

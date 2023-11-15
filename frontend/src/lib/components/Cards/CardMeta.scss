@@ -9,19 +9,24 @@
         height: 100%;
         pointer-events: none;
         z-index: var(--z-raised);
+
         &.horizontal {
             svg {
                 transform: rotate(90deg) translateX(0.75rem);
             }
         }
+
         &.vertical {
             flex-direction: column;
+
             svg {
                 transform: translateX(0.5rem);
             }
         }
+
         &.corner {
             justify-content: flex-end;
+
             svg {
                 transform: translate(0.5rem, 0.5rem);
             }
@@ -52,6 +57,7 @@
         line-height: 1.5rem;
         margin-bottom: 0;
     }
+
     h4 {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -120,12 +126,15 @@
     &.blue {
         background: var(--blue);
     }
+
     &.purple {
         background: var(--purple);
     }
+
     &.green {
         background: var(--green);
     }
+
     &.black {
         background: var(--black);
     }
@@ -138,6 +147,7 @@
     width: 100%;
     height: fit-content;
     min-height: 2rem;
+
     > * {
         max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
     }

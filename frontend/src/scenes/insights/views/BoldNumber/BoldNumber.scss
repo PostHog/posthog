@@ -11,6 +11,7 @@
 
     @include screen($md) {
         padding: 3rem 0 5rem;
+
         .InsightCard & {
             padding: 2rem 0;
         }
@@ -32,6 +33,7 @@
 
     @include screen($md) {
         padding: 0 5rem;
+
         .InsightCard & {
             padding: 0 2rem;
         }
