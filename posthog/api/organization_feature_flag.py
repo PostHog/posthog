@@ -2,6 +2,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.models import FeatureFlag, Team
+from posthog.models.cohort import Cohort
 from posthog.permissions import OrganizationMemberPermissions
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
@@ -86,7 +87,7 @@ class OrganizationFeatureFlagView(
         for target_project_id in target_project_ids:
             # Target project does not exist
             try:
-                Team.objects.get(id=target_project_id)
+                target_project = Team.objects.get(id=target_project_id)
             except ObjectDoesNotExist:
                 failed_projects.append(
                     {
@@ -96,10 +97,59 @@ class OrganizationFeatureFlagView(
                 )
                 continue
 
+            # get all linked cohorts, sorted by creation order
+            seen_cohorts_cache = {}
+            sorted_cohort_ids = flag_to_copy.get_cohort_ids(
+                seen_cohorts_cache=seen_cohorts_cache, sort_by_creation_order=True
+            )
+
+            # destination cohort id is different from original cohort id - create mapping
+            name_to_dest_cohort_id = {}
+            # create cohorts in the destination project
+            if len(sorted_cohort_ids):
+                for cohort_id in sorted_cohort_ids:
+                    original_cohort = seen_cohorts_cache[str(cohort_id)]
+
+                    # search in destination project by name
+                    destination_cohort = Cohort.objects.filter(
+                        name=original_cohort.name, team_id=target_project_id, deleted=False
+                    ).first()
+
+                    # create new cohort in the destination project
+                    if not destination_cohort:
+                        new_filters = original_cohort.filters
+                        if new_filters:
+                            properties = new_filters.get("properties", [])
+                            for outer_prop in properties.get("values", []):
+                                for inner_prop in outer_prop.get("values", []):
+                                    if inner_prop.get("type") == "cohort":
+                                        original_neighbor = seen_cohorts_cache[str(inner_prop["value"])]
+                                        inner_prop["value"] = name_to_dest_cohort_id[original_neighbor.name]
+
+                        destination_cohort = Cohort.objects.create(
+                            team=target_project,
+                            name=original_cohort.name,
+                            groups=original_cohort.groups,
+                            filters=original_cohort.filters,
+                            description=original_cohort.description,
+                            is_static=original_cohort.is_static,
+                        )
+                    name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
+
             context = {
                 "request": request,
                 "team_id": target_project_id,
             }
+
+            # reference correct destination cohort ids in the flag
+            for group in flag_to_copy.filters.get("groups", []):
+                props = group.get("properties", [])
+                for prop in props:
+                    if prop.get("type") == "cohort":
+                        original_id = str(prop["value"])
+                        name = (seen_cohorts_cache[original_id]).name
+                        prop["value"] = name_to_dest_cohort_id[name]
+
             flag_data = {
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,

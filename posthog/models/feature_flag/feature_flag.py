@@ -260,6 +260,7 @@ class FeatureFlag(models.Model):
         self,
         using_database: str = "default",
         seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        sort_by_creation_order=False,
     ) -> List[int]:
         from posthog.models.cohort.util import get_dependent_cohorts
 
@@ -293,6 +294,8 @@ class FeatureFlag(models.Model):
                         )
                     except Cohort.DoesNotExist:
                         continue
+        if sort_by_creation_order:
+            return get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache)
 
         return list(cohort_ids)
 
@@ -307,6 +310,43 @@ class FeatureFlag(models.Model):
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+
+def get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache):
+    dependency_graph = {}
+    seen = set()
+
+    # build graph (adjacency list)
+    def traverse(cohort):
+        # add parent
+        dependency_graph[cohort.id] = []
+        for prop in cohort.properties.flat:
+            if prop.type == "cohort":
+                # add child
+                dependency_graph[cohort.id].append(prop.value)
+
+                str_neighbor_cohort_id = str(prop.value)
+                neighbor_cohort = seen_cohorts_cache[str_neighbor_cohort_id]
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    traverse(neighbor_cohort)
+
+    # post-order DFS (children first, then the parent)
+    def dfs(node, seen, sorted_arr):
+        neighbors = dependency_graph.get(node, [])
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                dfs(neighbor, seen, sorted_arr)
+        sorted_arr.append(node)
+        seen.add(node)
+
+    sorted_cohort_ids = []
+    seen = set()
+    for cohort_id in cohort_ids:
+        if cohort_id not in seen:
+            seen.add(cohort_id)
+            dfs(cohort_id, seen, sorted_cohort_ids)
+    return sorted_cohort_ids
 
 
 @mutable_receiver(pre_delete, sender=Experiment)
