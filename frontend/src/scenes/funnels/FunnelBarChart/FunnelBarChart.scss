@@ -17,6 +17,7 @@
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
         width: 100%;
+        height: 100%;
 
         > tbody {
             > tr {
