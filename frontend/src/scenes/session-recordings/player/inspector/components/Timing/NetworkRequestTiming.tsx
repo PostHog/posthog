@@ -306,7 +306,7 @@ export const NetworkRequestTiming = ({
                     onClick={() => setTimelineMode(!timelineMode)}
                     data-attr={`switch-timing-to-${timelineMode ? 'table' : 'timeline'}-view`}
                 >
-                    {timelineMode ? 'table view' : 'timeline view'}
+                    {timelineMode ? 'Table view' : 'Timeline view'}
                 </LemonButton>
             </div>
             <LemonDivider dashed={true} />
