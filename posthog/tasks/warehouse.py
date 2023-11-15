@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def sync_resources() -> None:
-    resources = ExternalDataSource.objects.filter(status__in=["running", "error"])
+    resources = ExternalDataSource.objects.all()
 
     for resource in resources:
         sync_resource.delay(resource.pk)
