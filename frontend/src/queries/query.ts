@@ -110,8 +110,11 @@ async function executeQuery<N extends DataNode = DataNode>(
     }
 
     const pollStart = performance.now()
+    let currentDelay = 300 // start low, because all queries will take at minimum this
+
     while (performance.now() - pollStart < QUERY_ASYNC_MAX_POLL_SECONDS * 1000) {
-        await delay(QUERY_ASYNC_DELAY_MILLISECONDS)
+        await delay(currentDelay)
+        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_DELAY_MILLISECONDS)
 
         if (methodOptions?.signal?.aborted) {
             const customAbortError = new Error('Query aborted')
