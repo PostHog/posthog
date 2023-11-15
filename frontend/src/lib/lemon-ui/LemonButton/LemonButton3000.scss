@@ -107,7 +107,7 @@
             }
         }
 
-        &.LemonButton--with-motion {
+        &:not(.LemonButton--tertiary) {
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 > span {
@@ -174,10 +174,15 @@
             }
         }
 
+        &.LemonButton--secondary {
+            > span {
+                background: var(--accent-3000);
+            }
+        }
+
         &.LemonButton--secondary:not(.LemonButton--is-stealth),
         &.LemonButton--is-stealth:hover {
             > span {
-                background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
             }
         }
