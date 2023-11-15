@@ -95,7 +95,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
-                motion = true,
+                motion = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -157,7 +157,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            const withMotion = motion === undefined ? type != 'tertiary' : motion
+            const withMotion = motion || type != 'tertiary'
 
             let workingButton = (
                 <ButtonComponent
