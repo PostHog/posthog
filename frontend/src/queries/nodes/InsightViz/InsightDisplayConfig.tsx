@@ -104,7 +104,7 @@ export function InsightDisplayConfig(): JSX.Element {
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {isRetention && (
+                {!isRetention && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
