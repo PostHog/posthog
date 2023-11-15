@@ -37,16 +37,11 @@
     margin: 1rem auto;
     border-radius: var(--radius);
     background-color: var(--bg-light);
+    border: 1px solid var(--border-3000);
     box-shadow: var(--shadow-elevation);
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: column;
-
-    border: 1px solid var(--border);
-
-    .posthog-3000 & {
-        border: 1px solid var(--border-3000);
-    }
 
     // Transition properties
     will-change: transform;
