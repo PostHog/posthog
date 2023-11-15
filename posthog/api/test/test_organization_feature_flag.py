@@ -492,7 +492,66 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
             self.assertTrue(found_cohort)
 
-    def test_copy_feature_flag_destination_cohort_not_overridden(self):
+    def test_copy_feature_flag_cohort_nonexistent_in_destination_2(self):
+        cohorts = {}
+        creation_order = []
+
+        def create_cohort(name, children):
+            creation_order.append(name)
+            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]
+            if children:
+                properties = [{"key": "id", "type": "cohort", "value": child.pk} for child in children]
+
+            cohorts[name] = Cohort.objects.create(
+                team=self.team,
+                name=str(name),
+                groups=[{"properties": properties}],
+            )
+
+        # link cohorts
+        create_cohort(3, None)
+        create_cohort(4, [cohorts[3]])
+        create_cohort(2, [cohorts[4]])
+        create_cohort(1, [cohorts[2], cohorts[3]])
+
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-with-cohort",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 20,
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": cohorts[1].pk,  # link "head" cohort
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        data = {
+            "feature_flag_key": flag_to_copy.key,
+            "from_project": flag_to_copy.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # check all cohorts were created in the destination project
+        for name in creation_order:
+            found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
+            self.assertTrue(found_cohort)
+
+    def test_copy_feature_flag_cohort_exists_in_destination(self):
         cohort_name = "cohort-1"
         target_project = self.team_2
         original_cohort = Cohort.objects.create(
