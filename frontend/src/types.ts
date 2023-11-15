@@ -3188,10 +3188,9 @@ export interface DataWarehouseViewLink {
 }
 
 export interface ExternalDataSourceCreatePayload {
-    account_id: string
-    client_secret: string
+    payload_type: string
+    payload: Record<string, any>
 }
-
 export interface ExternalDataSource {
     id: string
     source_id: string

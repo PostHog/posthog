@@ -1618,7 +1618,7 @@ const api = {
         async list(): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get()
         },
-        async create(data: Partial<ExternalDataSource>): Promise<ExternalDataSourceCreatePayload> {
+        async create(data: ExternalDataSourceCreatePayload): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataSource['id']): Promise<void> {

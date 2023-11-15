@@ -79,16 +79,19 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     forms(() => ({
         externalDataSource: {
-            defaults: { account_id: '', client_secret: '' } as ExternalDataSourceCreatePayload,
+            defaults: { account_id: '', client_secret: '' },
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
                     client_secret: !client_secret && 'Please enter a client secret.',
                 }
             },
-            submit: async (payload: ExternalDataSourceCreatePayload) => {
-                const newResource = await api.externalDataSources.create(payload)
-                return newResource
+            submit: async (payload) => {
+                await api.externalDataSources.create({
+                    payload,
+                    payload_type: 'stripe',
+                } as ExternalDataSourceCreatePayload)
+                return payload
             },
         },
     })),
