@@ -28,6 +28,7 @@ export function NewProperty({ onSave }: NewPropertyProps): JSX.Element {
         <>
             <LemonButton
                 data-attr="add-prop-button"
+                size="small"
                 onClick={() => setState({ ...state, creating: true })}
                 type="primary"
             >
