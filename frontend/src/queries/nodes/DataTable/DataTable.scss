@@ -3,17 +3,18 @@
         max-width: 20rem;
     }
 
-    @keyframes DataTable--highlight {
+    @keyframes DataTable__highlight {
         0% {
             background-color: var(--mark);
         }
+
         100% {
             background-color: initial;
         }
     }
 
     .DataTable__row--highlight_once {
-        animation: DataTable--highlight 2000ms ease-out;
+        animation: DataTable__highlight 2000ms ease-out;
     }
 
     .DataTable__row--category_row {

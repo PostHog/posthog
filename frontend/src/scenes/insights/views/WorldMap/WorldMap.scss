@@ -2,11 +2,13 @@
     padding: 1rem 0;
     width: 100%;
     color: var(--border);
+
     .landxx {
         fill: currentColor;
         stroke: var(--bg-light);
         stroke-width: 0.125rem;
         fill-rule: evenodd;
+
         &:hover {
             color: var(--primary-dark) !important;
         }

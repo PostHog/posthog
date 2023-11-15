@@ -7,9 +7,11 @@
     flex-direction: column;
     flex: 1;
     overflow: scroll;
+
     &::-webkit-scrollbar {
         width: 0 !important;
     }
+
     -ms-overflow-style: none;
 
     .BridgePage__main {
@@ -83,7 +85,7 @@
             font-size: 0.8em;
             font-weight: 600;
 
-            &:after {
+            &::after {
                 position: absolute;
                 top: 100%;
                 left: 20px;
@@ -104,7 +106,7 @@
             &.BridgePage__left__message--enter-active,
             &.BridgePage__left__message--enter-done {
                 opacity: 1;
-                transform: translateY(0px) rotate(5deg) scale(1);
+                transform: translateY(0) rotate(5deg) scale(1);
                 transition: 200ms opacity, 200ms transform;
             }
 
@@ -126,13 +128,16 @@
     .BridgePage__header-logo {
         &.mobile {
             display: block;
+
             @include screen($md) {
                 display: none;
             }
         }
+
         .header-logo {
             padding-bottom: 3rem;
             text-align: center;
+
             img {
                 height: 24px;
             }

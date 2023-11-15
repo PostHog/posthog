@@ -3,12 +3,13 @@
         display: flex;
         justify-content: center;
     }
+
     .correlation-table-wrapper {
         table {
             border-radius: var(--radius);
             border: 1px solid var(--border);
             border-collapse: separate;
-            border-spacing: 0px;
+            border-spacing: 0;
             margin: 0 auto;
 
             td {
@@ -21,6 +22,7 @@
                     font-weight: bold;
                     padding-bottom: 0.25rem;
                 }
+
                 &:first-child {
                     border-left: none;
                 }
@@ -28,6 +30,7 @@
 
             .table-title {
                 color: var(--muted-alt);
+
                 td {
                     border-top: none;
                 }

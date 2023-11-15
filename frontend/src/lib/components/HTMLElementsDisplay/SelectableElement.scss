@@ -6,9 +6,11 @@
     &.SelectableElement--selected {
         background: var(--primary);
     }
+
     &:hover {
         background: var(--primary-light);
     }
+
     &:active {
         background: var(--primary-dark);
     }

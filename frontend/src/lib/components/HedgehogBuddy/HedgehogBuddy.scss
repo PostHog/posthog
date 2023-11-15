@@ -4,7 +4,7 @@
     cursor: pointer;
     margin: 0;
 
-    &:after {
+    &::after {
         // Hack for preloading images
         position: absolute;
         width: 0;

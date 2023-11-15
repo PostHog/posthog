@@ -18,6 +18,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
+
         &:not(:first-child) {
             &,
             .funnel-series-container {
@@ -36,6 +37,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-inspect-button {
                 line-height: 1.5rem;
+
                 .value-inspector-button-icon {
                     font-size: 1.5rem;
                     margin-right: 0.25rem;
@@ -99,6 +101,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-step-title {
                 @extend %mixin-text-ellipsis;
+
                 font-weight: bold;
             }
 
