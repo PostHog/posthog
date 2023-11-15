@@ -142,13 +142,13 @@ class OrganizationFeatureFlagView(
                     name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
-            # for group in flag_to_copy.filters.get("groups", []):
-            #     props = group.get("properties", [])
-            #     for prop in props:
-            #         if prop.get("type") == "cohort":
-            #             original_cohort_id = str(prop["value"])
-            #             cohort_name = (seen_cohorts_cache[original_cohort_id]).name
-            #             prop["value"] = name_to_dest_cohort_id[cohort_name]
+            for group in flag_to_copy.filters.get("groups", []):
+                props = group.get("properties", [])
+                for prop in props:
+                    if prop.get("type") == "cohort":
+                        original_cohort_id = str(prop["value"])
+                        cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                        prop["value"] = name_to_dest_cohort_id[cohort_name]
 
             flag_data = {
                 "key": flag_to_copy.key,
