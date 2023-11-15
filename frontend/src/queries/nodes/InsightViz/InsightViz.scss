@@ -8,6 +8,7 @@
 
     &.InsightViz--horizontal {
         flex-flow: row wrap;
+        align-items: start;
 
         .EditorFiltersWrapper {
             width: 100%;
