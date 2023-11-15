@@ -4,10 +4,12 @@
 #
 #    pip-compile requirements.in
 #
-aioboto3==11.1
+aioboto3==11.1.0
     # via -r requirements.in
 aiobotocore[boto3]==2.5.0
-    # via aioboto3
+    # via
+    #   aioboto3
+    #   aiobotocore
 aiohttp==3.8.5
     # via
     #   -r requirements.in
@@ -28,7 +30,7 @@ annotated-types==0.5.0
     # via pydantic
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
-asgiref==3.3.2
+asgiref==3.7.2
     # via django
 asn1crypto==1.5.1
     # via
@@ -133,7 +135,7 @@ defusedxml==0.6.0
     #   social-auth-core
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.19
+django==4.2.7
     # via
     #   -r requirements.in
     #   django-axes
@@ -223,6 +225,7 @@ geoip2==4.6.0
     # via -r requirements.in
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -422,7 +425,6 @@ pytz==2021.1
     # via
     #   -r requirements.in
     #   clickhouse-driver
-    #   django
     #   djangorestframework
     #   infi-clickhouse-orm
     #   snowflake-connector-python
@@ -531,6 +533,7 @@ types-s3transfer==0.6.1
     # via boto3-stubs
 typing-extensions==4.7.1
     # via
+    #   asgiref
     #   psycopg
     #   pydantic
     #   pydantic-core
