@@ -9,14 +9,13 @@ import {
     IconCursorClick,
     IconQuestion,
 } from '@posthog/icons'
-import { IconDragHandle, IconMenu, IconTarget } from 'lib/lemon-ui/icons'
+import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
@@ -28,6 +27,7 @@ import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { Tooltip } from '@posthog/lemon-ui'
+import { useLongPress } from 'lib/hooks/useLongPress'
 
 function MoreMenu({
     onOpenOrClose,
@@ -166,6 +166,8 @@ export function Toolbar3000(): JSX.Element {
         []
     )
 
+    // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
+
     return (
         <>
             {!minimizedWidth && <ToolbarInfoMenu />}
@@ -175,11 +177,32 @@ export function Toolbar3000(): JSX.Element {
                     minimizedWidth ? 'Toolbar3000--minimized-width' : 'pl-1'
                 )}
             >
+                <Tooltip title={minimizedWidth ? 'expand the toolbar' : 'minimize'}>
+                    <LemonButton
+                        icon={<IconLogomark />}
+                        status={'stealth'}
+                        {...useLongPress(
+                            (clicked) => {
+                                if (clicked) {
+                                    toggleWidth()
+                                }
+                            },
+                            {
+                                ms: undefined,
+                                clickMs: 1 as any,
+                                touch: true,
+                                click: true,
+                            }
+                        )}
+                        // onClick={(e) => {
+                        //     e.stopPropagation()
+                        //     toggleWidth()
+                        // }}
+                        className={clsx(!minimizedWidth && 'rounded-l-none')}
+                    />
+                </Tooltip>
                 {!minimizedWidth ? (
-                    <>
-                        <IconDragHandle className={'text-2xl cursor-grab'} />
-                        <LemonDivider vertical={true} className={'h-full ml-1 bg-border-bold-3000'} />
-                    </>
+                    <LemonDivider vertical={true} className={'h-full ml-1 bg-border-bold-3000'} />
                 ) : null}
                 {isAuthenticated && !minimizedWidth ? (
                     <>
@@ -240,20 +263,8 @@ export function Toolbar3000(): JSX.Element {
                             />
                         </Tooltip>
                         <MoreMenu onOpenOrClose={swallowClick} />
-                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
                 ) : null}
-                <Tooltip title={minimizedWidth ? 'expand the toolbar' : 'minimize'}>
-                    <LemonButton
-                        icon={<IconLogomark />}
-                        status={'stealth'}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            toggleWidth()
-                        }}
-                        className={clsx(!minimizedWidth && 'rounded-l-none')}
-                    />
-                </Tooltip>
             </div>
         </>
     )

@@ -19,8 +19,6 @@ export function DraggableButton(): JSX.Element {
         <>
             <Draggable
                 handle=".floating-toolbar-button"
-                // don't allow dragging from mousedown on a button
-                cancel={'.LemonButton'}
                 position={dragPosition}
                 onDrag={(_, { x, y }) => {
                     saveDragPosition(x, y)

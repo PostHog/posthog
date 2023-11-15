@@ -87,7 +87,8 @@
     transition-timing-function: ease;
     filter: drop-shadow(1px 2px 2px var(--trace-3000));
 
-    width: 17rem;
+    // fixed width so that animations work when changing width
+    width: 15.5rem;
     &.Toolbar3000--minimized-width {
         width: 2.5rem;
     }
