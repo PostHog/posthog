@@ -3024,15 +3024,14 @@ export type QueryStatus = {
     id: string
     async: boolean
     team_id: number
-    num_rows: number
-    total_rows: number
     error: boolean
     complete: boolean
     error_message: string
     results: any
-    start_time: number | null
-    end_time: number | null
-    task_id: string | null
+    start_time?: string
+    end_time?: string
+    expiration_time?: string
+    task_id?: string
 }
 
 export enum FeatureFlagReleaseType {

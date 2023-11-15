@@ -1742,7 +1742,7 @@ const api = {
         options?: ApiMethodOptions,
         queryId?: string,
         refresh?: boolean,
-        slowLane?: boolean
+        async?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1752,7 +1752,7 @@ const api = {
     > {
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async: slowLane } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

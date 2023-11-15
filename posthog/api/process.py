@@ -1,5 +1,3 @@
-import hashlib
-import json
 import structlog
 from typing import Any, Dict, List, Optional, cast
 
@@ -109,8 +107,3 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     )
     logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
     statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": team_id})
-
-
-def query_hash(query: Dict, team_id: int) -> str:
-    query_str = json.dumps(query, sort_keys=True)
-    return hashlib.md5(f"{team_id}_{query_str}".encode("utf-8")).hexdigest()

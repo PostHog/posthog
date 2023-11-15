@@ -1,5 +1,6 @@
 import json
 import re
+import uuid
 from typing import Dict
 
 from django.http import JsonResponse
@@ -16,7 +17,7 @@ from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
-from posthog.api.process import process_query, query_hash
+from posthog.api.process import process_query
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
@@ -120,7 +121,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         query_async = request_json.get("async", False)
         refresh_requested = refresh_requested_by_client(request)
 
-        client_query_id = request_json.get("client_query_id") or query_hash(query_json, self.team.pk)
+        client_query_id = request_json.get("client_query_id") or uuid.uuid4().hex
         self._tag_client_query_id(client_query_id)
 
         if query_async:
