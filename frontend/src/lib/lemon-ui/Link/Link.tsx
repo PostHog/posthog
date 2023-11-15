@@ -82,7 +82,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const docsPanelEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
         const is3000 = useFeatureFlag('POSTHOG_3000')
         const { openDocsPage } = useActions(sidePanelDocsLogic)
 
@@ -99,7 +98,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && docsPanelEnabled && isPostHogComDomain(to)) {
+            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
                 event.preventDefault()
                 openDocsPage(to)
                 return

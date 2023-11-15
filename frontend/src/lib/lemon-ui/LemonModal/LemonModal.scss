@@ -1,14 +1,9 @@
 .LemonModal__overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-
+    inset: 0;
     transition: background-color var(--modal-transition-time) ease-out,
         backdrop-filter var(--modal-transition-time) ease-out;
     z-index: var(--z-modal);
-
     display: flex;
     align-items: center;
     justify-content: center;
@@ -24,7 +19,7 @@
 
     &.ReactModal__Overlay--before-close {
         background-color: transparent;
-        backdrop-filter: blur(0px);
+        backdrop-filter: blur(0);
     }
 }
 
@@ -62,13 +57,15 @@
         transform: scale(1);
         opacity: 1;
     }
+
     .LemonModal__close {
         position: absolute;
         top: 1.25rem;
         right: 1.25rem;
         z-index: 1;
+
         &.LemonModal__close--highlighted {
-            animation: tilt-shake 400ms;
+            animation: LemonModal__tilt-shake 400ms;
         }
     }
 
@@ -132,19 +129,23 @@
     border-top: none;
 }
 
-@keyframes tilt-shake {
+@keyframes LemonModal__tilt-shake {
     0% {
         transform: rotate(0deg);
     }
+
     16.666% {
         transform: rotate(12deg);
     }
+
     50% {
         transform: rotate(-10deg);
     }
+
     83.333% {
         transform: rotate(8deg);
     }
+
     100% {
         transform: rotate(0deg);
     }

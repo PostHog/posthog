@@ -35,7 +35,7 @@
     &.EditorFiltersWrapper--singlecolumn {
         border: none;
         background: none;
-        padding: 0px;
+        padding: 0;
         margin-right: 1rem;
         container-type: normal;
 
@@ -51,7 +51,7 @@
 
         .EditorFilters {
             flex-direction: column;
-            gap: 0rem;
+            gap: 0;
 
             .EditorFilterGroup {
                 width: auto;
@@ -64,12 +64,12 @@
     }
 
     &.EditorFiltersWrapper--embedded {
-        margin-right: 0rem;
+        margin-right: 0;
 
         @include screen($xl) {
             .EditorFilters {
                 width: 100%;
-                padding-right: 0rem;
+                padding-right: 0;
             }
         }
     }

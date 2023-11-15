@@ -1,18 +1,20 @@
 .BatchExportRunIcon--pulse {
     outline: 2px solid transparent;
     outline-offset: 0;
-    animation: pulse 2s infinite ease-out;
+    animation: BatchExportRunIcon__pulse 2s infinite ease-out;
 }
 
-@keyframes pulse {
+@keyframes BatchExportRunIcon__pulse {
     0% {
         outline-offset: 0;
         outline-color: var(--primary-light);
     }
+
     80% {
         outline-offset: 20px;
         outline-color: transparent;
     }
+
     100% {
         outline-offset: 20px;
         outline-color: transparent;
