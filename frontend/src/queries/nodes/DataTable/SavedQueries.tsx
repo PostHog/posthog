@@ -1,5 +1,4 @@
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { DataTableNode } from '~/queries/schema'
 import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
@@ -48,7 +47,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
             }}
             type="secondary"
             status="primary-alt"
-            icon={<IconBookmarkBorder />}
+            size="small"
         >
             {selectedTitle}
         </LemonButtonWithDropdown>
