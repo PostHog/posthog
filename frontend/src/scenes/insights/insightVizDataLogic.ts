@@ -1,10 +1,19 @@
 import posthog from 'posthog-js'
 import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType, TrendsFilterType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FilterType,
+    FunnelExclusion,
+    InsightLogicProps,
+    IntervalType,
+    TrendsFilterType,
+} from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
     DateRange,
+    FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
     InsightVizNode,
@@ -251,6 +260,37 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
+
+        /*
+         * Funnels
+         */
+        isFunnelWithEnoughSteps: [
+            (s) => [s.series],
+            (series) => {
+                return (series?.length || 0) > 1
+            },
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
+                funnel_from_step: 0,
+                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FilterType => ({
+                events: funnelsFilter?.exclusions,
+            }),
+        ],
+        areExclusionFiltersValid: [
+            (s) => [s.insightDataError],
+            (insightDataError): boolean => {
+                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({

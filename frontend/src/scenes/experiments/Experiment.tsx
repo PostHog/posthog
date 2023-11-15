@@ -1,4 +1,4 @@
-import { Popconfirm, Progress, Tooltip } from 'antd'
+import { Popconfirm, Progress } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -27,6 +27,7 @@ import {
     LemonTag,
     LemonTagType,
     LemonTextArea,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

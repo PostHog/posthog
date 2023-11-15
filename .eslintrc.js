@@ -86,6 +86,11 @@ module.exports = {
                         name: '@ant-design/icons',
                         message: 'Please use icons from the @posthog/icons package instead',
                     },
+                    {
+                        name: 'antd',
+                        importNames: ['Tooltip'],
+                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
+                    },
                 ],
             },
         ],
