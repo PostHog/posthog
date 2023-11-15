@@ -23,6 +23,7 @@ from posthog.temporal.workflows.backfill_batch_export import (
     backfill_range,
     backfill_schedule,
     get_schedule_frequency,
+    round_datetime_to_frequency,
     wait_for_schedule_backfill_in_range,
 )
 
@@ -130,6 +131,37 @@ async def temporal_schedule(temporal_client, team):
 def test_backfill_range(start_at, end_at, step, expected):
     """Test the backfill_range function yields expected ranges of dates."""
     result = list(backfill_range(start_at, end_at, step))
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "datetime,frequency,expected",
+    [
+        (
+            dt.datetime(2023, 1, 1, 14, 11, 5, tzinfo=dt.timezone.utc),
+            dt.timedelta(days=1),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+        ),
+        (
+            dt.datetime(2023, 1, 1, 14, 11, 5, tzinfo=dt.timezone.utc),
+            dt.timedelta(hours=1),
+            dt.datetime(2023, 1, 1, 14, 0, 0, tzinfo=dt.timezone.utc),
+        ),
+        (
+            dt.datetime(2023, 1, 1, 14, 11, 5, tzinfo=dt.timezone.utc),
+            dt.timedelta(minutes=5),
+            dt.datetime(2023, 1, 1, 14, 10, 0, tzinfo=dt.timezone.utc),
+        ),
+        (
+            dt.datetime(2023, 1, 1, 14, 11, 5, tzinfo=dt.timezone.utc),
+            dt.timedelta(minutes=15),
+            dt.datetime(2023, 1, 1, 14, 0, 0, tzinfo=dt.timezone.utc),
+        ),
+    ],
+)
+def test_round_datetime_to_frequency(datetime, frequency, expected):
+    """Test the round_datetime_to_frequency function."""
+    result = round_datetime_to_frequency(datetime, frequency)
     assert result == expected
 
 

@@ -159,6 +159,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     jitter = description.schedule.spec.jitter
 
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
+    start_at = round_datetime_to_frequency(start_at, frequency)
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
@@ -301,6 +302,13 @@ def backfill_range(
         yield current, current_end
 
         current = current_end
+
+
+def round_datetime_to_frequency(d: dt.datetime, frequency: dt.timedelta):
+    """Round down datetime to the closes multiple of frequency."""
+    ts = d.timestamp()
+    remainder = round(ts % frequency.total_seconds(), 6)
+    return dt.datetime.fromtimestamp(ts - remainder, tz=d.tzinfo)
 
 
 @temporalio.workflow.defn(name="backfill-batch-export")
