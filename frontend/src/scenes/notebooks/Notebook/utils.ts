@@ -24,7 +24,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
 > & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
-        find: string
+        find: string | RegExp
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
@@ -45,6 +45,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
+        settingsIcon?: JSX.Element | 'filter' | 'gear'
     }
 
 export interface Node extends PMNode {}
@@ -165,6 +166,7 @@ export const textContent = (node: any): string => {
         'ph-properties': customOrTitleSerializer,
         'ph-map': customOrTitleSerializer,
         'ph-mention': customOrTitleSerializer,
+        'ph-embed': customOrTitleSerializer,
     }
 
     return getText(node, {

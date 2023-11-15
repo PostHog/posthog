@@ -18,7 +18,7 @@
     font-weight: 500;
     cursor: pointer;
     user-select: none;
-    -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
+    appearance: none !important; // Important as this gets overridden by Ant styles...
 
     > span {
         display: flex;
@@ -35,9 +35,11 @@
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
         cursor: not-allowed;
+
         > span {
             cursor: not-allowed;
         }
+
         opacity: var(--opacity-disabled);
     }
 
@@ -57,7 +59,7 @@
 
     &.LemonButton--centered {
         > span {
-            justify-content: center !important; // important is just a specifity problem. Can be removed post 3000 cleanup
+            justify-content: center;
         }
 
         .LemonButton__content {
@@ -148,6 +150,7 @@
                 &.LemonButton--active {
                     color: #fff;
                 }
+
                 &:not([aria-disabled='true']):active {
                     color: #fff;
                 }
@@ -158,11 +161,13 @@
     .ant-tooltip & {
         // Buttons have an overriden style in tooltips, as they are always dark
         &:hover {
-            background: rgba(255, 255, 255, 0.15) !important;
+            background: rgb(255 255 255 / 15%) !important;
         }
+
         &:active {
-            background: rgba(255, 255, 255, 0.2) !important;
+            background: rgb(255 255 255 / 20%) !important;
         }
+
         .LemonButton__icon {
             color: #fff !important;
         }

@@ -1,5 +1,6 @@
 .Resizer {
     --resizer-width: 8px;
+
     position: absolute;
     top: 0;
     bottom: 0;
@@ -17,8 +18,8 @@
     .Resizer__handle {
         position: absolute;
         left: calc(var(--resizer-width) / 2);
-        top: 0px;
-        bottom: 0px;
+        top: 0;
+        bottom: 0;
         width: 1px;
 
         &::before,
@@ -35,6 +36,7 @@
             transition: 100ms ease transform;
             background: var(--border);
         }
+
         &::after {
             transition: 100ms ease transform;
             background: var(--text-3000);
@@ -43,19 +45,20 @@
     }
 
     &--left {
-        left: 0px;
+        left: 0;
         transform: translateX(calc(var(--resizer-width) / 2 * -1));
     }
 
     &--right {
-        right: 0px;
-        transform: translateX(calc(var(--resizer-width) / 2 * +1));
+        right: 0;
+        transform: translateX(calc(var(--resizer-width) / 2 * 1));
     }
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
         opacity: 0.25;
     }
+
     &--resizing .Resizer__handle::before,
     &--resizing .Resizer__handle::after {
         transform: scaleX(3);

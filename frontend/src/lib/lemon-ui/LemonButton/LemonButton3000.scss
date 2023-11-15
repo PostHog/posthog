@@ -39,7 +39,7 @@
             }
         }
 
-        &:not(.LemonButton--small):not(.LemonButton--large) {
+        &:not(.LemonButton--small, .LemonButton--large) {
             min-height: 2rem;
 
             > span {
@@ -245,7 +245,7 @@
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            background: rgba(0, 0, 0, 0.1);
+            background: rgb(0 0 0 / 10%);
 
             .LemonButton__icon {
                 color: var(--default);
