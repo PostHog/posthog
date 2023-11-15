@@ -125,7 +125,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
         <WebTabs
             className={clsx(
                 'col-span-1 row-span-1',
-                ` md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
                 layout.className
             )}
             activeTabId={tile.activeTabId}
@@ -153,7 +153,7 @@ const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="web-analytics-page w-full flex flex-col pt-2">
+        <div className="WebAnalyticsDashboard w-full flex flex-col pt-2">
             <WebAnalyticsNotice />
             <Filters />
             <WebAnalyticsHealthCheck />
