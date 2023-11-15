@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def sync_resources() -> None:
-    resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
+    resources = ExternalDataSource.objects.filter(status__in=["running", "error"])
 
     for resource in resources:
         sync_resource.delay(resource.pk)
@@ -83,14 +83,10 @@ def sync_resource(resource_id: str) -> None:
             )
         else:
             table.save()
-
             resource.are_tables_created = True
-            resource.status = job["status"]
-            resource.save()
 
-    else:
-        resource.status = job["status"]
-        resource.save()
+    resource.status = job["status"]
+    resource.save()
 
 
 DEFAULT_USAGE_LIMIT = 1000000
