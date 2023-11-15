@@ -77,6 +77,6 @@
     }
 
     .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
-        background: #e5ebff;
+        background: var(--primary-highlight);
     }
 }

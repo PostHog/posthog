@@ -14,6 +14,7 @@ import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -367,4 +368,5 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
     }),
+    permanentlyMount(),
 ])

@@ -13,6 +13,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
 import './BreakdownTag.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number
@@ -21,10 +22,11 @@ type EditableBreakdownTagProps = {
 }
 
 export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
-    const logicProps = { breakdown, breakdownType, isTrends }
+    const logicProps = { insightProps, breakdown, breakdownType, isTrends }
     const { shouldShowMenu } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 

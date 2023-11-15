@@ -8,7 +8,7 @@ import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
+import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
@@ -512,7 +512,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to Team members',
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
-                            push(urls.organizationSettings())
+                            push(urls.settings('organization'))
                         },
                     },
                     {
@@ -526,7 +526,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         icon: IconSettings,
                         display: 'Go to Project settings',
                         executor: () => {
-                            push(urls.projectSettings())
+                            push(urls.settings('project'))
                         },
                     },
                     {
@@ -536,7 +536,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
-                            push(urls.mySettings())
+                            push(urls.settings('user'))
                         },
                     },
                     {
@@ -676,7 +676,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push(urls.mySettings(), {}, 'personal-api-keys')
+                                        push(urls.settings('user'), {}, 'personal-api-keys')
                                     },
                                 }
                             }

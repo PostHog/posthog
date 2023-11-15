@@ -65,7 +65,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
         <>
             {total > 0 && (
                 <div className="mb-8">
-                    <div className="w-full mx-auto h-10 mb-4">
+                    <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
                                 count: seen,
@@ -486,7 +486,7 @@ export function OpenTextViz({
                                     <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
                                         {event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

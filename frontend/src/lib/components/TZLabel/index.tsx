@@ -1,6 +1,7 @@
 import './index.scss'
 import { useActions, useValues } from 'kea'
-import { ProjectOutlined, LaptopOutlined, GlobalOutlined } from '@ant-design/icons'
+// eslint-disable-next-line no-restricted-imports
+import { ProjectOutlined, LaptopOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -8,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
+import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
@@ -22,6 +23,7 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -41,7 +43,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
-                    <LemonButton icon={<IconSettings />} size="small" to={urls.projectSettings('timezone')} />
+                    <LemonButton icon={<IconSettings />} size="small" to={urls.settings('project', 'date-and-time')} />
                 </span>
             </div>
 
@@ -67,7 +69,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 {currentTeam?.timezone !== 'UTC' && (
                     <div className="TZLabelPopover__row">
                         <div>
-                            <GlobalOutlined /> UTC
+                            <IconWeb /> UTC
                         </div>
                         <div />
                         <div>{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
@@ -87,6 +89,7 @@ function TZLabelRaw({
     showPopover = true,
     noStyles = false,
     className,
+    children,
     ...dropdownProps
 }: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
@@ -109,7 +112,7 @@ function TZLabelRaw({
         return () => clearInterval(interval)
     }, [parsedTime, format])
 
-    const innerContent = (
+    const innerContent = children ?? (
         <span
             className={
                 !noStyles ? clsx('whitespace-nowrap', showPopover && 'border-dotted border-b', className) : className

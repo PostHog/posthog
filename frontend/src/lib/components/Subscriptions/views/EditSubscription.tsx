@@ -29,12 +29,12 @@ import {
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 import { urls } from 'scenes/urls'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -254,7 +254,7 @@ export function EditSubscription({
                                                 <>
                                                     Slack is not yet configured for this project. You can configure it
                                                     at{' '}
-                                                    <Link to={`${urls.projectSettings()}#slack`}>
+                                                    <Link to={`${urls.settings('project')}#slack`}>
                                                         {' '}
                                                         Slack Integration settings
                                                     </Link>

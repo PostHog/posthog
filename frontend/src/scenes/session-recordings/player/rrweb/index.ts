@@ -5,6 +5,7 @@ const PROXY_URL = 'https://replay.ph-proxy.com' as const
 export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string) => string
     _replaceFontUrl: (value: string) => string
+    _replaceJSUrl: (value: string) => string
 } = {
     _replaceFontCssUrls: (value: string): string => {
         return value.replace(
@@ -17,6 +18,10 @@ export const CorsPlugin: ReplayPlugin & {
         return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
+    _replaceJSUrl: (value: string): string => {
+        return value.replace(/^(https:\/\/\S*(?:.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+    },
+
     onBuild: (node) => {
         if (node.nodeName === 'STYLE') {
             const styleElement = node as HTMLStyleElement
@@ -25,7 +30,20 @@ export const CorsPlugin: ReplayPlugin & {
 
         if (node.nodeName === 'LINK') {
             const linkElement = node as HTMLLinkElement
-            linkElement.href = CorsPlugin._replaceFontUrl(linkElement.href)
+            const href = linkElement.href
+            if (!href) {
+                return
+            }
+            if (linkElement.getAttribute('rel') == 'modulepreload') {
+                linkElement.href = CorsPlugin._replaceJSUrl(href)
+            } else {
+                linkElement.href = CorsPlugin._replaceFontUrl(href)
+            }
+        }
+
+        if (node.nodeName === 'SCRIPT') {
+            const scriptElement = node as HTMLScriptElement
+            scriptElement.src = CorsPlugin._replaceJSUrl(scriptElement.src)
         }
     },
 }

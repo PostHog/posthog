@@ -9,6 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 import { ExclusionRow } from './ExclusionRow'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -35,7 +36,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
             ref={ref}
             setFilters={setFilters}
             filters={exclusionFilters}
-            typeKey="funnel-exclusions-filter"
+            typeKey={`${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`}
             addFilterDefaultOptions={{
                 id: '$pageview',
                 name: '$pageview',

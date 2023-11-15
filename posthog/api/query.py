@@ -4,7 +4,7 @@ from typing import Dict, Optional, cast, Any, List
 
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -105,14 +105,23 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             OpenApiParameter(
                 "query",
                 OpenApiTypes.STR,
-                description="Query node JSON string",
+                description=(
+                    "Submit a JSON string representing a query for PostHog data analysis,"
+                    " for example a HogQL query.\n\nExample payload:\n"
+                    '```\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n```'
+                    "\n\nFor more details on HogQL queries"
+                    ", see the [PostHog HogQL documentation](/docs/hogql#api-access). "
+                ),
             ),
             OpenApiParameter(
                 "client_query_id",
                 OpenApiTypes.STR,
                 description="Client provided query ID. Can be used to cancel queries.",
             ),
-        ]
+        ],
+        responses={
+            200: OpenApiResponse(description="Query results"),
+        },
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))

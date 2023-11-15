@@ -1,6 +1,6 @@
-import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { IconClose } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React, { Fragment, useState } from 'react'
@@ -65,7 +65,7 @@ export function SidebarChangeNoticeContent({
     onAcknowledged: () => void
 }): JSX.Element | null {
     return (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" onClick={onAcknowledged}>
             <div className="flex-1">
                 {notices.map((notice, i) => (
                     <Fragment key={i}>
@@ -75,7 +75,7 @@ export function SidebarChangeNoticeContent({
                 ))}
             </div>
 
-            <LemonButton size="small" onClick={onAcknowledged} icon={<IconCheck />} />
+            <LemonButton size="small" onClick={onAcknowledged} icon={<IconClose />} />
         </div>
     )
 }

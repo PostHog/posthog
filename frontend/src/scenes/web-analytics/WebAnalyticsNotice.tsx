@@ -3,7 +3,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
+import { IconBugReport, IconFeedback } from 'lib/lemon-ui/icons'
 
 export const WebAnalyticsNotice = (): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
@@ -13,7 +13,7 @@ export const WebAnalyticsNotice = (): JSX.Element => {
 
     return (
         <LemonBanner type={'info'}>
-            <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
+            <p>PostHog Web Analytics is in opt-in Beta. Thanks for taking part! We'd love to hear what you think.</p>
             {showSupportOptions ? (
                 <p>
                     <Link onClick={() => openSupportForm('bug')}>
@@ -22,10 +22,6 @@ export const WebAnalyticsNotice = (): JSX.Element => {
                     -{' '}
                     <Link onClick={() => openSupportForm('feedback')}>
                         <IconFeedback /> Give feedback
-                    </Link>{' '}
-                    -{' '}
-                    <Link to={'https://github.com/PostHog/posthog/issues/18177'}>
-                        <IconGithub /> View GitHub issue
                     </Link>
                 </p>
             ) : null}

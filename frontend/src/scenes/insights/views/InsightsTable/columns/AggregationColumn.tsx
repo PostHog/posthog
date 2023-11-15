@@ -1,5 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { Dropdown, Menu } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

@@ -75,6 +75,12 @@ project_plugins_configs_router.register(
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
 )
+pipeline_transformations_configs_router = projects_router.register(
+    r"pipeline_transformations_configs",
+    plugin.PipelineTransformationsConfigsViewSet,
+    "pipeline_transformations_configs",
+    ["team_id"],
+)
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(
@@ -171,6 +177,12 @@ projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "war
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
+)
+organization_pipeline_transformations_router = organizations_router.register(
+    r"pipeline_transformations",
+    plugin.PipelineTransformationsViewSet,
+    "organization_pipeline_transformations",
+    ["organization_id"],
 )
 organizations_router.register(
     r"members",

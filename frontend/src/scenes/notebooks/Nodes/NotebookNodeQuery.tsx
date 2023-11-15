@@ -66,6 +66,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
+            modifiedQuery.showTimings = false
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
@@ -87,7 +88,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={nodeId} />
+            <Query
+                query={modifiedQuery}
+                // use separate keys for the settings and visualization to avoid conflicts with insightProps
+                uniqueKey={nodeId + '-component'}
+                readOnly={true}
+            />
         </div>
     )
 }
@@ -178,7 +184,8 @@ export const Settings = ({
         <div className="p-3">
             <Query
                 query={modifiedQuery}
-                uniqueKey={attributes.nodeId}
+                // use separate keys for the settings and visualization to avoid conflicts with insightProps
+                uniqueKey={attributes.nodeId + '-settings'}
                 readOnly={false}
                 setQuery={(t) => {
                     updateAttributes({

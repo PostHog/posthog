@@ -16,6 +16,8 @@ aiohttp==3.8.5
     #   openai
 aioitertools==0.11.0
     # via aiobotocore
+aiokafka==0.8.1
+    # via -r requirements.in
 aiosignal==1.2.0
     # via aiohttp
 amqp==5.1.1
@@ -39,6 +41,7 @@ async-generator==1.10
 async-timeout==4.0.2
     # via
     #   aiohttp
+    #   aiokafka
     #   redis
 attrs==21.4.0
     # via
@@ -280,7 +283,9 @@ jsonschema==4.4.0
 kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   aiokafka
 kombu==5.3.2
     # via
     #   -r requirements.in
@@ -324,6 +329,7 @@ outcome==1.1.0
     # via trio
 packaging==23.1
     # via
+    #   aiokafka
     #   google-cloud-bigquery
     #   prance
     #   snowflake-connector-python
@@ -356,6 +362,8 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
+psycopg==3.1
+    # via -r requirements.in
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
@@ -493,9 +501,11 @@ sqlparse==0.4.4
     #   django
 statshog==1.0.6
     # via -r requirements.in
-structlog==21.2.0
-    # via django-structlog
-temporalio==1.1.0
+structlog==23.2.0
+    # via
+    #   -r requirements.in
+    #   django-structlog
+temporalio==1.4.0
     # via -r requirements.in
 tenacity==6.1.0
     # via celery-redbeat
@@ -521,6 +531,7 @@ types-s3transfer==0.6.1
     # via boto3-stubs
 typing-extensions==4.7.1
     # via
+    #   psycopg
     #   pydantic
     #   pydantic-core
     #   qrcode

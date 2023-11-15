@@ -15,7 +15,7 @@ describe('Retention', () => {
         // cy.get('[data-attr=insight-retention-add-filter-group]').click()
         // cy.get('[data-attr=property-select-toggle-0]').click()
 
-        cy.get('[data-attr=insight-filters-add-filter-group]').click()
+        cy.get('[data-attr$=add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')

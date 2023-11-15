@@ -246,6 +246,7 @@ def get_decide(request: HttpRequest):
                     "sampleRate": sample_rate,
                     "minimumDurationMilliseconds": minimum_duration,
                     "linkedFlag": linked_flag,
+                    "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False

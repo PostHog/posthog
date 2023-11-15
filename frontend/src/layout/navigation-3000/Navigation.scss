@@ -1,5 +1,6 @@
 .Navigation3000 {
-    --breadcrumbs-height: 3rem;
+    --breadcrumbs-height-full: 3.75rem;
+    --breadcrumbs-height-compact: 2.75rem;
     --scene-padding-y: 1rem;
     --scene-padding-x: 1rem;
 
@@ -20,8 +21,7 @@
     // `relative` is for positioning of the scene-level spinner
     position: relative;
     margin: var(--scene-padding-y) var(--scene-padding-x);
-    min-height: calc(100vh - var(--breadcrumbs-height) - var(--scene-padding-y) * 2);
-    overflow-x: hidden;
+    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding-y) * 2);
     &.Navigation3000__scene--raw {
         --scene-padding-y: 0px;
         --scene-padding-x: 0px;

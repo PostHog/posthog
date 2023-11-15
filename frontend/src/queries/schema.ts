@@ -11,12 +11,12 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
     PathsFilterType,
+    PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -139,14 +139,25 @@ export interface HogQLQueryModifiers {
 }
 
 export interface HogQLQueryResponse {
+    /** Input query string */
     query?: string
+    /** Generated HogQL query */
     hogql?: string
+    /** Executed ClickHouse query */
     clickhouse?: string
+    /** Query results */
     results?: any[]
-    types?: any[]
+    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    error?: string
+    /** Returned columns */
     columns?: any[]
+    /** Types of returned columns */
+    types?: any[]
+    /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    /** Query explanation output */
     explain?: string[]
+    /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
 
@@ -397,6 +408,8 @@ interface InsightVizNodeViewProps {
     showResults?: boolean
     /** Query is embedded inside another bordered component */
     embedded?: boolean
+    suppressSessionAnalysisWarning?: boolean
+    hidePersonsModal?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -575,8 +588,8 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-
-export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
