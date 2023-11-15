@@ -244,7 +244,7 @@ export function Transformations(): JSX.Element {
                                                     <LemonButton
                                                         status="danger"
                                                         onClick={() => {
-                                                            deleteWithUndo({
+                                                            void deleteWithUndo({
                                                                 endpoint: `plugin_config`,
                                                                 object: {
                                                                     id: pluginConfig.id,

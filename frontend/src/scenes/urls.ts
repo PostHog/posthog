@@ -108,9 +108,11 @@ export const urls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     earlyAccessFeatures: (): string => '/early_access_features',
-    earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
-    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (): string => '/data-warehouse',
     dataWarehouseTable: (): string => `/data-warehouse/new`,

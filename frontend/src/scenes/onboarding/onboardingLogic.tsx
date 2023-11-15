@@ -74,7 +74,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         allOnboardingSteps: [
             [] as AllOnboardingSteps,
             {
-                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
+                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
             },
         ],
         stepKey: [
@@ -84,7 +84,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            urls.default() as string,
+            urls.default(),
             {
                 setProductKey: (_, { productKey }) => {
                     return productKey ? getProductUri(productKey as ProductKey) : urls.default()

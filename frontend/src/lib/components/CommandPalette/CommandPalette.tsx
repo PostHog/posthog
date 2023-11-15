@@ -36,7 +36,7 @@ function _CommandPalette(): JSX.Element | null {
 
     useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
-            squeakAudio?.play()
+            void squeakAudio?.play()
         } else if (event.key === 'Escape') {
             event.preventDefault()
             // Return to previous flow

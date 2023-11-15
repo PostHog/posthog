@@ -202,7 +202,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        deleteWithUndo({
+                                        void deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
                                             object: action,
                                             callback: loadActions,

@@ -57,7 +57,7 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        import('./types/packages.json').then((files) => {
+        void import('./types/packages.json').then((files) => {
             for (const [fileName, fileContents] of Object.entries(files).filter(
                 ([fileName]) => fileName !== 'default'
             )) {

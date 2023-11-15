@@ -150,7 +150,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     removeFromDashboard?: () => void
-    deleteWithUndo?: () => void
+    deleteWithUndo?: () => Promise<void>
     refresh?: () => void
     rename?: () => void
     duplicate?: () => void

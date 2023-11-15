@@ -16,7 +16,6 @@ import {
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
-    InsightVizNode,
     Node,
     NodeKind,
     TrendsFilter,
@@ -343,7 +342,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (props.setQuery) {
-                    props.setQuery(query as InsightVizNode)
+                    props.setQuery(query)
                 }
 
                 const querySource = query.source

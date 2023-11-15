@@ -638,7 +638,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
-            deleteWithUndo({
+            await deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {

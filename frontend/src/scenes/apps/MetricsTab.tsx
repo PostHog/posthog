@@ -39,7 +39,7 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
 
                 <LemonSelect
                     value={dateFrom}
-                    onChange={(newValue) => setDateFrom(newValue as string)}
+                    onChange={(newValue) => setDateFrom(newValue)}
                     options={[
                         { label: 'Last 30 days', value: '-30d' },
                         { label: 'Last 7 days', value: '-7d' },

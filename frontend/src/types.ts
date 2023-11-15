@@ -1340,7 +1340,7 @@ export interface InsightModel extends Cacheable {
     description?: string
     favorited?: boolean
     order: number | null
-    result: any | null
+    result: any
     deleted: boolean
     saved: boolean
     created_at: string
