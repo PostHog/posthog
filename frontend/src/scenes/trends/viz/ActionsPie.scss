@@ -9,14 +9,7 @@
     .ActionsPie__component {
         min-width: 33%;
         flex: 1;
-
-        // No padding at the top because usually there's whitespace between "Computed ..." and "Show legend"
-        // More padding at the bottom to give the number some breathing room
-        padding: 0 1rem 2rem;
-
-        .InsightCard & {
-            padding-top: 1rem;
-        }
+        padding: 1rem;
 
         .ActionsPie__chart {
             position: relative;
