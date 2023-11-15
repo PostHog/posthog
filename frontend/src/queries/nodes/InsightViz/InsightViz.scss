@@ -7,8 +7,7 @@
     flex: 1; // important for when rendered within a flex parent
 
     &.InsightViz--horizontal {
-        flex-direction: row;
-        flex-wrap: wrap;
+        flex-flow: row wrap;
 
         .EditorFiltersWrapper {
             width: 100%;
@@ -24,6 +23,7 @@
 
 .InsightVizDisplay {
     --insight-viz-min-height: calc(80vh - 6rem);
+
     display: flex;
     flex-direction: column;
 
@@ -48,6 +48,7 @@
         .InsightVizDisplay__content__right {
             flex-shrink: 1;
             max-width: 45%;
+
             // height: var(--insight-viz-min-height);
             width: fit-content;
             margin: 1rem;
@@ -63,18 +64,25 @@
 
     &--type-trends {
     }
+
     &--type-stickiness {
     }
+
     &--type-lifecycle {
     }
+
     &--type-funnels {
     }
+
     &--type-retention {
     }
+
     &--type-paths {
     }
+
     &--type-json {
     }
+
     &--type-sql {
     }
 }
