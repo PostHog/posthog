@@ -18,7 +18,11 @@ from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.process import process_query, query_hash
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.clickhouse.client.execute_async import cancel_query, enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    cancel_query,
+    enqueue_process_query_task,
+    get_query_status,
+)
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt

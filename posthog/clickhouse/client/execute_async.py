@@ -1,11 +1,12 @@
 import dataclasses
+import datetime
 import json
 import uuid
 
 import structlog
-import time
 from dataclasses import dataclass
 from typing import Any, Optional
+from rest_framework.exceptions import NotFound
 
 from posthog import celery
 
@@ -15,7 +16,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 
 logger = structlog.get_logger(__name__)
 
-REDIS_STATUS_TTL = 600  # 10 minutes
+REDIS_STATUS_TTL_SECONDS = 600  # 10 minutes
 REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_async"
 
 
@@ -23,15 +24,22 @@ REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_async"
 class QueryStatus:
     id: str
     team_id: int
-    num_rows: float = 0
-    total_rows: float = 0
     error: bool = False
     complete: bool = False
     error_message: str = ""
     results: Any = None
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    expiration_time: Optional[str] = None
     task_id: Optional[str] = None
+
+
+class QueryNotFoundError(NotFound):
+    pass
+
+
+class QueryRetrievalError(Exception):
+    pass
 
 
 def generate_redis_results_key(query_id: str, team_id: int) -> str:
@@ -46,11 +54,6 @@ def execute_process_query(
     refresh_requested,
     task_id=None,
 ):
-    """
-    Kick off query
-    Once complete save results to redis
-    """
-
     key = generate_redis_results_key(query_id, team_id)
     redis_client = redis.get_client()
 
@@ -59,9 +62,14 @@ def execute_process_query(
 
     team = Team.objects.get(pk=team_id)
 
-    time.sleep(10)
-
-    query_status = QueryStatus(id=query_id, team_id=team_id, task_id=task_id, complete=False, error=False)
+    query_status = QueryStatus(
+        id=query_id,
+        team_id=team_id,
+        task_id=task_id,
+        complete=False,
+        error=False,
+        start_time=datetime.datetime.utcnow().isoformat(),
+    )
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
@@ -71,13 +79,17 @@ def execute_process_query(
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
         query_status.results = results
+        query_status.expiration_time = (
+            datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
+        ).isoformat()
+        query_status.end_time = datetime.datetime.utcnow().isoformat()
     except Exception as err:
         query_status.error = True
         query_status.error_message = str(err)
         logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
         raise err
     finally:
-        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL)
+        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
 
 
 def enqueue_process_query_task(
@@ -114,8 +126,8 @@ def enqueue_process_query_task(
         return query_id
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team_id, start_time=time.time())
-    redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL)
+    query_status = QueryStatus(id=query_id, team_id=team_id)
+    redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
 
     if bypass_celery:
         # Call directly ( for testing )
@@ -127,31 +139,24 @@ def enqueue_process_query_task(
             team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
-        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL)
+        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
 
     return query_id
 
 
 def get_query_status(team_id, query_id):
-    """
-    Returns QueryStatus data class
-    QueryStatus data class contains either:
-    Current status of running query
-    Results of completed query
-    Error payload of failed query
-    """
     redis_client = redis.get_client()
     key = generate_redis_results_key(query_id, team_id)
+
     try:
         byte_results = redis_client.get(key)
-        if not byte_results:
-            return QueryStatus(id=query_id, team_id=team_id, error=True, error_message="Query is unknown to backend")
-
-        query_status = QueryStatus(**json.loads(byte_results))
     except Exception as e:
-        logger.exception("Error getting query status for team %s query %s", team_id, query_id)
-        query_status = QueryStatus(id=query_id, team_id=team_id, error=True, error_message=str(e))
-    return query_status
+        raise QueryRetrievalError(f"Error retrieving query {query_id} for team {team_id}") from e
+
+    if not byte_results:
+        raise QueryNotFoundError(f"Query {query_id} not found for team {team_id}")
+
+    return QueryStatus(**json.loads(byte_results))
 
 
 def cancel_query(team_id, query_id):

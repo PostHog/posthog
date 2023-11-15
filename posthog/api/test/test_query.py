@@ -800,7 +800,7 @@ class TestQueryRetrieve(APIBaseTest):
     def tearDown(self):
         self.redis_get_patch.stop()
 
-    def test_status_with_valid_query_id(self):
+    def test_with_valid_query_id(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
@@ -816,13 +816,12 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["complete"], True, response.content)
 
-    def test_status_with_invalid_query_id(self):
+    def test_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.invalid_query_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Query is unknown to backend", response.json()["error_message"])
+        self.assertEqual(response.status_code, 404)
 
-    def test_status_for_completed_query(self):
+    def test_completed_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
@@ -835,7 +834,7 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["complete"])
 
-    def test_status_for_running_query(self):
+    def test_running_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
@@ -847,7 +846,7 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["complete"])
 
-    def test_status_for_failed_query(self):
+    def test_failed_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
@@ -859,3 +858,16 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["error"])
+
+    def test_destroy(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": "Query failed",
+            }
+        ).encode()
+        response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 204)
+        self.redis_client_mock.delete.assert_called_once()
