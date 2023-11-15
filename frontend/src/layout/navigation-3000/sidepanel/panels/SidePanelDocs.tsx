@@ -83,7 +83,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     sideIcon={<IconExternal />}
                     targetBlank
                     // We can't use the normal `to` property as that is intercepted to open this panel :D
-                    onClick={() => window.open(currentUrl, '_blank')}
+                    onClick={() => window.open(currentUrl, '_blank')?.focus()}
                 >
                     Open in new tab
                 </LemonButton>
