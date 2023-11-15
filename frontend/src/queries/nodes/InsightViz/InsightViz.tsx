@@ -18,6 +18,7 @@ import { useState } from 'react'
 
 import './InsightViz.scss'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -56,6 +57,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
+    const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
 
     const showIfFull = !!query.full
     const disableHeader = !(query.showHeader ?? showIfFull)
@@ -73,7 +75,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                 <BindLogic logic={insightVizDataLogic} props={insightProps}>
                     <div
                         className={clsx('InsightViz', {
-                            'InsightViz--horizontal': isFunnels,
+                            'InsightViz--horizontal': isFunnels || isHorizontalAlways,
                         })}
                     >
                         {!readOnly && (
