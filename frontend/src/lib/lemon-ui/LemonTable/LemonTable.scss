@@ -4,12 +4,12 @@
     background: var(--bg-table);
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    font-size: 13px;
     overflow: hidden;
     flex: 1;
     --row-base-height: 3rem;
     .posthog-3000 & {
         --row-base-height: auto;
+        font-size: 13px;
     }
     --row-horizontal-padding: 1rem;
     &.LemonTable--with-ribbon {
@@ -80,7 +80,9 @@
     }
 
     a.Link {
-        color: var(--default);
+        .posthog-3000 & {
+            color: var(--default);
+        }
     }
 }
 
@@ -129,12 +131,19 @@
             }
             > td {
                 color: var(--text-secondary);
-                padding-top: 0.3rem;
-                padding-bottom: 0.3rem;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+
+                .posthog-3000 & {
+                    padding-top: 0.3rem;
+                    padding-bottom: 0.3rem;
+                }
 
                 .LemonButton {
-                    margin-top: -0.2rem;
-                    margin-bottom: -0.2rem;
+                    .posthog-3000 & {
+                        margin-top: -0.2rem;
+                        margin-bottom: -0.2rem;
+                    }
                 }
             }
         }
