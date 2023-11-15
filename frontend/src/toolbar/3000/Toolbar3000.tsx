@@ -93,7 +93,7 @@ function MoreMenu(): JSX.Element {
                         click: true,
                     }
                 )}
-                square={true}
+                className={'ToolbarMenu__button--square-left'}
             />
         </LemonMenu>
     )
@@ -192,7 +192,7 @@ export function Toolbar3000(): JSX.Element {
                                 click: true,
                             }
                         )}
-                        className={clsx(!minimizedWidth && 'ToolbarMenu__logo--minimized-width')}
+                        className={clsx(!minimizedWidth && 'ToolbarMenu__button--square-right')}
                     />
                 </Tooltip>
                 {!minimizedWidth ? <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} /> : null}
@@ -296,6 +296,7 @@ export function Toolbar3000(): JSX.Element {
                                 square={true}
                             />
                         </Tooltip>
+                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                         <MoreMenu />
                     </>
                 ) : null}
