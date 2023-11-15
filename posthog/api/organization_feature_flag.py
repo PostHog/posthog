@@ -1,9 +1,5 @@
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.feature_flag import CanEditFeatureFlag
-from posthog.models import FeatureFlag, Team
-from posthog.models.cohort import Cohort
-from posthog.permissions import OrganizationMemberPermissions
+import copy
+from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -13,6 +9,12 @@ from rest_framework import (
     viewsets,
     status,
 )
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import CanEditFeatureFlag
+from posthog.models import FeatureFlag, Team
+from posthog.models.cohort import Cohort
+from posthog.permissions import OrganizationMemberPermissions
 
 
 class OrganizationFeatureFlagView(
@@ -117,38 +119,36 @@ class OrganizationFeatureFlagView(
 
                     # create new cohort in the destination project
                     if not destination_cohort:
-                        new_filters = original_cohort.filters
+                        new_filters = copy.deepcopy(original_cohort.filters)
                         if new_filters:
                             properties = new_filters.get("properties", [])
                             for outer_prop in properties.get("values", []):
                                 for inner_prop in outer_prop.get("values", []):
                                     if inner_prop.get("type") == "cohort":
-                                        original_neighbor = seen_cohorts_cache[str(inner_prop["value"])]
-                                        inner_prop["value"] = name_to_dest_cohort_id[original_neighbor.name]
+                                        original_child_cohort_id = str(inner_prop["value"])
+                                        original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                        inner_prop["value"] = name_to_dest_cohort_id[original_child_cohort.name]
 
                         destination_cohort = Cohort.objects.create(
                             team=target_project,
                             name=original_cohort.name,
                             groups=original_cohort.groups,
-                            filters=original_cohort.filters,
+                            filters=new_filters,
                             description=original_cohort.description,
                             is_static=original_cohort.is_static,
+                            created_by=request.user,
+                            last_calculation=timezone.now(),
                         )
                     name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
-            context = {
-                "request": request,
-                "team_id": target_project_id,
-            }
-
             # reference correct destination cohort ids in the flag
-            for group in flag_to_copy.filters.get("groups", []):
-                props = group.get("properties", [])
-                for prop in props:
-                    if prop.get("type") == "cohort":
-                        original_id = str(prop["value"])
-                        name = (seen_cohorts_cache[original_id]).name
-                        prop["value"] = name_to_dest_cohort_id[name]
+            # for group in flag_to_copy.filters.get("groups", []):
+            #     props = group.get("properties", [])
+            #     for prop in props:
+            #         if prop.get("type") == "cohort":
+            #             original_cohort_id = str(prop["value"])
+            #             cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+            #             prop["value"] = name_to_dest_cohort_id[cohort_name]
 
             flag_data = {
                 "key": flag_to_copy.key,
@@ -158,6 +158,10 @@ class OrganizationFeatureFlagView(
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
+            }
+            context = {
+                "request": request,
+                "team_id": target_project_id,
             }
 
             existing_flag = FeatureFlag.objects.filter(

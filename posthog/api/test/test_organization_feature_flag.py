@@ -467,7 +467,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                             {
                                 "key": "id",
                                 "type": "cohort",
-                                "value": cohorts[7].pk,
+                                "value": cohorts[7].pk,  # link "head" cohort
                             }
                         ],
                     }
@@ -487,7 +487,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # check that cohorts were created in the destination project
+        # check all cohorts were created in the destination project
         for name in creation_order:
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
             self.assertTrue(found_cohort)
