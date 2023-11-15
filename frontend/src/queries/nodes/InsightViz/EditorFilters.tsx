@@ -20,7 +20,6 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
-import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
@@ -39,6 +38,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import './EditorFilters.scss'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -62,6 +62,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         breakdown,
         pathsFilter,
         querySource,
+        shouldShowSessionAnalysisWarning,
+        hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
@@ -141,10 +143,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
-                isTrends
+                isTrends && hasFormula
                     ? {
                           key: 'formula',
-                          label: TrendsFormulaLabel,
+                          label: 'Formula',
                           component: TrendsFormula,
                       }
                     : null,
@@ -281,12 +283,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--singlecolumn': isFunnels,
                     'EditorFiltersWrapper--embedded': embedded,
                 })}
             >
                 <div className="EditorFilters">
-                    {(isFunnels ? editorFilters : editorFilterGroups).map((editorFilterGroup) => (
+                    {editorFilterGroups.map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
@@ -296,6 +297,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         />
                     ))}
                 </div>
+
+                {shouldShowSessionAnalysisWarning ? (
+                    <LemonBanner type="info">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.{' '}
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
+                    </LemonBanner>
+                ) : null}
             </div>
         </CSSTransition>
     )

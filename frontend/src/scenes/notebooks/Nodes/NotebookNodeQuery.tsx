@@ -11,7 +11,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 
-import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
@@ -85,9 +84,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
     }
 
     return (
-        <div
-            className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
-        >
+        <div className={clsx('flex flex-1 flex-col h-full')}>
             <Query
                 query={modifiedQuery}
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
@@ -206,7 +203,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     Component,
     heightEstimate: 500,
     minHeight: 200,
-    resizeable: (attrs) => attrs.query.kind === NodeKind.DataTableNode,
+    resizeable: true,
     startExpanded: true,
     attributes: {
         query: {
