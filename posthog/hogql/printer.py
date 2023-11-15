@@ -556,7 +556,11 @@ class _Printer(Visitor):
             return op
 
         # Special optimization for "Eq" operator
-        if node.op == ast.CompareOperationOp.Eq:
+        if (
+            node.op == ast.CompareOperationOp.Eq
+            or node.op == ast.CompareOperationOp.Like
+            or node.op == ast.CompareOperationOp.ILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNull({left})"
@@ -568,7 +572,11 @@ class _Printer(Visitor):
             return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
 
         # Special optimization for "NotEq" operator
-        if node.op == ast.CompareOperationOp.NotEq:
+        if (
+            node.op == ast.CompareOperationOp.NotEq
+            or node.op == ast.CompareOperationOp.NotLike
+            or node.op == ast.CompareOperationOp.NotILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNotNull({left})"
