@@ -98,10 +98,6 @@
         width: 2.5rem;
     }
 
-    &:hover {
-        filter: drop-shadow(1px 2px 4px var(--trace-3000));
-    }
-
     form {
         .form-error {
             color: var(--danger);
