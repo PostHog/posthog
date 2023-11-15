@@ -1,6 +1,6 @@
 import json
 import structlog
-from typing import Dict, Set, List, Optional, cast
+from typing import Dict, List, Optional, cast
 
 from django.core.cache import cache
 from django.db import models
@@ -134,7 +134,7 @@ class FeatureFlag(models.Model):
     def transform_cohort_filters_for_easy_evaluation(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -174,12 +174,11 @@ class FeatureFlag(models.Model):
                             # We cannot expand this cohort condition if it's not the only property in its group.
                             return self.conditions
                         try:
-                            parsed_cohort_id = str(cohort_id)
-                            if parsed_cohort_id in seen_cohorts_cache:
-                                cohort = seen_cohorts_cache[parsed_cohort_id]
+                            if cohort_id in seen_cohorts_cache:
+                                cohort = seen_cohorts_cache[cohort_id]
                             else:
                                 cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                                seen_cohorts_cache[parsed_cohort_id] = cohort
+                                seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
                             return self.conditions
             if not cohort_condition:
@@ -259,10 +258,10 @@ class FeatureFlag(models.Model):
     def get_cohort_ids(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
         sort_by_creation_order=False,
     ) -> List[int]:
-        from posthog.models.cohort.util import get_dependent_cohorts
+        from posthog.models.cohort.util import get_dependent_cohorts, get_sorted_cohort_ids
 
         if seen_cohorts_cache is None:
             seen_cohorts_cache = {}
@@ -274,12 +273,11 @@ class FeatureFlag(models.Model):
                 if prop.get("type") == "cohort":
                     cohort_id = prop.get("value")
                     try:
-                        parsed_cohort_id = str(cohort_id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort: Cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if cohort_id in seen_cohorts_cache:
+                            cohort: Cohort = seen_cohorts_cache[cohort_id]
                         else:
                             cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            seen_cohorts_cache[cohort_id] = cohort
 
                         cohort_ids.add(cohort.pk)
                         cohort_ids.update(
@@ -310,48 +308,6 @@ class FeatureFlag(models.Model):
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
-
-
-def get_sorted_cohort_ids(cohort_ids: Set[int], seen_cohorts_cache: Dict[str, Cohort]):
-    dependency_graph: Dict[int, List[int]] = {}
-    seen = set()
-
-    # build graph (adjacency list)
-    def traverse(cohort):
-        # add parent
-        dependency_graph[cohort.id] = []
-        for prop in cohort.properties.flat:
-            if prop.type == "cohort":
-                # add child
-                dependency_graph[cohort.id].append(prop.value)
-
-                str_neighbor_cohort_id = str(prop.value)
-                neighbor_cohort = seen_cohorts_cache[str_neighbor_cohort_id]
-                if cohort.id not in seen:
-                    seen.add(cohort.id)
-                    traverse(neighbor_cohort)
-
-    for cohort_id in cohort_ids:
-        str_cohort_id = str(cohort_id)
-        cohort = seen_cohorts_cache[str_cohort_id]
-        traverse(cohort)
-
-    # post-order DFS (children first, then the parent)
-    def dfs(node, seen, sorted_arr):
-        neighbors = dependency_graph.get(node, [])
-        for neighbor in neighbors:
-            if neighbor not in seen:
-                dfs(neighbor, seen, sorted_arr)
-        sorted_arr.append(node)
-        seen.add(node)
-
-    sorted_cohort_ids: List[int] = []
-    seen = set()
-    for cohort_id in cohort_ids:
-        if cohort_id not in seen:
-            seen.add(cohort_id)
-            dfs(cohort_id, seen, sorted_cohort_ids)
-    return sorted_cohort_ids
 
 
 @mutable_receiver(pre_delete, sender=Experiment)
