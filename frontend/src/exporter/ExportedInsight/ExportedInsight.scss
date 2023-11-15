@@ -1,19 +1,19 @@
 .ExportedInsight {
     position: relative;
-    min-width: 0;
-    max-width: 100%;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
     z-index: 3;
-    background: var(--bg-light);
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    max-width: 100%;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     .ExportedInsight__header {
-        padding: 1rem;
-        border-bottom: 1px solid var(--border);
         display: flex;
         justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border);
 
         .ExportedInsight__header__title {
             font-size: 1rem;
@@ -22,9 +22,9 @@
     }
 
     .ExportedInsight__content {
-        flex: 1;
         position: relative;
         z-index: 1;
+        flex: 1;
 
         .FunnelBarChart {
             min-height: 50vw;
@@ -47,13 +47,13 @@
 
     .ExportedInsight__watermark {
         position: absolute;
-        right: 0;
         top: 0;
+        right: 0;
         z-index: 2;
 
         svg {
-            font-size: 0.75rem;
             margin: 0.25rem;
+            font-size: 0.75rem;
         }
     }
 
@@ -66,10 +66,10 @@
             flex-direction: column;
 
             .FunnelBarChart {
-                height: 100%;
-                max-height: 100%;
-                min-height: auto;
                 flex: 1;
+                height: 100%;
+                min-height: auto;
+                max-height: 100%;
             }
 
             .InsightViz {

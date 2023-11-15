@@ -1,11 +1,11 @@
 .IngestionContainer {
     display: flex;
-    height: 100%;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
-    flex-direction: column;
     width: 100%;
+    height: 100%;
+    padding: 2rem;
 }
 
 .IngestionContent {
@@ -15,15 +15,15 @@
 }
 
 .IngestionTopbar {
-    border-bottom: 1px solid var(--border);
-    padding: 0.25rem 1rem;
-    display: flex;
-    justify-content: space-between;
     position: sticky;
     top: 0;
-    background-color: white;
-    width: 100%;
     z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.25rem 1rem;
+    background-color: white;
+    border-bottom: 1px solid var(--border);
 
     .help-button {
         margin-right: 1rem;
@@ -31,13 +31,13 @@
 }
 
 .platform-item {
-    margin-right: 10px;
     padding: 10px;
-    padding-left: 20px;
     padding-right: 20px;
+    padding-left: 20px;
+    margin-right: 10px;
+    cursor: pointer;
     border: 1px solid gray;
     border-radius: 2px;
-    cursor: pointer;
 }
 
 .platform-item:hover {
@@ -45,33 +45,33 @@
 }
 
 .selectable-item:hover {
-    background-color: gainsboro;
     cursor: pointer;
+    background-color: gainsboro;
 }
 
 .IngestionSidebar__bottom {
     margin-top: auto;
 
     .popover {
-        padding-left: 0.5rem;
         padding-right: 0.5rem;
+        padding-left: 0.5rem;
     }
 }
 
 .IngestionSidebar__help {
     display: flex;
     flex-direction: column;
+    margin-top: 1rem;
     font-weight: 500;
     color: var(--primary);
-    margin-top: 1rem;
 }
 
 .IngestionSidebar__steps {
-    color: var(--muted-alt);
     font-size: 14px;
+    color: var(--muted-alt);
 
     .LemonButton {
-        font-weight: 600;
         margin-bottom: 0.5rem;
+        font-weight: 600;
     }
 }

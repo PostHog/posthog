@@ -1,12 +1,12 @@
 .Link {
-    transition: color 200ms ease, opacity 200ms ease;
-    background: none;
-    color: var(--link);
-    border: none;
-    outline: none;
     padding: 0;
     line-height: inherit;
+    color: var(--link);
     cursor: pointer;
+    background: none;
+    border: none;
+    outline: none;
+    transition: color 200ms ease, opacity 200ms ease;
 
     &:not(:disabled) {
         &:hover {
@@ -19,8 +19,8 @@
     }
 
     &:disabled {
-        opacity: var(--opacity-disabled);
         cursor: not-allowed;
+        opacity: var(--opacity-disabled);
     }
 
     > .LemonIcon {

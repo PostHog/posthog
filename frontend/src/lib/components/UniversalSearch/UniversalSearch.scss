@@ -17,9 +17,9 @@
 }
 
 .universal-search-popover {
-    background: var(--bg-light);
     display: flex;
     flex-direction: column;
+    background: var(--bg-light);
 
     &.force-minimum-width {
         min-width: 300px;

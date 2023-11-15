@@ -642,6 +642,9 @@ devDependencies:
   stylelint:
     specifier: ^15.11.0
     version: 15.11.0(typescript@4.9.5)
+  stylelint-config-recess-order:
+    specifier: ^4.3.0
+    version: 4.3.0(stylelint@15.11.0)
   stylelint-config-standard-scss:
     specifier: ^11.1.0
     version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0)
@@ -18235,6 +18238,15 @@ packages:
       browserslist: 4.21.10
       postcss: 7.0.39
       postcss-selector-parser: 3.1.2
+    dev: true
+
+  /stylelint-config-recess-order@4.3.0(stylelint@15.11.0):
+    resolution: {integrity: sha512-EWVtxZ8oq4/meTrRNUDrS5TqMz6TX72JjKDwVQq0JJDXE+P/o7UuFw3wWV/0O9yvJfh/da6nJY71ZUn/wSfB4g==}
+    peerDependencies:
+      stylelint: '>=15'
+    dependencies:
+      stylelint: 15.11.0(typescript@4.9.5)
+      stylelint-order: 6.0.3(stylelint@15.11.0)
     dev: true
 
   /stylelint-config-recommended-scss@13.1.0(postcss@8.4.31)(stylelint@15.11.0):

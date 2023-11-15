@@ -16,11 +16,11 @@
 
 .BoldNumber__value {
     width: 100%;
-    text-align: center;
     padding: 0 2rem;
     margin: 0 auto;
-    line-height: 1;
     font-weight: 700;
+    line-height: 1;
+    text-align: center;
     letter-spacing: -0.025em;
 
     .InsightCard & {
@@ -39,7 +39,7 @@
 .BoldNumber__comparison {
     margin-top: 0.5rem;
     margin-bottom: -1.5rem;
-    color: var(--muted-alt);
     font-weight: 500;
+    color: var(--muted-alt);
     cursor: default;
 }

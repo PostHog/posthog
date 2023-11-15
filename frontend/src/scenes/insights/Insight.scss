@@ -21,11 +21,11 @@
         margin-bottom: 1rem;
 
         .ant-card-head {
-            border-bottom: 1px solid var(--border);
             min-height: unset;
-            background-color: var(--bg-light);
-            padding-left: 1rem;
             padding-right: 1rem;
+            padding-left: 1rem;
+            background-color: var(--bg-light);
+            border-bottom: 1px solid var(--border);
 
             .ant-card-head-title {
                 padding: 0;
@@ -42,13 +42,13 @@
             }
 
             .insights-graph-container-row-right {
-                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
-                max-width: 45%;
-                min-width: 300px;
-                width: fit-content;
-                padding: 0 1rem 1rem 0;
                 display: flex;
                 align-items: center;
+                width: fit-content;
+                min-width: 300px;
+                max-width: 45%;
+                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+                padding: 0 1rem 1rem 0;
             }
         }
 
@@ -64,9 +64,9 @@
         align-items: center;
 
         .insight-title-text {
-            white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            white-space: nowrap;
         }
     }
 
@@ -80,11 +80,11 @@
     }
 
     .insights-graph-header {
+        min-height: 48px;
+        padding-right: 1rem;
+        padding-left: 1rem;
         margin-top: 0 !important;
         margin-bottom: 0 !important;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        min-height: 48px;
     }
 }
 

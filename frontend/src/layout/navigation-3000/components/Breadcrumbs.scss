@@ -1,33 +1,33 @@
 .Breadcrumbs3000 {
     --breadcrumbs-compaction-rate: 0;
 
-    z-index: var(--z-main-nav);
     position: sticky;
     top: 0;
+    z-index: var(--z-main-nav);
     display: flex;
     align-items: start;
     height: var(--breadcrumbs-height-full);
-    pointer-events: none;
     white-space: nowrap;
+    pointer-events: none;
 }
 
 .Breadcrumbs3000__content {
-    backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     width: 100%;
-    padding: 0 1rem;
     height: calc(
         var(--breadcrumbs-height-full) - (var(--breadcrumbs-height-full) - var(--breadcrumbs-height-compact)) *
             var(--breadcrumbs-compaction-rate)
     );
-    background: var(--glass-bg-3000);
-    border-bottom: 1px solid var(--glass-border-3000);
+    padding: 0 1rem;
     font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
-    line-height: 1rem;
     font-weight: 600;
-    user-select: none;
+    line-height: 1rem;
     pointer-events: auto;
+    user-select: none;
+    background: var(--glass-bg-3000);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--glass-border-3000);
 }
 
 .Breadcrumbs3000__crumbs {
@@ -43,12 +43,12 @@
 
 .Breadcrumbs3000__here {
     position: relative;
-    line-height: 1.2;
+    height: calc(1em * 1.2 * (1 - var(--breadcrumbs-compaction-rate)));
     margin: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate))) 0 0;
+    overflow: hidden;
     font-size: 1rem;
     font-weight: 700;
-    overflow: hidden;
-    height: calc(1em * 1.2 * (1 - var(--breadcrumbs-compaction-rate)));
+    line-height: 1.2;
 
     > span {
         position: absolute;
@@ -57,13 +57,13 @@
 }
 
 .Breadcrumbs3000__breadcrumb {
-    flex-shrink: 0;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
+    overflow: hidden;
+    color: var(--default);
     white-space: pre;
     cursor: default;
-    color: var(--default);
-    overflow: hidden;
 
     &.Link:hover {
         color: inherit;
@@ -88,8 +88,8 @@
     }
 
     > span {
-        transition: opacity 200ms ease;
         opacity: 0.5;
+        transition: opacity 200ms ease;
     }
 
     > .Lettermark {
@@ -97,8 +97,8 @@
     }
 
     > .LemonIcon {
-        font-size: 1rem;
         margin-left: 0.125rem;
+        font-size: 1rem;
         opacity: 0.5;
     }
 }
@@ -118,10 +118,10 @@
 }
 
 .Breadcrumbs3000__actions {
-    flex-grow: 1;
     display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    margin-left: 0.5rem;
+    flex-grow: 1;
     gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+    margin-left: 0.5rem;
 }

@@ -18,8 +18,8 @@
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
 
-        margin: 0.5rem 1rem 0;
         width: 100%;
+        margin: 0.5rem 1rem 0;
 
         > tbody {
             > tr {
@@ -47,10 +47,10 @@
 }
 
 .StepBarLabels {
-    height: calc(var(--bar-row-height) - 3rem);
     display: flex;
     flex-direction: column-reverse;
     align-items: flex-end;
+    height: calc(var(--bar-row-height) - 3rem);
 }
 
 .StepBarLabels__segment {
@@ -64,19 +64,19 @@
 }
 
 .StepBarLabels__label {
-    transform: translateY(-50%);
     font-size: 0.75rem;
     font-weight: 500;
+    transform: translateY(-50%);
 }
 
 .StepBars {
     position: relative;
     display: flex;
-    align-items: flex-end;
     gap: 0.125rem;
-    border-bottom: 1px solid var(--border);
+    align-items: flex-end;
     height: calc(var(--bar-row-height) - 3rem);
     padding: 0 1rem;
+    border-bottom: 1px solid var(--border);
 
     &:not(.StepBars--first) {
         border-left: 1px dashed var(--border);
@@ -85,8 +85,8 @@
 
 .StepBars__grid {
     position: absolute;
-    left: 0;
     bottom: 0;
+    left: 0;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -107,17 +107,17 @@
     --conversion-rate: 100%; // This should be overriden from React
 
     position: relative;
-    border-radius: var(--radius);
-    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     flex-shrink: 0;
+    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     height: 100%;
-
-    @include screen($lg) {
-        width: var(--bar-width);
-    }
+    border-radius: var(--radius);
 
     .InsightCard & {
         width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
+    }
+
+    @include screen($lg) {
+        width: var(--bar-width);
     }
 }
 
@@ -127,8 +127,8 @@
     bottom: 0;
     left: 0;
     width: 100%;
-    border-radius: var(--radius);
     cursor: pointer;
+    border-radius: var(--radius);
 
     .InsightCard & {
         cursor: default;
@@ -143,7 +143,6 @@
 }
 
 .StepBar__backdrop {
-    transition: opacity 200ms ease;
     height: 100%;
     background: repeating-linear-gradient(
             -22.5deg,
@@ -154,6 +153,7 @@
         ),
         var(--series-color);
     opacity: 0.125;
+    transition: opacity 200ms ease;
 
     &:hover {
         opacity: 0.2;
@@ -165,9 +165,9 @@
 }
 
 .StepBar__fill {
-    transition: filter 200ms ease;
-    background: var(--series-color);
     height: var(--conversion-rate);
+    background: var(--series-color);
+    transition: filter 200ms ease;
 
     &:hover {
         filter: brightness(0.9);
@@ -179,26 +179,26 @@
 }
 
 .StepLegend {
-    border-left: 1px solid var(--border);
-    white-space: nowrap;
     height: 100%;
+    white-space: nowrap;
+    border-left: 1px solid var(--border);
 
     > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;
-        font-weight: 500;
         margin-top: 0.25rem;
+        font-weight: 500;
 
         &:first-child {
             width: fit-content;
-            font-weight: 600;
             margin-top: 0;
+            font-weight: 600;
         }
     }
 
     .funnel-inspect-button {
-        line-height: 1.5rem;
         font-weight: inherit;
+        line-height: 1.5rem;
     }
 }
 
@@ -207,8 +207,8 @@
 
     table {
         width: 100%;
-        border-collapse: collapse;
         border-spacing: 0;
+        border-collapse: collapse;
     }
 
     tr {

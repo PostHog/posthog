@@ -30,23 +30,23 @@
             align-items: center;
 
             .definition-column-name-content {
+                position: relative;
                 display: flex;
                 flex-direction: column;
-                position: relative;
-                min-height: 32px;
                 justify-content: center;
+                min-height: 32px;
 
                 .definition-column-name-content-title {
-                    font-weight: 600;
-                    cursor: pointer;
                     position: relative;
                     overflow: visible;
+                    font-weight: 600;
+                    cursor: pointer;
 
                     &::before {
-                        content: '';
                         position: absolute;
                         inset: -5px -50px -5px -10px;
                         height: 22px;
+                        content: '';
                     }
                 }
             }
@@ -62,17 +62,17 @@
             display: flex;
             align-items: center;
             width: fit-content;
+            max-width: 300px;
             padding: 0.125rem 0.25rem;
-            letter-spacing: 0.25px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-light);
-            background: var(--mid);
-            color: var(--muted-alt);
             font-size: 0.625rem;
             font-weight: 500;
+            color: var(--muted-alt);
+            letter-spacing: 0.25px;
             word-break: break-all;
-            max-width: 300px;
             cursor: text;
+            background: var(--mid);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
         }
 
         .LemonTable__expansion {

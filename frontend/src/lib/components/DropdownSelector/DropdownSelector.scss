@@ -1,10 +1,10 @@
 .dropdown-selector {
-    padding: 0.5rem;
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius);
     display: flex;
     align-items: center;
+    padding: 0.5rem;
     cursor: pointer;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
 
     &.disabled {
         color: var(--muted);

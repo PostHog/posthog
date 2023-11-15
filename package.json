@@ -280,6 +280,7 @@
         "storybook-addon-pseudo-states": "2.1.2",
         "style-loader": "^2.0.0",
         "stylelint": "^15.11.0",
+        "stylelint-config-recess-order": "^4.3.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.3",
         "sucrase": "^3.29.0",

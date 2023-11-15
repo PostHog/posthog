@@ -25,23 +25,23 @@
 
         td.definition-column-name {
             .definition-column-name-content {
+                position: relative;
                 display: flex;
                 flex-direction: column;
-                position: relative;
-                min-height: 32px;
                 justify-content: center;
+                min-height: 32px;
 
                 .definition-column-name-content-title {
                     font-weight: 600;
                     cursor: pointer;
 
                     &::before {
-                        content: '';
                         position: absolute;
                         top: -5px;
-                        left: -10px;
                         right: -50px;
+                        left: -10px;
                         height: 22px;
+                        content: '';
                     }
                 }
             }

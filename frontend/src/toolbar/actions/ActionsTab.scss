@@ -24,14 +24,14 @@
     transition: opacity 0.5s;
 
     .action-field-hint {
-        font-size: 12px;
         margin-top: 4px;
+        font-size: 12px;
     }
 
     .action-field-caption {
+        padding: 8px 0;
         font-size: 0.8em;
         color: rgb(0 0 0 / 50%);
-        padding: 8px 0;
     }
 }
 

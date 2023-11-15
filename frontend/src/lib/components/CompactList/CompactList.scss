@@ -1,23 +1,23 @@
 .compact-list {
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    height: calc(19.5rem + 1px);
-    background: var(--bg-light);
     box-sizing: content-box;
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
+    height: calc(19.5rem + 1px);
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     .compact-list-header {
-        padding: 0.5rem 1rem 0;
         display: flex;
         align-items: center;
         justify-content: space-between;
+        padding: 0.5rem 1rem 0;
 
         h3 {
             margin-bottom: 0;
-            font-weight: 600;
             font-size: 1rem;
+            font-weight: 600;
             line-height: 1.4;
         }
     }
@@ -28,7 +28,7 @@
 
     .scrollable-list {
         flex: 1;
-        overflow: auto auto;
         padding: 0 0.5rem 0.5rem;
+        overflow: auto auto;
     }
 }

@@ -1,8 +1,8 @@
 .trends-insights-container {
     position: relative;
-    min-height: min(calc(90vh - 16rem), 36rem);
     display: flex;
     justify-content: center;
+    min-height: min(calc(90vh - 16rem), 36rem);
 
     .LineGraph {
         height: calc(100% - 1rem) !important;
@@ -13,8 +13,8 @@
     border-radius: 0 0 var(--radius) var(--radius);
 
     &.non-empty-state {
-        min-height: 26rem;
         position: relative;
+        min-height: 26rem;
         margin-bottom: 0;
     }
 
@@ -25,8 +25,8 @@
 
 .funnel-significance-highlight {
     display: inline-flex;
-    background: var(--primary);
     color: var(--bg-light);
+    background: var(--primary);
 
     .LemonIcon {
         color: var(--bg-light);

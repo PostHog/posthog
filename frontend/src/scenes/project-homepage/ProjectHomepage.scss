@@ -1,9 +1,9 @@
 .project-homepage {
     .homepage-dashboard-header {
-        margin-top: 1rem;
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        justify-content: space-between;
+        margin-top: 1rem;
 
         .dashboard-title-container {
             display: flex;
@@ -24,13 +24,12 @@
         display: flex;
 
         .top-list {
+            width: 33%;
             margin-bottom: 1.5rem;
 
             .posthog-3000 & {
                 margin-bottom: 0;
             }
-
-            width: 33%;
         }
 
         .spacer {
@@ -47,12 +46,12 @@
     }
 
     .empty-state-container {
-        background-color: var(--side);
-        width: 100%;
-        justify-content: center;
-        align-items: center;
-        padding: 4rem;
         display: flex;
         flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 4rem;
+        background-color: var(--side);
     }
 }

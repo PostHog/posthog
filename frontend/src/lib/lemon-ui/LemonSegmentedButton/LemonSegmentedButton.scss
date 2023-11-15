@@ -3,14 +3,14 @@
     flex-shrink: 0;
     width: fit-content;
     background: var(--bg-light);
-    border-radius: var(--radius);
     border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     > ul {
         z-index: 1; // Place above slider
-        list-style: none;
         display: flex;
         align-items: stretch;
+        list-style: none;
     }
 
     &.LemonSegmentedButton--full-width {
@@ -23,10 +23,10 @@
     position: absolute;
     top: -1px; // 1px of border
     left: -1px; // 1px of border
-    height: calc(100% + 2px); // 1px of border (top + bottom)
     width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
-    transform: translateX(var(--lemon-segmented-button-slider-offset));
+    height: calc(100% + 2px); // 1px of border (top + bottom)
     background: var(--primary);
+    transform: translateX(var(--lemon-segmented-button-slider-offset));
 
     &.LemonSegmentedButton__slider--first {
         border-top-left-radius: var(--radius);
@@ -49,12 +49,13 @@
     flex: 1;
 
     .LemonButton {
+        min-height: calc(var(--lemon-button-height) - 2px);
+        border-radius: 0;
+        outline: 1px solid transparent;
+
         // Original transition with outline added
         transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
             outline 200ms ease;
-        outline: 1px solid transparent;
-        border-radius: 0;
-        min-height: calc(var(--lemon-button-height) - 2px);
     }
 
     &:first-child,

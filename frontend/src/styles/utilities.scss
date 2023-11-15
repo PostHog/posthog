@@ -11,6 +11,8 @@
     custom naming conventions 🙌
 */
 
+/* stylelint-disable order/order */
+
 // TODO: Support the screen breakpoint versions like md:foo
 // The problem is CSS file size, which could be solved by using Tailwind directly.
 // See the Grid section, which has breakpoint support, to add it for something in this file.
@@ -48,13 +50,13 @@
     }
 
     .mx-#{escape-number($space)} {
-        margin-left: #{$space * 0.25}rem;
         margin-right: #{$space * 0.25}rem;
+        margin-left: #{$space * 0.25}rem;
     }
 
     .-mx-#{escape-number($space)} {
-        margin-left: #{-$space * 0.25}rem;
         margin-right: #{-$space * 0.25}rem;
+        margin-left: #{-$space * 0.25}rem;
     }
 
     .my-#{escape-number($space)} {
@@ -68,8 +70,8 @@
     }
 
     .px-#{escape-number($space)} {
-        padding-left: #{$space * 0.25}rem;
         padding-right: #{$space * 0.25}rem;
+        padding-left: #{$space * 0.25}rem;
     }
 
     .py-#{escape-number($space)} {
@@ -86,8 +88,8 @@
     }
 
     .inset-x-#{escape-number($space)} {
-        left: #{$space * 0.25}rem;
         right: #{$space * 0.25}rem;
+        left: #{$space * 0.25}rem;
     }
 
     .inset-y-#{escape-number($space)} {
@@ -431,8 +433,8 @@ $decorations: underline, overline, line-through, no-underline;
         border-color: var(--#{$name});
     }
     .border-x-#{$name} {
-        border-left-color: var(--#{$name});
         border-right-color: var(--#{$name});
+        border-left-color: var(--#{$name});
     }
     .border-y-#{$name} {
         border-top-color: var(--#{$name});
@@ -898,8 +900,8 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .break-normal {
-    overflow-wrap: normal;
     word-break: normal;
+    overflow-wrap: normal;
 }
 
 .break-words {
@@ -1026,8 +1028,8 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .rounded-b {
-    border-bottom-left-radius: var(--radius); /* 4px */
     border-bottom-right-radius: var(--radius); /* 4px */
+    border-bottom-left-radius: var(--radius); /* 4px */
 }
 
 .rounded-none {
@@ -1350,16 +1352,16 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .line-clamp-2 {
-    overflow: hidden;
-    display: -webkit-box;
     -webkit-box-orient: vertical;
+    display: -webkit-box;
     -webkit-line-clamp: 2;
+    overflow: hidden;
 }
 
 .transition-all {
-    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
+    transition-property: all;
 }
 
 .aspect-auto {

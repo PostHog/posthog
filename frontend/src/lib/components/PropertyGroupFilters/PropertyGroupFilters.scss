@@ -1,43 +1,43 @@
 .property-group-filters {
     .property-group {
-        background-color: var(--side);
         padding: 0.5rem;
+        background-color: var(--side);
         border-radius: 4px;
     }
 
     .property-group-and-or-separator {
-        color: var(--primary-alt);
+        position: relative;
         padding: 0.5rem 0;
         font-size: 12px;
         font-weight: 600;
-        position: relative;
+        color: var(--primary-alt);
 
         &::before {
             position: absolute;
-            left: 17px;
             top: 0;
+            left: 17px;
             width: 2px;
             height: 100%;
-            background-color: var(--border-light);
             content: ' ';
+            background-color: var(--border-light);
         }
 
         > span {
             position: relative;
-            display: inline-block;
             z-index: 1;
-            background-color: var(--bg-light);
-            padding: 0.25rem;
+            display: inline-block;
             width: 35px;
+            padding: 0.25rem;
             text-align: center;
+            background-color: var(--bg-light);
         }
     }
 }
 
 .property-group-title {
     margin-bottom: 0;
-    font-weight: 600;
     font-size: 12px;
+    font-weight: 600;
     color: black;
 }
 
@@ -50,29 +50,29 @@
     padding-bottom: 0.5rem;
 
     .condition-text {
-        font-weight: 700;
         display: flex;
+        align-items: center;
+        justify-content: center;
         width: 40px;
         height: 40px;
         margin-right: 12px;
-        justify-content: center;
-        align-items: center;
-        border-radius: 4px;
-        background-color: var(--mid);
-        color: var(--primary-alt);
         font-size: 12px;
+        font-weight: 700;
+        color: var(--primary-alt);
+        background-color: var(--mid);
+        border-radius: 4px;
 
         &.selected {
-            background-color: var(--primary);
             color: #fff;
+            background-color: var(--primary);
         }
     }
 
     .condition-option {
-        background-color: var(--bg-light);
         padding: 0.5rem;
-        margin-left: 0.5rem;
         margin-right: 0.5rem;
+        margin-left: 0.5rem;
+        background-color: var(--bg-light);
         border-radius: 4px;
     }
 
