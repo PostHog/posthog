@@ -446,7 +446,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 groups=[{"properties": properties}],
             )
 
-        # build a "tree" of cohorts
+        # link cohorts
         create_cohort(1, None)
         create_cohort(3, None)
         create_cohort(2, [cohorts[1]])
@@ -491,3 +491,54 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         for name in creation_order:
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
             self.assertTrue(found_cohort)
+
+    def test_copy_feature_flag_destination_cohort_not_overridden(self):
+        cohort_name = "cohort-1"
+        target_project = self.team_2
+        original_cohort = Cohort.objects.create(
+            team=self.team,
+            name=cohort_name,
+            groups=[{"properties": [{"key": "$some_prop", "value": "original_value", "type": "person"}]}],
+        )
+
+        destination_cohort_prop_value = "destination_value"
+        Cohort.objects.create(
+            team=target_project,
+            name=cohort_name,
+            groups=[{"properties": [{"key": "$some_prop", "value": destination_cohort_prop_value, "type": "person"}]}],
+        )
+
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-with-cohort",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 20,
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": original_cohort.pk,
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+
+        data = {
+            "feature_flag_key": flag_to_copy.key,
+            "from_project": flag_to_copy.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        destination_cohort = Cohort.objects.filter(name=cohort_name, team=target_project).first()
+        # check destination valua not overwritten
+        self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
