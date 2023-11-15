@@ -67,6 +67,7 @@ jobs:
                   build-script: 'build'
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
+
     jest:
         runs-on: ubuntu-latest
         name: Jest test (${{ matrix.chunk }})
