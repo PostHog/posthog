@@ -2,6 +2,11 @@ import { PerformanceEvent } from '~/types'
 import { getSeriesColor } from 'lib/colors'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 function colorForEntry(entryType: string | undefined): string {
     switch (entryType) {
@@ -217,11 +222,7 @@ function percentagesWithinEventRange({
     return { startPercentage: `${partStartPercentage}%`, widthPercentage: `${partPercentage}%` }
 }
 
-export const NetworkRequestTiming = ({
-    performanceEvent,
-}: {
-    performanceEvent: PerformanceEvent
-}): JSX.Element | null => {
+const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
     const rangeStart = performanceEvent.start_time
     const rangeEnd = performanceEvent.response_end
     if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
@@ -276,5 +277,44 @@ export const NetworkRequestTiming = ({
             </div>
         )
     }
-    return null
+    return <LemonBanner type={'warning'}>Cannot render performance timeline for this request</LemonBanner>
+}
+
+const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
+    const timingProperties = Object.entries(performanceEvent).reduce((acc, [key, val]) => {
+        if (['_start', '_end', '_time'].some((suffix) => key.endsWith(suffix))) {
+            acc[key] = val
+        }
+        return acc
+    }, {})
+    return <SimpleKeyValueList item={timingProperties} />
+}
+
+export const NetworkRequestTiming = ({
+    performanceEvent,
+}: {
+    performanceEvent: PerformanceEvent
+}): JSX.Element | null => {
+    const [timelineMode, setTimelineMode] = useState<boolean>(true)
+
+    return (
+        <div className={'flex flex-col space-y-2'}>
+            <div className={'flex flex-row justify-end'}>
+                <LemonButton
+                    type={'secondary'}
+                    status={'stealth'}
+                    onClick={() => setTimelineMode(!timelineMode)}
+                    data-attr={`switch-timing-to-${timelineMode ? 'table' : 'timeline'}-view`}
+                >
+                    {timelineMode ? 'table view' : 'timeline view'}
+                </LemonButton>
+            </div>
+            <LemonDivider dashed={true} />
+            {timelineMode ? (
+                <TimeLineView performanceEvent={performanceEvent} />
+            ) : (
+                <TableView performanceEvent={performanceEvent} />
+            )}
+        </div>
+    )
 }
