@@ -13,6 +13,11 @@
     &.LemonSegmentedButton--full-width {
         width: 100%;
     }
+
+    .LemonSegmentedButton__option {
+        display: flex;
+        flex: 1;
+    }
 }
 
 body:not(.posthog-3000) {
@@ -43,8 +48,6 @@ body:not(.posthog-3000) {
     }
 
     .LemonSegmentedButton__option {
-        display: flex;
-        flex: 1;
         .LemonButton {
             // Original transition with outline added
             transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
@@ -96,17 +99,12 @@ body:not(.posthog-3000) {
 }
 
 .posthog-3000 {
-    --radius: 6px;
-
     .LemonSegmentedButton__option {
-        & .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
+        & .LemonButton,
+        & .LemonButton > span {
             border-radius: 0px;
         }
 
-        .LemonButton,
-        .LemonButton > span {
-            border-radius: 0;
-        }
         .LemonButton > span {
             .LemonButton__icon,
             .LemonButton__content {
@@ -120,15 +118,13 @@ body:not(.posthog-3000) {
         }
         &:first-child,
         &:first-child .LemonButton,
-        &:first-child .LemonButton > span,
-        &:first-child .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
+        &:first-child .LemonButton > span {
             border-top-left-radius: var(--radius);
             border-bottom-left-radius: var(--radius);
         }
         &:last-child,
         &:last-child .LemonButton,
-        &:last-child .LemonButton > span,
-        &:last-child .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
+        &:last-child .LemonButton > span {
             border-top-right-radius: var(--radius);
             border-bottom-right-radius: var(--radius);
         }
