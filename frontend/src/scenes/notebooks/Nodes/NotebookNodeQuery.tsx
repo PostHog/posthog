@@ -27,7 +27,10 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
@@ -89,10 +92,17 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
             <Query
-                query={modifiedQuery}
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={nodeId + '-component'}
-                readOnly={true}
+                query={modifiedQuery}
+                setQuery={(t) => {
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
             />
         </div>
     )
@@ -183,10 +193,9 @@ export const Settings = ({
     ) : (
         <div className="p-3">
             <Query
-                query={modifiedQuery}
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={attributes.nodeId + '-settings'}
-                readOnly={false}
+                query={modifiedQuery}
                 setQuery={(t) => {
                     updateAttributes({
                         query: {
