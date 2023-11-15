@@ -451,8 +451,8 @@ def get_dependent_cohorts(
 
     queue: List[int] = []
     for prop in cohort.properties.flat:
-        if prop.type == "cohort" and isinstance(prop.value, int):
-            queue.append(prop.value)
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            queue.append(int(prop.value))
 
     while queue:
         cohort_id = queue.pop()
@@ -466,8 +466,8 @@ def get_dependent_cohorts(
                 cohorts.append(cohort)
                 seen_cohort_ids.add(cohort.id)
                 for prop in cohort.properties.flat:
-                    if prop.type == "cohort" and isinstance(prop.value, int):
-                        queue.append(prop.value)
+                    if prop.type == "cohort" and not isinstance(prop.value, list):
+                        queue.append(int(prop.value))
         except Cohort.DoesNotExist:
             continue
 
@@ -483,12 +483,11 @@ def get_sorted_cohort_ids(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, Co
         # add parent
         dependency_graph[cohort.id] = []
         for prop in cohort.properties.flat:
-            if prop.type == "cohort":
+            if prop.type == "cohort" and not isinstance(prop.value, list):
                 # add child
-                dependency_graph[cohort.id].append(prop.value)
+                dependency_graph[cohort.id].append(int(prop.value))
 
-                neighbor_cohort_id = prop.value
-                neighbor_cohort = seen_cohorts_cache[neighbor_cohort_id]
+                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
                 if cohort.id not in seen:
                     seen.add(cohort.id)
                     traverse(neighbor_cohort)
