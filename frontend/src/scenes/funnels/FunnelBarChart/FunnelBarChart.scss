@@ -7,12 +7,6 @@
     overflow: hidden;
     flex: 1;
 
-    .InsightCard & {
-        table {
-            margin: 0.5rem 0 0;
-        }
-    }
-
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
