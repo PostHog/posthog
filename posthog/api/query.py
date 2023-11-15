@@ -113,13 +113,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def create(self, request, *args, **kwargs) -> JsonResponse:
         request_json = request.data
         query_json = request_json.get("query")
-        query_async = request_json.get("async") is True
+        query_async = request_json.get("async", False)
         refresh_requested = refresh_requested_by_client(request)
 
-        client_query_id = request_json.get("client_query_id")
-        if not client_query_id:
-            client_query_id = query_hash(query_json, self.team.pk)
-
+        client_query_id = request_json.get("client_query_id") or query_hash(query_json, self.team.pk)
         self._tag_client_query_id(client_query_id)
 
         if query_async:
@@ -129,29 +126,13 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 query_id=client_query_id,
                 refresh_requested=refresh_requested,
             )
-            return JsonResponse(
-                {
-                    "id": query_id,
-                    "async": True,
-                },
-                safe=False,
-            )
+            return JsonResponse({"id": query_id, "async": True}, safe=False)
 
         try:
             result = process_query(self.team, query_json, refresh_requested=refresh_requested)
-            # allow lists as well as dicts in response with safe=False
-            return JsonResponse(
-                {
-                    "id": client_query_id,
-                    "async": False,
-                    **result,
-                },
-                safe=False,
-            )
-        except HogQLException as e:
-            raise ValidationError(str(e))
-        except ExposedCHQueryError as e:
-            raise ValidationError(str(e), e.code_name)
+            return JsonResponse(result, safe=False)
+        except (HogQLException, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)

@@ -144,14 +144,12 @@ def get_query_status(team_id, query_id):
     key = generate_redis_results_key(query_id, team_id)
     try:
         byte_results = redis_client.get(key)
-        if byte_results:
-            str_results = byte_results.decode("utf-8")
-        else:
+        if not byte_results:
             return QueryStatus(id=query_id, team_id=team_id, error=True, error_message="Query is unknown to backend")
-        query_status = QueryStatus(**json.loads(str_results))
-        if query_status.team_id != team_id:
-            raise Exception("Requesting team is not executing team")
+
+        query_status = QueryStatus(**json.loads(byte_results))
     except Exception as e:
+        logger.exception("Error getting query status for team %s query %s", team_id, query_id)
         query_status = QueryStatus(id=query_id, team_id=team_id, error=True, error_message=str(e))
     return query_status
 

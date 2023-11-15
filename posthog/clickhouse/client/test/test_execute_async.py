@@ -1,6 +1,6 @@
+import uuid
 from unittest.mock import patch
 
-import fakeredis
 from django.test import TestCase
 
 from posthog.clickhouse.client import execute_async as client
@@ -19,7 +19,6 @@ def build_query(sql):
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
-        self.redis_client = fakeredis.FakeStrictRedis()
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.team_id = self.team.pk
@@ -35,18 +34,18 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
-        team_id = self.team_id
         self.assertRaises(
             HogQLException,
             client.enqueue_process_query_task,
-            **{"team_id": team_id, "query_json": query, "bypass_celery": True},
+            **{"team_id": (self.team_id), "query_json": query, "bypass_celery": True},
         )
+        query_id = uuid.uuid4().hex
         try:
-            query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+            client.enqueue_process_query_task(self.team_id, query, query_id=query_id, bypass_celery=True)
         except Exception:
             pass
 
-        result = client.get_query_status(team_id, query_id)
+        result = client.get_query_status(self.team_id, query_id)
         self.assertTrue(result.error)
         self.assertRegex(result.error_message, "Unknown table")
 
@@ -57,19 +56,20 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
         result = client.get_query_status(wrong_team, query_id)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, "Requesting team is not executing team")
+        self.assertEqual(result.error_message, "Query is unknown to backend")
 
     @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_is_lazy(self, execute_sync_mock):
         query = build_query("SELECT 4 + 4")
+        query_id = uuid.uuid4().hex
         team_id = self.team_id
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Try the same query again
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
@@ -77,14 +77,15 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_sync_mock):
         query = build_query("SELECT 8 + 8")
+        query_id = uuid.uuid4().hex
         team_id = self.team_id
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Try the same query again, but with force
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True, force=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True, force=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)

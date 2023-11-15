@@ -1,7 +1,6 @@
 import json
 from unittest import mock
 from unittest.mock import patch
-from urllib.parse import quote
 
 from freezegun import freeze_time
 from rest_framework import status
@@ -337,51 +336,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_json_undefined_constant_error(self):
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3AInfinity%7D"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Unsupported constant found in JSON: Infinity",
-                "attr": None,
-            },
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3ANaN%7D"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Unsupported constant found in JSON: NaN",
-                "attr": None,
-            },
-        )
-
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        # Safe errors are passed through in GET requests
-        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
-        self.assertEqual(response_get.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_get.json(),
-            self.validation_error_response(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
-                "illegal_type_of_argument",
-            ),
-        )
-
-        # Safe errors are passed through in POST requests too
         response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -397,11 +354,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
-        # Unsafe errors are swallowed in GET requests (in this case we should not expose malformed SQL)
-        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
-        self.assertEqual(response_get.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Unsafe errors are swallowed in POST requests too
         response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -835,7 +787,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.get("results", [])[0][0], 20)
 
 
-class TestStatusAction(APIBaseTest):
+class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team_id = self.team.pk
@@ -851,6 +803,7 @@ class TestStatusAction(APIBaseTest):
     def test_status_with_valid_query_id(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
+                "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "num_rows": 100,
                 "total_rows": 200,
@@ -859,64 +812,50 @@ class TestStatusAction(APIBaseTest):
                 "results": ["result1", "result2"],
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["complete"], True)
+        self.assertEqual(response.json()["complete"], True, response.content)
 
     def test_status_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.invalid_query_id})
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.invalid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Query is unknown to backend", response.json()["error_message"])
-
-    def test_status_with_missing_query_id(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", expected_status_code=400)
-        self.assertEqual(response.status_code, 400)
-
-    def test_status_with_incorrect_team_id(self):
-        incorrect_team_id = 15115151
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "team_id": incorrect_team_id,
-                "complete": True,
-                "results": ["result1", "result2"],
-            }
-        ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Requesting team is not executing team", response.json()["error_message"])
 
     def test_status_for_completed_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
+                "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "complete": True,
                 "results": ["result1", "result2"],
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["complete"])
 
     def test_status_for_running_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
+                "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "complete": False,
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["complete"])
 
     def test_status_for_failed_query(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
+                "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
                 "error_message": "Query failed",
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/status/", {"query_id": self.valid_query_id})
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["error"])
