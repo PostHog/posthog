@@ -183,7 +183,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.SavedInsights]: {
         projectBased: true,
-        name: 'Insights',
+        name: 'Product analytics',
     },
     [Scene.ProjectHomepage]: {
         projectBased: true,
