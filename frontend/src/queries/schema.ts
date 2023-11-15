@@ -530,7 +530,7 @@ export interface LifecycleQueryResponse extends QueryResponse {
     results: Record<string, any>[]
 }
 
-export interface LifecycleQuery extends InsightsQueryBase {
+export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
