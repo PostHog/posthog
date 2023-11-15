@@ -1,12 +1,14 @@
-import { FunnelPathType, PathType, InsightType } from '~/types'
 import { useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { funnelDataLogic } from './funnelDataLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { urls } from 'scenes/urls'
+
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelPathType, InsightType, PathType } from '~/types'
+
+import { funnelDataLogic } from './funnelDataLogic'
 
 type FunnelStepMoreProps = {
     stepIndex: number

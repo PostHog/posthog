@@ -1,16 +1,18 @@
+import './Panels.scss'
+
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconArrowLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ingestionLogic, INGESTION_STEPS, IngestionState } from '../ingestionLogic'
-import './Panels.scss'
-import { IconArrowLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
-import { teamLogic } from 'scenes/teamLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
+import { INGESTION_STEPS, ingestionLogic, IngestionState } from '../ingestionLogic'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 

@@ -1,40 +1,12 @@
-import { kea, path, connect, actions, listeners } from 'kea'
-import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
-import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
-import type { eventUsageLogicType } from './eventUsageLogicType'
-import {
-    FilterType,
-    DashboardType,
-    PersonType,
-    DashboardMode,
-    EntityType,
-    InsightModel,
-    InsightType,
-    HelpType,
-    SessionRecordingUsageType,
-    FunnelCorrelation,
-    ItemMode,
-    AnyPropertyFilter,
-    Experiment,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
-    PropertyFilterValue,
-    InsightShortId,
-    SessionPlayerData,
-    AnyPartialFilterType,
-    Resource,
-    AccessLevel,
-    RecordingReportLoadTimes,
-    SessionRecordingPlayerTab,
-    Survey,
-} from '~/types'
-import type { Dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import { actions, connect, kea, listeners, path } from 'kea'
+import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/types'
+import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
+import { convertPropertyGroupToProperties } from 'lib/utils'
+import posthog from 'posthog-js'
+import { Framework, PlatformType } from 'scenes/ingestion/types'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,
@@ -43,9 +15,39 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
+import { userLogic } from 'scenes/userLogic'
+
+import {
+    AccessLevel,
+    AnyPartialFilterType,
+    AnyPropertyFilter,
+    DashboardMode,
+    DashboardType,
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FilterType,
+    FunnelCorrelation,
+    HelpType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    PersonType,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    RecordingReportLoadTimes,
+    Resource,
+    SessionPlayerData,
+    SessionRecordingPlayerTab,
+    SessionRecordingUsageType,
+    Survey,
+} from '~/types'
+
+import type { eventUsageLogicType } from './eventUsageLogicType'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',

@@ -1,6 +1,6 @@
-import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog, { PostHogConfig } from 'posthog-js'
 
 const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
     if ((window as any).SENTRY_DSN) {

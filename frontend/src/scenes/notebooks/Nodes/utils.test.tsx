@@ -1,6 +1,7 @@
+import { act, renderHook } from '@testing-library/react-hooks'
 import { NodeViewProps } from '@tiptap/core'
+
 import { useSyncedAttributes } from './utils'
-import { renderHook, act } from '@testing-library/react-hooks'
 
 describe('notebook node utils', () => {
     jest.useFakeTimers()

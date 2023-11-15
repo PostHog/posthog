@@ -1,4 +1,5 @@
 import { DurationType, PropertyFilterType, PropertyOperator, RecordingDurationFilter } from '~/types'
+
 import { humanFriendlyDurationFilter } from './DurationFilter'
 
 describe('DurationFilter', () => {

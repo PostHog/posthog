@@ -1,5 +1,7 @@
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { groupsModel } from '~/models/groupsModel'
+
 import type { groupAnalyticsConfigLogicType } from './groupAnalyticsConfigLogicType'
 
 export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>([

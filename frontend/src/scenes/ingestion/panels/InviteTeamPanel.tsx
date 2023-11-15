@@ -1,11 +1,13 @@
-import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
+import { useActions } from 'kea'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+
 import { DemoProjectButton } from './PanelComponents'
 
 export function InviteTeamPanel(): JSX.Element {

@@ -1,11 +1,12 @@
-import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import clsx from 'clsx'
-import { notebookLogic } from './notebookLogic'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { IconEyeVisible } from 'lib/lemon-ui/icons'
+import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
+
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
+import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
     const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)

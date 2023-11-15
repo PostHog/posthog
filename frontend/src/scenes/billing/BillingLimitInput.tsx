@@ -1,12 +1,14 @@
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { billingLogic } from './billingLogic'
-import { convertAmountToUsage } from './billing-utils'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { billingProductLogic } from './billingProductLogic'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+
+import { convertAmountToUsage } from './billing-utils'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { billing, billingLoading } = useValues(billingLogic)

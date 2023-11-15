@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSync } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
 export function HeatmapStats(): JSX.Element {
     const {

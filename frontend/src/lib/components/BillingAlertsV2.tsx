@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function BillingAlertsV2(): JSX.Element | null {
     const { billingAlert } = useValues(billingLogic)

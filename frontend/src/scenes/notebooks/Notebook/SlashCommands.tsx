@@ -1,8 +1,10 @@
-import { Extension } from '@tiptap/core'
-import Suggestion from '@tiptap/suggestion'
-
-import { ReactRenderer } from '@tiptap/react'
+import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
+import Fuse from 'fuse.js'
+import { useValues } from 'kea'
 import {
     IconBold,
     IconCohort,
@@ -10,29 +12,28 @@ import {
     IconRecording,
     IconTableChart,
     IconUploadFile,
-    InsightSQLIcon,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
+    InsightSQLIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
 } from 'lib/lemon-ui/icons'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange } from './utils'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import Fuse from 'fuse.js'
-import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema'
+import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+
+import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
+import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
-import { NodeKind } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
-import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
-import { IconCode } from '@posthog/icons'
+import { notebookLogic } from './notebookLogic'
+import { EditorCommands, EditorRange } from './utils'
 
 type SlashCommandConditionalProps =
     | {

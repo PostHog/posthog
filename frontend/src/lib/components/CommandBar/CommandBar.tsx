@@ -1,15 +1,14 @@
-import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-
-import { commandBarLogic } from './commandBarLogic'
-import { BarStatus } from './types'
-
 import './index.scss'
-import SearchBar from './SearchBar'
+
 import { LemonModal } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { useRef } from 'react'
+
 import ActionBar from './ActionBar'
+import { commandBarLogic } from './commandBarLogic'
+import SearchBar from './SearchBar'
+import { BarStatus } from './types'
 
 function CommandBar(): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement | null>(null)

@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { initKeaTests } from '~/test/init'
+
 import { playerSettingsLogic } from './playerSettingsLogic'
 
 describe('playerSettingsLogic', () => {

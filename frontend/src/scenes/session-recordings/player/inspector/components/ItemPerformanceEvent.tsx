@@ -1,15 +1,17 @@
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
-import { Body, PerformanceEvent } from '~/types'
-import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
+import { Fragment, useState } from 'react'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+
+import { Body, PerformanceEvent } from '~/types'
+
+import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',

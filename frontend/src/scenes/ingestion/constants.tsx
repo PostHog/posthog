@@ -1,5 +1,6 @@
 import { PlatformType } from 'scenes/ingestion/types'
-import { Segment, RSS } from './panels/ThirdPartyIcons'
+
+import { RSS, Segment } from './panels/ThirdPartyIcons'
 
 export const TECHNICAL = 'TECHNICAL'
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'

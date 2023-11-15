@@ -1,10 +1,11 @@
-import { useValues, useActions } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { autocaptureExceptionsLogic } from './autocaptureExceptionsLogic'
 
 export function AutocaptureSettings(): JSX.Element {

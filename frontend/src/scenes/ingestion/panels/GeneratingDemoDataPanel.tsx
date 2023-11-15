@@ -1,9 +1,11 @@
+import './Panels.scss'
+
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
+
 import { CardContainer } from '../CardContainer'
-import './Panels.scss'
 
 export function GeneratingDemoDataPanel(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)

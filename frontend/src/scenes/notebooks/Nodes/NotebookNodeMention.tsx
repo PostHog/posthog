@@ -1,10 +1,11 @@
+import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
 import clsx from 'clsx'
-import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { NotebookNodeType } from '~/types'
 
 export interface NotebookNodeMentionAttrs {
     id?: number

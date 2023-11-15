@@ -1,31 +1,32 @@
-import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import {
-    FunnelExclusion,
-    FunnelStep,
-    FunnelStepWithNestedBreakdown,
-    BreakdownKeyType,
-    FunnelResultType,
-    FunnelStepReference,
-    FunnelConversionWindow,
-    FunnelsFilterType,
-    Breakdown,
-    FunnelStepWithConversionMetrics,
-    FlattenedFunnelStepByBreakdown,
-    FunnelCorrelation,
-    AnyPropertyFilter,
-    PropertyOperator,
-    ElementPropertyFilter,
-    PropertyFilterType,
-    FunnelCorrelationResultsType,
-    CorrelationConfigType,
-} from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
-import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { autoCaptureEventToDescription, clamp } from 'lib/utils'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { Noun } from '~/models/groupsModel'
+import { FunnelsQuery } from '~/queries/schema'
+import {
+    AnyPropertyFilter,
+    Breakdown,
+    BreakdownKeyType,
+    CorrelationConfigType,
+    ElementPropertyFilter,
+    FlattenedFunnelStepByBreakdown,
+    FunnelConversionWindow,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelExclusion,
+    FunnelResultType,
+    FunnelsFilterType,
+    FunnelStep,
+    FunnelStepReference,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean

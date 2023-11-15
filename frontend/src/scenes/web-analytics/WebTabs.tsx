@@ -1,6 +1,6 @@
 import clsx from 'clsx'
-import React from 'react'
 import { useSliderPositioning } from 'lib/lemon-ui/hooks'
+import React from 'react'
 
 const TRANSITION_MS = 200
 export const WebTabs = ({

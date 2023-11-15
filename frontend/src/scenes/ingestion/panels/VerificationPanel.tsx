@@ -1,13 +1,15 @@
+import './Panels.scss'
+
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
-import { CardContainer } from '../CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './Panels.scss'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { CardContainer } from '../CardContainer'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
+import { ingestionLogic } from '../ingestionLogic'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)

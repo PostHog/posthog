@@ -1,14 +1,14 @@
+import * as Sentry from '@sentry/react'
 import { afterMount, connect, kea, path } from 'kea'
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-import * as Sentry from '@sentry/react'
 
-import { userLogic } from './userLogic'
+import { UserType } from '~/types'
 
 import type { appContextLogicType } from './appContextLogicType'
 import { organizationLogic } from './organizationLogic'
 import { teamLogic } from './teamLogic'
-import { UserType } from '~/types'
+import { userLogic } from './userLogic'
 
 export const appContextLogic = kea<appContextLogicType>([
     path(['scenes', 'appContextLogic']),

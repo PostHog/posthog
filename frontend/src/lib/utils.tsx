@@ -1,5 +1,18 @@
+import * as Sentry from '@sentry/react'
+import equal from 'fast-deep-equal'
+import { tagColors } from 'lib/colors'
+import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { KeyMappingInterface } from 'lib/taxonomy'
+import { AlignType } from 'rc-trigger/lib/interface'
 import { CSSProperties } from 'react'
-import api from './api'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { urls } from 'scenes/urls'
+
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     ActionFilter,
     ActionType,
@@ -29,26 +42,15 @@ import {
     TimeUnitType,
     TrendsFilterType,
 } from '~/types'
-import * as Sentry from '@sentry/react'
-import equal from 'fast-deep-equal'
-import { tagColors } from 'lib/colors'
-import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/taxonomy'
-import { AlignType } from 'rc-trigger/lib/interface'
-import { dayjs } from 'lib/dayjs'
-import { getAppContext } from './utils/getAppContext'
+
+import api from './api'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
 import {
     isHogQLPropertyFilter,
     isPropertyFilterWithOperator,
     isValidPropertyFilter,
 } from './components/PropertyFilters/utils'
-import { IconCopy } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { urls } from 'scenes/urls'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
-import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+import { getAppContext } from './utils/getAppContext'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects

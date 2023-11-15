@@ -1,18 +1,21 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import './SidePanel.scss'
-import { useActions, useValues } from 'kea'
-import { sidePanelLogic } from './sidePanelLogic'
+
+import { IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useRef } from 'react'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconInfo, IconSupport, IconGear } from '@posthog/icons'
-import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
-import { SidePanelSettings } from './panels/SidePanelSettings'
+
 import { SidePanelTab } from '~/types'
+
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
+import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelSupport } from './panels/SidePanelSupport'
+import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {

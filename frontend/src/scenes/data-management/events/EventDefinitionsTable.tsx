@@ -1,22 +1,24 @@
 import './EventDefinitionsTable.scss'
+
+import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventDefinition, EventDefinitionType } from '~/types'
+import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
-import { combineUrl } from 'kea-router'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { TZLabel } from 'lib/components/TZLabel'
+
+import { EventDefinition, EventDefinitionType } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },

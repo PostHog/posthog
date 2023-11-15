@@ -1,15 +1,18 @@
-import { ingestionLogic } from './ingestionLogic'
-import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconArticle, IconQuestionAnswer } from 'lib/lemon-ui/icons'
-import { HelpType } from '~/types'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { organizationLogic } from 'scenes/organizationLogic'
+
 import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { IconArticle, IconQuestionAnswer } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { HelpType } from '~/types'
+
+import { ingestionLogic } from './ingestionLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 

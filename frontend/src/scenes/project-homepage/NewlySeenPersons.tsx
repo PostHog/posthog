@@ -1,16 +1,17 @@
 import './ProjectHomepage.scss'
-import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 
+import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
+import { dayjs } from 'lib/dayjs'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
+
 import { PersonType } from '~/types'
 
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { projectHomepageLogic } from './projectHomepageLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { projectHomepageLogic } from './projectHomepageLogic'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)

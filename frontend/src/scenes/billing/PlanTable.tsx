@@ -1,12 +1,15 @@
+import './PlanTable.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { AvailableFeature, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+
 import { billingLogic } from './billingLogic'
-import './PlanTable.scss'
 
 export function PlanIcon({
     feature,

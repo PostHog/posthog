@@ -1,8 +1,10 @@
+import './LemonSegmentedButton.scss'
+
 import clsx from 'clsx'
 import React from 'react'
-import { LemonButton } from '../LemonButton'
+
 import { useSliderPositioning } from '../hooks'
-import './LemonSegmentedButton.scss'
+import { LemonButton } from '../LemonButton'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
     value: T

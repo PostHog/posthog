@@ -1,14 +1,17 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { SurveyAppearance } from './SurveyAppearance'
-import { defaultSurveyTemplates, defaultSurveyAppearance } from './constants'
-import { SurveyQuestion } from '~/types'
 import './SurveyTemplates.scss'
+
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { surveyLogic } from './surveyLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SurveyQuestion } from '~/types'
+
+import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
+import { SurveyAppearance } from './SurveyAppearance'
+import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,

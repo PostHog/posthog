@@ -1,13 +1,18 @@
+import './NodeWrapper.scss'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import {
-    Node,
-    NodeViewWrapper,
-    mergeAttributes,
-    ReactNodeViewRenderer,
-    NodeViewProps,
     getExtensionField,
+    mergeAttributes,
+    Node,
+    NodeViewProps,
+    NodeViewWrapper,
+    ReactNodeViewRenderer,
 } from '@tiptap/react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import {
     IconClose,
     IconDragHandle,
@@ -17,29 +22,27 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
-import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../Notebook/utils'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
-import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
-import { IconGear } from '@posthog/icons'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookNodeResource } from '~/types'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import {
+    CreatePostHogWidgetNodeOptions,
+    CustomNotebookNodeAttributes,
+    KNOWN_NODES,
+    NodeWrapperProps,
+    NotebookNodeProps,
+} from '../Notebook/utils'
+import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { NotebookNodeContext, notebookNodeLogic, NotebookNodeLogicProps } from './notebookNodeLogic'
+import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {

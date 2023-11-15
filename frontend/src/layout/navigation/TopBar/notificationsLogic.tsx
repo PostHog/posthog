@@ -1,14 +1,14 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
+import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { notificationsLogicType } from './notificationsLogicType'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 const MARK_READ_TIMEOUT = 2500

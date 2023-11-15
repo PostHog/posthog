@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+
 import { versionCheckerLogic } from './versionCheckerLogic'
 
 export function VersionCheckerBanner(): JSX.Element {

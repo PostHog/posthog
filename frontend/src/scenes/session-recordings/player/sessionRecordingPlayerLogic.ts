@@ -1,8 +1,9 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import {
-    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
+    BuiltLogic,
     connect,
     kea,
     key,
@@ -12,38 +13,39 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { windowValues } from 'kea-window-values'
-import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
-import { Replayer } from 'rrweb'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import {
-    SessionRecordingDataLogicProps,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { deleteRecording } from './utils/playerUtils'
-import { playerSettingsLogic } from './playerSettingsLogic'
-import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
-import { lemonToast } from '@posthog/lemon-ui'
-import { delay } from 'kea-test-utils'
-import { userLogic } from 'scenes/userLogic'
-import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { wrapConsole } from 'lib/utils/wrapConsole'
-import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
-import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
-import { RefObject } from 'react'
-import posthog from 'posthog-js'
-import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
-import { now } from 'lib/dayjs'
-import { ReplayPlugin } from 'rrweb/typings/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'kea-test-utils'
+import { windowValues } from 'kea-window-values'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { wrapConsole } from 'lib/utils/wrapConsole'
+import posthog from 'posthog-js'
+import { RefObject } from 'react'
+import { Replayer } from 'rrweb'
+import { ReplayPlugin } from 'rrweb/typings/types'
+import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import {
+    sessionRecordingDataLogic,
+    SessionRecordingDataLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+
+import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
+import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
+import { deleteRecording } from './utils/playerUtils'
+import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough

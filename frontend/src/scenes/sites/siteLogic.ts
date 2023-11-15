@@ -1,4 +1,5 @@
-import { kea, props, selectors, path } from 'kea'
+import { kea, path, props, selectors } from 'kea'
+
 import { Breadcrumb } from '~/types'
 
 import type { siteLogicType } from './siteLogicType'

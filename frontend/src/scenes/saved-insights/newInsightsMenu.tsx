@@ -1,9 +1,10 @@
-import { InsightType } from '~/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata } from 'scenes/saved-insights/SavedInsights'
 import { ReactNode } from 'react'
 import { insightTypeURL } from 'scenes/insights/utils'
+import { INSIGHT_TYPES_METADATA, InsightTypeMetadata } from 'scenes/saved-insights/SavedInsights'
+
+import { InsightType } from '~/types'
 
 function insightTypesForMenu(): [string, InsightTypeMetadata][] {
     // never show JSON InsightType in the menu

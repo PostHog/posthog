@@ -1,9 +1,10 @@
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { JSONContent, Node } from '../Notebook/utils'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
+import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+
 import { NotebookNodeType } from '~/types'
 
+import { JSONContent, Node } from '../Notebook/utils'
+import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import type { notebookNodeFlagLogicType } from './NotebookNodeFlagLogicType'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 

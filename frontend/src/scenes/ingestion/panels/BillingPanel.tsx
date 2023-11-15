@@ -1,13 +1,14 @@
+import './Panels.scss'
+
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Billing } from 'scenes/billing/Billing'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './Panels.scss'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { Billing } from 'scenes/billing/Billing'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)

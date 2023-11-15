@@ -1,15 +1,17 @@
-import { kea, path, connect, listeners, actions, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
-import { SSOProvider } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+
+import { SSOProvider } from '~/types'
+
+import type { loginLogicType } from './loginLogicType'
 
 export interface AuthenticateResponseType {
     success: boolean

@@ -1,9 +1,11 @@
-import { BuiltLogic, connect, kea, key, LogicWrapper, props, selectors, path } from 'kea'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { Breadcrumb, FrontendApp, FrontendAppConfig } from '~/types'
-import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
+import { BuiltLogic, connect, kea, key, LogicWrapper, path, props, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+
+import { Breadcrumb, FrontendApp, FrontendAppConfig } from '~/types'
+
+import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 
 export interface FrontendAppSceneLogicProps {
     /** Used as the logic's key */

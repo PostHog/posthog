@@ -1,7 +1,8 @@
-import { RetentionLineGraph } from './RetentionLineGraph'
-import { RetentionTable } from './RetentionTable'
 import { LemonDivider } from '@posthog/lemon-ui'
+
+import { RetentionLineGraph } from './RetentionLineGraph'
 import { RetentionModal } from './RetentionModal'
+import { RetentionTable } from './RetentionTable'
 
 export function RetentionContainer({
     inCardView,

@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 const tzLabel = (tz: string, offset: number): string =>
     `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${offset === 0 ? '±' : offset > 0 ? '+' : '-'}${Math.abs(

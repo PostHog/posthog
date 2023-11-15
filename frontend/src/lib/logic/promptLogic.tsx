@@ -1,6 +1,6 @@
+import { Form, FormItemProps, Input, InputProps, Modal, ModalProps } from 'antd'
+import { actions, events, kea, key, listeners, path, props } from 'kea'
 import { createRoot } from 'react-dom/client'
-import { kea, props, path, key, actions, events, listeners } from 'kea'
-import { Modal, ModalProps, Input, InputProps, Form, FormItemProps } from 'antd'
 
 import type { promptLogicType } from './promptLogicType'
 

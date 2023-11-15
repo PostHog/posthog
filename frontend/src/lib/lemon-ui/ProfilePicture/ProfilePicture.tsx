@@ -1,12 +1,14 @@
+import './ProfilePicture.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
-import './ProfilePicture.scss'
-import { inStorybookTestRunner } from 'lib/utils'
 
 export interface ProfilePictureProps {
     name?: string

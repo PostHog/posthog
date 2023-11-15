@@ -1,10 +1,12 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm, SupportFormButtons } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useEffect } from 'react'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
+
 import { SidePanelTab } from '~/types'
+
+import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 export const SidePanelSupport = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)

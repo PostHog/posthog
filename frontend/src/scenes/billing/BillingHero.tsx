@@ -1,5 +1,6 @@
-import { BlushingHog } from 'lib/components/hedgehogs'
 import './BillingHero.scss'
+
+import { BlushingHog } from 'lib/components/hedgehogs'
 
 export const BillingHero = (): JSX.Element => {
     return (

@@ -1,11 +1,12 @@
-import { EventsQuery, InsightVizNode } from '../../queries/schema'
 import { actions, afterMount, kea, path, reducers } from 'kea'
-import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
-
-import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
-import api from 'lib/api'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+
+import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 import { EventType } from '~/types'
+
+import { EventsQuery, InsightVizNode } from '../../queries/schema'
+import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
 
 const EVENT_NAME = 'Feedback Sent'
 const FEEDBACK_PROPERTY = '$feedback'

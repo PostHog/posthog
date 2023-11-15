@@ -1,6 +1,6 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsScene } from 'scenes/events/EventsScene'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
     component: Events,

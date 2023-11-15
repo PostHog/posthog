@@ -1,20 +1,9 @@
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { router } from 'kea-router'
-import type { commandPaletteLogicType } from './commandPaletteLogicType'
-import Fuse from 'fuse.js'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
-import { DashboardType, InsightType } from '~/types'
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
-import { userLogic } from 'scenes/userLogic'
-import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import posthog from 'posthog-js'
-import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconAction,
     IconApps,
@@ -46,8 +35,21 @@ import {
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import posthog from 'posthog-js'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardType, InsightType } from '~/types'
+
+import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
+import { debugCHQueries } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void

@@ -1,23 +1,25 @@
+import { ErrorBoundary } from '@sentry/react'
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { IconComment } from 'lib/lemon-ui/icons'
+import { fromParamsGivenUrl } from 'lib/utils'
+import { useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
+import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
-    SessionRecordingPlaylistLogicProps,
     addedAdvancedFilters,
     getDefaultFilters,
+    SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
-import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
+
+import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
-import { ErrorBoundary } from '@sentry/react'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 
 const Component = ({
     attributes,

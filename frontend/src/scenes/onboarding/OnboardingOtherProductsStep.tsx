@@ -1,8 +1,9 @@
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
-import { OnboardingStep } from './OnboardingStep'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
 import { getProductIcon } from 'scenes/products/Products'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingOtherProductsStep = ({
     stepKey = OnboardingStepKey.OTHER_PRODUCTS,

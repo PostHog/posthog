@@ -1,16 +1,17 @@
-import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
-import { getKeyMapping } from 'lib/taxonomy'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { getKeyMapping } from 'lib/taxonomy'
+import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {

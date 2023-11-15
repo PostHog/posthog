@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
 
+import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 import { actionBarLogic } from './actionBarLogic'
 import { getNameFromActionScope } from './utils'
-import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
 type SearchResultProps = {
     result: CommandResultDisplayable

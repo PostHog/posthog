@@ -1,10 +1,12 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookListItemType } from '~/types'
-import { NotebookSelectPopover } from '../NotebookSelectButton/NotebookSelectButton'
+
 import { IconNotebook } from '../IconNotebook'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { NotebookSelectPopover } from '../NotebookSelectButton/NotebookSelectButton'
 
 export type NotebookListMiniProps = {
     selectedNotebookId?: string

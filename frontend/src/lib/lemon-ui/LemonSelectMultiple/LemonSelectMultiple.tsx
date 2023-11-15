@@ -1,8 +1,9 @@
-import { Select } from 'antd'
-import { range } from 'lib/utils'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import './LemonSelectMultiple.scss'
+
+import { Select } from 'antd'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { range } from 'lib/utils'
 import { ReactNode } from 'react'
 
 export interface LemonSelectMultipleOption {

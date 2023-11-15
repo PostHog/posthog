@@ -1,9 +1,11 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { BuilderHog3, DetectiveHog } from '../hedgehogs'
-import { userLogic } from 'scenes/userLogic'
 import { useActions } from 'kea'
+import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { userLogic } from 'scenes/userLogic'
+
 import { ProductKey } from '~/types'
+
+import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
 export const ProductIntroduction = ({
     productName,

@@ -1,8 +1,8 @@
-import { useActions } from 'kea'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { Card } from 'antd'
 // eslint-disable-next-line no-restricted-imports
 import { AppstoreAddOutlined } from '@ant-design/icons'
+import { Card } from 'antd'
+import { useActions } from 'kea'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 export const NoDashboards = (): JSX.Element => {
     const { addDashboard } = useActions(newDashboardLogic)

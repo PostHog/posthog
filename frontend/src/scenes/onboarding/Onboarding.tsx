@@ -1,18 +1,20 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect, useState } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
-import { SDKs } from './sdks/SDKs'
+
 import { ProductKey } from '~/types'
-import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
+
 import { OnboardingBillingStep } from './OnboardingBillingStep'
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { SDKs } from './sdks/SDKs'
+import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
 export const scene: SceneExport = {

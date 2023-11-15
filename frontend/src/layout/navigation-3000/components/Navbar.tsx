@@ -1,20 +1,22 @@
+import { IconAsterisk, IconDay, IconGear, IconNight, IconQuestion } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+
 import { navigation3000Logic } from '../navigationLogic'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
-import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { useRef } from 'react'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)

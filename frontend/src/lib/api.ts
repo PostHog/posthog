@@ -1,15 +1,31 @@
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { decompressSync, strFromU8 } from 'fflate'
+import { encodeParams } from 'kea-router'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { QuerySchema } from '~/queries/schema'
 import {
     ActionType,
+    BatchExportConfiguration,
     BatchExportLogEntry,
+    BatchExportRun,
     CohortType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
-    DataWarehouseTable,
     DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    DataWarehouseViewLink,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -17,15 +33,18 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataStripeSource,
+    ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
-    OrganizationFeatureFlags,
-    OrganizationFeatureFlagsCopyBody,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookNodeResource,
     NotebookType,
+    OrganizationFeatureFlags,
+    OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
@@ -46,29 +65,12 @@ import {
     SubscriptionType,
     Survey,
     TeamType,
-    UserType,
-    DataWarehouseViewLink,
-    BatchExportConfiguration,
-    BatchExportRun,
     UserBasicType,
-    NotebookNodeResource,
-    ExternalDataStripeSourceCreatePayload,
-    ExternalDataStripeSource,
+    UserType,
 } from '~/types'
-import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
-import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
-import { toParams } from 'lib/utils'
+
 import { DashboardPrivilegeLevel } from './constants'
-import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { QuerySchema } from '~/queries/schema'
-import { decompressSync, strFromU8 } from 'fflate'
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { encodeParams } from 'kea-router'
+import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 
 export const ACTIVITY_PAGE_SIZE = 20
 

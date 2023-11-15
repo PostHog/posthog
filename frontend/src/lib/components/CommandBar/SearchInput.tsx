@@ -1,6 +1,6 @@
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { searchBarLogic } from './searchBarLogic'

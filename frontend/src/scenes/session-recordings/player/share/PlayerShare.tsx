@@ -2,12 +2,13 @@ import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/l
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { Field } from 'lib/forms/Field'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Field } from 'lib/forms/Field'
 import { copyToClipboard } from 'lib/utils'
+
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
-import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)

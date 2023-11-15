@@ -1,15 +1,17 @@
-import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FunnelExclusion, EntityTypes, FilterType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { useRef } from 'react'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { ExclusionRowSuffix } from './ExclusionRowSuffix'
-import { ExclusionRow } from './ExclusionRow'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { EntityTypes, FilterType, FunnelExclusion } from '~/types'
+
+import { ExclusionRow } from './ExclusionRow'
+import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

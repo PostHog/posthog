@@ -1,9 +1,10 @@
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
-import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { useActions, useValues } from 'kea'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { ingestionLogic } from '../ingestionLogic'
 
 export function SuperpowersPanel(): JSX.Element {

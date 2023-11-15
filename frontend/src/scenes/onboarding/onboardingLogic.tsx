@@ -1,11 +1,11 @@
-import { kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { BillingProductV2Type, ProductKey } from '~/types'
-import { urls } from 'scenes/urls'
-
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl, router, actionToUrl, urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 

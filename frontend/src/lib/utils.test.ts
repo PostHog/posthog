@@ -1,4 +1,19 @@
+import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    ElementType,
+    EventType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
+} from '~/types'
+
 import {
     areObjectValuesEmpty,
     average,
@@ -25,38 +40,25 @@ import {
     getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
+    humanFriendlyLargeNumber,
     identifierToHuman,
     isExternalLink,
     isURL,
     median,
     midEllipsis,
     numericOperatorMap,
-    objectDiffShallow,
     objectClean,
     objectCleanWithEmpty,
+    objectDiffShallow,
     pluralize,
     range,
     reverseColonDelimitedDuration,
     roundToDecimal,
     selectorOperatorMap,
+    shortTimeZone,
     stringOperatorMap,
     toParams,
-    shortTimeZone,
-    humanFriendlyLargeNumber,
 } from './utils'
-import {
-    ActionFilter,
-    AnyPropertyFilter,
-    ElementType,
-    EventType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyOperator,
-    PropertyType,
-    TimeUnitType,
-} from '~/types'
-import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
     it('handles unusual input', () => {

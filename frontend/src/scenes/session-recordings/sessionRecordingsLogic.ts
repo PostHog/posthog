@@ -1,10 +1,12 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, ReplayTabs } from '~/types'
-import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, ReplayTabs } from '~/types'
+
+import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {

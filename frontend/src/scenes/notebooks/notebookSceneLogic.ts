@@ -1,10 +1,11 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { urls } from 'scenes/urls'
+
+import { notebooksModel } from '~/models/notebooksModel'
 import { Breadcrumb, NotebookTarget } from '~/types'
 
-import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
-import { urls } from 'scenes/urls'
-import { notebooksModel } from '~/models/notebooksModel'
+import type { notebookSceneLogicType } from './notebookSceneLogicType'
 
 export type NotebookSceneLogicProps = {
     shortId: string

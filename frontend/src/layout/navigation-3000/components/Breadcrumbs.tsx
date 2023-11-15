@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import './Breadcrumbs.scss'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import './Breadcrumbs.scss'
-import { Breadcrumb as IBreadcrumb } from '~/types'
-import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import React, { useEffect, useState } from 'react'
+
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 
 const COMPACTION_DISTANCE = 44
 

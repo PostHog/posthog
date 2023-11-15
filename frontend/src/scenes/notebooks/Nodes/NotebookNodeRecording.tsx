@@ -1,28 +1,30 @@
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
+import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
+import { useEffect } from 'react'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
-import { urls } from 'scenes/urls'
 import {
-    SessionRecordingPlayerMode,
     getCurrentPlayerTime,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useActions, useValues } from 'kea'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { useEffect } from 'react'
 import {
     SessionRecordingPreview,
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { urls } from 'scenes/urls'
+
+import { NotebookNodeType, SessionRecordingId } from '~/types'
+
+import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
-import { NotFound } from 'lib/components/NotFound'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'

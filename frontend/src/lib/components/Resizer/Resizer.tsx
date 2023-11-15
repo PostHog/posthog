@@ -1,8 +1,10 @@
-import { useActions, useValues } from 'kea'
 import './Resizer.scss'
-import { ResizerLogicProps, resizerLogic } from './resizerLogic'
+
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { resizerLogic, ResizerLogicProps } from './resizerLogic'
 
 export type ResizerProps = ResizerLogicProps & {
     offset?: number | string

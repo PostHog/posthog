@@ -1,9 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+
+import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { convertAmountToUsage } from './billing-utils'
-import posthog from 'posthog-js'
 
 const DEFAULT_BILLING_LIMIT = 500
 

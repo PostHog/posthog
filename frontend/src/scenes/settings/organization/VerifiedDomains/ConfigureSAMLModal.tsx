@@ -1,15 +1,16 @@
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { Field } from 'lib/forms/Field'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { Field } from 'lib/forms/Field'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Link } from '@posthog/lemon-ui'
+
+import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)

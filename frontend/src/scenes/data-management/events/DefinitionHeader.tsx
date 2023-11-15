@@ -1,25 +1,26 @@
-import { EventDefinition, PropertyDefinition } from '~/types'
-import {
-    IconAutocapture,
-    IconPageleave,
-    IconPreview,
-    PropertyIcon,
-    IconUnverifiedEvent,
-    IconVerifiedEvent,
-    VerifiedPropertyIcon,
-    IconSelectAll,
-} from 'lib/lemon-ui/icons'
-import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import clsx from 'clsx'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    IconAutocapture,
+    IconPageleave,
+    IconPreview,
+    IconSelectAll,
+    IconUnverifiedEvent,
+    IconVerifiedEvent,
+    PropertyIcon,
+    VerifiedPropertyIcon,
+} from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
+import { urls } from 'scenes/urls'
+
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (KEY_MAPPING.event[definition.name]) {

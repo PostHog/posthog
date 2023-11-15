@@ -1,3 +1,7 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
+
+import { BreakdownFilter } from '~/queries/schema'
 import {
     AnyFilterLike,
     AnyPropertyFilter,
@@ -18,9 +22,6 @@ import {
     RecordingDurationFilter,
     SessionPropertyFilter,
 } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
-import { BreakdownFilter } from '~/queries/schema'
 
 /** Make sure unverified user property filter input has at least a "type" */
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {

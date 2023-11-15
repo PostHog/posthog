@@ -1,6 +1,7 @@
-import { ChartDisplayType, InsightLogicProps, TrendResult } from '~/types'
 import { ComponentType, HTMLProps } from 'react'
+
 import { DataTableNode } from '~/queries/schema'
+import { ChartDisplayType, InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext {

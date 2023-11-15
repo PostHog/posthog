@@ -1,8 +1,9 @@
-import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
 import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
-import { LemonButton } from './LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import posthog from 'posthog-js'
+import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
+
+import { LemonButton } from './LemonButton'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (

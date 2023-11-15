@@ -1,10 +1,12 @@
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+
 import api from '~/lib/api'
 import { PluginLogEntry, PluginLogEntryType } from '~/types'
+
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 export interface PluginLogsProps {
     pluginConfigId: number

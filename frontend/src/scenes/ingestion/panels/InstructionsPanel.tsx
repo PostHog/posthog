@@ -1,4 +1,7 @@
 import './InstructionsPanel.scss'
+
+import { Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import {
     AndroidInstructions,
@@ -13,11 +16,10 @@ import {
     RNInstructions,
     RubyInstructions,
 } from 'scenes/ingestion/frameworks'
-import { API, MOBILE, BACKEND, WEB } from '../constants'
-import { useValues } from 'kea'
-import { ingestionLogic } from '../ingestionLogic'
+
+import { API, BACKEND, MOBILE, WEB } from '../constants'
 import { WebInstructions } from '../frameworks/WebInstructions'
-import { Link } from '@posthog/lemon-ui'
+import { ingestionLogic } from '../ingestionLogic'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     NODEJS: NodeInstructions,

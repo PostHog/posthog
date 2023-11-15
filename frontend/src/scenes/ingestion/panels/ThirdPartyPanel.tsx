@@ -1,16 +1,18 @@
-import { useValues, useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { CardContainer } from '../CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { thirdPartySources } from '../constants'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+
+import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { teamLogic } from 'scenes/teamLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Link } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { CardContainer } from '../CardContainer'
+import { thirdPartySources } from '../constants'
+import { ingestionLogic } from '../ingestionLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { setInstructionsModal, setThirdPartySource } = useActions(ingestionLogic)

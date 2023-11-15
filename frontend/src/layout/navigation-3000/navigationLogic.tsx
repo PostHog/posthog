@@ -1,35 +1,35 @@
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
-import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
-
-import type { navigation3000LogicType } from './navigationLogicType'
-import { Scene } from 'scenes/sceneTypes'
-import React from 'react'
-import { captureException } from '@sentry/react'
-import { lemonToast } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconApps,
+    IconChat,
     IconDashboard,
     IconDatabase,
     IconGraph,
     IconHome,
     IconLive,
+    IconNotebook,
     IconPeople,
     IconPieChart,
     IconRewindPlay,
+    IconRocket,
+    IconServer,
     IconTestTube,
     IconToggle,
     IconToolbar,
-    IconNotebook,
-    IconRocket,
-    IconServer,
-    IconChat,
 } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isNotNil } from 'lib/utils'
+import React from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
@@ -37,7 +37,7 @@ import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { toolbarSidebarLogic } from './sidebars/toolbar'
-import { isNotNil } from 'lib/utils'
+import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'

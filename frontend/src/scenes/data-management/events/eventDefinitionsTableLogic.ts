@@ -1,12 +1,14 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyPropertyFilter, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
-import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/taxonomy'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { loaders } from 'kea-loaders'
+
+import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
+
+import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string

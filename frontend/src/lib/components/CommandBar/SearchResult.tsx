@@ -1,10 +1,10 @@
-import { useLayoutEffect, useRef } from 'react'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef } from 'react'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 
 type SearchResultProps = {
     result: SearchResultType

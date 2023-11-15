@@ -1,29 +1,31 @@
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { decodeParams, router, actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import type { personsLogicType } from './personsLogicType'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { hogqlQuery } from '~/queries/query'
 import {
-    PersonPropertyFilter,
+    AnyPropertyFilter,
     Breadcrumb,
     CohortType,
     ExporterFormat,
     PersonListParams,
+    PersonPropertyFilter,
     PersonsTabType,
     PersonType,
-    AnyPropertyFilter,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
-import { teamLogic } from 'scenes/teamLogic'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { asDisplay } from './person-utils'
-import { hogqlQuery } from '~/queries/query'
+import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'

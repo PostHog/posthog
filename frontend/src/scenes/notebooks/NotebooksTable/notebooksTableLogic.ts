@@ -1,11 +1,12 @@
-import { actions, kea, listeners, reducers, path, selectors, connect } from 'kea'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
-import { loaders } from 'kea-loaders'
+
+import { notebooksModel } from '~/models/notebooksModel'
+import { NotebookListItemType, NotebookNodeType } from '~/types'
 
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
-import { notebooksModel } from '~/models/notebooksModel'
 
 export interface NotebooksListFilters {
     search: string

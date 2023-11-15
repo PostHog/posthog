@@ -1,13 +1,15 @@
 import { LemonButton, LemonCard, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
-import { sdksLogic } from './sdksLogic'
 import { useActions, useValues } from 'kea'
-import { OnboardingStep } from '../OnboardingStep'
-import { SDKSnippet } from './SDKSnippet'
-import { OnboardingStepKey, onboardingLogic } from '../onboardingLogic'
 import { useEffect } from 'react'
 import React from 'react'
-import { SDKInstructionsMap } from '~/types'
+
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
+import { SDKInstructionsMap } from '~/types'
+
+import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
+import { sdksLogic } from './sdksLogic'
+import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
     usersAction,

@@ -1,8 +1,10 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
-import type { pipelineLogicType } from './pipelineLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
+
 import { Breadcrumb, PipelineTabs } from '~/types'
+
+import type { pipelineLogicType } from './pipelineLogicType'
 
 export const singularName = (tab: PipelineTabs): string => {
     switch (tab) {

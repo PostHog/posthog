@@ -1,9 +1,10 @@
 import { Button, Col, Divider, Row } from 'antd'
 import { useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 import { Field, Form } from 'kea-forms'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+
+import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 
 export function KafkaInspectorTab(): JSX.Element {
     const { kafkaMessage } = useValues(kafkaInspectorLogic)

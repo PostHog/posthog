@@ -1,14 +1,15 @@
-import { kea, selectors, path, actions, reducers, connect } from 'kea'
-import { ActionType, Breadcrumb, ProductKey } from '~/types'
+import Fuse from 'fuse.js'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { ActionType, Breadcrumb, ProductKey } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
-import { actionsModel } from '~/models/actionsModel'
-import Fuse from 'fuse.js'
-import { userLogic } from 'scenes/userLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const actionsFuse = new Fuse<ActionType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],

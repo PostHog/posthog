@@ -1,11 +1,13 @@
-import { Input } from 'antd'
-import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
-import { useActions, useValues } from 'kea'
-import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
+
+import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { Input } from 'antd'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptions<DateOption> = [
     { value: 'days', label: 'days' },

@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-
-import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { isNotNil } from 'lib/utils'
 
 import {
     NodeKind,
@@ -10,9 +11,8 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, EventDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
-import { isNotNil } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+
+import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
     colSpan?: number

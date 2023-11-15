@@ -1,14 +1,16 @@
-import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount, afterMount } from 'kea'
-import api from 'lib/api'
-import type { cohortsModelType } from './cohortsModelType'
-import { CohortType, ExporterFormat } from '~/types'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo, processCohort } from 'lib/utils'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import Fuse from 'fuse.js'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { deleteWithUndo, processCohort } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+
+import { CohortType, ExporterFormat } from '~/types'
+
+import type { cohortsModelType } from './cohortsModelType'
 
 const POLL_TIMEOUT = 5000
 

@@ -1,10 +1,12 @@
-import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
-import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
+
+import { useActions, useValues } from 'kea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
+import { API, BACKEND, mobileFrameworks, webFrameworks } from 'scenes/ingestion/constants'
+
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
+import { ingestionLogic } from '../ingestionLogic'
 
 export function FrameworkPanel(): JSX.Element {
     const { next } = useActions(ingestionLogic)
