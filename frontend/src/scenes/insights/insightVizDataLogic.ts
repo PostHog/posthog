@@ -39,7 +39,11 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import {
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+} from 'lib/constants'
 import {
     getBreakdown,
     getCompare,
@@ -127,12 +131,30 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
-        supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsCompare: [
+            (s) => [s.querySource, s.display, s.dateRange],
+            (q, display, dateRange) =>
+                (isTrendsQuery(q) || isStickinessQuery(q)) &&
+                display !== ChartDisplayType.WorldMap &&
+                dateRange?.date_from !== 'all',
+        ],
         supportsPercentStackView: [
             (s) => [s.querySource, s.display],
             (q, display) =>
                 isTrendsQuery(q) &&
                 PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
+        supportsValueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) => {
+                if (isTrends || isStickiness) {
+                    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
+                } else if (isLifecycle) {
+                    return true
+                } else {
+                    return false
+                }
+            },
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
