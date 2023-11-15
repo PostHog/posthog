@@ -51,6 +51,11 @@
             }
         }
 
+        .overflow-hidden {
+            position: relative;
+            z-index: 10;
+        }
+
         .LineGraph {
             // hacky because container not respecting position: relative;
             width: calc(100% - 3rem);
