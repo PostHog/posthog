@@ -56,7 +56,7 @@ function OnboardingNotCompletedButton({
 }: {
     url: string
     productKey: ProductKey
-    getStartedActionOverride: () => void
+    getStartedActionOverride?: () => void
 }): JSX.Element {
     const { onSelectProduct } = useActions(productsLogic)
     return (
@@ -87,7 +87,7 @@ export function ProductCard({
     className,
 }: {
     product: BillingProductV2Type
-    getStartedActionOverride: () => void
+    getStartedActionOverride?: () => void
     orientation?: 'horizontal' | 'vertical'
     className?: string
 }): JSX.Element {
