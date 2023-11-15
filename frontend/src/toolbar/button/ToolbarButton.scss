@@ -87,6 +87,11 @@
     transition-timing-function: ease;
     filter: drop-shadow(1px 2px 2px var(--trace-3000));
 
+    .ToolbarMenu__logo--minimized-width {
+        border-bottom-right-radius: 0;
+        border-top-right-radius: 0;
+    }
+
     // fixed width so that animations work when changing width
     width: 15.5rem;
     &.Toolbar3000--minimized-width {

@@ -29,11 +29,7 @@ import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useLongPress } from 'lib/hooks/useLongPress'
 
-function MoreMenu({
-    onOpenOrClose,
-}: {
-    onOpenOrClose: (e: React.MouseEvent, actionFn: () => void) => void
-}): JSX.Element {
+function MoreMenu(): JSX.Element {
     const { visibleMenu, hedgehogMode, theme } = useValues(toolbarButtonLogic)
     const { setHedgehogMode, setVisibleMenu, toggleTheme } = useActions(toolbarButtonLogic)
 
@@ -83,9 +79,20 @@ function MoreMenu({
                 status={'stealth'}
                 icon={<IconMenu />}
                 title={'More'}
-                onClick={(e) => {
-                    onOpenOrClose(e, () => (visibleMenu === 'more' ? setVisibleMenu('none') : setVisibleMenu('more')))
-                }}
+                // long press so that you can distinguish between drag and click
+                {...useLongPress(
+                    (clicked) => {
+                        if (clicked) {
+                            visibleMenu === 'more' ? setVisibleMenu('none') : setVisibleMenu('more')
+                        }
+                    },
+                    {
+                        ms: undefined,
+                        clickMs: 1 as any,
+                        touch: true,
+                        click: true,
+                    }
+                )}
                 square={true}
             />
         </LemonMenu>
@@ -151,14 +158,6 @@ export function Toolbar3000(): JSX.Element {
 
     const { isAuthenticated } = useValues(toolbarLogic)
 
-    const swallowClick = (e: React.MouseEvent, actionFn: () => void): void => {
-        // swallow the click
-        e.preventDefault()
-        e.stopPropagation()
-        // carry out the action
-        actionFn()
-    }
-
     useKeyboardHotkeys(
         {
             escape: { action: () => setVisibleMenu('none'), willHandleEvent: true },
@@ -166,21 +165,20 @@ export function Toolbar3000(): JSX.Element {
         []
     )
 
-    // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
-
     return (
         <>
-            {!minimizedWidth && <ToolbarInfoMenu />}
+            <ToolbarInfoMenu />
             <div
                 className={clsx(
-                    'Toolbar3000 h-10 rounded-lg flex flex-row items-center floating-toolbar-button',
-                    minimizedWidth ? 'Toolbar3000--minimized-width' : 'pl-1'
+                    'Toolbar3000 h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
+                    minimizedWidth && 'Toolbar3000--minimized-width'
                 )}
             >
                 <Tooltip title={minimizedWidth ? 'expand the toolbar' : 'minimize'}>
                     <LemonButton
                         icon={<IconLogomark />}
                         status={'stealth'}
+                        // long press so that you can distinguish between drag and click
                         {...useLongPress(
                             (clicked) => {
                                 if (clicked) {
@@ -194,28 +192,33 @@ export function Toolbar3000(): JSX.Element {
                                 click: true,
                             }
                         )}
-                        // onClick={(e) => {
-                        //     e.stopPropagation()
-                        //     toggleWidth()
-                        // }}
-                        className={clsx(!minimizedWidth && 'rounded-l-none')}
+                        className={clsx(!minimizedWidth && 'ToolbarMenu__logo--minimized-width')}
                     />
                 </Tooltip>
-                {!minimizedWidth ? (
-                    <LemonDivider vertical={true} className={'h-full ml-1 bg-border-bold-3000'} />
-                ) : null}
-                {isAuthenticated && !minimizedWidth ? (
+                {!minimizedWidth ? <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} /> : null}
+                {isAuthenticated ? (
                     <>
                         <Tooltip title={'Inspect'}>
                             <LemonButton
                                 icon={<IconSearch />}
                                 aria-label={'Inspect'}
                                 status={'stealth'}
-                                onClick={(e) =>
-                                    swallowClick(e, () =>
-                                        visibleMenu === 'inspect' ? setVisibleMenu('none') : setVisibleMenu('inspect')
-                                    )
-                                }
+                                // long press so that you can distinguish between drag and click
+                                {...useLongPress(
+                                    (clicked) => {
+                                        if (clicked) {
+                                            visibleMenu === 'inspect'
+                                                ? setVisibleMenu('none')
+                                                : setVisibleMenu('inspect')
+                                        }
+                                    },
+                                    {
+                                        ms: undefined,
+                                        clickMs: 1 as any,
+                                        touch: true,
+                                        click: true,
+                                    }
+                                )}
                                 active={visibleMenu === 'inspect'}
                                 square={true}
                             />
@@ -225,11 +228,22 @@ export function Toolbar3000(): JSX.Element {
                                 aria-label={'Heatmap'}
                                 icon={<IconCursorClick />}
                                 status={'stealth'}
-                                onClick={(e) =>
-                                    swallowClick(e, () =>
-                                        visibleMenu === 'heatmap' ? setVisibleMenu('none') : setVisibleMenu('heatmap')
-                                    )
-                                }
+                                // long press so that you can distinguish between drag and click
+                                {...useLongPress(
+                                    (clicked) => {
+                                        if (clicked) {
+                                            visibleMenu === 'heatmap'
+                                                ? setVisibleMenu('none')
+                                                : setVisibleMenu('heatmap')
+                                        }
+                                    },
+                                    {
+                                        ms: undefined,
+                                        clickMs: 1 as any,
+                                        touch: true,
+                                        click: true,
+                                    }
+                                )}
                                 active={visibleMenu === 'heatmap'}
                                 square={true}
                             />
@@ -239,11 +253,22 @@ export function Toolbar3000(): JSX.Element {
                                 aria-label={'Actions'}
                                 icon={<IconTarget />}
                                 status={'stealth'}
-                                onClick={(e) =>
-                                    swallowClick(e, () =>
-                                        visibleMenu === 'actions' ? setVisibleMenu('none') : setVisibleMenu('actions')
-                                    )
-                                }
+                                // long press so that you can distinguish between drag and click
+                                {...useLongPress(
+                                    (clicked) => {
+                                        if (clicked) {
+                                            visibleMenu === 'actions'
+                                                ? setVisibleMenu('none')
+                                                : setVisibleMenu('actions')
+                                        }
+                                    },
+                                    {
+                                        ms: undefined,
+                                        clickMs: 1 as any,
+                                        touch: true,
+                                        click: true,
+                                    }
+                                )}
                                 active={visibleMenu === 'actions'}
                                 square={true}
                             />
@@ -253,16 +278,25 @@ export function Toolbar3000(): JSX.Element {
                                 aria-label={'Feature flags'}
                                 icon={<IconToggle />}
                                 status={'stealth'}
-                                onClick={(e) =>
-                                    swallowClick(e, () =>
-                                        visibleMenu === 'flags' ? setVisibleMenu('none') : setVisibleMenu('flags')
-                                    )
-                                }
+                                // long press so that you can distinguish between drag and click
+                                {...useLongPress(
+                                    (clicked) => {
+                                        if (clicked) {
+                                            visibleMenu === 'flags' ? setVisibleMenu('none') : setVisibleMenu('flags')
+                                        }
+                                    },
+                                    {
+                                        ms: undefined,
+                                        clickMs: 1 as any,
+                                        touch: true,
+                                        click: true,
+                                    }
+                                )}
                                 active={visibleMenu === 'flags'}
                                 square={true}
                             />
                         </Tooltip>
-                        <MoreMenu onOpenOrClose={swallowClick} />
+                        <MoreMenu />
                     </>
                 ) : null}
             </div>
