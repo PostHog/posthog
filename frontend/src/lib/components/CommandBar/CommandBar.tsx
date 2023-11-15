@@ -8,8 +8,22 @@ import { BarStatus } from './types'
 
 import './index.scss'
 import SearchBar from './SearchBar'
-import { LemonModal } from '@posthog/lemon-ui'
 import ActionBar from './ActionBar'
+
+const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
+    <div
+        className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center"
+        // eslint-disable-next-line react/forbid-dom-props
+        style={{
+            zIndex: 'var(--z-command-palette)',
+            // background: 'color-mix(in srgb, var(--bg-light) 75%, transparent)',
+            backgroundColor: 'var(--modal-backdrop-color)',
+            backdropFilter: 'blur(var(--modal-backdrop-blur))',
+        }}
+    >
+        {children}
+    </div>
+)
 
 function CommandBar(): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -18,12 +32,19 @@ function CommandBar(): JSX.Element | null {
 
     useOutsideClickHandler(containerRef, hideCommandBar, [])
 
+    if (barStatus === BarStatus.HIDDEN) {
+        return null
+    }
+
     return (
-        <LemonModal isOpen={barStatus !== BarStatus.HIDDEN} simple closable={false} width={800}>
-            <div className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col" ref={containerRef}>
+        <CommandBarOverlay>
+            <div
+                className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col border shadow"
+                ref={containerRef}
+            >
                 {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
             </div>
-        </LemonModal>
+        </CommandBarOverlay>
     )
 }
 
