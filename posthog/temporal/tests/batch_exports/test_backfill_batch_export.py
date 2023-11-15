@@ -6,6 +6,7 @@ import pytest_asyncio
 import temporalio
 import temporalio.client
 import temporalio.common
+import temporalio.exceptions
 import temporalio.testing
 import temporalio.worker
 from django.conf import settings
@@ -22,6 +23,7 @@ from posthog.temporal.workflows.backfill_batch_export import (
     backfill_range,
     backfill_schedule,
     get_schedule_frequency,
+    wait_for_schedule_backfill_in_range,
 )
 
 pytestmark = [pytest.mark.asyncio]
@@ -207,3 +209,100 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
+    temporal_worker, temporal_schedule, temporal_client, team
+):
+    """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        buffer_limit=1,
+        wait_delay=2.0,
+    )
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(seconds=20),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await temporal_schedule.delete()
+
+    with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
+        await handle.result()
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
+    assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
+    assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
+    temporal_worker, temporal_schedule, temporal_client, team
+):
+    """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted.
+
+    In this test, in contrats to the previous one, we wait until we have started running some
+    backfill runs before cancelling.
+    """
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    now = dt.datetime.utcnow()
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        buffer_limit=1,
+        wait_delay=2.0,
+    )
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(seconds=20),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await wait_for_schedule_backfill_in_range(
+        client=temporal_client,
+        schedule_id=desc.id,
+        start_at=start_at,
+        end_at=dt.datetime(2023, 1, 1, 0, 1, 0, tzinfo=dt.timezone.utc),
+        now=now,
+        wait_delay=1.0,
+    )
+
+    desc = await temporal_schedule.describe()
+    result = desc.info.num_actions
+
+    assert result >= 1
+
+    await temporal_schedule.delete()
+
+    with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
+        await handle.result()
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
+    assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
+    assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
