@@ -208,31 +208,29 @@
         top: 1px;
         right: 1px;
         bottom: 4px;
-        width: 1.75rem;
+        width: 1.625rem;
         transform: none;
         border-top-right-radius: 5px;
         border-bottom-right-radius: 5px;
 
         & .LemonButton {
-            margin: auto;
             background: none !important;
             border: none !important;
-            padding-bottom: 0px !important;
+            padding-bottom: 0 !important;
+            margin: 0 auto !important;
+            height: 100%;
 
-            span {
+            > span {
+                margin: auto !important;
+                top: 0 !important;
                 background: none !important;
                 border: none !important;
-                padding: 0 !important;
             }
         }
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active:not(.LemonButton--tertiary) {
             background: rgba(0, 0, 0, 0.1);
-
-            .LemonButton__icon {
-                color: var(--default);
-            }
         }
     }
 }
