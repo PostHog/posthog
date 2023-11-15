@@ -365,7 +365,7 @@ class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
         return fetch_batch_export_log_entries(
             team_id=self.parents_query_dict["team_id"],
             batch_export_id=self.parents_query_dict["batch_export_id"],
