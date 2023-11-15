@@ -66,6 +66,8 @@ export interface LemonButtonPropsBase
     disabledReason?: string | null | false
     noPadding?: boolean
     motion?: boolean
+    /** Hides the button chrome until hover. */
+    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -96,6 +98,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 tooltip,
                 tooltipPlacement,
                 motion = false,
+                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -176,6 +179,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         withMotion && 'LemonButton--with-motion',
+                        stealth && 'LemonButton--is-stealth',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}

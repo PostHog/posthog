@@ -123,11 +123,15 @@
         }
 
         &.LemonButton--status-primary {
-            color: var(--muted);
+            > span {
+                color: var(--muted);
+            }
         }
 
         &.LemonButton--status-stealth {
-            color: var(--default);
+            > span {
+                color: var(--default);
+            }
         }
 
         &.LemonButton--primary {
@@ -149,13 +153,17 @@
             }
         }
 
-        &.LemonButton--secondary,
+        &.LemonButton--primary,
+        &.LemonButton--secondary {
+            padding-bottom: 1px;
+        }
+
+        &.LemonButton--secondary:not(.LemonButton--is-stealth),
+        &.LemonButton--is-stealth:hover,
         &.LemonButton--active:not(.LemonButton--tertiary) {
-            // &.LemonButton--tertiary:hover {
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
             border-radius: 6px;
-            padding-bottom: 1px;
 
             &:not([aria-disabled='true']):hover > span {
                 border-color: var(--secondary-3000-button-border-hover);
@@ -166,24 +174,20 @@
             }
         }
 
-        &.LemonButton--secondary {
-            // &.LemonButton--tertiary:hover:not(.LemonButton--active) {
+        &.LemonButton--secondary:not(.LemonButton--is-stealth),
+        &.LemonButton--is-stealth:hover {
             > span {
                 background: var(--secondary-3000-button-bg);
                 border-color: var(--secondary-3000-button-border);
             }
         }
 
-        // &.LemonButton--tertiary {
-        //     padding-bottom: 1px;
-
-        //     > span {
-        //         color: var(--muted-3000);
-        //         background: transparent;
-        //         border-color: transparent;
-        //         top: 1px;
-        //     }
-        // }
+        &.LemonButton--tertiary {
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                background-color: var(--bg-3000);
+            }
+        }
 
         &.LemonButton--active:not(.LemonButton--tertiary) {
             > span {
