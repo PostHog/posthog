@@ -24,6 +24,7 @@
         border: none;
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
+
         &:not(:last-child) {
             border-bottom: 1px solid var(--border);
         }
@@ -41,23 +42,28 @@
             width: 100%;
             overflow: hidden;
         }
+
         .LemonTable__content > table > thead {
             letter-spacing: 0;
+
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
             }
         }
+
         .LemonTable__content > table {
             .datum-label-column {
                 font-weight: 600;
                 display: flex;
                 align-items: center;
             }
+
             .series-data-cell {
                 font-weight: 600;
             }
+
             .tag-pill {
                 background-color: var(--border-3000);
                 margin-right: 0;

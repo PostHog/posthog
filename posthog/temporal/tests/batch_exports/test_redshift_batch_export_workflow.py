@@ -1,15 +1,16 @@
 import datetime as dt
 import json
 import os
+import warnings
 from random import randint
 from uuid import uuid4
 
-import psycopg2
+import psycopg
 import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
-from psycopg2 import sql
+from psycopg import sql
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -33,24 +34,24 @@ REQUIRED_ENV_VARS = (
     "REDSHIFT_HOST",
 )
 
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS),
-    reason="Redshift required env vars are not set",
-)
-
-pytestmark = [SKIP_IF_MISSING_REQUIRED_ENV_VARS, pytest.mark.django_db, pytest.mark.asyncio]
+MISSING_REQUIRED_ENV_VARS = any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS)
 
 
-def assert_events_in_redshift(connection, schema, table_name, events, exclude_events: list[str] | None = None):
+pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
+
+
+async def assert_events_in_redshift(connection, schema, table_name, events, exclude_events: list[str] | None = None):
     """Assert provided events written to a given Redshift table."""
 
     inserted_events = []
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT * FROM {} ORDER BY timestamp").format(sql.Identifier(schema, table_name)))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name))
+        )
         columns = [column.name for column in cursor.description]
 
-        for row in cursor.fetchall():
+        for row in await cursor.fetchall():
             event = dict(zip(columns, row))
             event["timestamp"] = dt.datetime.fromisoformat(event["timestamp"].isoformat())
             inserted_events.append(event)
@@ -81,7 +82,7 @@ def assert_events_in_redshift(connection, schema, table_name, events, exclude_ev
         }
         expected_events.append(expected_event)
 
-    expected_events.sort(key=lambda x: x["timestamp"])
+    expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
 
     assert len(inserted_events) == len(expected_events)
     # First check one event, the first one, so that we can get a nice diff if
@@ -94,17 +95,26 @@ def assert_events_in_redshift(connection, schema, table_name, events, exclude_ev
 def redshift_config():
     """Fixture to provide a default configuration for Redshift batch exports.
 
-    Reads required env vars to construct configuration.
+    Reads required env vars to construct configuration, but if not present
+    we default to local development PostgreSQL database, which should be mostly compatible.
     """
-    user = os.environ["REDSHIFT_USER"]
-    password = os.environ["REDSHIFT_PASSWORD"]
-    host = os.environ["REDSHIFT_HOST"]
-    port = os.environ.get("REDSHIFT_PORT", "5439")
+    if MISSING_REQUIRED_ENV_VARS:
+        user = settings.PG_USER
+        password = settings.PG_PASSWORD
+        host = settings.PG_HOST
+        port = int(settings.PG_PORT)
+        warnings.warn("Missing required Redshift env vars. Running tests against local PG database.", stacklevel=1)
+
+    else:
+        user = os.environ["REDSHIFT_USER"]
+        password = os.environ["REDSHIFT_PASSWORD"]
+        host = os.environ["REDSHIFT_HOST"]
+        port = os.environ.get("REDSHIFT_PORT", "5439")
 
     return {
         "user": user,
         "password": password,
-        "database": "exports_test_database",
+        "database": "dev",
         "schema": "exports_test_schema",
         "host": host,
         "port": int(port),
@@ -112,89 +122,30 @@ def redshift_config():
 
 
 @pytest.fixture
-def setup_test_db(redshift_config):
-    """Fixture to manage a database for Redshift export testing.
-
-    Managing a test database involves the following steps:
-    1. Creating a test database.
-    2. Initializing a connection to that database.
-    3. Creating a test schema.
-    4. Yielding the connection to be used in tests.
-    5. After tests, drop the test schema and any tables in it.
-    6. Drop the test database.
-    """
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database="dev",
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"), (redshift_config["database"],))
-
-        if cursor.fetchone() is None:
-            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(redshift_config["database"])))
-
-    connection.close()
-
-    # We need a new connection to connect to the database we just created.
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database=redshift_config["database"],
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(redshift_config["schema"])))
-
-    yield
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(redshift_config["schema"])))
-
-    connection.close()
-
-    # We need a new connection to drop the database, as we cannot drop the current database.
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database="dev",
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(redshift_config["database"])))
-
-    connection.close()
+def postgres_config(redshift_config):
+    """We shadow this name so that setup_postgres_test_db works with Redshift."""
+    return redshift_config
 
 
-@pytest.fixture
-def psycopg2_connection(redshift_config, setup_test_db):
+@pytest_asyncio.fixture
+async def psycopg_connection(redshift_config, setup_postgres_test_db):
     """Fixture to manage a psycopg2 connection."""
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=redshift_config["user"],
         password=redshift_config["password"],
-        database=redshift_config["database"],
+        dbname=redshift_config["database"],
         host=redshift_config["host"],
         port=redshift_config["port"],
     )
 
     yield connection
 
-    connection.close()
+    await connection.close()
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
-    clickhouse_client, activity_environment, psycopg2_connection, redshift_config, exclude_events
+    clickhouse_client, activity_environment, psycopg_connection, redshift_config, exclude_events
 ):
     """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
 
@@ -265,8 +216,8 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    assert_events_in_redshift(
-        connection=psycopg2_connection,
+    await assert_events_in_redshift(
+        connection=psycopg_connection,
         schema=redshift_config["schema"],
         table_name="test_table",
         events=events + events_with_no_properties,
@@ -308,11 +259,12 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
 async def test_redshift_export_workflow(
     clickhouse_client,
     redshift_config,
-    psycopg2_connection,
+    psycopg_connection,
     interval,
     redshift_batch_export,
     ateam,
     exclude_events,
+    table_name,
 ):
     """Test Redshift Export Workflow end-to-end.
 
@@ -385,8 +337,8 @@ async def test_redshift_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_redshift(
-        psycopg2_connection,
+    await assert_events_in_redshift(
+        psycopg_connection,
         redshift_config["schema"],
         table_name,
         events=events,

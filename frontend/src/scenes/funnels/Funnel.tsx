@@ -16,17 +16,24 @@ export function Funnel(props: ChartParams): JSX.Element {
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { funnel_viz_type, layout } = funnelsFilter || {}
 
+    let viz: JSX.Element | null = null
     if (funnel_viz_type == FunnelVizType.Trends) {
-        return <FunnelLineGraph {...props} />
+        viz = <FunnelLineGraph {...props} />
+    } else if (funnel_viz_type == FunnelVizType.TimeToConvert) {
+        viz = <FunnelHistogram />
+    } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
+        viz = <FunnelBarChart {...props} />
+    } else {
+        viz = <FunnelBarGraph {...props} />
     }
 
-    if (funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return <FunnelHistogram />
-    }
-
-    if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
-        return <FunnelBarChart {...props} />
-    }
-
-    return <FunnelBarGraph {...props} />
+    return (
+        <div
+            className={`FunnelInsight FunnelInsight--type-${funnel_viz_type?.toLowerCase()}${
+                funnel_viz_type === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
+            }`}
+        >
+            {viz}
+        </div>
+    )
 }

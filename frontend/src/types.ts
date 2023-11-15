@@ -2185,6 +2185,7 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
+    // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
@@ -2194,6 +2195,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    autoDisappear?: boolean
     position?: string
 }
 
@@ -2201,6 +2203,7 @@ export interface SurveyQuestionBase {
     question: string
     description?: string | null
     optional?: boolean
+    buttonText?: string
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -3156,6 +3159,7 @@ export enum NotebookNodeType {
     PersonFeed = 'ph-person-feed',
     Properties = 'ph-properties',
     Map = 'ph-map',
+    Embed = 'ph-embed',
 }
 
 export type NotebookNodeResource = {

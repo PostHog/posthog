@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,15 +27,14 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
-import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { Funnel } from 'scenes/funnels/Funnel'
 
-export function InsightContainer({
+export function InsightVizDisplay({
     disableHeader,
     disableTable,
     disableCorrelationTable,
@@ -61,9 +59,8 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightProps))
     const {
         isTrends,
         isFunnels,
@@ -77,7 +74,6 @@ export function InsightContainer({
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
-        shouldShowSessionAnalysisWarning,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -85,14 +81,12 @@ export function InsightContainer({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <>
-                    <div className="text-center">
-                        <Animation type={AnimationType.LaptopHog} />
-                    </div>
+                <div className="flex flex-col flex-1 justify-center items-center">
+                    <Animation type={AnimationType.LaptopHog} />
                     {!!timedOutQueryId && (
                         <InsightTimeoutState isLoading={true} queryId={timedOutQueryId} insightProps={insightProps} />
                     )}
-                </>
+                </div>
             )
         }
 
@@ -135,7 +129,7 @@ export function InsightContainer({
             case InsightType.LIFECYCLE:
                 return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
             case InsightType.FUNNELS:
-                return <FunnelInsight />
+                return <Funnel />
             case InsightType.RETENTION:
                 return <RetentionContainer />
             case InsightType.PATHS:
@@ -205,77 +199,61 @@ export function InsightContainer({
         return null
     }
 
+    const showComputationMetadata = !disableLastComputation || !!samplingFactor
+
     return (
         <>
-            {shouldShowSessionAnalysisWarning ? (
-                <div className="mb-4">
-                    <LemonBanner type="info">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                </div>
-            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
-            <Card
-                title={disableHeader ? null : <InsightDisplayConfig />}
-                data-attr="insights-graph"
-                className="insights-graph-container"
-                bordered={!embedded}
-            >
-                {showingResults && (
-                    <div>
-                        {isFunnels && (
-                            <div className="overflow-hidden">
-                                {/* negative margin-top so that the border is only visible when the rows wrap */}
-                                <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
-                                    {(!disableLastComputation || !!samplingFactor) && (
-                                        <div className="flex grow items-center insights-graph-header border-t">
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        </div>
-                                    )}
-                                    <div
-                                        className={`flex insights-graph-header ${
-                                            disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
-                                        }`}
-                                    >
-                                        <FunnelCanvasLabel />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
-                            <div className="flex items-center justify-between insights-graph-header">
-                                <div className="flex items-center">
-                                    <InsightResultMetadata
-                                        disableLastComputation={disableLastComputation}
-                                        disableLastComputationRefresh={disableLastComputationRefresh}
-                                    />
-                                </div>
-
-                                <div>{isPaths ? <PathCanvasLabel /> : null}</div>
-                            </div>
-                        )}
-
-                        {BlockingEmptyState ? (
-                            BlockingEmptyState
-                        ) : supportsDisplay && showLegend ? (
-                            <div className="insights-graph-container-row flex flex-nowrap">
-                                <div className="insights-graph-container-row-left">{renderActiveView()}</div>
-                                <div className="insights-graph-container-row-right">
-                                    <InsightLegend />
-                                </div>
-                            </div>
-                        ) : (
-                            renderActiveView()
-                        )}
-                    </div>
+            <div
+                className={clsx(
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
+                    !embedded && 'border rounded bg-bg-light'
                 )}
-            </Card>
+                data-attr="insights-graph"
+            >
+                {disableHeader ? null : <InsightDisplayConfig />}
+                {showingResults && (
+                    <>
+                        {(isFunnels || isPaths || showComputationMetadata) && (
+                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                <div className="flex items-center gap-2">
+                                    {showComputationMetadata && (
+                                        <InsightResultMetadata
+                                            disableLastComputation={disableLastComputation}
+                                            disableLastComputationRefresh={disableLastComputationRefresh}
+                                        />
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    {isPaths && <PathCanvasLabel />}
+                                    {isFunnels && <FunnelCanvasLabel />}
+                                </div>
+                            </div>
+                        )}
+
+                        <div
+                            className={clsx(
+                                'InsightVizDisplay__content',
+                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
+                            )}
+                        >
+                            {BlockingEmptyState ? (
+                                BlockingEmptyState
+                            ) : supportsDisplay && showLegend ? (
+                                <>
+                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__right">
+                                        <InsightLegend />
+                                    </div>
+                                </>
+                            ) : (
+                                renderActiveView()
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

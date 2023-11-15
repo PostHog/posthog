@@ -18,18 +18,15 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function FunnelBarChart({
-    inCardView,
-    showPersonsModal: showPersonsModalProp = true,
-}: ChartParams): JSX.Element {
+export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
+    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
-    const { height } = useResizeObserver({ ref: scrollRef })
-
-    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
+    const { height } = useResizeObserver({ ref: vizRef })
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -54,8 +51,6 @@ export function FunnelBarChart({
             : seriesCount >= 2
             ? 96
             : 192
-
-    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
@@ -109,16 +104,12 @@ export function FunnelBarChart({
         )
     }, [visibleStepsWithConversionMetrics, height])
 
-    // negative margin-top so that the scrollable shadow is visible on the canvas label as well
-    const scrollableAdjustmentCanvasLabel = !inCardView && '-mt-12 pt-10'
-
     return (
         <div
             className={clsx(
                 'FunnelBarChart scrollable',
                 isScrollableLeft && 'scrollable--left',
-                isScrollableRight && 'scrollable--right',
-                scrollableAdjustmentCanvasLabel
+                isScrollableRight && 'scrollable--right'
             )}
             ref={vizRef}
             data-attr="funnel-bar-graph"

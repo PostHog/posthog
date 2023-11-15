@@ -9,6 +9,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Properties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
+    | NotebookNodeType.Embed
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',

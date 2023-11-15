@@ -18,7 +18,7 @@
             transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
 
             &--enter {
-                height: 0px;
+                height: 0;
             }
 
             &--enter-active,
@@ -33,7 +33,7 @@
             }
 
             &--exit-active {
-                height: 0px;
+                height: 0;
             }
         }
 
@@ -53,7 +53,7 @@
         .PlayerMetaPersonProperties {
             position: fixed;
             top: 48px;
-            left: 0px;
+            left: 0;
             bottom: 97px; // NOTE: This isn't perfect but for now hardcoded to match the bottom area size.
             z-index: 1;
             max-width: 40rem;

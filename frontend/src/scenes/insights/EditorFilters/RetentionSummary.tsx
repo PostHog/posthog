@@ -53,7 +53,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                                 updateInsightFilter({ target_entity: undefined })
                             }
                         }}
-                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-RetentionSummary`}
+                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-target_entity`}
                     />
                 </span>
                 <LemonSelect
@@ -113,7 +113,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                                 updateInsightFilter({ returning_entity: undefined })
                             }
                         }}
-                        typeKey="retention-table-returning"
+                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returning_entity`}
                     />
                 </span>
                 on any of the next {dateOptionPlurals[period ?? 'Day']}.

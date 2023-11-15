@@ -1,9 +1,9 @@
 import { useValues, useActions } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Tooltip } from 'antd'
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { Tooltip } from '@posthog/lemon-ui'
 
 type InsightDateFilterProps = {
     disabled: boolean
