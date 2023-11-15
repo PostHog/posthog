@@ -55,7 +55,7 @@ export function RecentRecordings(): JSX.Element {
         <>
             <SessionPlayerModal />
             <CompactList
-                title="Recent recordings"
+                title="Session replay"
                 viewAllURL={urls.replay()}
                 loading={sessionRecordingsResponseLoading}
                 emptyMessage={

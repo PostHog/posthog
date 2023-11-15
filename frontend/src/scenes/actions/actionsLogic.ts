@@ -66,7 +66,7 @@ export const actionsLogic = kea<actionsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Management`,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {
