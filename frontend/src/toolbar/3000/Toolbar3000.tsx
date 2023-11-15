@@ -198,7 +198,7 @@ export function Toolbar3000(): JSX.Element {
                 {!minimizedWidth ? <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} /> : null}
                 {isAuthenticated ? (
                     <>
-                        <Tooltip title={'Inspect'}>
+                        <Tooltip title={'Inspect'} visible={visibleMenu === 'inspect' ? false : undefined}>
                             <LemonButton
                                 icon={<IconSearch />}
                                 aria-label={'Inspect'}
@@ -223,7 +223,7 @@ export function Toolbar3000(): JSX.Element {
                                 square={true}
                             />
                         </Tooltip>
-                        <Tooltip title={'Heatmap'}>
+                        <Tooltip title={'Heatmap'} visible={visibleMenu === 'heatmap' ? false : undefined}>
                             <LemonButton
                                 aria-label={'Heatmap'}
                                 icon={<IconCursorClick />}
@@ -248,7 +248,7 @@ export function Toolbar3000(): JSX.Element {
                                 square={true}
                             />
                         </Tooltip>
-                        <Tooltip title={'Actions'}>
+                        <Tooltip title={'Actions'} visible={visibleMenu === 'actions' ? false : undefined}>
                             <LemonButton
                                 aria-label={'Actions'}
                                 icon={<IconTarget />}
@@ -273,7 +273,7 @@ export function Toolbar3000(): JSX.Element {
                                 square={true}
                             />
                         </Tooltip>
-                        <Tooltip title={'Feature flags'}>
+                        <Tooltip title={'Feature flags'} visible={visibleMenu === 'flags' ? false : undefined}>
                             <LemonButton
                                 aria-label={'Feature flags'}
                                 icon={<IconToggle />}
