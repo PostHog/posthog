@@ -165,6 +165,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 team=self.org_1_team_1,
             )
 
+            _create_event(
+                distinct_id=distinct_id,
+                event="survey sent",
+                properties={"$survey_response": "cooool"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Events before the period
             for _ in range(0, 10):
                 _create_event(
@@ -291,6 +299,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_2,
             )
+            _create_event(
+                distinct_id=distinct_id,
+                event="survey sent",
+                properties={"$survey_response": "cooool"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_2,
+            )
 
             # Events for org 2 team 3
             distinct_id = str(uuid4())
@@ -308,6 +323,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
                 properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_2_team_3,
+            )
+            _create_event(
+                distinct_id=distinct_id,
+                event="survey sent",
+                properties={"$survey_response": "cooool"},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
