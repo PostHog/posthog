@@ -502,7 +502,7 @@ export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
-export interface StickinessQuery extends InsightsQueryBase {
+export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
