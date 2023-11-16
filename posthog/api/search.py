@@ -4,7 +4,7 @@ from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models import Model, Value, CharField, F, QuerySet
 from django.db.models.functions import Cast
 from django.http import HttpResponse
-from rest_framework import viewsets
+from rest_framework import viewsets, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -15,21 +15,44 @@ from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Expe
 
 LIMIT = 25
 
+ENTITIES = [Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment]
+
+
+def class_to_type(klass: type[Model]):
+    """Converts the class name to snake case."""
+    return re.sub("(?!^)([A-Z]+)", r"_\1", klass.__name__).lower()
+
+
+entity_map = {class_to_type(entity): {"klass": entity} for entity in ENTITIES}
+
+
+class QuerySerializer(serializers.Serializer):
+    q = serializers.CharField(required=False, default="")
+    entities = serializers.MultipleChoiceField(required=False, choices=[class_to_type(entity) for entity in ENTITIES])
+
+    def validate_q(self, value: str | None):
+        return process_query(value)
+
 
 class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def list(self, request: Request, **kw) -> HttpResponse:
-        query = process_query(request.GET.get("q", "").strip())
+        query_serializer = QuerySerializer(data=self.request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
+
         counts = {}
+        entities = params["entities"] if len(params["entities"]) > 0 else set(entity_map.keys())
+        query = params["q"]
 
         # empty queryset to union things onto it
         qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(team=self.team).none()
 
-        for klass in (Action, Cohort, Insight, Dashboard, Experiment, FeatureFlag):
-            klass_qs, type = class_queryset(klass, team=self.team, query=query)
+        for klass in [entity_map[entity]["klass"] for entity in entities]:
+            klass_qs, entity_name = class_queryset(klass, team=self.team, query=query)
             qs = qs.union(klass_qs)
-            counts[type] = klass_qs.count()
+            counts[entity_name] = klass_qs.count()
 
         if query:
             qs = qs.order_by("-rank")
@@ -78,8 +101,3 @@ def class_queryset(klass: type[Model], team: Team, query: str | None):
 
     qs = qs.values(*values)
     return qs, type
-
-
-def class_to_type(klass: type[Model]):
-    """Converts the class name to snake case."""
-    return re.sub("(?!^)([A-Z]+)", r"_\1", klass.__name__).lower()
