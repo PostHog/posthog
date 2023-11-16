@@ -66,6 +66,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
+        submitCohort: () => Promise<any>
     }),
 
     selectors({
@@ -194,6 +195,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     forms(({ actions }) => ({
         cohort: {
+            alwaysShowErrors: true,
+            showErrorsOnTouch: true,
             defaults: NEW_COHORT,
             errors: ({ id, name, csv, is_static, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
@@ -205,6 +208,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
+                actions.submitCohort()
                 actions.saveCohort(cohort)
             },
         },
@@ -230,6 +234,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
+                    console.log("reached cohort");
                     let cohort = { ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
 
@@ -243,6 +248,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+                        console.log("failure to save", error);
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
@@ -274,6 +280,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return processCohort(cohort)
                 },
+
             },
         ],
         duplicatedCohort: [
@@ -315,6 +322,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
+        },
+        submitCohort: () => {
+            console.log("submit cohort", values.cohortHasErrors)
+            if(values.cohortHasErrors){
+                lemonToast.error('Cohort error. There was an error submiting this cohort. Make sure the cohort filters are correct.')
+            }
+
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
@@ -361,4 +375,5 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             clearTimeout(values.pollTimeout)
         }
     }),
+
 ])
