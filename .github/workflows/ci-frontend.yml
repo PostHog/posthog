@@ -49,10 +49,12 @@ jobs:
 
     frontend-code-quality:
         name: Code quality checks
+        needs: changes
         # kea typegen and typescript:check need some more oomph
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -113,6 +115,7 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
+        needs: changes
         name: Jest test (${{ matrix.chunk }})
 
         strategy:
