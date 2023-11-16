@@ -123,8 +123,8 @@ function ToolbarInfoMenu(): JSX.Element {
 
 export function Toolbar3000(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimizedWidth, dragPosition, isDragging } = useValues(toolbarButtonLogic)
-    const { setVisibleMenu, toggleWidth, onMouseDown, setElement } = useActions(toolbarButtonLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarButtonLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarButtonLogic)
     const { isAuthenticated } = useValues(toolbarLogic)
 
     useEffect(() => {
@@ -146,18 +146,20 @@ export function Toolbar3000(): JSX.Element {
                 ref={ref}
                 className={clsx(
                     'Toolbar3000 Toolbar3000Bar fixed h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
-                    minimizedWidth && 'Toolbar3000--minimized-width',
+                    minimized && 'Toolbar3000--minimized-width',
                     isDragging && 'Toolbar3000--dragging'
                 )}
                 onMouseDown={onMouseDown}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    transform: `translate(${dragPosition.x}px, ${dragPosition.y}px)`,
+                    transform:
+                        `translate(${dragPosition.x}px, ${dragPosition.y}px)` +
+                        (hedgehogMode && minimized ? ' scale(0)' : ''),
                 }}
             >
                 <Toolbar3000Button
                     icon={<IconLogomark />}
-                    onClick={toggleWidth}
+                    onClick={toggleMinimized}
                     title="Minimize"
                     titleMinimized="Expand the toolbar"
                 />

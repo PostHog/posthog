@@ -27,7 +27,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     })),
     actions(() => ({
         toggleTheme: true,
-        toggleWidth: true,
+        toggleMinimized: true,
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
@@ -62,14 +62,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                toggleWidth: () => 'none',
+                toggleMinimized: () => 'none',
             },
         ],
-        minimizedWidth: [
+        minimized: [
             false,
             { persist: true },
             {
-                toggleWidth: (state) => !state,
+                toggleMinimized: (state) => !state,
             },
         ],
         theme: [
@@ -247,10 +247,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             const pageX = actor.x + SPRITE_SIZE * 0.5 - (values.element?.getBoundingClientRect().width ?? 0) * 0.5
             const pageY =
                 values.windowHeight - actor.y - SPRITE_SIZE - (values.element?.getBoundingClientRect().height ?? 0)
+
             actions.setDragPosition(pageX, pageY)
         },
 
-        toggleWidth: () => {
+        toggleMinimized: () => {
             const sync = (): void => {
                 // Hack to trigger correct positioning
                 actions.syncWithHedgehog()

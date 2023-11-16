@@ -20,7 +20,7 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
     HTMLDivElement,
     Toolbar3000ButtonProps
 >(({ icon, title, onClick, titleMinimized, menuId, ...props }, ref): JSX.Element => {
-    const { visibleMenu, minimizedWidth, isDragging } = useValues(toolbarButtonLogic)
+    const { visibleMenu, minimized, isDragging } = useValues(toolbarButtonLogic)
     const { setVisibleMenu } = useActions(toolbarButtonLogic)
 
     const active = visibleMenu === menuId
@@ -52,8 +52,8 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
             </button>
         </div>
     )
-    return ((minimizedWidth && titleMinimized) || theTitle) && !active && !isDragging ? (
-        <Tooltip title={minimizedWidth ? titleMinimized : theTitle}>{theButton}</Tooltip>
+    return ((minimized && titleMinimized) || theTitle) && !active && !isDragging ? (
+        <Tooltip title={minimized ? titleMinimized : theTitle}>{theButton}</Tooltip>
     ) : (
         theButton
     )
