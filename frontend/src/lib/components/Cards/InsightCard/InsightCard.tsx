@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
     FunnelInvalidExclusionState,
@@ -35,13 +35,7 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import {
-    isFilterWithDisplay,
-    isFunnelsFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
@@ -55,6 +49,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -179,7 +174,6 @@ export function FilterBasedCardContent({
     insightProps,
     loading,
     setAreDetailsShown,
-    style,
     apiErrored,
     timedOut,
     empty,
@@ -196,25 +190,11 @@ export function FilterBasedCardContent({
         cachedResults: getCachedResults(insightProps.cachedInsight, query),
         doNotLoad: insightProps.doNotLoad,
     }
-    useEffect(() => {
-        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
-        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
-        // With this, autosizing runs again after `metaPrimaryHeight` is ready
-        if (
-            // `display` should be ignored in non-Trends insight
-            isTrendsFilter(insight.filters) &&
-            insight.filters.display === ChartDisplayType.BoldNumber
-        ) {
-            window.dispatchEvent(new Event('resize'))
-        }
-    }, [style?.height])
-
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div
-                className="InsightViz"
+                className="InsightCard__viz"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={style}
                 onClick={
                     setAreDetailsShown
                         ? () => {
@@ -278,9 +258,8 @@ function InsightCardInternal(
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelDataLogic(insightLogicProps)
-    )
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
@@ -299,7 +278,6 @@ function InsightCardInternal(
         loading = true
     }
 
-    const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
     const canMakeQueryAPICalls =
@@ -327,7 +305,6 @@ function InsightCardInternal(
                     rename={rename}
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
-                    setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}
                     setAreDetailsShown={setAreDetailsShown}
                     showEditingControls={showEditingControls}
@@ -335,17 +312,7 @@ function InsightCardInternal(
                     moreButtons={moreButtons}
                 />
                 {insight.query ? (
-                    <div
-                        className="InsightViz p-2"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            metaPrimaryHeight
-                                ? {
-                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
-                                  }
-                                : undefined
-                        }
-                    >
+                    <div className="InsightCard__viz">
                         {insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
                         ) : canMakeQueryAPICalls ? (
@@ -364,13 +331,6 @@ function InsightCardInternal(
                         empty={empty}
                         tooFewFunnelSteps={tooFewFunnelSteps}
                         invalidFunnelExclusion={invalidFunnelExclusion}
-                        style={
-                            metaPrimaryHeight
-                                ? {
-                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
-                                  }
-                                : undefined
-                        }
                         setAreDetailsShown={setAreDetailsShown}
                     />
                 ) : (

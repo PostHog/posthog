@@ -1,11 +1,8 @@
 import { LemonButton, LemonCollapse, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
-
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-
-import './Feedback.scss'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
 

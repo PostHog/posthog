@@ -17,17 +17,20 @@
     .LemonCalendar__month tr {
         .LemonButton {
             &.rounded-none {
-                border-radius: 0px;
+                border-radius: 0;
             }
+
             &.rounded-r-none {
-                border-top-right-radius: 0px;
-                border-bottom-right-radius: 0px;
+                border-top-right-radius: 0;
+                border-bottom-right-radius: 0;
             }
+
             &.rounded-l-none {
-                border-top-left-radius: 0px;
-                border-bottom-left-radius: 0px;
+                border-top-left-radius: 0;
+                border-bottom-left-radius: 0;
             }
         }
+
         .LemonCalendar__today {
             position: relative;
 
@@ -39,7 +42,7 @@
                 border-radius: 100%;
                 width: calc(var(--lemon-calendar-today-radius) * 2);
                 height: calc(var(--lemon-calendar-today-radius) * 2);
-                background: currentcolor;
+                background: currentColor;
             }
         }
     }

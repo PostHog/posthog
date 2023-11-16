@@ -1,8 +1,10 @@
 .PlanComparisonModal {
     max-width: 900px;
 }
+
 table.PlanComparison {
     table-layout: fixed;
+
     td {
         vertical-align: top;
         padding: 0.75rem 1.25rem;
@@ -12,20 +14,25 @@ table.PlanComparison {
             padding-bottom: 1rem;
         }
     }
+
     th {
         vertical-align: top;
-        padding: 0.75rem 1.25rem 0.75rem;
+        padding: 0.75rem 1.25rem;
         font-weight: 600;
         text-align: left;
 
         &.PlanTable__th__section {
-            padding: 0.25rem 1.25rem 0.25rem;
+            padding: 0.25rem 1.25rem;
             font-weight: 500;
         }
 
         &.PlanTable__th__feature {
             padding: 0.75rem 1.25rem 0.75rem 3.25rem;
             font-weight: 600;
+
+            &.PlanTable__th__feature--reduced_padding {
+                padding: 0.75rem 1.25rem;
+            }
         }
 
         &.PlanTable__th__last-feature {
@@ -37,6 +44,7 @@ table.PlanComparison {
         }
     }
 }
+
 .PlanTable__tr__border {
-    border-bottom: 3px rgba(0, 0, 0, 0.07) dotted;
+    border-bottom: 3px rgb(0 0 0 / 7%) dotted;
 }
