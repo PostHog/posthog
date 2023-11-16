@@ -1,4 +1,4 @@
-import { Tag, Select } from 'antd'
+import { Select } from 'antd'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
 // eslint-disable-next-line no-restricted-imports
@@ -11,7 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import clsx from 'clsx'
 import { IconPlus } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -37,11 +37,11 @@ export type ObjectTagsProps =
           tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
       })
 
-const COLOR_OVERRIDES: Record<string, string> = {
-    official: 'green',
-    approved: 'green',
-    verified: 'green',
-    deprecated: 'red',
+const COLOR_OVERRIDES: Record<string, LemonTagType> = {
+    official: 'success',
+    approved: 'success',
+    verified: 'success',
+    deprecated: 'danger',
 }
 
 let uniqueMemoizedIndex = 1
@@ -89,9 +89,9 @@ export function ObjectTags({
                       .filter((t) => !!t)
                       .map((tag, index) => {
                           return (
-                              <Tag
+                              <LemonTag
                                   key={index}
-                                  color={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                  type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                   style={{ marginRight: 0 }}
                               >
                                   {tag}{' '}
@@ -110,7 +110,7 @@ export function ObjectTags({
                                               }
                                           />
                                       ))}
-                              </Tag>
+                              </LemonTag>
                           )
                       })}
             {saving && <Spinner />}

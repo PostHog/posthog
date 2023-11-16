@@ -49,6 +49,7 @@ import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+import { LemonTagType } from './lemon-ui/LemonTag'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1239,7 +1240,7 @@ export function hashCodeForString(s: string): number {
     return Math.abs(hash)
 }
 
-export function colorForString(s: string): string {
+export function colorForString(s: string): LemonTagType {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
