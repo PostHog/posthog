@@ -318,7 +318,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     ),
             }}
             type="secondary"
-            size="small"
             icon={<IconExport />}
             data-attr="data-table-export-menu"
         >

@@ -70,7 +70,6 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         <BindLogic logic={columnConfiguratorLogic} props={columnConfiguratorLogicProps}>
             <LemonButton
                 type="secondary"
-                size="small"
                 data-attr="events-table-column-selector"
                 icon={<IconTuning />}
                 onClick={showModal}

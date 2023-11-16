@@ -11,7 +11,6 @@ export function Reload(): JSX.Element {
     return (
         <LemonButton
             type="secondary"
-            size="small"
             onClick={() => {
                 if (responseLoading) {
                     cancelQuery()

@@ -47,7 +47,6 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
             }}
             type="secondary"
             status="primary-alt"
-            size="small"
         >
             {selectedTitle}
         </LemonButtonWithDropdown>
