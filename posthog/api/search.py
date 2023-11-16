@@ -68,7 +68,11 @@ def class_queryset(klass: type[Model], team: Team, query: str | None):
         qs = qs.annotate(result_id=Cast("pk", CharField()))
 
     if query:
-        qs = qs.annotate(rank=SearchRank(SearchVector("name"), SearchQuery(query, config="simple", search_type="raw")))
+        qs = qs.annotate(
+            rank=SearchRank(
+                SearchVector("name", config="simple"), SearchQuery(query, config="simple", search_type="raw")
+            )
+        )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
 
