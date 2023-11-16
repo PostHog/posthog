@@ -46,6 +46,19 @@ body:not(.posthog-3000) {
             }
         }
 
+        &.LemonButton--no-padding {
+            min-height: 0;
+            height: auto;
+            width: auto;
+            padding: 0;
+            padding-left: 0;
+            padding-right: 0;
+
+            &.LemonButton--full-width {
+                width: 100%;
+            }
+        }
+
         // LemonStealth has some specific styles
         &.LemonButton--status-stealth {
             font-weight: 400;

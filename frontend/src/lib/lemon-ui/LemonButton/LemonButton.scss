@@ -113,12 +113,10 @@
     }
 
     &.LemonButton--no-padding {
-        min-height: 0 !important; // important is just a specifity problem. Can be removed post 3000 cleanup
+        min-height: 0;
         height: auto;
         width: auto;
         padding: 0;
-        padding-left: 0;
-        padding-right: 0;
 
         &.LemonButton--full-width {
             width: 100%;

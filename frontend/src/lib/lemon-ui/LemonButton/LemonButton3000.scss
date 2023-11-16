@@ -88,6 +88,7 @@
 
         &.LemonButton--no-padding {
             padding: 0;
+            min-height: 0;
 
             > span {
                 padding: 0;
