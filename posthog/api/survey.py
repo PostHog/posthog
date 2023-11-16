@@ -221,7 +221,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
             else:
-                new_flag = self._create_new_targeting_flag(instance.name, new_filters, instance.start_date)
+                new_flag = self._create_new_targeting_flag(instance.name, new_filters, bool(instance.start_date))
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
@@ -230,20 +230,20 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             # turn off feature flag if survey is ended
             if end_date is None:
                 instance.targeting_flag.active = True
-            elif end_date:
+            else:
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
         return super().update(instance, validated_data)
 
-    def _create_new_targeting_flag(self, name, filters, start_date=None):
+    def _create_new_targeting_flag(self, name, filters, active=False):
         feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,
                 "name": f"Targeting flag for survey {name}",
                 "filters": filters,
-                "active": True if start_date else False,
+                "active": active,
             },
             context=self.context,
         )
