@@ -146,6 +146,18 @@ export const billingLogic = kea<billingLogicType>([
         billingAlert: [
             (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
             (billing, preflight, projectedTotalAmountUsd): BillingAlertConfig | undefined => {
+                if (router.values.searchParams['products']) {
+                    let upgradedProducts = router.values.searchParams['products'].split(',')
+                    upgradedProducts = billing?.products.filter((product) => upgradedProducts.includes(product.type))
+                    upgradedProducts?.forEach((product: BillingProductV2Type) => {
+                        const currentPlan = product.plans.find((plan) => plan.current_plan)
+                        if (currentPlan?.initial_billing_limit) {
+                            lemonToast.info(
+                                `Automatically added ${currentPlan?.initial_billing_limit} billing limit for ${product.name}`
+                            )
+                        }
+                    })
+                }
                 if (!billing || !preflight?.cloud) {
                     return
                 }
