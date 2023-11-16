@@ -3,6 +3,7 @@ import contextlib
 import datetime as dt
 import itertools
 import json
+import os
 import typing
 from dataclasses import dataclass
 
@@ -30,6 +31,31 @@ from posthog.temporal.workflows.postgres_batch_export import (
     create_table_in_postgres,
     postgres_connection,
 )
+
+
+@contextlib.asynccontextmanager
+async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
+    """Manage a Redshift connection.
+
+    This just yields a Postgres connection but we adjust a couple of things required for
+    psycopg to work with Redshift:
+    1. Set PGCLIENTENCODING to utf-8 as Redshift reports back UNICODE.
+    2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
+        which is not supported on Redshift.
+    """
+    old_value = os.environ.get("PGCLIENTENCODING", None)
+    os.environ["PGCLIENTENCODING"] = "utf-8"
+
+    try:
+        async with postgres_connection(inputs) as connection:
+            connection.prepare_threshold = None
+            yield connection
+
+    finally:
+        if old_value is None:
+            del os.environ["PGCLIENTENCODING"]
+        else:
+            os.environ["PGCLIENTENCODING"] = old_value
 
 
 async def insert_records_to_redshift(
@@ -186,7 +212,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
-        async with postgres_connection(inputs) as connection:
+        async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
