@@ -49,7 +49,7 @@ def translate_whitespace_recursive(value):
     """Translate all whitespace from given value using WHITESPACE_TRANSLATE.
 
     PostgreSQL supports constant escaped strings by appending an E' to each string that
-    contains whitespace in them (amongts other characters). See:
+    contains whitespace in them (amongst other characters). See:
     https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
 
     However, Redshift does not support this syntax. So, to avoid any escaping by
