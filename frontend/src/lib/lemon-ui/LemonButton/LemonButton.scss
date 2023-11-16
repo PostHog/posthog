@@ -128,7 +128,7 @@
 
     @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
         &.LemonButton--status-#{$status} {
-            color: var(--#{$status}-3000, var(--#{$status}), var(--primary));
+            color: var(--#{$status}-3000, var(--#{$status}, var(--primary)));
 
             .LemonButton__icon {
                 color: var(--#{$status}-3000, var(--#{$status}));
