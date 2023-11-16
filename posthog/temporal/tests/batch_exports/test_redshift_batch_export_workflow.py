@@ -26,7 +26,7 @@ from posthog.temporal.workflows.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
     RedshiftInsertInputs,
     insert_into_redshift_activity,
-    translate_whitespace_recursive,
+    remove_escaped_whitespace_recursive,
 )
 
 REQUIRED_ENV_VARS = (
@@ -65,7 +65,7 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
             continue
 
         raw_properties = event.get("properties", None)
-        properties = translate_whitespace_recursive(raw_properties) if raw_properties else None
+        properties = remove_escaped_whitespace_recursive(raw_properties) if raw_properties else None
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
@@ -116,7 +116,7 @@ def redshift_config():
     return {
         "user": user,
         "password": password,
-        "database": "posthog_batch_exports_test",
+        "database": "posthog_batch_exports_test_2",
         "schema": "exports_test_schema",
         "host": host,
         "port": int(port),
@@ -362,14 +362,14 @@ async def test_redshift_export_workflow(
     "value,expected",
     [
         ([1, 2, 3], [1, 2, 3]),
-        ("\n\n", ""),
-        ([["\t\n"]], [[""]]),
-        (("\t\n",), ("",)),
-        ({"\t\n"}, {""}),
-        ({"key": "\t\n"}, {"key": ""}),
-        ({"key": ["\t\n"]}, {"key": [""]}),
+        ("hi\t\n\r\f\bhi", "hi hi"),
+        ([["\t\n\r\f\b"]], [[""]]),
+        (("\t\n\r\f\b",), ("",)),
+        ({"\t\n\r\f\b"}, {""}),
+        ({"key": "\t\n\r\f\b"}, {"key": ""}),
+        ({"key": ["\t\n\r\f\b"]}, {"key": [""]}),
     ],
 )
-def test_translate_whitespace_recursive(value, expected):
-    """Test we translate some whitespace values."""
-    assert translate_whitespace_recursive(value) == expected
+def test_remove_escaped_whitespace_recursive(value, expected):
+    """Test we remove some whitespace values."""
+    assert remove_escaped_whitespace_recursive(value) == expected

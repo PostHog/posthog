@@ -530,7 +530,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                     <LemonInput
                                                                         value={
                                                                             question.buttonText === undefined
-                                                                                ? survey.appearance.submitButtonText
+                                                                                ? survey.questions.length > 1 &&
+                                                                                  index !== survey.questions.length - 1
+                                                                                    ? 'Next'
+                                                                                    : survey.appearance.submitButtonText
                                                                                 : question.buttonText
                                                                         }
                                                                     />

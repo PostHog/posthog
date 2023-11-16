@@ -31,22 +31,9 @@ from posthog.temporal.workflows.postgres_batch_export import (
     postgres_connection,
 )
 
-WHITESPACE_TRANSLATE = str.maketrans(
-    {
-        whitespace_char: None
-        for whitespace_char in (
-            "\n",
-            "\t",
-            "\f",
-            "\r",
-            "\b",
-        )
-    }
-)
 
-
-def translate_whitespace_recursive(value):
-    """Translate all whitespace from given value using WHITESPACE_TRANSLATE.
+def remove_escaped_whitespace_recursive(value):
+    """Remove all escaped whitespace characters from given value.
 
     PostgreSQL supports constant escaped strings by appending an E' to each string that
     contains whitespace in them (amongst other characters). See:
@@ -61,22 +48,22 @@ def translate_whitespace_recursive(value):
     """
     match value:
         case str(s):
-            return s.translate(WHITESPACE_TRANSLATE)
+            return " ".join(s.replace("\b", " ").split())
 
         case bytes(b):
-            return b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
+            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
 
         case [*sequence]:
             # mypy could be bugged as it's raising a Statement unreachable error.
             # But we are definitely reaching this statement in tests; hence the ignore comment.
             # Maybe: https://github.com/python/mypy/issues/16272.
-            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
 
         case set(elements):
-            return set(translate_whitespace_recursive(element) for element in elements)
+            return set(remove_escaped_whitespace_recursive(element) for element in elements)
 
         case {**mapping}:
-            return {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
+            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
 
         case value:
             return value
@@ -292,7 +279,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(translate_whitespace_recursive(row[key]))
+                key: json.dumps(remove_escaped_whitespace_recursive(row[key]))
                 if key in json_columns and row[key] is not None
                 else row[key]
                 for key in schema_columns
