@@ -55,7 +55,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     clearTimeout(values.pollTimeout)
 
                     try {
-                        const response = await api.get(
+                        const response = await api.get<ChangesResponse>(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )
                         // we can't rely on automatic success action here because we swallow errors so always succeed
