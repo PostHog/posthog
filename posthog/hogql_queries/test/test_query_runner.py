@@ -12,6 +12,7 @@ from posthog.hogql_queries.query_runner import (
     RunnableQueryNode,
 )
 from posthog.models.team.team import Team
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, HogQLQuery
 from posthog.test.base import BaseTest
 
 
@@ -143,3 +144,28 @@ class TestQueryRunner(BaseTest):
             # returns fresh response if stale
             response = runner.run(refresh_requested=False)
             self.assertEqual(response.is_cached, False)
+
+    def test_modifier_passthrough(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+            from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+            materialize("events", "$browser")
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="select properties.$browser from events"),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+        )
+        assert "events.`mat_$browser" in runner.calculate().clickhouse
+
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="select properties.$browser from events"),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+        )
+        assert "events.`mat_$browser" not in runner.calculate().clickhouse
