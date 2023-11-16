@@ -167,11 +167,11 @@
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     color: #fff;
-                    background: var(--#{$status}-light, var(--#{$status}));
+                    background-color: var(--#{$status}-light, var(--#{$status}));
 
                     .posthog-3000 & {
-                        background: var(--primary-highlight);
-                        border-color: var(--primary-3000);
+                        background-color: var(--primary-3000-frame-bg);
+                        border-color: var(--primary-3000-frame-border);
                     }
 
                     .LemonButton__icon {
@@ -184,7 +184,7 @@
                     color: #fff !important;
 
                     .posthog-3000 & {
-                        border-color: var(--primary-3000-active);
+                        border-color: var(--primary-3000-frame-border);
                     }
 
                     .LemonButton__icon {
@@ -202,6 +202,10 @@
                 &.LemonButton--active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
+
+                    .posthog-3000 & {
+                        border-color: var(--secondary-3000-frame-border);
+                    }
                 }
 
                 &:not([aria-disabled='true']):active {
