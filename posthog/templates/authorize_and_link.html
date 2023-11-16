@@ -1,0 +1,13 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<form class="form-signin" method="post" action="/login">
+    Do you want to login on <strong>{{ domain }}</strong> using your PostHog Cloud ({{ email}}) account?
+    <br /><br />
+    <a href='/api/user/redirect_to_website/?appUrl={{ redirect_url }}' class="btn btn-lg btn-primary btn-block"
+        type="submit">
+        Authorize
+        <strong>{{ domain }}</strong>
+    </a>
+</form>
+{% endblock %}

@@ -456,6 +456,25 @@ def redirect_to_site(request):
     return redirect("{}#__posthog={}".format(app_url, state))
 
 
+@authenticate_secondarily
+def redirect_to_website(request):
+    team = request.user.team
+    app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+
+    if not app_url:
+        return HttpResponse(status=404)
+
+    if not team or not urllib.parse.urlparse(app_url).hostname in ['localhost', 'posthog.com']:
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+    params = { "jwt": "random_auth_token" }
+
+    # pass the empty string as the safe param so that `//` is encoded correctly.
+    # see https://github.com/PostHog/posthog/issues/9671
+    userData = urllib.parse.quote(json.dumps(params), safe="")
+
+    return redirect("{}?userData={}&redirect={}".format('http://localhost:8001/auth', userData, app_url))
+
+
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):

@@ -140,6 +140,50 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     )
 
 
+def link_and_redirect(request: HttpRequest) -> HttpResponse:
+    if not request.GET.get("redirect"):
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
+    if not request.META.get("HTTP_REFERER"):
+        return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
+
+    current_team = cast(User, request.user).team
+    referer_url = urlparse(request.META["HTTP_REFERER"])
+    redirect_url = urlparse(request.GET["redirect"])
+
+    print(redirect_url.hostname)
+    if not current_team or not redirect_url.hostname in ['localhost', 'posthog.com']:
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+
+    if referer_url.hostname != redirect_url.hostname:
+        return HttpResponse(
+            f"Can only redirect to the same domain as the referer: {referer_url.hostname}",
+            status=403,
+        )
+
+    if referer_url.scheme != redirect_url.scheme:
+        return HttpResponse(
+            f"Can only redirect to the same scheme as the referer: {referer_url.scheme}",
+            status=403,
+        )
+
+    if referer_url.port != redirect_url.port:
+        return HttpResponse(
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}",
+            status=403,
+        )
+
+    return render_template(
+        "authorize_and_link.html",
+        request=request,
+        context={
+            "email": request.user,
+            "domain": redirect_url.hostname,
+            "redirect_url": request.GET["redirect"],
+        },
+    )
+
+
+
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
@@ -173,6 +217,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+    opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
@@ -186,6 +231,7 @@ urlpatterns = [
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
+    path("link_and_redirect/", login_required(link_and_redirect)),
     path(
         "shared_dashboard/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
