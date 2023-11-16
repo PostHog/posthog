@@ -187,9 +187,14 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             ...webAnalyticsDataTableQueryContext,
             chartRenderingMetadata: {
                 [ChartDisplayType.WorldMap]: {
-                    countryProps: (countryCode, values) => ({
-                        onClick: values && values.count > 0 ? () => onWorldMapClick(countryCode) : undefined,
-                    }),
+                    countryProps: (countryCode, values) => {
+                        return {
+                            onClick:
+                                values && (values.count > 0 || values.aggregated_value > 0)
+                                    ? () => onWorldMapClick(countryCode)
+                                    : undefined,
+                        }
+                    },
                 },
             },
         }
