@@ -64,7 +64,7 @@ jobs:
 
                 - name: Set up Node.js
                   if: steps.filter.outputs.frontend == 'true'
-                  uses: buildjet/setup-node@v3
+                  uses: actions/setup-node@v3
                   with:
                       node-version: 18
 
@@ -135,7 +135,7 @@ jobs:
 
                 - name: Set up Node.js
                   if: steps.filter.outputs.frontend == 'true'
-                  uses: buildjet/setup-node@v3
+                  uses: actions/setup-node@v3
                   with:
                       node-version: 18
                       cache: pnpm
