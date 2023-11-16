@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 
 class Command(BaseCommand):
     help = "Test if HogQL insights match their legacy counterparts"
@@ -30,7 +32,8 @@ class Command(BaseCommand):
                 if row.get("persons_urls"):
                     del row["persons_urls"]
             query = filter_to_query(insight.filters)
-            query_runner = get_query_runner(query, insight.team)
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
+            query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
             hogql_results = query_runner.calculate().results
             order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
             legacy_results = sorted(legacy_results, key=lambda k: order[k["status"]])
