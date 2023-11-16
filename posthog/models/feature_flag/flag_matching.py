@@ -608,19 +608,24 @@ class FeatureFlagMatcher:
 
 
 def get_feature_flag_hash_key_overrides(
-    team_id: int, distinct_ids: List[str], using_database: str = "default"
+    team_id: int,
+    distinct_ids: List[str],
+    using_database: str = "default",
+    person_id_to_distinct_id_mapping: Optional[Dict[int, str]] = None,
 ) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
 
-    person_and_distinct_ids = list(
-        PersonDistinctId.objects.using(using_database)
-        .filter(distinct_id__in=distinct_ids, team_id=team_id)
-        .values_list("person_id", "distinct_id")
-    )
-
-    person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+    if not person_id_to_distinct_id_mapping:
+        person_and_distinct_ids = list(
+            PersonDistinctId.objects.using(using_database)
+            .filter(distinct_id__in=distinct_ids, team_id=team_id)
+            .values_list("person_id", "distinct_id")
+        )
+        person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+    else:
+        person_id_to_distinct_id = person_id_to_distinct_id_mapping
 
     person_ids = list(person_id_to_distinct_id.keys())
 

@@ -298,8 +298,7 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: List[str], insert_in_clickhouse: bool = False) -> None:
-        batchsize = 1000
+    def insert_users_list_by_uuid(self, items: List[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:

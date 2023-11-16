@@ -12,6 +12,7 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from posthog import redis
+from posthog.api.cohort import get_cohort_actors_for_feature_flag
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
@@ -23,6 +24,7 @@ from posthog.models.feature_flag import (
     FeatureFlagDashboards,
 )
 from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -3590,6 +3592,271 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
+
+
+class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
+    def test_creating_static_cohort_with_deleted_flag(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+            deleted=True,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person1"],
+            properties={"key": "value"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with self.assertNumQueries(1), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        # don't even try inserting anything, because invalid flag, so None instead of 0
+        self.assertEqual(cohort.count, None)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 0, response)
+
+    def test_creating_static_cohort_with_inactive_flag(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature2",
+            created_by=self.user,
+            active=False,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person1"],
+            properties={"key": "value"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with self.assertNumQueries(1), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        # don't even try inserting anything, because invalid flag, so None instead of 0
+        self.assertEqual(cohort.count, None)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 0, response)
+
+    @freeze_time("2021-01-01")
+    def test_creating_static_cohort_with_group_flag(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "groups": [{"properties": [{"key": "key", "value": "value", "type": "group", "group_type_index": 1}]}],
+                "multivariate": None,
+                "aggregation_group_type_index": 1,
+            },
+            name="some feature",
+            key="some-feature3",
+            created_by=self.user,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person1"],
+            properties={"key": "value"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with self.assertNumQueries(1), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        # don't even try inserting anything, because invalid flag, so None instead of 0
+        self.assertEqual(cohort.count, None)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 0, response)
+
+    def test_creating_static_cohort_with_non_existing_flag(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with self.assertNumQueries(1), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        # don't even try inserting anything, because invalid flag, so None instead of 0
+        self.assertEqual(cohort.count, None)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 0, response)
+
+    def test_creating_static_cohort_with_experience_continuity_flag(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 50}
+                ],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature2",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+
+        p1 = _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"}, immediate=True)
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person2"],
+            properties={"key": "value"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person3"],
+            properties={"key": "value"},
+        )
+        flush_persons_and_events()
+        # TODO: Check right person is added here
+
+        FeatureFlagHashKeyOverride.objects.create(
+            feature_flag_key="some-feature2",
+            person=p1,
+            team=self.team,
+            hash_key="123",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True,
+            PERSON_ON_EVENTS_OVERRIDE=False,
+            PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 1)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
+    def test_creating_static_cohort_iterator(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 100}
+                ],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature2",
+            created_by=self.user,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person1"],
+            properties={"key": "value"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person2"],
+            properties={"key": "value"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person3"],
+            properties={"key": "value"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person4"],
+            properties={"key": "valuu3"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        # Extra queries because each batch adds its own queries
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True,
+            PERSON_ON_EVENTS_OVERRIDE=False,
+            PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
+
+        # if the batch is big enough, it's fewer queries
+        with self.assertNumQueries(9), self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True,
+            PERSON_ON_EVENTS_OVERRIDE=False,
+            PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 3)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 3, response)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
