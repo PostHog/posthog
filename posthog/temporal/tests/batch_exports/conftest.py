@@ -61,7 +61,6 @@ async def setup_postgres_test_db(postgres_config):
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
-        **{"dbname": postgres_config["database"]} if postgres_config["database"] == "dev" else {},
     )
     await connection.set_autocommit(True)
 
