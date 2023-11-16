@@ -13,6 +13,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
+import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -76,6 +77,7 @@ export function GlobalModals(): JSX.Element {
             <FlaggedFeature flag="enable-prompts">
                 <Prompt />
             </FlaggedFeature>
+            <HedgehogBuddyWithLogic />
         </>
     )
 }
