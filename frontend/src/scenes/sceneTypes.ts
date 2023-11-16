@@ -64,7 +64,6 @@ export enum Scene {
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
-    Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
