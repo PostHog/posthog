@@ -581,13 +581,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             if property.operator not in ("is_set", "is_not_set") and property.type == "person":
                 default_person_properties[property.key] = ""
 
-    # add tests for deleted, active, experience continuity, and group flags flags.
-    # then for variable rollout % and variable distinct id selection :grimacing:
-    # add a test for batching as well
-
     try:
-        # TODO: Iterator doesn't work with pgbouncer, it will load everything into memory and then stream
-        # which doesn't work for us, so need a manual chunking here
+        # QuerySet.Iterator() doesn't work with pgbouncer, it will load everything into memory and then stream
+        # which doesn't work for us, so need a manual chunking here.
+        # Because of this pgbouncer transaction pooling mode, we can't use server-side cursors.
         queryset = Person.objects.filter(team_id=team_id).order_by("id")
         # get batchsize number of people at a time
         start = 0
@@ -655,6 +652,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
             start += batchsize
             batch_of_persons = queryset[start : start + batchsize]
+
         if len(uuids_to_add_to_cohort) > 0:
             cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize)
 

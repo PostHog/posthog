@@ -3622,9 +3622,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
-        ):
+        with self.assertNumQueries(1):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
@@ -3662,9 +3660,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
-        ):
+        with self.assertNumQueries(1):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -3703,9 +3699,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
-        ):
+        with self.assertNumQueries(1):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
 
         cohort.refresh_from_db()
@@ -3723,9 +3717,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
-        ):
+        with self.assertNumQueries(1):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -3779,11 +3771,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            PERSON_ON_EVENTS_OVERRIDE=False,
-            PERSON_ON_EVENTS_V2_OVERRIDE=False,
-        ):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -3836,19 +3824,18 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            PERSON_ON_EVENTS_OVERRIDE=False,
-            PERSON_ON_EVENTS_V2_OVERRIDE=False,
-        ):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 3)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 3, response)
+
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(9), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            PERSON_ON_EVENTS_OVERRIDE=False,
-            PERSON_ON_EVENTS_V2_OVERRIDE=False,
-        ):
+        with self.assertNumQueries(9):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
