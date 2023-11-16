@@ -1,4 +1,5 @@
 from rest_framework import status
+from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.user import User
 from posthog.models.team.team import Team
 from posthog.models.cohort import Cohort
@@ -493,31 +494,46 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             self.assertTrue(found_cohort)
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination_2(self):
+        feature_flag_key = "flag-with-cohort"
         cohorts = {}
-        creation_order = []
 
-        def create_cohort(name, children):
-            creation_order.append(name)
-            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]
-            if children:
-                properties = [{"key": "id", "type": "cohort", "value": child.pk} for child in children]
-
+        def create_cohort(name):
             cohorts[name] = Cohort.objects.create(
                 team=self.team,
-                name=str(name),
-                groups=[{"properties": properties}],
+                name=name,
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "name", "value": "test", "type": "person"},
+                        ],
+                    }
+                },
             )
 
-        # link cohorts
-        create_cohort(3, None)
-        create_cohort(4, [cohorts[3]])
-        create_cohort(2, [cohorts[4]])
-        create_cohort(1, [cohorts[2], cohorts[3]])
+        create_cohort("a")
+        create_cohort("b")
+        create_cohort("c")
+        create_cohort("d")
 
+        def connect(parent, child):
+            cohorts[parent].filters["properties"]["values"][0] = {
+                "key": "id",
+                "value": cohorts[child].pk,
+                "type": "cohort",
+                "negation": True,
+            }
+            cohorts[parent].save()
+
+        connect("d", "b")
+        connect("a", "d")
+        connect("c", "a")
+
+        head_cohort = cohorts["c"]
         flag_to_copy = FeatureFlag.objects.create(
             team=self.team_1,
             created_by=self.user,
-            key="flag-with-cohort",
+            key=feature_flag_key,
             filters={
                 "groups": [
                     {
@@ -526,7 +542,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                             {
                                 "key": "id",
                                 "type": "cohort",
-                                "value": cohorts[1].pk,  # link "head" cohort
+                                "value": head_cohort.pk,  # link "head" cohort
                             }
                         ],
                     }
@@ -547,9 +563,40 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # check all cohorts were created in the destination project
-        for name in creation_order:
+        for name in cohorts.keys():
             found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
             self.assertTrue(found_cohort)
+
+        # destination flag contains the head cohort
+        destination_flag = FeatureFlag.objects.get(key=feature_flag_key, team_id=target_project.id)
+        destination_flag_head_cohort_id = destination_flag.filters["groups"][0]["properties"][0]["value"]
+        destination_head_cohort = Cohort.objects.get(pk=destination_flag_head_cohort_id)
+        self.assertEqual(destination_head_cohort.name, head_cohort.name)
+
+        # get topological order of the original cohorts
+        original_cohorts_cache = {}
+        for _, cohort in cohorts.items():
+            original_cohorts_cache[cohort.id] = cohort
+        original_cohort_ids = set(original_cohorts_cache.keys())
+        topologically_sorted_original_cohort_ids = sort_cohorts_topologically(
+            original_cohort_ids, original_cohorts_cache
+        )
+
+        # drill down the destination cohorts in the reverse topological order
+        # the order of names should match the reverse topological order of the original cohort names
+        topologically_sorted_original_cohort_ids_reversed = topologically_sorted_original_cohort_ids[::-1]
+
+        def traverse(cohort, index):
+            expected_name = original_cohorts_cache[topologically_sorted_original_cohort_ids_reversed[index]].name
+            self.assertEqual(expected_name, cohort.name)
+
+            prop = cohort.filters["properties"]["values"][0]
+            if prop["type"] == "cohort":
+                next_cohort_id = prop["value"]
+                next_cohort = Cohort.objects.get(pk=next_cohort_id)
+                traverse(next_cohort, index + 1)
+
+        traverse(destination_head_cohort, 0)
 
     def test_copy_feature_flag_destination_cohort_not_overridden(self):
         cohort_name = "cohort-1"
