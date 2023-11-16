@@ -255,6 +255,13 @@ class InCohortVia(str, Enum):
     subquery = "subquery"
 
 
+class MaterializationMode(str, Enum):
+    auto = "auto"
+    legacy_null_as_string = "legacy_null_as_string"
+    legacy_null_as_null = "legacy_null_as_null"
+    disabled = "disabled"
+
+
 class PersonsArgMaxVersion(str, Enum):
     auto = "auto"
     v1 = "v1"
@@ -273,6 +280,7 @@ class HogQLQueryModifiers(BaseModel):
         extra="forbid",
     )
     inCohortVia: Optional[InCohortVia] = None
+    materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
