@@ -114,7 +114,7 @@ def redshift_config():
     return {
         "user": user,
         "password": password,
-        "database": "dev",
+        "database": "posthog_batch_exports_test",
         "schema": "exports_test_schema",
         "host": host,
         "port": int(port),
@@ -124,7 +124,10 @@ def redshift_config():
 @pytest.fixture
 def postgres_config(redshift_config):
     """We shadow this name so that setup_postgres_test_db works with Redshift."""
-    return redshift_config
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
+
+    yield redshift_config
 
 
 @pytest_asyncio.fixture
@@ -137,6 +140,7 @@ async def psycopg_connection(redshift_config, setup_postgres_test_db):
         host=redshift_config["host"],
         port=redshift_config["port"],
     )
+    connection.prepare_threshold = None
 
     yield connection
 
