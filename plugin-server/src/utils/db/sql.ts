@@ -10,7 +10,6 @@ import {
     PluginLogEntryType,
 } from '../../types'
 import { PostgresUse } from './postgres'
-import { sanitizeJsonbValue } from './utils'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     const fields = specificField
@@ -118,14 +117,6 @@ export async function setPluginCapabilities(
 }
 
 export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
-    await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
-        // NOTE: In theory `onEvent` shouldn't be seeing events that still have the null byte, but
-        // it's better to be safe than sorry and sanitize the value here as well.
-        [sanitizeJsonbValue(pluginError), typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig],
-        'updatePluginConfigError'
-    )
     if (pluginError) {
         await hub.db.queuePluginLogEntry({
             pluginConfig,
