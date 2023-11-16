@@ -152,7 +152,7 @@ body:not(.posthog-3000) {
             }
         }
 
-        &.LemonSegmentedButton__option--selected {
+        &:not(.LemonSegmentedButton__option--selected) {
             .LemonButton > span {
                 background-color: var(--secondary-3000-button-bg);
             }
