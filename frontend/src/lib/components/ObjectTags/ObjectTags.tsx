@@ -117,6 +117,7 @@ export function ObjectTags({
             {!staticOnly && onChange && saving !== undefined && (
                 <span className="inline-flex font-normal">
                     <LemonTag
+                        type="none"
                         onClick={() =>
                             onGuardClick(() => {
                                 setAddingNewTag(true)
@@ -124,26 +125,13 @@ export function ObjectTags({
                         }
                         data-attr="button-add-tag"
                         icon={<IconPlus />}
+                        className="border border-dashed"
+                        style={{
+                            display: addingNewTag ? 'none' : 'inline-flex',
+                        }}
                     >
                         Add tag
                     </LemonTag>
-                    <Tag
-                        onClick={() =>
-                            onGuardClick(() => {
-                                setAddingNewTag(true)
-                            })
-                        }
-                        data-attr="button-add-tag"
-                        style={{
-                            cursor: 'pointer',
-                            borderStyle: 'dashed',
-                            backgroundColor: 'var(--bg-light)',
-                            display: addingNewTag ? 'none' : 'initial',
-                        }}
-                        icon={<IconPlus />}
-                    >
-                        Add tag
-                    </Tag>
                     {addingNewTag && (
                         <SelectGradientOverflow
                             size="small"
