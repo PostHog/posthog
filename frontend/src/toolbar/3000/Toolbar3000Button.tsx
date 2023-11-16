@@ -18,7 +18,7 @@ export type Toolbar3000ButtonProps = {
 }
 
 export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = React.forwardRef<
-    HTMLButtonElement,
+    HTMLDivElement,
     Toolbar3000ButtonProps
 >(({ icon, title, onClick, titleMinimized, menuId, ...props }, ref): JSX.Element => {
     const { visibleMenu, minimizedWidth } = useValues(toolbarButtonLogic)
@@ -37,9 +37,12 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
     }
 
     const theButton = (
-        <div className={clsx('Toolbar3000Button', active && 'Toolbar3000Button--active')} aria-label={theTitle}>
+        <div
+            className={clsx('Toolbar3000Button', active && 'Toolbar3000Button--active')}
+            aria-label={theTitle}
+            ref={ref}
+        >
             <button
-                ref={ref}
                 className="Toolbar3000Button__button"
                 {...props}
                 {...useLongPress(

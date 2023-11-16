@@ -42,8 +42,8 @@ function MoreMenu(): JSX.Element {
                     setVisibleMenu('none')
                 }
             }}
-            placement={'top-start'}
-            fallbackPlacements={['bottom-start']}
+            placement="top-end"
+            fallbackPlacements={['bottom-end']}
             getPopupContainer={getToolbarContainer}
             // onClickOutside={() => {
             //     if (visibleMenu === 'more') {
@@ -54,23 +54,17 @@ function MoreMenu(): JSX.Element {
                 {
                     icon: <>🦔</>,
                     label: 'Hedgehog mode',
-                    onClick: () => {
-                        setHedgehogMode(!hedgehogMode)
-                    },
+                    onClick: () => setHedgehogMode(!hedgehogMode),
                 },
                 {
                     icon: currentlyLightMode ? <IconNight /> : <IconDay />,
                     label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
-                    onClick: () => {
-                        toggleTheme()
-                    },
+                    onClick: () => toggleTheme(),
                 },
                 {
                     icon: <IconQuestion />,
                     label: 'Help',
-                    onClick: () => {
-                        window.open(HELP_URL, '_blank')?.focus()
-                    },
+                    onClick: () => window.open(HELP_URL, '_blank')?.focus(),
                 },
                 { icon: <IconX />, label: 'Logout', onClick: logout },
             ]}
