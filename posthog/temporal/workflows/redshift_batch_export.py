@@ -45,31 +45,35 @@ WHITESPACE_TRANSLATE = str.maketrans(
 )
 
 
-def translate_whitespace_recursive(value: typing.Any):
-    """Translate all whitespace from given dict values using WHITESPACE_TRANSLATE.
+def translate_whitespace_recursive(value):
+    """Translate all whitespace from given value using WHITESPACE_TRANSLATE.
 
-    PostgreSQL supports literal escaped strings that append an E' to each string that
-    contains whitespace in them (amongts other characters). However, Redshift does not
-    support this. So, to avoid any escaping by underlying PostgreSQL library, we remove
-    the whitespace as defined in the translation table WHITESPACE_TRANSLATE.
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongts other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
     """
     match value:
         case str(s):
-            new_value = s.translate(WHITESPACE_TRANSLATE)
+            return s.translate(WHITESPACE_TRANSLATE)
 
         case bytes(b):
-            new_value = b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
+            return b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
 
         case {**mapping}:
-            new_value = {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
+            return {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
 
         case [*sequence]:
-            new_value = type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
+            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
 
         case _:
-            new_value = value
-
-    return new_value
+            return value
 
 
 @contextlib.asynccontextmanager
