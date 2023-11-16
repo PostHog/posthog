@@ -212,21 +212,24 @@
 
 .LemonTable__header {
     cursor: default;
+
+    .posthog-3000 & {
+        opacity: 0.4;
+    }
+
     &.LemonTable__header--actionable {
         cursor: pointer;
+
+        .posthog-3000 & {
+            &:hover {
+                opacity: 0.7;
+            }
+
+            &:active {
+                opacity: 0.9;
+            }
+        }
     }
-}
-
-.LemonTable__header-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    line-height: 1.5;
-}
-
-.LemonTable__footer {
-    border-top: 1px solid var(--border);
-    cursor: default;
 }
 
 // Stickiness is disabled in snapshots due to flakiness
