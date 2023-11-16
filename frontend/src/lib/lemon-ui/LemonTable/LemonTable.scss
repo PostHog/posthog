@@ -232,6 +232,18 @@
     }
 }
 
+.LemonTable__header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    line-height: 1.5;
+}
+
+.LemonTable__footer {
+    border-top: 1px solid var(--border);
+    cursor: default;
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
