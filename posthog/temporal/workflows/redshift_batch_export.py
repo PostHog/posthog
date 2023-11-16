@@ -31,6 +31,56 @@ from posthog.temporal.workflows.postgres_batch_export import (
     postgres_connection,
 )
 
+WHITESPACE_TRANSLATE = str.maketrans(
+    {
+        whitespace_char: None
+        for whitespace_char in (
+            "\n",
+            "\t",
+            "\f",
+            "\r",
+            "\b",
+        )
+    }
+)
+
+
+def translate_whitespace_recursive(value):
+    """Translate all whitespace from given value using WHITESPACE_TRANSLATE.
+
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongst other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
+    """
+    match value:
+        case str(s):
+            return s.translate(WHITESPACE_TRANSLATE)
+
+        case bytes(b):
+            return b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
+
+        case [*sequence]:
+            # mypy could be bugged as it's raising a Statement unreachable error.
+            # But we are definitely reaching this statement in tests; hence the ignore comment.
+            # Maybe: https://github.com/python/mypy/issues/16272.
+            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+
+        case set(elements):
+            return set(translate_whitespace_recursive(element) for element in elements)
+
+        case {**mapping}:
+            return {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case value:
+            return value
+
 
 @contextlib.asynccontextmanager
 async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
@@ -242,7 +292,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(row[key]) if key in json_columns and row[key] is not None else row[key]
+                key: json.dumps(translate_whitespace_recursive(row[key]))
+                if key in json_columns and row[key] is not None
+                else row[key]
                 for key in schema_columns
             }
 
