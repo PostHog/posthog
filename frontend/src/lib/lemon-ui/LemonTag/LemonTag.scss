@@ -10,42 +10,42 @@
     line-height: 1rem;
     white-space: nowrap;
 
-    &.primary {
+    &.LemonTag--primary {
         background-color: var(--primary);
         color: #fff;
     }
 
-    &.highlight {
+    &.LemonTag--highlight {
         background-color: var(--mark);
         color: var(--bg-charcoal);
     }
 
-    &.warning {
+    &.LemonTag--warning {
         background-color: var(--warning);
         color: var(--bg-charcoal);
     }
 
-    &.danger {
+    &.LemonTag--danger {
         background-color: var(--danger);
         color: #fff;
     }
 
-    &.success {
+    &.LemonTag--success {
         background-color: var(--success);
         color: #fff;
     }
 
-    &.completion {
+    &.LemonTag--completion {
         background-color: var(--purple-light);
         color: var(--bg-charcoal);
     }
 
-    &.caution {
+    &.LemonTag--caution {
         background-color: var(--danger-lighter);
         color: var(--bg-charcoal);
     }
 
-    &.none {
+    &.LemonTag--none {
         background: none;
     }
 

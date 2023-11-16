@@ -38,7 +38,13 @@ export function LemonTag({
 }: LemonTagProps): JSX.Element {
     return (
         <div
-            className={clsx('LemonTag', `LemonTag--size-${size}`, !!props.onClick && 'cursor-pointer', type, className)}
+            className={clsx(
+                'LemonTag',
+                `LemonTag--size-${size}`,
+                !!props.onClick && 'cursor-pointer',
+                `LemonTag--${type}`,
+                className
+            )}
             {...props}
         >
             {icon && <span className="LemonTag__icon">{icon}</span>}

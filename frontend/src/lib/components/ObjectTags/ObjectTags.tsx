@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import clsx from 'clsx'
 import { IconPlus } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -115,6 +116,17 @@ export function ObjectTags({
             {saving && <Spinner />}
             {!staticOnly && onChange && saving !== undefined && (
                 <span className="inline-flex font-normal">
+                    <LemonTag
+                        onClick={() =>
+                            onGuardClick(() => {
+                                setAddingNewTag(true)
+                            })
+                        }
+                        data-attr="button-add-tag"
+                        icon={<IconPlus />}
+                    >
+                        Add tag
+                    </LemonTag>
                     <Tag
                         onClick={() =>
                             onGuardClick(() => {
