@@ -129,9 +129,12 @@
         > tr {
             > th {
                 font-weight: 700;
-                padding-top: 0.5rem;
-                padding-bottom: 0.5rem;
                 text-align: left;
+
+                .posthog-3000 & {
+                    padding-top: 0.5rem;
+                    padding-bottom: 0.5rem;
+                }
 
                 .LemonButton {
                     .posthog-3000 & {

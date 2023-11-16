@@ -5,7 +5,6 @@ import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import {
@@ -38,7 +37,11 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 export function getEventDefinitionIcon(definition: EventDefinition & { value: string | null }): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview' || definition.name === '$screen') {
-        return <IconEye className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
+        return (
+            <Tooltip title="Pageview">
+                <IconEye className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
+            </Tooltip>
+        )
     }
     if (definition.name === '$pageleave') {
         return (
@@ -72,7 +75,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
         )
     }
     return (
-        <Tooltip title={`Event`}>
+        <Tooltip title={`Custom event`}>
             <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
@@ -99,7 +102,7 @@ function RawDefinitionHeader({
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <span className={clsx('', asLink && 'text-link cursor-pointer')}>
+        <span className={asLink ? 'text-link cursor-pointer' : ''}>
             <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
         </span>
     )
@@ -131,14 +134,12 @@ function RawDefinitionHeader({
                             </>
                         )}
                         {!!KEY_MAPPING.event[definition.name] && (
-                            <>
-                                <Tooltip title={`PostHog event`}>
-                                    <IconBadge
-                                        className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
-                                        style={{ width: '1.25rem' }}
-                                    />
-                                </Tooltip>
-                            </>
+                            <Tooltip title={`PostHog event`}>
+                                <IconBadge
+                                    className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
+                                    style={{ width: '1.25rem' }}
+                                />
+                            </Tooltip>
                         )}
                     </div>
                     {description ? <div className="text-xs text-ellipsis">{description}</div> : null}
