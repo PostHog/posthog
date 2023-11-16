@@ -43,6 +43,30 @@
             }
         }
 
+        &.LemonButton--xsmall {
+            min-height: 1.5rem;
+            padding-left: 0;
+
+            > span {
+                min-height: 1.5rem;
+                padding: 0.125rem 0.375rem;
+            }
+
+            &.LemonButton--has-icon:not(.LemonButton--no-padding),
+            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+                > span {
+                    padding-left: 0.25rem;
+                }
+            }
+
+            &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
+            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+                > span {
+                    padding-right: 0.25rem;
+                }
+            }
+        }
+
         &.LemonButton--small {
             min-height: 1.8rem;
 
@@ -68,16 +92,24 @@
 
         &.LemonButton--large {
             min-height: 2.5rem;
-            padding: 0.25rem 0.5rem;
 
             > span {
+                gap: 0.75rem;
                 min-height: 2.5rem;
                 padding: 0.5rem 1rem;
             }
 
             &.LemonButton--has-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding),
-            &.LemonButton--has-side-icon:not(.LemonButton--no-padding) {
+            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+                padding-left: 0;
+
+                > span {
+                    padding-left: 0.75rem;
+                }
+            }
+
+            &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
+            &.LemonButton--no-content:not(.LemonButton--no-padding) {
                 padding-right: 0;
 
                 > span {
