@@ -15,88 +15,138 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    frontend-code-quality:
-        name: Code quality checks
-        # kea typegen and typescript:check need some more oomph
+    # Job to decide if we should run frontend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run frontend checks
+        outputs:
+            backend: ${{ steps.filter.outputs.frontend }}
         steps:
+            # For pull requests it's not necessary to check out the code, but we
+            # also want this to run on master, so we need to check out
             - uses: actions/checkout@v3
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
+            - uses: dorny/paths-filter@v2
+              id: filter
               with:
-                  version: 8.x.x
+                  filters: |
+                      backend:
+                        # Avoid running frontend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. 
+                        - 'bin/*'
+                        - frontend/*
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-frontend.yml
+                        # various JS config files
+                        - .eslintrc.js
+                        - .prettierrc.js
+                        - babel.config.js
+                        - jest.*.ts
+                        - tsconfig.*.json
+                        - webpack.config.js
+                        - postcss.config.js
+                        - stylelintrc.js
 
-            - name: Set up Node.js
-              uses: buildjet/setup-node@v3
-              with:
-                  node-version: 18
+        frontend-code-quality:
+            name: Code quality checks
+            # kea typegen and typescript:check need some more oomph
+            runs-on: ubuntu-latest
+            steps:
+                - uses: actions/checkout@v3
 
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+                - name: Install pnpm
+                  if: steps.filter.outputs.frontend == 'true'
+                  uses: pnpm/action-setup@v2
+                  with:
+                      version: 8.x.x
 
-            - uses: actions/cache@v3
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                - name: Set up Node.js
+                  if: steps.filter.outputs.frontend == 'true'
+                  uses: buildjet/setup-node@v3
+                  with:
+                      node-version: 18
 
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+                - name: Get pnpm cache directory path
+                  if: steps.filter.outputs.frontend == 'true'
+                  id: pnpm-cache-dir
+                  run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - name: Check formatting with prettier
-              run: pnpm prettier:check
+                - uses: actions/cache@v3
+                  if: steps.filter.outputs.frontend == 'true'
+                  id: pnpm-cache
+                  with:
+                      path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                      key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                      restore-keys: ${{ runner.os }}-pnpm-cypress-
 
-            - name: Lint with ESLint
-              run: pnpm lint:js
+                - name: Install package.json dependencies with pnpm
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm install --frozen-lockfile
 
-            - name: Lint with Stylelint
-              run: pnpm lint:css
+                - name: Check formatting with prettier
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm prettier:check
 
-            - name: Generate logic types and run typescript with strict
-              run: pnpm typegen:write && pnpm typescript:check
+                - name: Lint with ESLint
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm lint:js
 
-            - name: Check if "schema.json" is up to date
-              run: pnpm schema:build:json && git diff --exit-code
+                - name: Lint with Stylelint
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm lint:css
 
-            - name: Check toolbar bundle size
-              uses: preactjs/compressed-size-action@v2
-              with:
-                  build-script: 'build'
-                  compression: 'none'
-                  pattern: 'frontend/dist/toolbar.js'
+                - name: Generate logic types and run typescript with strict
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm typegen:write && pnpm typescript:check
 
-    jest:
-        runs-on: ubuntu-latest
-        name: Jest test (${{ matrix.chunk }})
+                - name: Check if "schema.json" is up to date
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm schema:build:json && git diff --exit-code
 
-        strategy:
-            # If one test fails, still run the others
-            fail-fast: false
-            matrix:
-                chunk: [1, 2, 3]
+                - name: Check toolbar bundle size
+                  if: steps.filter.outputs.frontend == 'true'
+                  uses: preactjs/compressed-size-action@v2
+                  with:
+                      build-script: 'build'
+                      compression: 'none'
+                      pattern: 'frontend/dist/toolbar.js'
 
-        steps:
-            - uses: actions/checkout@v3
+        jest:
+            runs-on: ubuntu-latest
+            name: Jest test (${{ matrix.chunk }})
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+            strategy:
+                # If one test fails, still run the others
+                fail-fast: false
+                matrix:
+                    chunk: [1, 2, 3]
 
-            - name: Set up Node.js
-              uses: buildjet/setup-node@v3
-              with:
-                  node-version: 18
-                  cache: pnpm
+            steps:
+                - uses: actions/checkout@v3
+                  if: steps.filter.outputs.frontend == 'true'
 
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+                - name: Install pnpm
+                  if: steps.filter.outputs.frontend == 'true'
+                  uses: pnpm/action-setup@v2
+                  with:
+                      version: 8.x.x
 
-            - name: Test with Jest
-              # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
-              env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                - name: Set up Node.js
+                  if: steps.filter.outputs.frontend == 'true'
+                  uses: buildjet/setup-node@v3
+                  with:
+                      node-version: 18
+                      cache: pnpm
+
+                - name: Install package.json dependencies with pnpm
+                  if: steps.filter.outputs.frontend == 'true'
+                  run: pnpm install --frozen-lockfile
+
+                - name: Test with Jest
+                  # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
+                  run: pnpm test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
+                  if: steps.filter.outputs.frontend == 'true'
+                  env:
+                      NODE_OPTIONS: --max-old-space-size=6144
