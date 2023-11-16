@@ -1,5 +1,5 @@
 import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -61,7 +61,6 @@ async function loadPaginatedResults(
 
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
-    connect(frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
