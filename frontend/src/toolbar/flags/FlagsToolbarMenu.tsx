@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
 import { HTMLAttributes } from 'react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'

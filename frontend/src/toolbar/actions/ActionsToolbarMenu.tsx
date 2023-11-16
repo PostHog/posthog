@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'

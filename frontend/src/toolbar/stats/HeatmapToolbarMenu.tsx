@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'

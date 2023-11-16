@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { MenuState, toolbarButtonLogic } from '../button/toolbarButtonLogic'
+import { MenuState, toolbarButtonLogic } from './toolbarButtonLogic'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import './Toolbar3000Button.scss'
-import { useLongPress } from 'lib/hooks/useLongPress'
 import { FunctionComponent } from 'react'
 import React from 'react'
 
@@ -21,13 +20,19 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
     HTMLDivElement,
     Toolbar3000ButtonProps
 >(({ icon, title, onClick, titleMinimized, menuId, ...props }, ref): JSX.Element => {
-    const { visibleMenu, minimizedWidth } = useValues(toolbarButtonLogic)
+    const { visibleMenu, minimizedWidth, isDragging } = useValues(toolbarButtonLogic)
     const { setVisibleMenu } = useActions(toolbarButtonLogic)
 
     const active = visibleMenu === menuId
     const theTitle = title ?? (menuId ? capitalizeFirstLetter(menuId) : undefined)
 
-    const _onClick = (): void => {
+    const _onClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>): void => {
+        if (isDragging) {
+            return
+        }
+
+        e.preventDefault()
+
         // TODO: Control the detection of dragging here so that we can appropriately
         // choose whether to fire the event. Also prevent default so we can turn on the "onClickOutside" of the more button
         onClick?.()
@@ -42,28 +47,12 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
             aria-label={theTitle}
             ref={ref}
         >
-            <button
-                className="Toolbar3000Button__button"
-                {...props}
-                {...useLongPress(
-                    (clicked) => {
-                        if (clicked) {
-                            _onClick()
-                        }
-                    },
-                    {
-                        ms: undefined,
-                        clickMs: 1 as any,
-                        touch: true,
-                        click: true,
-                    }
-                )}
-            >
+            <button className="Toolbar3000Button__button" {...props} onClick={_onClick}>
                 {icon}
             </button>
         </div>
     )
-    return ((minimizedWidth && titleMinimized) || theTitle) && !active ? (
+    return ((minimizedWidth && titleMinimized) || theTitle) && !active && !isDragging ? (
         <Tooltip title={minimizedWidth ? titleMinimized : theTitle}>{theButton}</Tooltip>
     ) : (
         theButton

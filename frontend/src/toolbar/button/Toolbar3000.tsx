@@ -10,12 +10,11 @@ import {
 } from '@posthog/icons'
 import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { getToolbarContainer } from '~/toolbar/utils'
+import { getShadowRoot, getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { HELP_URL } from '../button/ToolbarButton'
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import clsx from 'clsx'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
@@ -24,6 +23,8 @@ import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { Toolbar3000Button } from './Toolbar3000Button'
 
 import './Toolbar3000.scss'
+
+const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function MoreMenu(): JSX.Element {
     const { visibleMenu, hedgehogMode, theme } = useValues(toolbarButtonLogic)
@@ -127,10 +128,15 @@ function ToolbarInfoMenu(): JSX.Element {
 }
 
 export function Toolbar3000(): JSX.Element {
-    const { minimizedWidth } = useValues(toolbarButtonLogic)
-    const { setVisibleMenu, toggleWidth } = useActions(toolbarButtonLogic)
-
+    const ref = useRef<HTMLDivElement | null>(null)
+    const { minimizedWidth, dragPosition } = useValues(toolbarButtonLogic)
+    const { setVisibleMenu, toggleWidth, onMouseDown, setElement } = useActions(toolbarButtonLogic)
     const { isAuthenticated } = useValues(toolbarLogic)
+
+    useEffect(() => {
+        setElement(ref.current)
+        return () => setElement(null)
+    }, [ref.current])
 
     useKeyboardHotkeys(
         {
@@ -143,10 +149,17 @@ export function Toolbar3000(): JSX.Element {
         <>
             <ToolbarInfoMenu />
             <div
+                ref={ref}
                 className={clsx(
-                    'Toolbar3000 Toolbar3000Bar h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
+                    'Toolbar3000 Toolbar3000Bar fixed h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
                     minimizedWidth && 'Toolbar3000--minimized-width'
                 )}
+                onMouseDown={onMouseDown}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    top: dragPosition.y,
+                    left: dragPosition.x,
+                }}
             >
                 <Toolbar3000Button
                     icon={<IconLogomark />}

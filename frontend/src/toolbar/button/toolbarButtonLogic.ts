@@ -8,8 +8,7 @@ import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
 
-const DEFAULT_PADDING = { width: 35, height: 30 }
-const DEFAULT_PADDING_3000 = { width: 35, height: 3000 }
+const DEFAULT_PADDING = { width: 16, height: 16 }
 
 export type MenuState = 'none' | 'more' | 'heatmap' | 'actions' | 'flags' | 'inspect'
 
@@ -30,19 +29,28 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         toggleWidth: true,
         setMenuPlacement: (placement: 'top' | 'bottom') => ({ placement }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
-        saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
-        setBoundingRect: (boundingRect: DOMRect) => ({ boundingRect }),
+        setHedgehogPosition: (actor: HedgehogActor) => ({ actor }),
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
+        onMouseDown: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => ({ event }),
+        setDragging: (dragging = true) => ({ dragging }),
+        setElement: (element: HTMLElement | null) => ({ element }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
         windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     })),
     reducers(() => ({
+        element: [
+            null as HTMLElement | null,
+            {
+                setElement: (_, { element }) => element,
+            },
+        ],
+
         visibleMenu: [
             'none' as MenuState,
             {
@@ -68,6 +76,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             { persist: true },
             {
                 toggleTheme: (state) => (state === 'light' ? 'dark' : 'light'),
+            },
+        ],
+        isDragging: [
+            false,
+            {
+                setDragging: (_, { dragging }) => dragging,
             },
         ],
         lastDragPosition: [
@@ -96,17 +110,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         padding: [
             DEFAULT_PADDING,
             {
-                setBoundingRect: (state, { boundingRect }) => {
-                    if (state.height === boundingRect.height && state.width === boundingRect.width) {
-                        return state
-                    }
-                    return { width: boundingRect.width + 5, height: boundingRect.height + 5 }
-                },
-                setHedgehogMode: (state, { hedgehogMode }) => {
-                    if (state === DEFAULT_PADDING && hedgehogMode) {
-                        return DEFAULT_PADDING_3000
+                setHedgehogMode: (_, { hedgehogMode }) => {
+                    if (DEFAULT_PADDING && hedgehogMode) {
+                        return DEFAULT_PADDING
                     } else {
-                        return state
+                        return DEFAULT_PADDING
                     }
                 },
             },
@@ -114,21 +122,19 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     })),
     selectors({
         dragPosition: [
-            (s) => [s.padding, s.lastDragPosition, s.windowWidth, s.windowHeight],
-            (padding, lastDragPosition, windowWidth, windowHeight) => {
+            (s) => [s.element, s.padding, s.lastDragPosition, s.windowWidth, s.windowHeight],
+            (element, padding, lastDragPosition, windowWidth, windowHeight) => {
+                if (!element || !lastDragPosition) {
+                    return { x: 0, y: 0 }
+                }
                 const widthPadding = padding.width
                 const heightPadding = padding.height
-
-                const { x, y } = lastDragPosition || {
-                    x: -widthPadding,
-                    y: 60,
-                }
-                const dragX = x < 0 ? windowWidth + x : x
-                const dragY = y < 0 ? windowHeight + y : y
+                const elWidth = element.offsetWidth + 2 // account for border
+                const elHeight = element.offsetHeight + 2 // account for border
 
                 return {
-                    x: inBounds(DEFAULT_PADDING.width, dragX, windowWidth - widthPadding),
-                    y: inBounds(DEFAULT_PADDING.height, dragY, windowHeight - heightPadding),
+                    x: inBounds(DEFAULT_PADDING.width, lastDragPosition.x, windowWidth - elWidth - widthPadding),
+                    y: inBounds(DEFAULT_PADDING.height, lastDragPosition.y, windowHeight - elHeight - heightPadding),
                 }
             },
         ],
@@ -153,12 +159,52 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 actionsTabLogic.actions.selectAction(null)
             }
         },
-        saveDragPosition: ({ x, y }) => {
-            const { windowWidth, windowHeight } = values
-            actions.setDragPosition(
-                x > windowWidth / 2 ? -(windowWidth - x) : x,
-                y > windowHeight / 2 ? -(windowHeight - y) : y
-            )
+
+        onMouseDown: ({ event }) => {
+            if (!values.element || event.button !== 0) {
+                return
+            }
+
+            const originContainerBounds = values.element.getBoundingClientRect()
+
+            // removeAllListeners(cache)
+            const offsetX = event.pageX - originContainerBounds.left
+            const offsetY = event.pageY - originContainerBounds.top
+            let movedCount = 0
+            const moveThreshold = 5
+
+            const onMouseMove = (e: MouseEvent): void => {
+                movedCount += 1
+
+                if (movedCount > moveThreshold) {
+                    actions.setDragging(true)
+                    // Set drag position offset by where we clicked and where the element is
+                    actions.setDragPosition(e.pageX - offsetX, e.pageY - offsetY)
+                }
+            }
+
+            const onMouseUp = (e: MouseEvent): void => {
+                if (e.button === 0) {
+                    actions.setDragging(false)
+                    document.removeEventListener('mousemove', onMouseMove)
+                    document.removeEventListener('mouseup', onMouseUp)
+                }
+            }
+            document.addEventListener('mousemove', onMouseMove)
+            document.addEventListener('mouseup', onMouseUp)
+        },
+
+        setDragging: ({ dragging }) => {
+            if (values.hedgehogActor) {
+                values.hedgehogActor.isDragging = dragging
+                values.hedgehogActor.update()
+            }
+        },
+
+        setHedgehogPosition: ({ actor }) => {
+            const pageX = actor.x
+            const pageY = values.windowHeight - actor.y
+            actions.setDragPosition(pageX, pageY)
         },
     })),
     subscriptions({

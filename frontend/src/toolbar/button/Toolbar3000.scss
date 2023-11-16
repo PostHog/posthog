@@ -1,3 +1,51 @@
+@import '../../styles/vars';
+
+#button-toolbar {
+    // default to light theme
+    @include light-mode-3000-variables;
+    @include posthog-3000-variables;
+
+    user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+
+    * > {
+        ::-webkit-scrollbar {
+            width: 0.5rem;
+            height: 0.5rem;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--accent-3000);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 0.25rem;
+            background: var(--trace-3000);
+
+            &:hover {
+                background: var(--muted-3000);
+            }
+        }
+    }
+
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    & + .HedgehogBuddy {
+        z-index: 2147483020;
+    }
+}
+
+#button-toolbar[theme='dark'] {
+    @include dark-mode-3000-variables;
+
+    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+    --mark: var(--secondary-3000-hover-dark);
+}
+
 .Toolbar3000 {
     background-color: var(--bg-3000);
     color: var(--text-3000);
