@@ -67,7 +67,10 @@ def translate_whitespace_recursive(value):
             return b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
 
         case [*sequence]:
-            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
+            # mypy could be bugged as it's raising a Statement unreachable error.
+            # But we are definitely reaching this statement in tests; hence the ignore comment.
+            # Maybe: https://github.com/python/mypy/issues/16272.
+            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
 
         case set(elements):
             return set(translate_whitespace_recursive(element) for element in elements)
