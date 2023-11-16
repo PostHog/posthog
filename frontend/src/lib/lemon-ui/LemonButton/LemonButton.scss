@@ -81,6 +81,10 @@
         gap: 0.25rem;
         font-size: 0.75rem;
 
+        > span {
+            gap: 0.25rem;
+        }
+
         .LemonButton__icon {
             font-size: 0.875rem;
         }
@@ -89,6 +93,10 @@
     &.LemonButton--small,
     .Breadcrumbs3000 & {
         gap: 0.25rem;
+
+        > span {
+            gap: 0.25rem;
+        }
 
         .LemonButton__icon {
             font-size: 1.25rem;
