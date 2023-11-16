@@ -1272,6 +1272,7 @@ export interface BillingV2PlanType {
     current_plan?: any
     tiers?: BillingV2TierType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
+    initial_billing_limit?: number
 }
 
 export interface PlanInterface {
