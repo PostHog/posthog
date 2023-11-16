@@ -74,6 +74,7 @@ export function InsightVizDisplay({
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
+        vizSpecificOptions,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -131,7 +132,12 @@ export function InsightVizDisplay({
             case InsightType.FUNNELS:
                 return <Funnel />
             case InsightType.RETENTION:
-                return <RetentionContainer />
+                return (
+                    <RetentionContainer
+                        context={context}
+                        vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
+                    />
+                )
             case InsightType.PATHS:
                 return <Paths />
             default:
