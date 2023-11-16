@@ -7,7 +7,6 @@ AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
 
 logger = structlog.get_logger(__name__)
 
-
 class ExternalDataConnection(BaseModel):
     connection_id: str
     source_id: str
