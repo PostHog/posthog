@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React, { useContext } from 'react'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -9,7 +9,6 @@ import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { PopoverReferenceContext } from '../Popover'
-import { IconChevronDown } from '@posthog/icons'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -118,10 +117,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (popoverPlacement) {
                 if (!children) {
                     if (icon === undefined) {
-                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
+                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
                     }
                 } else if (sideIcon === undefined) {
-                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
+                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
                 }
             }
             if (loading) {
