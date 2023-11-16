@@ -53,6 +53,7 @@ class OrganizationUsageResource(TypedDict):
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    rows_synced: Optional[OrganizationUsageResource]
     period: Optional[List[str]]
 
 
