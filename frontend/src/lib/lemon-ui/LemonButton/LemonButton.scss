@@ -59,12 +59,12 @@
 
     &.LemonButton--centered {
         > span {
-            justify-content: center;
+            justify-content: center !important;
         }
 
         .LemonButton__content {
-            flex: initial;
-            text-align: center;
+            flex: initial !important;
+            text-align: center !important;
         }
     }
 
