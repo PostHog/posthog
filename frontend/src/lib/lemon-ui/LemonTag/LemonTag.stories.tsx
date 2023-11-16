@@ -11,11 +11,13 @@ export default meta
 
 const ALL_COLORS: LemonTagType[] = [
     'primary',
+    'option',
     'highlight',
     'warning',
     'danger',
     'success',
     'default',
+    'muted',
     'completion',
     'caution',
     'none',

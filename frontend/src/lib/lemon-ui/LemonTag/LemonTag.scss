@@ -10,9 +10,18 @@
     line-height: 1rem;
     white-space: nowrap;
 
+    &.LemonTag--normal {
+        font-weight: normal;
+    }
+
     &.LemonTag--primary {
         background-color: var(--primary);
         color: #fff;
+    }
+
+    &.LemonTag--option {
+        background-color: var(--accent-3000);
+        color: var(--primary);
     }
 
     &.LemonTag--highlight {
@@ -43,6 +52,11 @@
     &.LemonTag--caution {
         background-color: var(--danger-lighter);
         color: var(--bg-charcoal);
+    }
+
+    &.LemonTag--muted {
+        background-color: var(--accent-3000);
+        color: var(--muted);
     }
 
     &.LemonTag--none {
