@@ -2,8 +2,6 @@
     position: relative;
     flex-shrink: 0;
     width: fit-content;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
 
     > ul {
         z-index: 1; // Place above slider
