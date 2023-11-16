@@ -3,7 +3,6 @@ import contextlib
 import datetime as dt
 import itertools
 import json
-import os
 import typing
 from dataclasses import dataclass
 
@@ -39,23 +38,16 @@ async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConne
 
     This just yields a Postgres connection but we adjust a couple of things required for
     psycopg to work with Redshift:
-    1. Set PGCLIENTENCODING to utf-8 as Redshift reports back UNICODE.
+    1. Set UNICODE encoding to utf-8 as Redshift reports back UNICODE.
     2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
         which is not supported on Redshift.
     """
-    old_value = os.environ.get("PGCLIENTENCODING", None)
-    os.environ["PGCLIENTENCODING"] = "utf-8"
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-    try:
-        async with postgres_connection(inputs) as connection:
-            connection.prepare_threshold = None
-            yield connection
-
-    finally:
-        if old_value is None:
-            del os.environ["PGCLIENTENCODING"]
-        else:
-            os.environ["PGCLIENTENCODING"] = old_value
+    async with postgres_connection(inputs) as connection:
+        connection.prepare_threshold = None
+        yield connection
 
 
 async def insert_records_to_redshift(

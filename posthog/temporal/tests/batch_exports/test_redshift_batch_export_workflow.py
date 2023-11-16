@@ -124,15 +124,10 @@ def redshift_config():
 @pytest.fixture
 def postgres_config(redshift_config):
     """We shadow this name so that setup_postgres_test_db works with Redshift."""
-    old_value = os.environ.get("PGCLIENTENCODING", None)
-    os.environ["PGCLIENTENCODING"] = "utf-8"
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
     yield redshift_config
-
-    if old_value is None:
-        del os.environ["PGCLIENTENCODING"]
-    else:
-        os.environ["PGCLIENTENCODING"] = old_value
 
 
 @pytest_asyncio.fixture
