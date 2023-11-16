@@ -1,8 +1,12 @@
+import * as fflate from 'fflate'
+
 describe('Billing', () => {
     beforeEach(() => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
 
         cy.visit('/organization/billing')
+
+        cy.intercept('POST', '**/e/*').as('capture')
     })
 
     it('Show and submit unsubscribe survey', () => {
@@ -19,6 +23,15 @@ describe('Billing', () => {
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
+        cy.wait('@capture').then(({ request }) => {
+            const data = new Uint8Array(request.body)
+            const decoded = fflate.strFromU8(fflate.decompressSync(data))
+            const decodedJSON = JSON.parse(decoded)
+
+            // These should be a 'survey sent' event somewhere in the decodedJSON
+            const matchingEvent = decodedJSON.filter((event) => event.event === 'survey sent')
+            expect(matchingEvent).to.not.be.empty
+        })
         cy.get('.LemonModal').should('not.exist')
         cy.wait(['@unsubscribeProductAnalytics'])
     })
