@@ -66,13 +66,13 @@ def translate_whitespace_recursive(value):
         case bytes(b):
             return b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
 
+        case [*sequence] | set(sequence):
+            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
+
         case {**mapping}:
             return {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
 
-        case [*sequence]:
-            return type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
-
-        case _:
+        case value:
             return value
 
 

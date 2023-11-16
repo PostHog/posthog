@@ -356,3 +356,20 @@ async def test_redshift_export_workflow(
         events=events,
         exclude_events=exclude_events,
     )
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ([1, 2, 3], [1, 2, 3]),
+        ("\n\n", ""),
+        ([["\t\n"]], [[""]]),
+        (("\t\n",), ("",)),
+        ({"\t\n"}, {""}),
+        ({"key": "\t\n"}, {"key": ""}),
+        ({"key": ["\t\n"]}, {"key": [""]}),
+    ],
+)
+def test_translate_whitespace_recursive(value, expected):
+    """Test we translate some whitespace values."""
+    assert translate_whitespace_recursive(value) == expected
