@@ -61,10 +61,8 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_id']) = '"1234"'
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_id}') = '"1234"'::jsonb
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -116,8 +114,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -169,8 +166,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -222,8 +218,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
