@@ -35,7 +35,7 @@ from posthog.temporal.workflows.postgres_batch_export import (
 async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
     redshift_connection: psycopg.AsyncConnection,
-    schema: str,
+    schema: str | None,
     table: str,
     batch_size: int = 100,
 ):
@@ -61,8 +61,13 @@ async def insert_records_to_redshift(
     first_record = next(records)
     columns = first_record.keys()
 
+    if schema:
+        table_identifier = sql.Identifier(schema, table)
+    else:
+        table_identifier = sql.Identifier(table)
+
     pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
-        table=sql.Identifier(schema, table),
+        table=table_identifier,
         fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
     )
     template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
