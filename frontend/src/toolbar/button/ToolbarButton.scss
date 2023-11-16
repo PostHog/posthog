@@ -52,7 +52,25 @@
     transition-property: filter, width;
     transition-duration: 0.3s;
     transition-timing-function: ease;
-    filter: drop-shadow(1px 2px 2px var(--trace-3000));
+    filter: drop-shadow(2px 10px 10px var(--trace-3000));
+    border: 1px solid var(--border-bold-3000);
+    border-radius: var(--radius);
+
+    &.Toolbar3000--bar {
+        > :first-child {
+            border-right: 1px solid var(--border-bold-3000);
+        }
+        > :last-child {
+            border-left: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &.Toolbar3000--menu {
+        transition: height 0.5s ease;
+        bottom: 115%;
+        width: 100%;
+        max-height: 45vh;
+    }
 
     .ToolbarMenu__button--square-right {
         border-bottom-right-radius: 0;
@@ -75,13 +93,6 @@
         .form-error {
             color: var(--danger);
         }
-    }
-
-    &.Toolbar3000__menu {
-        transition: height 0.5s ease;
-        bottom: 115%;
-        width: 100%;
-        max-height: 45vh;
     }
 
     .FeatureFlagRow {
