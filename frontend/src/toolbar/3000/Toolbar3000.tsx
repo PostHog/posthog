@@ -1,4 +1,3 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconX,
     IconLogomark,
@@ -14,9 +13,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { HELP_URL } from '../button/ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
@@ -25,8 +21,9 @@ import clsx from 'clsx'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
-import { useLongPress } from 'lib/hooks/useLongPress'
 import { Toolbar3000Button } from './Toolbar3000Button'
+
+import './Toolbar3000.scss'
 
 function MoreMenu(): JSX.Element {
     const { visibleMenu, hedgehogMode, theme } = useValues(toolbarButtonLogic)
@@ -48,6 +45,11 @@ function MoreMenu(): JSX.Element {
             placement={'top-start'}
             fallbackPlacements={['bottom-start']}
             getPopupContainer={getToolbarContainer}
+            // onClickOutside={() => {
+            //     if (visibleMenu === 'more') {
+            //         setVisibleMenu('none')
+            //     }
+            // }}
             items={[
                 {
                     icon: <>🦔</>,
@@ -83,9 +85,8 @@ function ToolbarInfoMenu(): JSX.Element {
     const menuRef = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, windowHeight, dragPosition, menuPlacement } = useValues(toolbarButtonLogic)
     const { setMenuPlacement } = useActions(toolbarButtonLogic)
-    const { heatmapEnabled } = useValues(heatmapLogic)
-    const { inspectEnabled } = useValues(elementsLogic)
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
+
+    const fullIsShowing = visibleMenu === 'heatmap' || visibleMenu === 'actions' || visibleMenu === 'flags'
 
     useLayoutEffect(() => {
         if (!menuRef.current) {
@@ -98,8 +99,6 @@ function ToolbarInfoMenu(): JSX.Element {
             setMenuPlacement('top')
         }
 
-        const fullIsShowing = visibleMenu === 'heatmap' || visibleMenu === 'actions' || visibleMenu === 'flags'
-
         if (fullIsShowing) {
             let heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
             if (menuPlacement === 'bottom') {
@@ -111,13 +110,14 @@ function ToolbarInfoMenu(): JSX.Element {
         } else {
             menuRef.current.style.height = '0px'
         }
-    }, [dragPosition, menuRef, visibleMenu, inspectEnabled, heatmapEnabled, buttonActionsVisible])
+    }, [dragPosition, menuRef, fullIsShowing])
 
     return (
         <div
             ref={menuRef}
             className={clsx(
-                'Toolbar3000 Toolbar3000--menu absolute rounded-lg flex flex-col',
+                'Toolbar3000 Toolbar3000Menu absolute rounded-lg flex flex-col',
+                fullIsShowing && 'Toolbar3000Menu--visible',
                 menuPlacement === 'top' ? 'bottom' : 'top-12'
             )}
         >
@@ -150,7 +150,7 @@ export function Toolbar3000(): JSX.Element {
             <ToolbarInfoMenu />
             <div
                 className={clsx(
-                    'Toolbar3000 Toolbar3000--bar h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
+                    'Toolbar3000 Toolbar3000Bar h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
                     minimizedWidth && 'Toolbar3000--minimized-width'
                 )}
             >
