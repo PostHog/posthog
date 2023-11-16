@@ -1,6 +1,9 @@
 import csv
 import json
 
+from django.db import DatabaseError
+import structlog
+
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
@@ -87,6 +90,8 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
     "An estimate of how many bytes we've read from postgres to service person cohort endpoint.",
     labelnames=[LABEL_TEAM_ID],
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -554,6 +559,8 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int):
     # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
     try:
+        # get the feature flag, but we don't need the created_by field, so don't eagerly join to users
+        #:TODO: Try ONLY instead? for some reason not deferring
         feature_flag = FeatureFlag.objects.get(team_id=team_id, key=flag)
     except FeatureFlag.DoesNotExist:
         return []
@@ -565,12 +572,17 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int):
     cohort = Cohort.objects.get(pk=cohort_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
+    cohorts_cache = {}
 
-    # TODO: Make sure we don't go to db for flag evaluation.
-    # We can do this because we're already fetching all properties for the person.
-    # For props that don't exist, let's just add default empty values.
-    # .... except for 'is not set' operator? which çan bork this.
-    # so judge based on operator as well.
+    if feature_flag.uses_cohorts:
+        cohorts_cache = {cohort.pk: cohort for cohort in Cohort.objects.filter(team_id=team_id, deleted=False)}
+
+    default_person_properties = {}
+    for condition in feature_flag.conditions:
+        property_list = Filter(data=condition).property_groups.flat
+        for property in property_list:
+            if property.operator not in ("is_set", "is_not_set") and property.type == "person":
+                default_person_properties[property.key] = ""
 
     # add tests for deleted, active, experience continuity, and group flags flags.
     # then for variable rollout % and variable distinct id selection :grimacing:
@@ -586,17 +598,28 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int):
             if feature_flag.ensure_experience_continuity:
                 person_overrides = get_feature_flag_hash_key_overrides(team_id, [distinct_id])
 
-            match = FeatureFlagMatcher(
-                [feature_flag],
-                distinct_id,
-                groups={},
-                cache=matcher_cache,
-                hash_key_overrides=person_overrides,
-                property_value_overrides=person.properties,
-                group_property_value_overrides={},
-            ).get_match(feature_flag)
-            if match.match:
-                uuids_to_add_to_cohort.append(str(person.uuid))
+            try:
+                match = FeatureFlagMatcher(
+                    [feature_flag],
+                    distinct_id,
+                    groups={},
+                    cache=matcher_cache,
+                    hash_key_overrides=person_overrides,
+                    property_value_overrides={**default_person_properties, **person.properties},
+                    group_property_value_overrides={},
+                    cohorts_cache=cohorts_cache,
+                ).get_match(feature_flag)
+                if match.match:
+                    uuids_to_add_to_cohort.append(str(person.uuid))
+            except (DatabaseError, ValueError, ValidationError):
+                logger.exception(
+                    "Error evaluating feature flag for person", person_uuid=str(person.uuid), team_id=team_id
+                )
+            except Exception as err:
+                # matching errors are not fatal, so we just log them and move on.
+                # Capturing in sentry for now just in case there are some unexpected errors
+                # we did not account for.
+                capture_exception(err)
 
             if len(uuids_to_add_to_cohort) >= 999:
                 cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True)

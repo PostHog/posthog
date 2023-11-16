@@ -138,6 +138,7 @@ class FeatureFlagMatcher:
         property_value_overrides: Dict[str, Union[str, int]] = {},
         group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
         skip_database_flags: bool = False,
+        cohorts_cache: Optional[Dict[int, Cohort]] = None,
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -147,7 +148,11 @@ class FeatureFlagMatcher:
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
         self.skip_database_flags = skip_database_flags
-        self.cohorts_cache: Dict[int, Cohort] = {}
+
+        if cohorts_cache is None:
+            self.cohorts_cache = {}
+        else:
+            self.cohorts_cache = cohorts_cache
 
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -481,7 +486,8 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
-                if any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                # only fetch all cohorts if not passed in any cached cohorts
+                if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
                     all_cohorts = {
                         cohort.pk: cohort
                         for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
