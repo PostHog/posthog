@@ -23,7 +23,6 @@
             padding: var(--notebook-node-meta-padding);
             border-bottom: 1px solid var(--border);
             height: var(--notebook-node-meta-height);
-            transition: height 150ms ease-out;
             overflow: hidden;
         }
 
@@ -64,20 +63,22 @@
         --border-color: transparent;
 
         .NotebookNode__meta {
-            height: 0;
-            padding: 0 var(--notebook-node-meta-padding);
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
             pointer-events: none;
             visibility: hidden;
+            z-index: var(--z-popover);
+            background-color: var(--bg-light);
         }
 
         .Notebook--editable & {
             &:hover,
             &.NotebookNode--selected {
                 border-color: var(--border-color);
-                .NotebookNode__meta {
-                    height: var(--notebook-node-meta-height);
-                    padding: var(--notebook-node-meta-padding);
 
+                .NotebookNode__meta {
                     pointer-events: all;
                     visibility: visible;
                 }
@@ -108,6 +109,7 @@
     &--editable {
         border-radius: var(--radius);
         transition: background-color 150ms linear;
+
         &:hover {
             background-color: var(--border);
         }

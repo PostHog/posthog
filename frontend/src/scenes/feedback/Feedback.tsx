@@ -1,10 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-
 import { feedbackLogic } from './feedbackLogic'
-
-import './Feedback.scss'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { InAppFeedback, InAppFeedbackHeaderButtons } from './InAppFeedback'
 import { UserInterviewScheduler, UserInterviewSchedulerHeaderButtons } from './UserInterviewScheduler'

@@ -33,6 +33,7 @@ from . import (
     prompt,
     property_definition,
     query,
+    search,
     sharing,
     survey,
     tagged_item,
@@ -330,3 +331,5 @@ projects_router.register(
     "project_notebooks",
     ["team_id"],
 )
+
+projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])

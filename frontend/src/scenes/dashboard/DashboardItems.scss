@@ -13,13 +13,11 @@
         transition: border-color 100ms ease;
     }
 }
-.react-grid-item {
-    transition: all 100ms ease;
-    transition-property: left, top;
-}
+
 .react-grid-item.cssTransforms {
     transition-property: transform;
 }
+
 .react-grid-item.resizing {
     z-index: 1;
     will-change: width, height;
@@ -49,10 +47,15 @@
     z-index: 2;
     user-select: none;
 }
+
 .react-resizable-hide > .react-resizable-handle {
     display: none;
 }
+
 .react-grid-item {
+    transition: all 100ms ease;
+    transition-property: left, top;
+
     & > .react-resizable-handle {
         position: absolute;
         width: 2rem;
@@ -62,15 +65,18 @@
         cursor: se-resize;
         z-index: 10;
     }
+
     & > .react-resizable-handle.react-resizable-handle-se {
         cursor: se-resize;
     }
+
     & > .react-resizable-handle.react-resizable-handle-e {
         top: 0;
         bottom: 2rem;
         height: auto;
         cursor: ew-resize;
     }
+
     & > .react-resizable-handle.react-resizable-handle-s {
         left: 0;
         right: 2rem;

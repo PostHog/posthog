@@ -20,6 +20,7 @@
     text-transform: uppercase;
     white-space: nowrap;
     cursor: default;
+
     &:not(:first-child) {
         margin-left: 0.25rem;
     }
@@ -35,6 +36,7 @@
         > * {
             vertical-align: middle;
         }
+
         > svg {
             margin-left: 0.25rem;
             font-size: 1rem;

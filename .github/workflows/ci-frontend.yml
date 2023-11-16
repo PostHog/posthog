@@ -50,13 +50,23 @@ jobs:
               run: pnpm prettier:check
 
             - name: Lint with ESLint
-              run: pnpm eslint
+              run: pnpm lint:js
+
+            - name: Lint with Stylelint
+              run: pnpm lint:css
 
             - name: Generate logic types and run typescript with strict
               run: pnpm typegen:write && pnpm typescript:check
 
             - name: Check if "schema.json" is up to date
               run: pnpm schema:build:json && git diff --exit-code
+
+            - name: Check toolbar bundle size
+              uses: preactjs/compressed-size-action@v2
+              with:
+                  build-script: 'build'
+                  compression: 'none'
+                  pattern: 'frontend/dist/toolbar.js'
 
     jest:
         runs-on: ubuntu-latest

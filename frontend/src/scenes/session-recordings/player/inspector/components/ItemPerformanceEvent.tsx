@@ -317,7 +317,7 @@ export function ItemPerformanceEvent({
                     ) : (
                         <>
                             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                                <StatusRow status={item.response_status} />
+                                <StatusRow item={item} />
                             </FlaggedFeature>
                             <p>
                                 Request started at{' '}
@@ -349,7 +349,7 @@ export function ItemPerformanceEvent({
                                     tabs={[
                                         {
                                             key: 'timings',
-                                            label: 'timings',
+                                            label: 'Timings',
                                             content: (
                                                 <>
                                                     <SimpleKeyValueList item={sanitizedProps} />
@@ -466,29 +466,44 @@ function HeadersDisplay({
     )
 }
 
-function StatusRow({ status }: { status: number | undefined }): JSX.Element | null {
-    if (status === undefined) {
-        return null
+function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    let statusRow = null
+    let methodRow = null
+
+    if (item.response_status) {
+        const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
+
+        let statusType: LemonTagType = 'success'
+        if (item.response_status >= 400 || item.response_status < 100) {
+            statusType = 'warning'
+        } else if (item.response_status >= 500) {
+            statusType = 'danger'
+        }
+
+        statusRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Status code</div>
+                <LemonTag type={statusType}>{statusDescription}</LemonTag>
+            </div>
+        )
     }
 
-    const statusDescription = `${status} ${friendlyHttpStatus[status] || ''}`
-
-    let statusType: LemonTagType = 'success'
-    if (status >= 400 || status < 100) {
-        statusType = 'warning'
-    } else if (status >= 500) {
-        statusType = 'danger'
+    if (item.method) {
+        methodRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Request method</div>
+                <div className={'uppercase font-semibold'}>{item.method}</div>
+            </div>
+        )
     }
 
-    return (
+    return methodRow || statusRow ? (
         <p>
             <div className="text-xs space-y-1 max-w-full">
-                <div className="flex gap-4 items-start justify-between overflow-hidden">
-                    <span className="font-semibold">Status code</span>
-                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                </div>
+                {methodRow}
+                {statusRow}
             </div>
             <LemonDivider dashed />
         </p>
-    )
+    ) : null
 }

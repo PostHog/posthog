@@ -602,6 +602,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                           textPlaceholder="ex: We really appreciate it."
                                                                       />
                                                                   </PureField>
+                                                                  <PureField label="Auto disappear">
+                                                                      <LemonCheckbox
+                                                                          checked={!!survey.appearance.autoDisappear}
+                                                                          onChange={(checked) =>
+                                                                              setSurveyValue('appearance', {
+                                                                                  ...survey.appearance,
+                                                                                  autoDisappear: checked,
+                                                                              })
+                                                                          }
+                                                                      />
+                                                                  </PureField>
                                                               </>
                                                           ),
                                                       },

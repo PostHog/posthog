@@ -10,7 +10,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import clsx from 'clsx'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -72,15 +71,9 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
 
     return data ? (
         data[0] && data[0].labels ? (
-            <div
-                className={clsx(
-                    'ActionsPie w-full',
-                    inCardView && 'flex flex-row h-full items-center',
-                    trendsFilter?.show_legend && 'pr-4'
-                )}
-            >
-                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
-                    <div className="pie-chart">
+            <div className="ActionsPie">
+                <div className="ActionsPie__component">
+                    <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
                             hiddenLegendKeys={hiddenLegendKeys}

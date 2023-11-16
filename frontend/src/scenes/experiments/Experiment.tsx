@@ -1,4 +1,4 @@
-import { Popconfirm, Progress, Tooltip } from 'antd'
+import { Popconfirm, Progress } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -27,6 +27,7 @@ import {
     LemonTag,
     LemonTagType,
     LemonTextArea,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -854,10 +855,10 @@ export function ResultsTag(): JSX.Element {
 export function LoadingState(): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3" />
+            <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
 }

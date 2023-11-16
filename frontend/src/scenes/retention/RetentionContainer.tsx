@@ -1,6 +1,5 @@
 import { RetentionLineGraph } from './RetentionLineGraph'
 import { RetentionTable } from './RetentionTable'
-import './RetentionContainer.scss'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { RetentionModal } from './RetentionModal'
 
@@ -12,14 +11,16 @@ export function RetentionContainer({
     inSharedMode?: boolean
 }): JSX.Element {
     return (
-        <div className="RetentionContainer space-y-4">
+        <div className="RetentionContainer">
             {inCardView ? (
                 <RetentionTable inCardView={inCardView} />
             ) : (
                 <>
-                    <RetentionLineGraph inSharedMode={inSharedMode} />
+                    <div className="RetentionContainer__graph">
+                        <RetentionLineGraph inSharedMode={inSharedMode} />
+                    </div>
                     <LemonDivider />
-                    <div className="overflow-x-auto">
+                    <div className="RetentionContainer__table overflow-x-auto">
                         <RetentionTable inCardView={inCardView} />
                     </div>
                     <RetentionModal />

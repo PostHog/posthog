@@ -19,6 +19,7 @@
     &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-light);
     }
+
     &.LemonInput--focused:not([aria-disabled='true']) {
         border-color: var(--primary);
     }
@@ -74,6 +75,7 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
+
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;

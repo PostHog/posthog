@@ -16,8 +16,7 @@
         align-items: center;
         align-self: stretch;
         padding: 0.25rem 0.5rem;
-        justify-content: space-between;
-        align-content: space-between;
+        place-content: space-between space-between;
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
 
@@ -45,6 +44,7 @@
                 font-weight: 600;
                 font-size: 11px;
                 line-height: 16px;
+
                 /* identical to box height, or 145% */
 
                 display: flex;
@@ -52,7 +52,6 @@
                 letter-spacing: 0.02em;
                 text-transform: uppercase;
                 margin: 5px;
-
                 color: var(--muted);
             }
 
@@ -60,6 +59,7 @@
                 border-radius: var(--radius) 0 0 var(--radius);
                 border-right: none;
             }
+
             .LemonCheckbox:last-child label {
                 border-radius: 0 var(--radius) var(--radius) 0;
             }
@@ -76,6 +76,7 @@
         margin: 1rem;
         border: 1px solid var(--border);
         border-radius: var(--radius);
+
         thead th {
             border-bottom: 1px solid var(--border);
         }
