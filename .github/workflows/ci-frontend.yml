@@ -50,7 +50,10 @@ jobs:
               run: pnpm prettier:check
 
             - name: Lint with ESLint
-              run: pnpm eslint
+              run: pnpm lint:js
+
+            - name: Lint with Stylelint
+              run: pnpm lint:css
 
             - name: Generate logic types and run typescript with strict
               run: pnpm typegen:write && pnpm typescript:check

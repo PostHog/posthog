@@ -1,6 +1,7 @@
 .profile-package {
     display: inline-flex;
     align-items: center;
+
     &:not(:first-child) {
         margin-left: 0.375rem;
     }
@@ -75,9 +76,11 @@
 .ProfileBubbles {
     display: flex;
     align-items: center;
+
     > * {
         outline: 0.125rem solid var(--bg-light);
     }
+
     > :not(:first-child) {
         margin-left: -0.125rem;
     }

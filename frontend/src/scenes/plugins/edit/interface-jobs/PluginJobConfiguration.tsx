@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Tooltip, Radio, InputNumber } from 'antd'
+import { Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { useValues, useActions } from 'kea'
@@ -16,6 +16,7 @@ import { DatePicker } from 'lib/components/DatePicker'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
 import { IconCheck } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'

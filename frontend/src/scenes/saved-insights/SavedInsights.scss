@@ -4,6 +4,7 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
+
         &.icon-column .LemonSkeleton {
             height: 2rem;
             width: 2rem;
@@ -67,11 +68,13 @@
 .insight-type-icon-wrapper {
     display: flex;
     align-items: center;
+
     .icon-container {
         height: 22px;
         width: 22px;
         margin-right: 8px;
         position: relative;
+
         .icon-container-inner {
             font-size: 22px;
             margin-left: -2px;
@@ -83,9 +86,11 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
+
     @include screen($xl) {
         grid-template-columns: repeat(2, 1fr);
     }
+
     @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
     }

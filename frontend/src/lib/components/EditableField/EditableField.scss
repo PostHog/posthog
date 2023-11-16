@@ -2,17 +2,21 @@
     display: flex;
     align-items: center;
     max-width: 100%;
+
     &:not(.EditableField--multiline) {
         line-height: 2rem;
     }
+
     i {
         color: var(--muted);
     }
+
     .EditableField__notice {
         font-size: 1.5rem;
         color: var(--muted);
         margin-left: 0.5rem;
     }
+
     .EditableField__highlight {
         display: flex;
         flex-direction: row;
@@ -25,6 +29,7 @@
         white-space: pre-wrap;
         overflow: auto;
     }
+
     &--editing .EditableField__highlight {
         flex-grow: 1;
         align-items: flex-end;
@@ -33,10 +38,12 @@
         outline: 1px solid var(--border);
         border-radius: var(--radius);
     }
+
     .EditableField__autosize {
         align-self: center;
         min-width: 0;
     }
+
     .EditableField__autosize__sizer {
         position: absolute;
         top: 0;
@@ -46,6 +53,7 @@
         overflow: scroll;
         white-space: pre;
     }
+
     .EditableField__actions {
         flex-shrink: 0;
         display: flex;
@@ -53,6 +61,7 @@
         gap: 0.5rem;
         margin-left: 0.5rem;
     }
+
     input,
     textarea {
         max-width: 100%;
@@ -63,6 +72,7 @@
         outline: none;
         padding: 0;
     }
+
     textarea {
         align-self: center;
         width: 100%;

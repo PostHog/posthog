@@ -23,9 +23,8 @@
 
 .feature-flag-property-display {
     display: flex;
-    flex-direction: row;
+    flex-flow: row wrap;
     align-items: center;
-    flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.5rem;
 

@@ -18,7 +18,7 @@
     font-weight: 500;
     cursor: pointer;
     user-select: none;
-    -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
+    appearance: none !important; // Important as this gets overridden by Ant styles...
 
     > span {
         display: flex;
@@ -35,9 +35,11 @@
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
         cursor: not-allowed;
+
         > span {
             cursor: not-allowed;
         }
+
         opacity: var(--opacity-disabled);
     }
 
@@ -59,6 +61,8 @@
         > span {
             justify-content: center !important; // important is just a specifity problem. Can be removed post 3000 cleanup
         }
+
+        justify-content: center;
 
         .LemonButton__content {
             flex: initial;
@@ -98,6 +102,7 @@
     &.LemonButton--small,
     .Breadcrumbs3000 & {
         --lemon-button-height: 2rem;
+
         padding: 0.125rem 0.5rem;
         gap: 0.25rem;
 
@@ -137,6 +142,19 @@
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                background: var(--#{$status}-highlight, var(--primary-highlight));
+            }
+
+            &:not([aria-disabled='true']):active {
+                color: var(--#{$status}-dark, var(--primary-dark));
+
+                .LemonButton__icon {
+                    color: var(--#{$status}-dark, var(--primary-dark));
+                }
+            }
+
             .LemonButton__icon {
                 color: var(--#{$status});
             }
@@ -148,11 +166,46 @@
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
-                    background: var(--primary-highlight);
-                    border-color: var(--primary-3000);
+                    color: #fff;
+                    background: var(--#{$status}-light, var(--#{$status}));
+
+                    .posthog-3000 & {
+                        background: var(--primary-highlight);
+                        border-color: var(--primary-3000);
+                    }
+
+                    .LemonButton__icon {
+                        color: #fff;
+                    }
                 }
+
                 &:not([aria-disabled='true']):active {
-                    border-color: var(--primary-3000-active);
+                    background: var(--#{$status}-dark, var(--#{$status}));
+                    color: #fff;
+
+                    .posthog-3000 & {
+                        border-color: var(--primary-3000-active);
+                    }
+
+                    .LemonButton__icon {
+                        color: #fff;
+                    }
+                }
+            }
+
+            // Secondary - outlined color style
+            &.LemonButton--secondary {
+                background: var(--bg-light);
+                border: 1px solid var(--border);
+
+                &:not([aria-disabled='true']):hover,
+                &.LemonButton--active {
+                    background: var(--#{$status}-highlight, var(--primary-highlight));
+                    border-color: var(--#{$status});
+                }
+
+                &:not([aria-disabled='true']):active {
+                    border-color: var(--#{$status}-dark, var(--status));
                 }
             }
         }
@@ -161,11 +214,13 @@
     .ant-tooltip & {
         // Buttons have an overriden style in tooltips, as they are always dark
         &:hover {
-            background: rgba(255, 255, 255, 0.15) !important;
+            background: rgb(255 255 255 / 15%) !important;
         }
+
         &:active {
-            background: rgba(255, 255, 255, 0.2) !important;
+            background: rgb(255 255 255 / 20%) !important;
         }
+
         .LemonButton__icon {
             color: #fff !important;
         }

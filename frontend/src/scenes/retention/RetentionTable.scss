@@ -8,10 +8,11 @@
         white-space: nowrap;
         font-weight: 500;
         border-left: 1px solid var(--border);
-        padding: 0rem 0.5rem;
+        padding: 0 0.5rem;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
         text-align: left;
+
         &:first-of-type {
             border-left: none;
         }
@@ -30,7 +31,7 @@
     }
 
     .RetentionTable__TextTab {
-        padding: 0rem 1rem 0rem 0.5rem;
+        padding: 0 1rem 0 0.5rem;
         white-space: nowrap;
     }
 
@@ -63,6 +64,7 @@
 
         .RetentionTable__Tab {
             cursor: initial;
+
             &:hover {
                 transform: none;
             }

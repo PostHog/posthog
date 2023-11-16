@@ -1,6 +1,5 @@
 import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FilterType, EditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -15,12 +14,13 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { FunnelsQuery } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { querySource, series } = useValues(funnelDataLogic(insightProps))
-    const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null

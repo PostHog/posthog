@@ -40,9 +40,9 @@ export function LemonSegmentedButton<T extends React.Key>({
     fullWidth,
     className,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
-    const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
+    const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLDivElement,
-        HTMLButtonElement
+        HTMLLIElement
     >(value, 200)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -56,13 +56,17 @@ export function LemonSegmentedButton<T extends React.Key>({
 
     return (
         <div
-            className={clsx('LemonSegmentedButton', fullWidth && 'LemonSegmentedButton--full-width', className)}
+            className={clsx(
+                'LemonSegmentedButton',
+                fullWidth && 'LemonSegmentedButton--full-width',
+                transitioning && 'LemonSegmentedButton--transitioning',
+                className
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     '--lemon-segmented-button-slider-width': `${sliderWidth}px`,
-                    // Subtract 1px from offset to account for border-right
-                    '--lemon-segmented-button-slider-offset': `${sliderOffset - 1}px`,
+                    '--lemon-segmented-button-slider-offset': `${sliderOffset}px`,
                 } as LemonSegmentedButtonCSSProperties
             }
             ref={containerRef}
@@ -88,9 +92,9 @@ export function LemonSegmentedButton<T extends React.Key>({
                             option.disabledReason && 'LemonSegmentedButton__option--disabled',
                             option.value === value && 'LemonSegmentedButton__option--selected'
                         )}
+                        ref={option.value === value ? selectionRef : undefined}
                     >
-                        <LemonButton /* The ref is on the button and not on the list item so that the border isn't counted */
-                            ref={option.value === value ? selectionRef : undefined}
+                        <LemonButton
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}

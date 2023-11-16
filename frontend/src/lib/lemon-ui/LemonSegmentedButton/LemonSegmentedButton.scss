@@ -3,6 +3,8 @@
     flex-shrink: 0;
     width: fit-content;
     border-radius: var(--radius);
+    border: 1px solid var(--border);
+
     > ul {
         z-index: 1; // Place above slider
         list-style: none;
@@ -32,10 +34,12 @@ body:not(.posthog-3000) {
         width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
         transform: translateX(var(--lemon-segmented-button-slider-offset));
         background: var(--primary-3000);
+
         &.LemonSegmentedButton__slider--first {
             border-top-left-radius: var(--radius);
             border-bottom-left-radius: var(--radius);
         }
+
         &.LemonSegmentedButton__slider--last {
             border-top-right-radius: var(--radius);
             border-bottom-right-radius: var(--radius);
@@ -45,6 +49,7 @@ body:not(.posthog-3000) {
     .LemonSegmentedButton__option {
         display: flex;
         flex: 1;
+
         .LemonButton {
             // Original transition with outline added
             transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
@@ -59,32 +64,39 @@ body:not(.posthog-3000) {
                 }
             }
         }
+
         &:first-child,
         &:first-child .LemonButton {
             border-top-left-radius: var(--radius);
             border-bottom-left-radius: var(--radius);
         }
+
         &:last-child,
         &:last-child .LemonButton {
             border-top-right-radius: var(--radius);
             border-bottom-right-radius: var(--radius);
         }
+
         &:not(:last-child) {
             border-right: 1px solid var(--border);
         }
-        &:not(.LemonSegmentedButton__option--disabled):not(.LemonSegmentedButton__option--selected) {
+
+        &:not(.LemonSegmentedButton__option--disabled, .LemonSegmentedButton__option--selected) {
             &:hover .LemonButton {
                 outline-color: var(--primary-3000-hover);
             }
+
             &:active .LemonButton {
                 outline-color: var(--primary-3000-active);
             }
         }
+
         &.LemonSegmentedButton__option--selected {
             .LemonButton,
             .LemonButton__icon {
                 color: #fff;
             }
+
             .LemonButton {
                 &:hover,
                 &:active {
@@ -99,41 +111,47 @@ body:not(.posthog-3000) {
     --radius: 6px;
 
     .LemonSegmentedButton__option {
-        & .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
-            border-radius: 0px;
+        & .LemonButton:not(.LemonButton--small, .LemonButton--large) > span {
+            border-radius: 0;
         }
 
         .LemonButton,
         .LemonButton > span {
             border-radius: 0;
         }
+
         .LemonButton > span {
             background: var(--bg-light);
         }
+
         .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
             > span {
                 border-color: var(--secondary-3000-button-border);
             }
         }
+
         &:first-child,
         &:first-child .LemonButton,
         &:first-child .LemonButton > span,
-        &:first-child .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
+        &:first-child .LemonButton:not(.LemonButton--small, .LemonButton--large) > span {
             border-top-left-radius: var(--radius);
             border-bottom-left-radius: var(--radius);
         }
+
         &:last-child,
         &:last-child .LemonButton,
         &:last-child .LemonButton > span,
-        &:last-child .LemonButton:not(.LemonButton--small):not(.LemonButton--large) > span {
+        &:last-child .LemonButton:not(.LemonButton--small, .LemonButton--large) > span {
             border-top-right-radius: var(--radius);
             border-bottom-right-radius: var(--radius);
         }
+
         &:not(:last-child) {
             .LemonButton {
                 border-right: none;
             }
         }
+
         &.LemonSegmentedButton__option--selected {
             .LemonButton > span {
                 background-color: var(--secondary-3000-button-bg);

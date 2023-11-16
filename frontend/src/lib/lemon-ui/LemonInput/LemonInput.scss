@@ -1,6 +1,5 @@
 .LemonInput {
     align-items: center;
-    background-color: var(--bg-light);
     background: none;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -15,6 +14,10 @@
     padding: 0.25rem 0.5rem;
     text-align: left;
 
+    .posthog-3000 & {
+        background-color: var(--bg-light);
+    }
+
     &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-3000-hover);
 
@@ -22,6 +25,7 @@
             border-color: var(--bold-3000);
         }
     }
+
     &.LemonInput--focused:not([aria-disabled='true']) {
         border-color: var(--bold-3000);
     }
@@ -77,6 +81,7 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
+
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;

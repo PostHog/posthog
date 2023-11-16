@@ -4,6 +4,7 @@
     .insight-wrapper {
         &.insight-wrapper--singlecolumn {
             position: relative;
+
             @include screen($xl) {
                 display: flex;
                 overflow: hidden;

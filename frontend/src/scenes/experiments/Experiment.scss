@@ -2,7 +2,6 @@
     .metrics-selection {
         border-top: 1px solid var(--border);
         padding-top: 1rem;
-
         width: 100%;
     }
 
@@ -75,6 +74,7 @@
     .variants {
         margin-top: 0.5rem;
         padding-bottom: 1rem;
+
         .ant-form-horizontal {
             min-height: 32px;
         }
@@ -92,7 +92,7 @@
         .feature-flag-variant {
             display: flex;
             align-items: center;
-            padding: 0.5rem 0.5rem;
+            padding: 0.5rem;
             background: var(--bg-light);
             border-width: 1px;
             border-color: var(--border);
@@ -111,7 +111,7 @@
             justify-content: center;
             align-items: center;
             border-radius: 4px;
-            color: #ffffff;
+            color: #fff;
             min-width: 52px;
             padding: 2px 6px;
             margin-right: 8px;
@@ -151,6 +151,7 @@
 
     .participants {
         background-color: white;
+
         .ant-collapse-header {
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
@@ -162,10 +163,12 @@
         li {
             display: inline;
         }
-        li:after {
+
+        li::after {
             content: ', ';
         }
-        li:last-child:after {
+
+        li:last-child::after {
             content: '';
         }
     }
@@ -209,9 +212,7 @@
         min-height: 320px;
         font-size: 24px;
     }
-}
 
-.view-experiment {
     .computation-time-and-sampling-notice {
         margin-top: 8px;
     }
@@ -231,6 +232,7 @@
     border-bottom: 1px solid var(--border);
     padding-bottom: 1rem;
     margin-bottom: 1rem;
+
     &:last-child {
         border-bottom: none;
         padding-bottom: 0;

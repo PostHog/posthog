@@ -7,12 +7,12 @@
 
     .property-group-and-or-separator {
         color: var(--primary-alt);
-        padding: 0.5rem 0px;
+        padding: 0.5rem 0;
         font-size: 12px;
         font-weight: 600;
         position: relative;
 
-        &:before {
+        &::before {
             position: absolute;
             left: 17px;
             top: 0;

@@ -8,9 +8,11 @@
     h5 {
         margin: 0.25rem 0.5rem;
     }
+
     p:last-child {
         margin-bottom: 0;
     }
+
     &[data-floating-placement^='top'] {
         perspective-origin: bottom;
     }
@@ -45,7 +47,9 @@
     .Popover[data-placement^='bottom'] & {
         transform-origin: top;
         margin-top: 0.25rem;
+        transform: rotateX(-6deg);
     }
+
     .Popover[data-placement^='bottom'].Popover--with-arrow & {
         margin-top: 0.5rem;
     }
@@ -53,7 +57,9 @@
     .Popover[data-placement^='top'] & {
         transform-origin: bottom;
         margin-bottom: 0.25rem;
+        transform: rotateX(6deg);
     }
+
     .Popover[data-placement^='top'].Popover--with-arrow & {
         margin-bottom: 0.5rem;
     }
@@ -61,7 +67,9 @@
     .Popover[data-placement^='left'] & {
         transform-origin: right;
         margin-right: 0.25rem;
+        transform: rotateY(-6deg);
     }
+
     .Popover[data-placement^='left'].Popover--with-arrow & {
         margin-right: 0.5rem;
     }
@@ -69,25 +77,11 @@
     .Popover[data-placement^='right'] & {
         transform-origin: left;
         margin-left: 0.25rem;
+        transform: rotateY(6deg);
     }
+
     .Popover[data-placement^='right'].Popover--with-arrow & {
         margin-left: 0.5rem;
-    }
-
-    .Popover[data-placement^='bottom'] & {
-        transform: rotateX(-6deg);
-    }
-
-    .Popover[data-placement^='top'] & {
-        transform: rotateX(6deg);
-    }
-
-    .Popover[data-placement^='left'] & {
-        transform: rotateY(-6deg);
-    }
-
-    .Popover[data-placement^='right'] & {
-        transform: rotateY(6deg);
     }
 
     .Popover.Popover--enter-active &,
@@ -104,6 +98,7 @@
         background: var(--bg-3000);
         padding: 0.25rem;
     }
+
     .posthog-3000 .Popover--actionable & {
         border-color: var(--border);
     }

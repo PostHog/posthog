@@ -30,6 +30,7 @@
         padding-top: 10px;
         padding-left: 10px;
         font-weight: 600;
+
         &.with-border {
             border-top: 1px solid var(--border-light);
         }
@@ -52,6 +53,7 @@
             .posthog-3000 & {
                 color: var(--default);
                 font-weight: 500;
+
                 &:not(.taxonomic-pill-active) {
                     opacity: 0.7;
                 }
@@ -60,10 +62,12 @@
                     opacity: 1;
                 }
             }
+
             &.taxonomic-count-zero {
                 color: var(--muted);
                 cursor: not-allowed;
             }
+
             &.taxonomic-pill-active {
                 color: #fff;
                 background: var(--link);

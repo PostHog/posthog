@@ -41,6 +41,7 @@ import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { MentionsExtension } from './MentionsExtension'
 import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
+import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -120,6 +121,7 @@ export function Editor(): JSX.Element {
             NotebookNodeImage,
             NotebookNodeProperties,
             NotebookNodeMention,
+            NotebookNodeEmbed,
             SlashCommandsExtension,
             MentionsExtension,
             NotebookNodePersonFeed,

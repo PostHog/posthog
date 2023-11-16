@@ -1,6 +1,7 @@
 .BillingPlan {
     max-width: 500px;
     flex-grow: 1;
+
     .BillingPlan__description {
         ol,
         ul {
@@ -8,10 +9,12 @@
             padding-left: 0;
             list-style: none;
             text-align: center;
+
             li {
                 line-height: 1.2rem;
                 margin-bottom: 1rem;
             }
+
             .disclaimer {
                 font-size: 10px;
                 font-weight: bold;

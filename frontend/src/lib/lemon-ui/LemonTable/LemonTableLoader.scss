@@ -10,6 +10,7 @@
     transition: height 200ms ease, top 200ms ease;
     width: 100%;
     z-index: 10;
+
     &::after {
         content: '';
         position: absolute;
@@ -17,24 +18,32 @@
         top: 0;
         width: 50%;
         height: 100%;
-        animation: loading-bar 1.5s linear infinite;
-        background: var(--primary-3000);
+        animation: LemonTableLoader__swooping 1.5s linear infinite;
+        background: var(--primary);
+
+        .posthog-3000 & {
+            animation: loading-bar 1.5s linear infinite;
+            background: var(--primary-3000);
+        }
     }
+
     &.LemonTableLoader--enter-active,
     &.LemonTableLoader--enter-done {
         height: 0.125rem;
     }
 }
 
-@keyframes loading-bar {
+@keyframes LemonTableLoader__swooping {
     0% {
         left: 0;
         width: 33.333%;
         transform: translateX(-100%);
     }
+
     50% {
         width: 50%;
     }
+
     100% {
         left: 100%;
         width: 33.333%;

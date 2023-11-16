@@ -349,7 +349,7 @@ export function ItemPerformanceEvent({
                                     tabs={[
                                         {
                                             key: 'timings',
-                                            label: 'timings',
+                                            label: 'Timings',
                                             content: (
                                                 <>
                                                     <SimpleKeyValueList item={sanitizedProps} />

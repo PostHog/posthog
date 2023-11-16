@@ -12,10 +12,12 @@
         &:hover {
             color: var(--primary-3000-hover);
         }
+
         &:active {
             color: var(--primary-3000-active);
         }
     }
+
     &:disabled {
         opacity: var(--opacity-disabled);
         cursor: not-allowed;

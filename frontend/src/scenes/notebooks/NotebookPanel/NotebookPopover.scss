@@ -2,21 +2,15 @@
 
 .NotebookPopover {
     position: fixed;
-    top: 0px;
-    right: 0px;
-    bottom: 0px;
-    left: 0px;
+    inset: 0;
     z-index: var(--z-modal);
     pointer-events: none;
 
     .NotebookPopover__backdrop {
         position: absolute;
-        top: 0px;
-        right: 0px;
-        bottom: 0px;
-        left: 0px;
+        inset: 0;
         z-index: 1;
-        background-color: rgba(0, 0, 0, 0.1);
+        background-color: rgb(0 0 0 / 10%);
         pointer-events: none;
         opacity: 0;
         transition: opacity 200ms ease-out;
@@ -47,7 +41,7 @@
             border-radius: var(--radius);
             background-color: var(--bg-3000);
             border: 1px solid var(--border-3000);
-            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0);
+            box-shadow: 0 16px 16px rgb(0 0 0 / 0%);
             transition: box-shadow 150ms linear;
             overflow: hidden;
         }
@@ -61,8 +55,9 @@
 
         .NotebookPopover__content {
             transform: translateX(0);
+
             .NotebookPopover__content__card {
-                box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+                box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
             }
         }
     }
@@ -71,8 +66,9 @@
         .NotebookPopover__content {
             transition: none; // NOTE: This shouldn't be none as it affects other transitions
             transform: translateX(calc(100% - 5rem));
+
             .NotebookPopover__content__card {
-                box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+                box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
             }
         }
     }
@@ -91,10 +87,9 @@
     }
 
     .NotebookPanelDropzone {
-        box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
         border: 2px dashed var(--border-3000);
         border-radius: var(--radius);
-
         transition: all 150ms;
         height: 4rem;
         margin-bottom: 1rem;
