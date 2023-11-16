@@ -62,7 +62,7 @@ describe('Insights', () => {
             cy.get('.DataTable tr').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
-            cy.get('.trends-insights-container canvas').should('exist')
+            cy.get('.TrendsInsight canvas').should('exist')
             cy.get('tr').should('have.length.gte', 2)
             cy.contains('tr', 'No insight results').should('not.exist')
 
@@ -73,7 +73,7 @@ describe('Insights', () => {
             cy.get('.DataTable tr').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
-            cy.get('.trends-insights-container canvas').should('exist')
+            cy.get('.TrendsInsight canvas').should('exist')
             cy.get('tr').should('have.length.gte', 2)
             cy.contains('tr', 'No insight results').should('not.exist')
         })

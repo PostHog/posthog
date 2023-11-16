@@ -1,11 +1,12 @@
 @use 'sass:list';
+@use 'sass:map';
+@use 'sass:color';
 
 $sm: 576px;
 $md: 768px;
 $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
-
 $screens: (
     'sm': $sm,
     'md': $md,
@@ -13,13 +14,13 @@ $screens: (
     'xl': $xl,
     'xxl': $xxl,
 );
-
 $tiny_spaces: 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
 $humongous_spaces: 24, 30, 32, 40, 50, 60, 80, 100, 120, 140, 160, 180, 200;
 $all_spaces: list.join($tiny_spaces, $humongous_spaces);
 $flex_sizes: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
+
 // CSS cursors from https://tailwindcss.com/docs/cursor
 $cursors: (
     'auto',
@@ -59,6 +60,7 @@ $cursors: (
     'zoom-in',
     'zoom-out'
 );
+
 // CSS list style types from https://tailwindcss.com/docs/list-style-type
 $list_style_types: 'none', 'disc', 'decimal';
 
@@ -96,10 +98,10 @@ $colors: (
     'bg-light': #fff,
     'side': #fafaf9,
     'mid': #f2f2f2,
-    'border': rgba(0, 0, 0, 0.15),
-    'border-light': rgba(0, 0, 0, 0.08),
-    'border-bold': rgba(0, 0, 0, 0.24),
-    'border-active': rgba(0, 0, 0, 0.36),
+    'border': rgb(0 0 0 / 15%),
+    'border-light': rgb(0 0 0 / 8%),
+    'border-bold': rgb(0 0 0 / 24%),
+    'border-active': rgb(0 0 0 / 36%),
     'transparent': transparent,
     'link': var(--link),
     // Colors of the PostHog logo
@@ -137,7 +139,7 @@ $colors: (
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
-    'link-3000-dark': rgb(47, 129, 247),
+    'link-3000-dark': rgb(47 129 247),
     // The derived colors
     'text-3000': var(--text-3000),
     'muted-3000': var(--muted-3000),
@@ -157,9 +159,9 @@ $colors: (
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$_primary: map-get($colors, 'primary');
-$_success: map-get($colors, 'success');
-$_danger: map-get($colors, 'danger');
+$_primary: map.get($colors, 'primary');
+$_success: map.get($colors, 'success');
+$_danger: map.get($colors, 'danger');
 $_primary_bg_hover: rgba($_primary, 0.1);
 $_primary_bg_active: rgba($_primary, 0.2);
 $_lifecycle_new: $_primary;
@@ -175,20 +177,20 @@ $_lifecycle_dormant: $_danger;
         --#{$name}: #{$hex};
     }
 
-    //TODO: Remove the primary-bg...
+    // TODO: Remove the primary-bg...
     --primary-bg-hover: var(--primary-highlight);
     --primary-bg-active: #{$_primary_bg_active};
-
     --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
 
     // Non-color vars
     --radius: 4px;
-    --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
+    --shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%);
+    --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', Helvetica, Arial,
+    --font-sans: -apple-system, blinkmacsystemfont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
@@ -222,10 +224,10 @@ $_lifecycle_dormant: $_danger;
     --lifecycle-returning: #{$_lifecycle_returning};
     --lifecycle-resurrecting: #{$_lifecycle_resurrecting};
     --lifecycle-dormant: #{$_lifecycle_dormant};
-    --lifecycle-new-hover: #{darken($_lifecycle_new, 20%)};
-    --lifecycle-returning-hover: #{darken($_lifecycle_returning, 20%)};
-    --lifecycle-resurrecting-hover: #{darken($_lifecycle_resurrecting, 20%)};
-    --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
+    --lifecycle-new-hover: #{color.adjust($_lifecycle_new, $lightness: -20%)};
+    --lifecycle-returning-hover: #{color.adjust($_lifecycle_returning, $lightness: -20%)};
+    --lifecycle-resurrecting-hover: #{color.adjust($_lifecycle_resurrecting, $lightness: -20%)};
+    --lifecycle-dormant-hover: #{color.adjust($_lifecycle_dormant, $lightness: -20%)};
 
     // Funnels
     // TODO: unify with lib/colors.ts, getGraphColors()
@@ -250,7 +252,7 @@ $_lifecycle_dormant: $_danger;
     --recording-highlight-event: var(--mark);
     --recording-highlight-event-dark: #946508;
 
-    // Z-indexes, synced with vars.ts
+    // Z-indexes
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
@@ -293,9 +295,8 @@ $_lifecycle_dormant: $_danger;
     --toastify-color-progress-warning: var(--toastify-color-warning);
     --toastify-color-progress-error: var(--toastify-color-error);
 
-    //In App Prompts
+    // In-app prompts
     --in-app-prompts-width: 26rem;
-
     --lettermark-1-bg: #dcb1e3;
     --lettermark-1-text: #572e5e;
     --lettermark-2-bg: #ffc4b2;
@@ -312,12 +313,10 @@ $_lifecycle_dormant: $_danger;
     --lettermark-7-text: #35416b;
     --lettermark-8-bg: #ff906e;
     --lettermark-8-text: #2a3d65;
-    --lettermark-8-bg: #e8edff;
-    --lettermark-8-text: #35416b;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
-    --modal-backdrop-color: rgba(0, 0, 0, 0.2);
+    --modal-backdrop-color: rgb(0 0 0 / 20%);
     --modal-transition-time: 200ms;
 
     // Notebooks

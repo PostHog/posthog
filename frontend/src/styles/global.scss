@@ -7,6 +7,8 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 
 */
 
+@use 'sass:map';
+
 // Global components
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
@@ -24,10 +26,6 @@ body b,
 body strong {
     // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
     font-weight: 600;
-}
-
-.main-app-content {
-    background-color: var(--bg-light);
 }
 
 // Disable default styling for ul
@@ -75,8 +73,10 @@ ul {
 
 .page-caption {
     @extend .text-sm;
+
     max-width: 48rem;
     margin-bottom: 1rem;
+
     &.tabbed {
         margin-bottom: 0.5rem;
     }
@@ -144,6 +144,7 @@ input::-ms-clear {
 
 // Highlight background blink
 
+/* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes highlight {
     0% {
         background-color: var(--mark);
@@ -156,6 +157,7 @@ input::-ms-clear {
 
 // Generic 360 spin
 
+/* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes spin {
     0% {
         transform: rotateZ(0deg);
@@ -188,6 +190,7 @@ input::-ms-clear {
 .Toastify__toast-body {
     @extend .text-sm;
     @extend .text-default;
+
     font-weight: 500;
     padding: 0;
 
@@ -243,11 +246,11 @@ input::-ms-clear {
     }
 
     &::before {
-        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+        box-shadow: 16px 0 16px -16px rgb(0 0 0 / 25%) inset;
     }
 
     &::after {
-        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+        box-shadow: -16px 0 16px -16px rgb(0 0 0 / 25%) inset;
     }
 
     &.scrollable--right::after,
@@ -270,11 +273,13 @@ input::-ms-clear {
 
     label {
         font-weight: bold;
+
         @extend .text-sm;
     }
 
     .caption {
         color: var(--muted);
+
         @extend .text-sm;
     }
 
@@ -466,8 +471,8 @@ input::-ms-clear {
     .overlay--danger & {
         background: repeating-linear-gradient(
             -45deg,
-            rgba(255, 255, 255, 0.5),
-            rgba(255, 255, 255, 0.5) 0.75rem,
+            rgb(255 255 255 / 50%),
+            rgb(255 255 255 / 50%) 0.75rem,
             var(--danger) 0.5rem,
             var(--danger) 20px
         );
@@ -497,6 +502,7 @@ input::-ms-clear {
     width: 100%;
     padding: 0 1rem 1rem;
     flex: 1;
+    background-color: var(--bg-light);
 
     @include screen($sm) {
         padding: 0 1rem 2rem;
@@ -583,6 +589,7 @@ body {
         --border-bold: var(--border-bold-3000);
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
+
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
@@ -591,12 +598,15 @@ body {
                 width: 0.5rem;
                 height: 0.5rem;
             }
+
             ::-webkit-scrollbar-track {
                 background: var(--accent-3000);
             }
+
             ::-webkit-scrollbar-thumb {
                 border-radius: 0.25rem;
                 background: var(--trace-3000);
+
                 &:hover {
                     background: var(--muted-3000);
                 }
@@ -659,12 +669,15 @@ body {
     .ant-modal-mask {
         z-index: var(--z-ant-modal-mask);
     }
+
     .ant-modal-wrap {
         z-index: var(--z-ant-modal-wrap);
     }
+
     .ant-message {
         z-index: var(--z-ant-message);
     }
+
     .ant-select-dropdown {
         z-index: var(--z-ant-select-dropdown);
         background-color: var(--bg-3000);
@@ -730,6 +743,7 @@ body {
     .ant-table-small .ant-table-thead > tr > th {
         background: var(--mid);
     }
+
     .ant-table-tbody > tr > td {
         border-bottom-color: var(--border);
     }
@@ -749,6 +763,7 @@ body {
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;
     }
+
     // Hide some parts of the UI that were causing flakiness
     ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
     .LemonTabs__bar::after, // Active tab slider

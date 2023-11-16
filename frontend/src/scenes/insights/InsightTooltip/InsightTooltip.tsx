@@ -54,14 +54,12 @@ function renderDatumToTableCell(
     // Value can be undefined if the datum's series doesn't have ANY value for the breakdown value being rendered
     return (
         <div className="series-data-cell">
-            {
-                color && (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <span className="mr-2" style={{ color }}>
-                        ●
-                    </span>
-                ) /* eslint-disable-line react/forbid-dom-props */
-            }
+            {color && (
+                // eslint-disable-next-line react/forbid-dom-props
+                <span className="mr-2" style={{ color }}>
+                    ●
+                </span>
+            )}
             {datumValue !== undefined
                 ? formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)
                 : '–'}
@@ -156,7 +154,7 @@ export function InsightTooltip({
                             seriesColumnData?.count,
                             formatPropertyValueForDisplay,
                             renderCount,
-                            seriesColumnData.color
+                            seriesColumnData?.color
                         )
                     },
                 })

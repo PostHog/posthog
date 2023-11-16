@@ -19,7 +19,7 @@
     background: none;
     transform: translate(-50%, -50%);
     cursor: pointer;
-    -webkit-appearance: none !important;
+    appearance: none !important;
 
     > .LemonBadge {
         transition: transform 200ms ease; // Same as LemonBadge's transition
@@ -31,6 +31,7 @@
 
 .AnnotationsPopover {
     --annotations-popover-width: 30rem;
+
     transition: left 200ms ease, opacity 100ms ease, transform 100ms ease;
     z-index: var(--z-annotation-popover) !important;
 
@@ -55,6 +56,7 @@
     .profile-package {
         vertical-align: bottom;
     }
+
     h5 {
         margin: 0;
     }

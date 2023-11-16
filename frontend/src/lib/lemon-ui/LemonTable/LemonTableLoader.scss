@@ -10,6 +10,7 @@
     background: var(--primary-bg-active);
     border: none !important;
     overflow: hidden;
+
     &::after {
         content: '';
         position: absolute;
@@ -17,24 +18,27 @@
         top: 0;
         width: 50%;
         height: 100%;
-        animation: loading-bar 1.5s linear infinite;
+        animation: LemonTableLoader__swooping 1.5s linear infinite;
         background: var(--primary);
     }
+
     &.LemonTableLoader--enter-active,
     &.LemonTableLoader--enter-done {
         height: 0.25rem;
     }
 }
 
-@keyframes loading-bar {
+@keyframes LemonTableLoader__swooping {
     0% {
         left: 0;
         width: 33.333%;
         transform: translateX(-100%);
     }
+
     50% {
         width: 50%;
     }
+
     100% {
         left: 100%;
         width: 33.333%;

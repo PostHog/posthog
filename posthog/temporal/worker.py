@@ -7,6 +7,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.client import connect
 from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
+from posthog.temporal.sentry import SentryInterceptor
 
 
 async def start_worker(
@@ -36,6 +37,7 @@ async def start_worker(
         activities=ACTIVITIES,
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
+        interceptors=[SentryInterceptor()],
     )
 
     # catch the TERM signal, and stop the worker gracefully

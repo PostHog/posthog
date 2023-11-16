@@ -2,8 +2,8 @@
 
 // was inherited from antd.less before removing that
 *,
-*:before,
-*:after {
+*::before,
+*::after {
     box-sizing: border-box;
 }
 
@@ -35,7 +35,7 @@
     font-size: 12px;
     text-transform: uppercase;
     font-weight: bold;
-    color: hsla(220, 15%, 49%, 1);
+    color: hsl(220deg 15% 49% / 100%);
     margin-bottom: 10px;
 }
 
@@ -50,10 +50,7 @@
 
 .toolbar-global-fade-container {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     pointer-events: none;
 
     > * {

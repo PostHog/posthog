@@ -40,6 +40,8 @@ export const sdksLogic = kea<sdksLogicType>([
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
+        setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
+        setPanel: (panel: 'instructions' | 'options') => ({ panel }),
     }),
     reducers({
         sourceFilter: [
@@ -72,6 +74,18 @@ export const sdksLogic = kea<sdksLogicType>([
                 setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
             },
         ],
+        showSideBySide: [
+            null as boolean | null,
+            {
+                setShowSideBySide: (_, { showSideBySide }) => showSideBySide,
+            },
+        ],
+        panel: [
+            'options' as 'instructions' | 'options',
+            {
+                setPanel: (_, { panel }) => panel,
+            },
+        ],
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -100,7 +114,7 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.filterSDKs()
         },
         setSDKs: () => {
-            if (!values.selectedSDK) {
+            if (!values.selectedSDK && values.showSideBySide == true) {
                 actions.setSelectedSDK(values.sdks?.[0] || null)
             }
         },
@@ -117,6 +131,16 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.setSelectedSDK(null)
             actions.setSourceFilter(null)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
+        },
+        setSelectedSDK: () => {
+            if (values.selectedSDK) {
+                actions.setPanel('instructions')
+            }
+        },
+        setShowSideBySide: () => {
+            if (values.showSideBySide && !values.selectedSDK) {
+                actions.setSelectedSDK(values.sdks?.[0] || null)
+            }
         },
     })),
     events(({ actions }) => ({
