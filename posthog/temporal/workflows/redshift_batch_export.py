@@ -129,10 +129,11 @@ async def insert_records_to_redshift(
     rows_exported = get_rows_exported_metric()
 
     async with async_client_cursor_from_connection(redshift_connection) as cursor:
-        batch = [pre_query.as_string(cursor).encode("utf-8")]
+        batch = []
+        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
         async def flush_to_redshift(batch):
-            await cursor.execute(b"".join(batch))
+            await cursor.execute(pre_query_str + b",".join(batch))
             rows_exported.add(len(batch) - 1)
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
@@ -142,14 +143,13 @@ async def insert_records_to_redshift(
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
 
             if len(batch) < batch_size:
-                batch.append(b",")
                 continue
 
             await flush_to_redshift(batch)
-            batch = [pre_query.as_string(cursor).encode("utf-8")]
+            batch = []
 
         if len(batch) > 0:
-            await flush_to_redshift(batch[:-1])
+            await flush_to_redshift(batch)
 
 
 @contextlib.asynccontextmanager
