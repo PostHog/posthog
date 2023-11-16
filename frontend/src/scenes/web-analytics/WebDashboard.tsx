@@ -17,7 +17,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import './webAnalytics.scss'
 
 const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
@@ -153,7 +152,7 @@ const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="WebAnalyticsDashboard w-full flex flex-col pt-2">
+        <div className="w-full flex flex-col pt-2">
             <WebAnalyticsNotice />
             <Filters />
             <WebAnalyticsHealthCheck />
