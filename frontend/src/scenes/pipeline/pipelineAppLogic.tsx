@@ -12,7 +12,7 @@ export interface PipelineAppLogicProps {
 export const pipelineAppLogic = kea<pipelineAppLogicType>([
     props({} as PipelineAppLogicProps),
     key(({ id }) => id),
-    path((id) => ['scenes', 'pipeline', 'PipelineAppLogic', id]),
+    path((id) => ['scenes', 'pipeline', 'pipelineAppLogic', id]),
     actions({
         setCurrentTab: (tab: PipelineAppTabs = PipelineAppTabs.Configuration) => ({ tab }),
     }),

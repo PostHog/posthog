@@ -8,6 +8,7 @@ import { PipelineAppTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
 import { Spinner } from '@posthog/lemon-ui'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: PipelineApp,
@@ -37,7 +38,7 @@ export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipelineApp(confId, tab as PipelineAppTabs))}
                 tabs={Object.values(PipelineAppTabs).map((tab) => ({
-                    label: tab,
+                    label: capitalizeFirstLetter(tab),
                     key: tab,
                     content: tab_to_content[tab],
                 }))}

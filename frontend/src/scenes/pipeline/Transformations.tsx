@@ -217,7 +217,7 @@ export function Transformations(): JSX.Element {
                                                         to={urls.pipelineApp(
                                                             pluginConfig.id,
                                                             PipelineAppTabs.Configuration
-                                                        )} // TODO: fix the URL
+                                                        )}
                                                         id={`app-${pluginConfig.id}-configuration`}
                                                         fullWidth
                                                     >
