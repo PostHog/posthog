@@ -7,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery } from '~/queries/schema'
-import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
@@ -52,7 +52,9 @@ export function AggregationSelect({
     }
 
     const value = getHogQLValue(
-        querySource.aggregation_group_type_index,
+        isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+            ? undefined
+            : querySource.aggregation_group_type_index,
         isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
     )
     const onChange = (value: string): void => {

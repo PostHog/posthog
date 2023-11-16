@@ -1,11 +1,11 @@
 import { useMountedLogic } from 'kea'
 
 import { searchBarLogic } from './searchBarLogic'
-import SearchInput from './SearchInput'
-import SearchResults from './SearchResults'
-import SearchTabs from './SearchTabs'
+import { SearchInput } from './SearchInput'
+import { SearchResults } from './SearchResults'
+import { SearchTabs } from './SearchTabs'
 
-const SearchBar = (): JSX.Element => {
+export const SearchBar = (): JSX.Element => {
     useMountedLogic(searchBarLogic) // load initial results
 
     return (
@@ -16,5 +16,3 @@ const SearchBar = (): JSX.Element => {
         </div>
     )
 }
-
-export default SearchBar

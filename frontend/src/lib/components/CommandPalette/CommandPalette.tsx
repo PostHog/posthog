@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import squeakFile from 'public/squeak.mp3'
 import { useMemo, useRef } from 'react'
 
-import CommandBar from '../CommandBar/CommandBar'
+import { CommandBar } from '../CommandBar/CommandBar'
 import { CommandInput } from './CommandInput'
 import { commandPaletteLogic } from './commandPaletteLogic'
 import { CommandResults } from './CommandResults'

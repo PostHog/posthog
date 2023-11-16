@@ -3,6 +3,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
@@ -35,7 +36,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
             (querySource, aggregationLabel): Noun => {
-                const { aggregation_group_type_index } = querySource || {}
+                const aggregation_group_type_index =
+                    isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? undefined
+                        : querySource?.aggregation_group_type_index
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],

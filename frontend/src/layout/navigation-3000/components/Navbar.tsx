@@ -1,7 +1,6 @@
-import { IconAsterisk, IconDay, IconGear, IconNight, IconQuestion } from '@posthog/icons'
+import { IconAsterisk, IconDay, IconGear, IconNight } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -92,17 +91,6 @@ export function Navbar(): JSX.Element {
                             shortTitle="Toggle theme"
                             onClick={() => toggleTheme()}
                             persistentTooltip
-                        />
-                        <HelpButton
-                            customComponent={
-                                <NavbarButton
-                                    icon={<IconQuestion />}
-                                    identifier="help-button"
-                                    title="Need any help?"
-                                    shortTitle="Help"
-                                />
-                            }
-                            placement="right-end"
                         />
                         <NavbarButton
                             icon={<IconGear />}

@@ -4,6 +4,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTrendPayload } from 'scenes/retention/types'
 
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { dateOptionToTimeIntervalMap } from './constants'
@@ -117,7 +118,11 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
         aggregationGroupTypeIndex: [
             (s) => [s.querySource],
             (querySource) => {
-                return querySource?.aggregation_group_type_index ?? 'people'
+                return (
+                    (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? null
+                        : querySource?.aggregation_group_type_index) ?? 'people'
+                )
             },
         ],
     }),

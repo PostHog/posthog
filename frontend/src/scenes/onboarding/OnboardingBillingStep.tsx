@@ -45,7 +45,7 @@ export const OnboardingBillingStep = ({
                             reportBillingUpgradeClicked(product.type)
                         }}
                     >
-                        Upgrade to paid
+                        Subscribe
                     </LemonButton>
                 )
             }

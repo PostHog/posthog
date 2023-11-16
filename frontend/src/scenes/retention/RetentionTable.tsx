@@ -11,11 +11,16 @@ import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableHeaders, tableRows, isLatestPeriod } = useValues(retentionTableLogic(insightProps))
+    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
+        retentionTableLogic(insightProps)
+    )
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     return (
-        <table className="RetentionTable" data-attr="retention-table">
+        <table
+            className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
+            data-attr="retention-table"
+        >
             <tbody>
                 <tr>
                     {tableHeaders.map((heading) => (
@@ -34,7 +39,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     >
                         {row.map((column, columnIndex) => (
                             <td key={columnIndex}>
-                                {columnIndex <= 1 ? (
+                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab" key={'columnIndex'}>
                                         {column}
                                     </span>

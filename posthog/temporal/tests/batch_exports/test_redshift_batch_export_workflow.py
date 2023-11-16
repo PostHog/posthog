@@ -26,6 +26,7 @@ from posthog.temporal.workflows.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
     RedshiftInsertInputs,
     insert_into_redshift_activity,
+    translate_whitespace_recursive,
 )
 
 REQUIRED_ENV_VARS = (
@@ -63,7 +64,8 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
         if exclude_events is not None and event_name in exclude_events:
             continue
 
-        properties = event.get("properties", None)
+        raw_properties = event.get("properties", None)
+        properties = translate_whitespace_recursive(raw_properties) if raw_properties else None
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
@@ -114,7 +116,7 @@ def redshift_config():
     return {
         "user": user,
         "password": password,
-        "database": "dev",
+        "database": "posthog_batch_exports_test",
         "schema": "exports_test_schema",
         "host": host,
         "port": int(port),
@@ -124,7 +126,10 @@ def redshift_config():
 @pytest.fixture
 def postgres_config(redshift_config):
     """We shadow this name so that setup_postgres_test_db works with Redshift."""
-    return redshift_config
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
+
+    yield redshift_config
 
 
 @pytest_asyncio.fixture
@@ -137,6 +142,7 @@ async def psycopg_connection(redshift_config, setup_postgres_test_db):
         host=redshift_config["host"],
         port=redshift_config["port"],
     )
+    connection.prepare_threshold = None
 
     yield connection
 
@@ -176,7 +182,13 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        properties={
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "newline": "\n\n",
+            "nested_newline": {"newline": "\n\n"},
+            "sequence": {"mucho_whitespace": ["\n\n", "\t\t", "\f\f"]},
+        },
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
@@ -344,3 +356,20 @@ async def test_redshift_export_workflow(
         events=events,
         exclude_events=exclude_events,
     )
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ([1, 2, 3], [1, 2, 3]),
+        ("\n\n", ""),
+        ([["\t\n"]], [[""]]),
+        (("\t\n",), ("",)),
+        ({"\t\n"}, {""}),
+        ({"key": "\t\n"}, {"key": ""}),
+        ({"key": ["\t\n"]}, {"key": [""]}),
+    ],
+)
+def test_translate_whitespace_recursive(value, expected):
+    """Test we translate some whitespace values."""
+    assert translate_whitespace_recursive(value) == expected

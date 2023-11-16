@@ -4,7 +4,7 @@ import { range } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
@@ -36,7 +36,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'breakdown'],
+            ['dateRange', 'retentionFilter', 'breakdown', 'vizSpecificOptions'],
             retentionLogic(props),
             ['results'],
         ],
@@ -47,6 +47,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
         ],
 
+        retentionVizOptions: [
+            (s) => [s.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[InsightType.RETENTION],
+        ],
+        hideSizeColumn: [(s) => [s.retentionVizOptions], (retentionVizOptions) => retentionVizOptions?.hideSizeColumn],
+
         maxIntervalsCount: [
             (s) => [s.results],
             (results) => {
@@ -55,15 +61,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableHeaders: [
-            (s) => [s.results],
-            (results) => {
-                return ['Cohort', 'Size', ...results.map((x) => x.label)]
+            (s) => [s.results, s.hideSizeColumn],
+            (results, hideSizeColumn) => {
+                return ['Cohort', ...(hideSizeColumn ? [] : ['Size']), ...results.map((x) => x.label)]
             },
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown],
-            (results, maxIntervalsCount, retentionFilter, breakdown) => {
+            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown, s.hideSizeColumn],
+            (results, maxIntervalsCount, retentionFilter, breakdown, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
                 const { breakdowns } = breakdown || {}
 
@@ -75,7 +81,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                         ? dayjs(results[rowIndex].date).format('MMM D, h A')
                         : dayjs(results[rowIndex].date).format('MMM D'),
                     // Second column is the first value (which is essentially the total)
-                    results[rowIndex].values[0].count,
+                    ...(hideSizeColumn ? [] : [results[rowIndex].values[0].count]),
                     // All other columns are rendered as percentage
                     ...results[rowIndex].values.map((row) => {
                         const percentage =

@@ -5,7 +5,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { searchBarLogic } from './searchBarLogic'
 
-const SearchInput = (): JSX.Element => {
+export const SearchInput = (): JSX.Element => {
     const { searchQuery } = useValues(searchBarLogic)
     const { setSearchQuery } = useActions(searchBarLogic)
 
@@ -24,5 +24,3 @@ const SearchInput = (): JSX.Element => {
         </div>
     )
 }
-
-export default SearchInput

@@ -1143,6 +1143,7 @@ export interface PerformanceEvent {
     response_headers?: Record<string, string>
     request_body?: Body
     response_body?: Body
+    method?: string
 }
 
 export interface CurrentBillCycleType {

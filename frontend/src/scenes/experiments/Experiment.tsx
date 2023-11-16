@@ -858,10 +858,10 @@ export function ResultsTag(): JSX.Element {
 export function LoadingState(): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3" />
+            <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
 }

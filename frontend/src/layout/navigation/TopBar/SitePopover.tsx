@@ -1,6 +1,8 @@
+import { IconLive } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconArrowDropDown,
@@ -8,6 +10,7 @@ import {
     IconCheckmark,
     IconCorporate,
     IconExclamation,
+    IconFlare,
     IconLogout,
     IconOffline,
     IconPlus,
@@ -239,6 +242,8 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
+    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
     return (
         <>
@@ -279,11 +284,30 @@ export function SitePopoverOverlay(): JSX.Element {
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
-            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
-                <SitePopoverSection>
+            <SitePopoverSection>
+                <LemonButton
+                    onClick={closeSitePopover}
+                    to={'https://posthog.com/changelog'}
+                    icon={<IconLive />}
+                    fullWidth
+                    data-attr="whats-new-button"
+                    targetBlank
+                >
+                    What's new?
+                </LemonButton>
+                <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
                     <FeaturePreviewsButton />
-                </SitePopoverSection>
-            </FlaggedFeature>
+                </FlaggedFeature>
+
+                <LemonButton
+                    onClick={() => setHedgehogModeEnabled(!hedgehogModeEnabled)}
+                    icon={<IconFlare />}
+                    fullWidth
+                    data-attr="hedgehog-mode-button"
+                >
+                    {hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode
+                </LemonButton>
+            </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />
             </SitePopoverSection>
