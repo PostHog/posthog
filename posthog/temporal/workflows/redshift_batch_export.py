@@ -141,7 +141,6 @@ async def insert_records_to_redshift(
 
         for record in itertools.chain([first_record], records):
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
-
             if len(batch) < batch_size:
                 continue
 
@@ -278,12 +277,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
-            return {
+            record = {
                 key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
                 if key in json_columns and row[key] is not None
                 else row[key]
                 for key in schema_columns
             }
+            record["elements"] = ""
+            return record
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(
