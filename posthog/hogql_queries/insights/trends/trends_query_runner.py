@@ -35,6 +35,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     TrendsQuery,
     TrendsQueryResponse,
+    HogQLQueryModifiers,
 )
 
 
@@ -48,9 +49,10 @@ class TrendsQueryRunner(QueryRunner):
         query: TrendsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
+        modifiers: Optional[HogQLQueryModifiers] = None,
         in_export_context: Optional[bool] = None,
     ):
-        super().__init__(query, team, timings, in_export_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -129,6 +131,7 @@ class TrendsQueryRunner(QueryRunner):
                 query=query,
                 team=self.team,
                 timings=self.timings,
+                modifiers=self.modifiers,
             )
 
             timings.extend(response.timings)

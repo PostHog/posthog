@@ -1,13 +1,11 @@
 from datetime import timedelta
-from typing import Dict, Optional, Any, cast
+from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import InsightPersonsQuery, HogQLQueryResponse
 
@@ -15,19 +13,6 @@ from posthog.schema import InsightPersonsQuery, HogQLQueryResponse
 class InsightPersonsQueryRunner(QueryRunner):
     query: InsightPersonsQuery
     query_type = InsightPersonsQuery
-
-    def __init__(
-        self,
-        query: InsightPersonsQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
-        if isinstance(query, InsightPersonsQuery):
-            self.query = query
-        else:
-            self.query = InsightPersonsQuery.model_validate(query)
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -54,6 +39,7 @@ class InsightPersonsQueryRunner(QueryRunner):
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
     def _is_stale(self, cached_result_package):
