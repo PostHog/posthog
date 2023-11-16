@@ -6,6 +6,7 @@ import requests
 import structlog
 from django.utils import timezone
 from rest_framework.exceptions import NotAuthenticated
+from sentry_sdk import capture_exception
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
@@ -13,7 +14,7 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
-from posthog.models.organization import OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +114,14 @@ class BillingManager:
     def update_billing_distinct_ids(self, organization: Organization) -> None:
         distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
         self.update_billing(organization, {"distinct_ids": distinct_ids})
+
+    def update_billing_customer_email(self, organization: Organization) -> None:
+        try:
+            owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
+            user = owner_membership.user
+            self.update_billing(organization, {"org_owner_email": user.email})
+        except Exception as e:
+            capture_exception(e)
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
