@@ -12,7 +12,7 @@ import { ActionBar } from './ActionBar'
 
 const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
     <div
-        className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center"
+        className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center p-3"
         // eslint-disable-next-line react/forbid-dom-props
         style={{
             zIndex: 'var(--z-command-palette)',
