@@ -28,6 +28,7 @@ from posthog.schema import (
     HogQLQuery,
     InsightPersonsQuery,
     DashboardFilter,
+    HogQLQueryModifiers,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -178,6 +179,7 @@ class QueryRunner(ABC):
     query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
+    modifiers: HogQLQueryModifiers
     in_export_context: bool
 
     def __init__(
@@ -185,11 +187,13 @@ class QueryRunner(ABC):
         query: RunnableQueryNode | BaseModel | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
+        modifiers: Optional[HogQLQueryModifiers] = None,
         in_export_context: Optional[bool] = False,
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.in_export_context = in_export_context or False
+        self.modifiers = create_default_modifiers_for_team(team, modifiers)
         if isinstance(query, self.query_type):
             self.query = query  # type: ignore
         else:
@@ -244,7 +248,7 @@ class QueryRunner(ABC):
                     team_id=self.team.pk,
                     enable_select_queries=True,
                     timings=self.timings,
-                    modifiers=create_default_modifiers_for_team(self.team),
+                    modifiers=self.modifiers,
                 ),
                 "hogql",
             )
@@ -253,8 +257,9 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def _cache_key(self) -> str:
+        modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}"
+            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod

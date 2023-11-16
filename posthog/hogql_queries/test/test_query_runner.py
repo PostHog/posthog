@@ -92,7 +92,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_33c9ea3098895d5a363a75feefafef06")
+        self.assertEqual(cache_key, "cache_b8a6b70478ec6139c8f7f379c808d5b9")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -106,7 +106,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_d626615de8ad0df73c1d8610ca586597")
+        self.assertEqual(cache_key, "cache_cfab9e42d088def74792922de5b513ac")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -117,7 +117,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_aeb23ec9e8de56dd8499f99f2e976d5a")
+        self.assertEqual(cache_key, "cache_9f12fefe07c0ab79e93935aed6b0bfa6")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()

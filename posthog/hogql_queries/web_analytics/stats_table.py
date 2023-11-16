@@ -77,6 +77,7 @@ LIMIT 10
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         return WebStatsTableQueryResponse(
