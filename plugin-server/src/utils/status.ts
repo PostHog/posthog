@@ -15,7 +15,6 @@ export interface StatusBlueprint {
 
 export class Status implements StatusBlueprint {
     mode?: string
-    explicitLogLevel?: LogLevel
     logger: pino.Logger
     prompt: string
     transport: any
@@ -23,7 +22,7 @@ export class Status implements StatusBlueprint {
     constructor(mode?: string) {
         this.mode = mode
 
-        const logLevel: LogLevel = this.explicitLogLevel || defaultConfig.LOG_LEVEL
+        const logLevel: LogLevel = defaultConfig.LOG_LEVEL
         if (isProdEnv()) {
             this.logger = pino({
                 // By default pino will log the level number. So we can easily unify
