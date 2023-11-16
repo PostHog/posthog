@@ -24,6 +24,7 @@ export interface BillingAlertConfig {
     contactSupport?: boolean
     buttonCTA?: string
     dismissKey?: string
+    action?: any
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -149,14 +150,40 @@ export const billingLogic = kea<billingLogicType>([
                 if (router.values.searchParams['products']) {
                     let upgradedProducts = router.values.searchParams['products'].split(',')
                     upgradedProducts = billing?.products.filter((product) => upgradedProducts.includes(product.type))
+                    const alerts: BillingAlertConfig[] = []
                     upgradedProducts?.forEach((product: BillingProductV2Type) => {
                         const currentPlan = product.plans.find((plan) => plan.current_plan)
                         if (currentPlan?.initial_billing_limit) {
-                            lemonToast.info(
-                                `Automatically added ${currentPlan?.initial_billing_limit} billing limit for ${product.name}`
-                            )
+                            alerts.push({
+                                status: 'info',
+                                title: 'Billing Limit Applied',
+                                message: `Automatically added a $${currentPlan?.initial_billing_limit} billing limit for ${product.name}`,
+                                action: {
+                                    onClick: () => {
+                                        const element = document.body.querySelector(
+                                            `[data-attr="billing-limit-input-${product.type.replace(
+                                                '_',
+                                                '-'
+                                            )}"] .text-link`
+                                        )
+                                        element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                                        element?.click()
+                                        setTimeout(() => {
+                                            const inputElement = document.body.querySelector(
+                                                `[data-attr="billing-limit-input-${product.type.replace(
+                                                    '_',
+                                                    '-'
+                                                )}"] input`
+                                            )
+                                            inputElement?.focus()
+                                        }, 0)
+                                    },
+                                    children: 'Update billing limit',
+                                },
+                            })
                         }
                     })
+                    return alerts.length ? alerts[0] : undefined
                 }
                 if (!billing || !preflight?.cloud) {
                     return

@@ -78,7 +78,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         return null
     }
     return (
-        <div className="border-t border-border p-8">
+        <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type.replace('_', '-')}`}>
             <div className="flex">
                 <div className="flex items-center gap-1">
                     {!isEditingBillingLimit ? (

@@ -21,9 +21,12 @@ export function BillingAlertsV2(): JSX.Element | null {
         return null
     }
 
-    const showButton = billingAlert.contactSupport || currentLocation.pathname !== urls.organizationBilling()
+    const showButton =
+        billingAlert.action || billingAlert.contactSupport || currentLocation.pathname !== urls.organizationBilling()
 
-    const buttonProps = billingAlert.contactSupport
+    const buttonProps = billingAlert.action
+        ? billingAlert.action
+        : billingAlert.contactSupport
         ? {
               to: 'mailto:sales@posthog.com',
               children: billingAlert.buttonCTA || 'Contact support',
