@@ -31,7 +31,7 @@ const MenuBody = (): JSX.Element => {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
-        <div className={'flex flex-col space-y-2 px-2'}>
+        <div className={'flex flex-col space-y-2'}>
             <div className="flex flex-row items-center space-x-2">
                 <DateFilter
                     dateFrom={heatmapFilter.date_from ?? '-7d'}
@@ -75,7 +75,7 @@ const MenuBody = (): JSX.Element => {
                     />
                 </div>
             </Tooltip>
-            <div className="FlagList flex flex-col w-full overflow-y-scroll h-full">
+            <div className="FlagList flex flex-col w-full h-full">
                 {countedElements.map(({ element, count, actionStep }, index) => {
                     return (
                         <div

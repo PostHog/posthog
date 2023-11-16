@@ -314,7 +314,10 @@ export class HedgehogActor {
             <div
                 className="HedgehogBuddy"
                 data-content={preloadContent}
-                onMouseDown={() => {
+                onMouseDown={(e) => {
+                    if (e.button !== 0) {
+                        return
+                    }
                     let moved = false
                     const onMouseMove = (e: any): void => {
                         moved = true

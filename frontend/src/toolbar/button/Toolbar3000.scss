@@ -46,10 +46,49 @@
     --mark: var(--secondary-3000-hover-dark);
 }
 
+.Toolbar3000Menu {
+    position: fixed;
+    max-width: calc(100% - 2rem);
+    height: 0;
+    z-index: 2;
+
+    .Toolbar3000Menu__content {
+        position: absolute;
+
+        background-color: var(--bg-3000);
+        color: var(--text-3000);
+        border-radius: var(--radius);
+        // transition: height 0.5s ease, border 0.5s ease;
+
+        max-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        filter: drop-shadow(2px 10px 10px var(--trace-3000));
+        bottom: 0px;
+        width: 30rem;
+        margin-left: -15rem;
+        overflow-y: auto;
+    }
+
+    &--visible {
+        .Toolbar3000Menu__content {
+            border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &.Toolbar3000Menu--below {
+        .Toolbar3000Menu__content {
+            top: 0px;
+            bottom: auto;
+        }
+    }
+}
+
 .Toolbar3000 {
     background-color: var(--bg-3000);
     color: var(--text-3000);
-    transition-property: filter, width;
+    transition-property: filter, width, transform;
     transition-duration: 0.3s;
     transition-timing-function: ease;
     filter: drop-shadow(2px 10px 10px var(--trace-3000));
@@ -57,6 +96,12 @@
     border-radius: var(--radius);
     // fixed width so that animations work when changing width
     width: 15.1rem;
+    transform: translate(50vh, 50vw); // This is immediately overwritten
+
+    &--dragging {
+        // Disable transform transition whilst dragging
+        transition-property: filter, width;
+    }
 
     &.Toolbar3000Bar {
         display: flex;
@@ -68,28 +113,7 @@
         > :last-child {
             border-left: 1px solid var(--border-bold-3000);
         }
-    }
-
-    &.Toolbar3000Menu {
-        transition: height 0.5s ease, border 0.5s ease;
-        bottom: 115%;
-        width: 100%;
-        max-height: 45vh;
-        border: 0px solid var(--border-bold-3000);
-
-        &--visible {
-            border: 1px solid var(--border-bold-3000);
-        }
-    }
-
-    .ToolbarMenu__button--square-right {
-        border-bottom-right-radius: 0;
-        border-top-right-radius: 0;
-    }
-
-    .ToolbarMenu__button--square-left {
-        border-bottom-left-radius: 0;
-        border-top-left-radius: 0;
+        z-index: 1;
     }
 
     &.Toolbar3000--minimized-width {

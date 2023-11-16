@@ -7,6 +7,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
+import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
 const DEFAULT_PADDING = { width: 16, height: 16 }
 
@@ -27,17 +28,17 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     actions(() => ({
         toggleTheme: true,
         toggleWidth: true,
-        setMenuPlacement: (placement: 'top' | 'bottom') => ({ placement }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
-        setHedgehogPosition: (actor: HedgehogActor) => ({ actor }),
+        setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
+        syncWithHedgehog: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
         onMouseDown: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => ({ event }),
         setDragging: (dragging = true) => ({ dragging }),
         setElement: (element: HTMLElement | null) => ({ element }),
+        setMenu: (element: HTMLElement | null) => ({ element }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -50,18 +51,18 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 setElement: (_, { element }) => element,
             },
         ],
+        menu: [
+            null as HTMLElement | null,
+            {
+                setMenu: (_, { element }) => element,
+            },
+        ],
 
         visibleMenu: [
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
                 toggleWidth: () => 'none',
-            },
-        ],
-        menuPlacement: [
-            'top' as 'top' | 'bottom',
-            {
-                setMenuPlacement: (_, { placement }) => placement,
             },
         ],
         minimizedWidth: [
@@ -138,6 +139,43 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 }
             },
         ],
+
+        menuProperties: [
+            (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight],
+            (element, menu, dragPosition, windowWidth, windowHeight) => {
+                if (!element || !menu) {
+                    return {}
+                }
+
+                const elWidth = element.offsetWidth + 2 // account for border
+                const elHeight = element.offsetHeight + 2 // account for border
+                const margin = 10
+
+                const isBelow = dragPosition.y + elHeight * 0.5 < windowHeight * 0.5
+
+                let maxHeight = isBelow
+                    ? windowHeight - dragPosition.y - elHeight - margin * 2
+                    : dragPosition.y - margin * 2
+
+                maxHeight = inBounds(0, maxHeight, windowHeight * 0.6)
+
+                const desiredY = isBelow ? dragPosition.y + elHeight + margin : dragPosition.y - margin
+                const desiredX = dragPosition.x + elWidth * 0.5
+
+                const top = inBounds(DEFAULT_PADDING.height, desiredY, windowHeight - elHeight)
+                const left = inBounds(
+                    DEFAULT_PADDING.width + menu.clientWidth * 0.5,
+                    desiredX,
+                    windowWidth - menu.clientWidth * 0.5 - DEFAULT_PADDING.width
+                )
+
+                return {
+                    transform: `translate(${left}px, ${top}px)`,
+                    maxHeight,
+                    isBelow,
+                }
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
@@ -201,10 +239,30 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             }
         },
 
-        setHedgehogPosition: ({ actor }) => {
-            const pageX = actor.x
-            const pageY = values.windowHeight - actor.y
+        syncWithHedgehog: () => {
+            const actor = values.hedgehogActor
+            if (!actor) {
+                return
+            }
+            const pageX = actor.x + SPRITE_SIZE * 0.5 - (values.element?.getBoundingClientRect().width ?? 0) * 0.5
+            const pageY =
+                values.windowHeight - actor.y - SPRITE_SIZE - (values.element?.getBoundingClientRect().height ?? 0)
             actions.setDragPosition(pageX, pageY)
+        },
+
+        toggleWidth: () => {
+            const sync = (): void => {
+                // Hack to trigger correct positioning
+                actions.syncWithHedgehog()
+                if (values.lastDragPosition) {
+                    actions.setDragPosition(values.lastDragPosition.x, values.lastDragPosition.y)
+                }
+            }
+            sync()
+            // Sync position after the animation completes
+            setTimeout(() => sync(), 150)
+            setTimeout(() => sync(), 300)
+            setTimeout(() => sync(), 550)
         },
     })),
     subscriptions({

@@ -10,11 +10,11 @@ import {
 } from '@posthog/icons'
 import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { getShadowRoot, getToolbarContainer } from '~/toolbar/utils'
+import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import clsx from 'clsx'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
@@ -77,59 +77,53 @@ function MoreMenu(): JSX.Element {
 }
 
 function ToolbarInfoMenu(): JSX.Element {
-    const menuRef = useRef<HTMLDivElement | null>(null)
-    const { visibleMenu, windowHeight, dragPosition, menuPlacement } = useValues(toolbarButtonLogic)
-    const { setMenuPlacement } = useActions(toolbarButtonLogic)
+    const ref = useRef<HTMLDivElement | null>(null)
+    const { visibleMenu, isDragging, menuProperties } = useValues(toolbarButtonLogic)
+    const { setMenu } = useActions(toolbarButtonLogic)
 
     const fullIsShowing = visibleMenu === 'heatmap' || visibleMenu === 'actions' || visibleMenu === 'flags'
 
-    useLayoutEffect(() => {
-        if (!menuRef.current) {
-            return
-        }
-
-        if (dragPosition.y <= 300) {
-            setMenuPlacement('bottom')
-        } else {
-            setMenuPlacement('top')
-        }
-
-        if (fullIsShowing) {
-            let heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
-            if (menuPlacement === 'bottom') {
-                heightAvailableForMenu = windowHeight - menuRef.current.getBoundingClientRect().top
-            }
-            menuRef.current.style.height = `${heightAvailableForMenu - 10}px`
-
-            // TODO what if there is less than 10 available
-        } else {
-            menuRef.current.style.height = '0px'
-        }
-    }, [dragPosition, menuRef, fullIsShowing])
+    useEffect(() => {
+        setMenu(ref.current)
+        return () => setMenu(null)
+    }, [ref.current])
 
     return (
         <div
-            ref={menuRef}
             className={clsx(
-                'Toolbar3000 Toolbar3000Menu absolute rounded-lg flex flex-col',
+                'Toolbar3000Menu',
                 fullIsShowing && 'Toolbar3000Menu--visible',
-                menuPlacement === 'top' ? 'bottom' : 'top-12'
+                isDragging && 'Toolbar3000Menu--dragging',
+                menuProperties.isBelow && 'Toolbar3000Menu--below'
             )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: menuProperties.transform,
+            }}
         >
-            {visibleMenu === 'flags' ? (
-                <FlagsToolbarMenu />
-            ) : visibleMenu === 'heatmap' ? (
-                <HeatmapToolbarMenu />
-            ) : visibleMenu === 'actions' ? (
-                <ActionsToolbarMenu />
-            ) : null}
+            <div
+                ref={ref}
+                className="Toolbar3000Menu__content"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    maxHeight: menuProperties.maxHeight,
+                }}
+            >
+                {visibleMenu === 'flags' ? (
+                    <FlagsToolbarMenu />
+                ) : visibleMenu === 'heatmap' ? (
+                    <HeatmapToolbarMenu />
+                ) : visibleMenu === 'actions' ? (
+                    <ActionsToolbarMenu />
+                ) : null}
+            </div>
         </div>
     )
 }
 
 export function Toolbar3000(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimizedWidth, dragPosition } = useValues(toolbarButtonLogic)
+    const { minimizedWidth, dragPosition, isDragging } = useValues(toolbarButtonLogic)
     const { setVisibleMenu, toggleWidth, onMouseDown, setElement } = useActions(toolbarButtonLogic)
     const { isAuthenticated } = useValues(toolbarLogic)
 
@@ -152,13 +146,13 @@ export function Toolbar3000(): JSX.Element {
                 ref={ref}
                 className={clsx(
                     'Toolbar3000 Toolbar3000Bar fixed h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
-                    minimizedWidth && 'Toolbar3000--minimized-width'
+                    minimizedWidth && 'Toolbar3000--minimized-width',
+                    isDragging && 'Toolbar3000--dragging'
                 )}
                 onMouseDown={onMouseDown}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    top: dragPosition.y,
-                    left: dragPosition.x,
+                    transform: `translate(${dragPosition.x}px, ${dragPosition.y}px)`,
                 }}
             >
                 <Toolbar3000Button
