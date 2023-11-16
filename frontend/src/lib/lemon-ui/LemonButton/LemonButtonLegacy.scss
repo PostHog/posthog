@@ -140,6 +140,7 @@ body:not(.posthog-3000) {
 
                     &:not([aria-disabled='true']):hover,
                     &.LemonButton--active {
+                        color: #fff;
                         background: var(--#{$status}-light, var(--#{$status}));
 
                         .LemonButton__icon {
@@ -148,6 +149,7 @@ body:not(.posthog-3000) {
                     }
 
                     &:not([aria-disabled='true']):active {
+                        color: #fff;
                         background: var(--#{$status}-dark, var(--#{$status}));
 
                         .LemonButton__icon {
