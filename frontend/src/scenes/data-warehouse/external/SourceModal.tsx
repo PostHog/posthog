@@ -1,10 +1,9 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
-import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
+import { ConnectorConfigType, FORM_PAYLOAD_TYPES, FormPayloadType, sourceModalLogic } from './sourceModalLogic'
 import { useActions, useValues } from 'kea'
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
 import { Field } from 'lib/forms/Field'
-import stripeLogo from 'public/stripe-logo.svg'
 
 interface SourceModalProps extends LemonModalProps {}
 
@@ -21,7 +20,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
 
         return (
             <LemonButton onClick={onClick} className="w-100" center type="secondary">
-                <img src={stripeLogo} alt={`stripe logo`} height={50} />
+                <img src={config.icon} alt={`stripe logo`} height={50} />
             </LemonButton>
         )
     }
@@ -37,38 +36,40 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         toggleManualLinkFormVisible(true)
     }
 
-    const formToShow = (): JSX.Element => {
+    const formPayloadTypeToField = (formPayloadType: FormPayloadType): JSX.Element => {
+        return (
+            <Field name={formPayloadType.name} label={formPayloadType.label}>
+                <LemonInput className="ph-ignore-input" autoFocus data-attr={formPayloadType.name + '_input'} />
+            </Field>
+        )
+    }
+
+    const buildPayloadTypeForm = (payloadType: string): JSX.Element => {
+        return (
+            <Form logic={sourceModalLogic} formKey={'externalDataSource'} className="space-y-4" enableFormOnSubmit>
+                {FORM_PAYLOAD_TYPES[payloadType].map(formPayloadTypeToField)}
+                <LemonDivider className="mt-4" />
+                <div className="mt-2 flex flex-row justify-end gap-2">
+                    <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
+                        Back
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        center
+                        htmlType="submit"
+                        data-attr="source-link"
+                        loading={isExternalDataSourceSubmitting}
+                    >
+                        Link
+                    </LemonButton>
+                </div>
+            </Form>
+        )
+    }
+
+    const formToShow = (selectedConnector: ConnectorConfigType): JSX.Element => {
         if (selectedConnector) {
-            return (
-                <Form logic={sourceModalLogic} formKey={'externalDataSource'} className="space-y-4" enableFormOnSubmit>
-                    <Field name="account_id" label="Account Id">
-                        <LemonInput className="ph-ignore-input" autoFocus data-attr="account-id" placeholder="acct_" />
-                    </Field>
-                    <Field name="client_secret" label="Client Secret">
-                        <LemonInput
-                            className="ph-ignore-input"
-                            autoFocus
-                            data-attr="client-secret"
-                            placeholder="sklive"
-                        />
-                    </Field>
-                    <LemonDivider className="mt-4" />
-                    <div className="mt-2 flex flex-row justify-end gap-2">
-                        <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
-                            Back
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            center
-                            htmlType="submit"
-                            data-attr="source-link"
-                            loading={isExternalDataSourceSubmitting}
-                        >
-                            Link
-                        </LemonButton>
-                    </div>
-                </Form>
-            )
+            return buildPayloadTypeForm(selectedConnector.name)
         }
 
         if (isManualLinkFormVisible) {
@@ -104,16 +105,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             )
         }
 
-        return (
-            <div className="flex flex-col gap-2">
-                {connectors.map((config, index) => (
-                    <MenuButton key={config.name + '_' + index} {...config} />
-                ))}
-                <LemonButton onClick={onManualLinkClick} className="w-100" center type="secondary">
-                    Manual Link
-                </LemonButton>
-            </div>
-        )
+        return <></>
     }
 
     return (
@@ -123,7 +115,18 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             title="Data Sources"
             description={selectedConnector ? selectedConnector.caption : null}
         >
-            {formToShow()}
+            {selectedConnector ? (
+                formToShow(selectedConnector)
+            ) : (
+                <div className="flex flex-col gap-2">
+                    {connectors.map((config, index) => (
+                        <MenuButton key={config.name + '_' + index} {...config} />
+                    ))}
+                    <LemonButton onClick={onManualLinkClick} className="w-100" center type="secondary">
+                        Manual Link
+                    </LemonButton>
+                </div>
+            )}
         </LemonModal>
     )
 }

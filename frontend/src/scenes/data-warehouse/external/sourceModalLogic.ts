@@ -10,23 +10,81 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
+import stripeLogo from 'public/stripe-logo.svg'
+import postgresLogo from 'public/postgres-logo.svg'
 
 export interface ConnectorConfigType {
     name: string
-    fields: string[]
     caption: string
     disabledReason: string | null
+    icon: string
 }
 
 // TODO: add icon
 export const CONNECTORS: ConnectorConfigType[] = [
     {
-        name: 'Stripe',
-        fields: ['accound_id', 'client_secret'],
+        name: 'stripe',
         caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
         disabledReason: null,
+        icon: stripeLogo,
+    },
+    {
+        name: 'postgres',
+        caption: 'Enter your Postgres credentials to link your Postgres database to PostHog',
+        disabledReason: null,
+        icon: postgresLogo,
     },
 ]
+
+type FormTypes = 'input' | 'select'
+
+export interface FormPayloadType {
+    name: string
+    type: FormTypes
+    label: string
+}
+
+export const FORM_PAYLOAD_TYPES: Record<string, FormPayloadType[]> = {
+    stripe: [
+        {
+            name: 'account_id',
+            type: 'input',
+            label: 'Account Id',
+        },
+        {
+            name: 'client_secret',
+            type: 'input',
+            label: 'Client Secret',
+        },
+    ],
+    postgres: [
+        {
+            name: 'host',
+            type: 'input',
+            label: 'Host',
+        },
+        {
+            name: 'port',
+            type: 'input',
+            label: 'Port',
+        },
+        {
+            name: 'database',
+            type: 'input',
+            label: 'Database',
+        },
+        {
+            name: 'username',
+            type: 'input',
+            label: 'Username',
+        },
+        {
+            name: 'password',
+            type: 'input',
+            label: 'Password',
+        },
+    ],
+}
 
 export const sourceModalLogic = kea<sourceModalLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceModalLogic']),
