@@ -444,7 +444,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             cohorts[name] = Cohort.objects.create(
                 team=self.team,
                 name=str(name),
-                groups=[{"properties": properties}],
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": properties,
+                    }
+                },
             )
 
         # link cohorts
@@ -521,7 +526,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "key": "id",
                 "value": cohorts[child].pk,
                 "type": "cohort",
-                "negation": True,
             }
             cohorts[parent].save()
 
@@ -564,7 +568,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         # check all cohorts were created in the destination project
         for name in cohorts.keys():
-            found_cohort = Cohort.objects.filter(name=str(name), team_id=target_project.id).exists()
+            found_cohort = Cohort.objects.filter(name=name, team_id=target_project.id)[0]
             self.assertTrue(found_cohort)
 
         # destination flag contains the head cohort

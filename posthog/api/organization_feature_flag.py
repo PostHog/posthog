@@ -1,6 +1,4 @@
-import copy
 from typing import Dict
-from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -10,11 +8,13 @@ from rest_framework import (
     viewsets,
     status,
 )
+from posthog.api.cohort import CohortSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort
+from posthog.models.filters.filter import Filter
 from posthog.permissions import OrganizationMemberPermissions
 
 
@@ -117,29 +117,34 @@ class OrganizationFeatureFlagView(
                     destination_cohort = Cohort.objects.filter(
                         name=original_cohort.name, team_id=target_project_id, deleted=False
                     ).first()
-
                     # create new cohort in the destination project
                     if not destination_cohort:
-                        new_filters = copy.deepcopy(original_cohort.filters)
-                        if new_filters:
-                            properties = new_filters.get("properties", [])
-                            for outer_prop in properties.get("values", []):
-                                for inner_prop in outer_prop.get("values", []):
-                                    if inner_prop.get("type") == "cohort":
-                                        original_child_cohort_id = inner_prop["value"]
-                                        original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
-                                        inner_prop["value"] = name_to_dest_cohort_id[original_child_cohort.name]
+                        prop_group = Filter(
+                            data={"properties": original_cohort.filters["properties"], "is_simplified": True}
+                        ).property_groups
 
-                        destination_cohort = Cohort.objects.create(
-                            team=target_project,
-                            name=original_cohort.name,
-                            groups=original_cohort.groups,
-                            filters=new_filters,
-                            description=original_cohort.description,
-                            is_static=original_cohort.is_static,
-                            created_by=request.user,
-                            last_calculation=timezone.now(),
+                        for prop in prop_group.flat:
+                            if prop.type == "cohort":
+                                original_child_cohort_id = prop.value
+                                original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+
+                        destination_cohort_serializer = CohortSerializer(
+                            data={
+                                "team": target_project,
+                                "name": original_cohort.name,
+                                "groups": [],
+                                "filters": {"properties": prop_group.to_dict()},
+                                "description": original_cohort.description,
+                                "is_static": original_cohort.is_static,
+                            },
+                            context={
+                                "request": request,
+                                "team_id": target_project.id,
+                            },
                         )
+                        destination_cohort_serializer.is_valid(raise_exception=True)
+                        destination_cohort = destination_cohort_serializer.save()
 
                     if destination_cohort is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
