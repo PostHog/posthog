@@ -22,10 +22,7 @@ export function HedgehogButton(): JSX.Element {
         if (actorRef.current) {
             setHedgehogActor(actorRef.current)
         }
-        return () => {
-            setHedgehogActor(null)
-        }
-    }, [actorRef.current])
+    }, [actorRef.current, hedgehogMode])
 
     return (
         <>

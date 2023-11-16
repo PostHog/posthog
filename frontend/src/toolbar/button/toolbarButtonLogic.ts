@@ -241,7 +241,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
 
         syncWithHedgehog: () => {
             const actor = values.hedgehogActor
-            if (!actor) {
+            if (!values.hedgehogMode || !actor) {
                 return
             }
             const pageX = actor.x + SPRITE_SIZE * 0.5 - (values.element?.getBoundingClientRect().width ?? 0) * 0.5
