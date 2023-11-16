@@ -474,7 +474,13 @@ def get_dependent_cohorts(
     return cohorts
 
 
-def get_sorted_cohort_ids(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, Cohort]):
+def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, Cohort]) -> List[int]:
+    """
+    Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
+    followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
+    only depends on cohorts that appear earlier in the list.
+    """
+
     dependency_graph: Dict[int, List[int]] = {}
     seen = set()
 

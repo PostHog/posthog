@@ -2,14 +2,14 @@ from posthog.test.base import (
     APIBaseTest,
 )
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import get_sorted_cohort_ids
+from posthog.models.cohort.util import sort_cohorts_topologically
 
 
 class TestFeatureFlagUtils(APIBaseTest):
     def setUp(self):
         super().setUp()
 
-    def test_get_destination_creation_order(self):
+    def test_cohorts_sorted_topologically(self):
         cohorts = {}
 
         def create_cohort(name):
@@ -62,5 +62,5 @@ class TestFeatureFlagUtils(APIBaseTest):
 
         # thus destination creation order: b, c, a
         destination_creation_order = [cohorts["b"].pk, cohorts["c"].pk, cohorts["a"].pk]
-        sorted_cohort_ids = get_sorted_cohort_ids(cohort_ids, seen_cohorts_cache)
-        self.assertEqual(sorted_cohort_ids, destination_creation_order)
+        topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+        self.assertEqual(topologically_sorted_cohort_ids, destination_creation_order)

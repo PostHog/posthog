@@ -103,7 +103,7 @@ class OrganizationFeatureFlagView(
             # get all linked cohorts, sorted by creation order
             seen_cohorts_cache: Dict[int, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
-                seen_cohorts_cache=seen_cohorts_cache, sort_by_creation_order=True
+                seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
 
             # destination cohort id is different from original cohort id - create mapping
