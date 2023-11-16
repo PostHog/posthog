@@ -613,6 +613,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return tiles.filter(isNotNil)
             },
         ],
+        hasCountryFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
+            },
+        ],
     })),
     loaders(() => ({
         // load the status check query here and pass the response into the component, so the response
