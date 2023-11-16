@@ -29,7 +29,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
@@ -556,7 +556,11 @@ class _Printer(Visitor):
             return op
 
         # Special optimization for "Eq" operator
-        if node.op == ast.CompareOperationOp.Eq:
+        if (
+            node.op == ast.CompareOperationOp.Eq
+            or node.op == ast.CompareOperationOp.Like
+            or node.op == ast.CompareOperationOp.ILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNull({left})"
@@ -568,7 +572,11 @@ class _Printer(Visitor):
             return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
 
         # Special optimization for "NotEq" operator
-        if node.op == ast.CompareOperationOp.NotEq:
+        if (
+            node.op == ast.CompareOperationOp.NotEq
+            or node.op == ast.CompareOperationOp.NotLike
+            or node.op == ast.CompareOperationOp.NotILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNotNull({left})"
@@ -655,7 +663,19 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
 
     def visit_call(self, node: ast.Call):
-        if node.name in HOGQL_AGGREGATIONS:
+        if node.name in HOGQL_COMPARISON_MAPPING:
+            op = HOGQL_COMPARISON_MAPPING[node.name]
+            if len(node.args) != 2:
+                raise HogQLException(f"Comparison '{node.name}' requires exactly two arguments")
+            # We do "cleverer" logic with nullable types in visit_compare_operation
+            return self.visit_compare_operation(
+                ast.CompareOperation(
+                    left=node.args[0],
+                    right=node.args[1],
+                    op=op,
+                )
+            )
+        elif node.name in HOGQL_AGGREGATIONS:
             func_meta = HOGQL_AGGREGATIONS[node.name]
 
             validate_function_args(

@@ -9,10 +9,19 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType, EventDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    EventDefinition,
+    EventDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 import { isNotNil } from 'lib/utils'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { STALE_EVENT_SECONDS } from 'lib/constants'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -584,16 +593,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
-                const shouldWarnAboutNoPageviews =
-                    pageviewResult.status === 'fulfilled' &&
-                    !pageviewResult.value.next &&
-                    (pageviewResult.value.count === 0 ||
-                        !pageviewResult.value.results.some((r) => r.name === '$pageview'))
-                const shouldWarnAboutNoPageleaves =
-                    pageleaveResult.status === 'fulfilled' &&
-                    !pageleaveResult.value.next &&
-                    (pageleaveResult.value.count === 0 ||
-                        !pageleaveResult.value.results.some((r) => r.name === '$pageleave'))
+                const pageviewEntry =
+                    pageviewResult.status === 'fulfilled'
+                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
+                        : undefined
+
+                const pageleaveEntry =
+                    pageleaveResult.status === 'fulfilled'
+                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
+                        : undefined
+
+                const shouldWarnAboutNoPageviews = !pageviewEntry || isEventDefinitionStale(pageviewEntry)
+                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isEventDefinitionStale(pageleaveEntry)
 
                 return {
                     shouldWarnAboutNoPageviews,
@@ -608,3 +619,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadStatusCheck()
     }),
 ])
+
+const isEventDefinitionStale = (definition: EventDefinition): boolean => {
+    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
+    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+}

@@ -10,7 +10,7 @@ type SearchResultProps = {
     focused: boolean
 }
 
-const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
+export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
     const { executeResult, onMouseEnterResult, onMouseLeaveResult } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
@@ -51,5 +51,3 @@ const ActionResult = ({ result, focused }: SearchResultProps): JSX.Element => {
         </div>
     )
 }
-
-export default ActionResult
