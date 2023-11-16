@@ -13,12 +13,14 @@ concurrency:
 jobs:
     # Job to decide if we should run frontend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # we skip each step individually so they are still reported as success
+    # because many of them are required for CI checks to be green
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            backend: ${{ steps.filter.outputs.frontend }}
+            frontend: ${{ steps.filter.outputs.frontend }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -28,7 +30,7 @@ jobs:
               id: filter
               with:
                   filters: |
-                      backend:
+                      frontend:
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here. 
                         - 'bin/*'
