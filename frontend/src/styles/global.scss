@@ -627,6 +627,7 @@ body {
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
+        .LemonButton,
         .Link {
             .text-link {
                 color: var(--text-3000);
