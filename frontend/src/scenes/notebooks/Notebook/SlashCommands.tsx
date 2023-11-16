@@ -96,7 +96,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Trend',
         search: 'trend insight',
-        icon: <IconTrends noBackground color="currentColor" />,
+        icon: <IconTrends color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -121,7 +121,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Funnel',
         search: 'funnel insight',
-        icon: <IconFunnels noBackground color="currentColor" />,
+        icon: <IconFunnels color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -148,7 +148,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Retention',
         search: 'retention insight',
-        icon: <IconRetention noBackground color="currentColor" />,
+        icon: <IconRetention color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -175,7 +175,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Paths',
         search: 'paths insight',
-        icon: <IconUserPaths noBackground color="currentColor" />,
+        icon: <IconUserPaths color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -190,7 +190,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Stickiness',
         search: 'stickiness insight',
-        icon: <IconStickiness noBackground color="currentColor" />,
+        icon: <IconStickiness color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -211,7 +211,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Lifecycle',
         search: 'lifecycle insight',
-        icon: <IconLifecycle noBackground color="currentColor" />,
+        icon: <IconLifecycle color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -231,7 +231,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'HogQL',
         search: 'sql',
-        icon: <IconHogQL noBackground color="currentColor" />,
+        icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
