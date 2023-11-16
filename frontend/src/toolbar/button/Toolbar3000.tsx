@@ -46,16 +46,19 @@ function MoreMenu(): JSX.Element {
             placement="top-end"
             fallbackPlacements={['bottom-end']}
             getPopupContainer={getToolbarContainer}
-            // onClickOutside={() => {
-            //     if (visibleMenu === 'more') {
-            //         setVisibleMenu('none')
-            //     }
-            // }}
+            onClickOutside={() => {
+                if (visibleMenu === 'more') {
+                    setVisibleMenu('none')
+                }
+            }}
             items={[
                 {
                     icon: <>🦔</>,
                     label: 'Hedgehog mode',
-                    onClick: () => setHedgehogMode(!hedgehogMode),
+                    onClick: () => {
+                        setVisibleMenu('none')
+                        setHedgehogMode(!hedgehogMode)
+                    },
                 },
                 {
                     icon: currentlyLightMode ? <IconNight /> : <IconDay />,
@@ -65,7 +68,10 @@ function MoreMenu(): JSX.Element {
                 {
                     icon: <IconQuestion />,
                     label: 'Help',
-                    onClick: () => window.open(HELP_URL, '_blank')?.focus(),
+                    onClick: () => {
+                        setVisibleMenu('none')
+                        window.open(HELP_URL, '_blank')?.focus()
+                    },
                 },
                 { icon: <IconX />, label: 'Logout', onClick: logout },
             ]}
@@ -149,7 +155,7 @@ export function Toolbar3000(): JSX.Element {
                     minimized && 'Toolbar3000--minimized-width',
                     isDragging && 'Toolbar3000--dragging'
                 )}
-                onMouseDown={onMouseDown}
+                onMouseDown={(e) => onMouseDown(e as any)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     transform:

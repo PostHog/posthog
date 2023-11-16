@@ -35,7 +35,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
-        onMouseDown: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => ({ event }),
+        onMouseDown: (event: MouseEvent) => ({ event }),
         setDragging: (dragging = true) => ({ dragging }),
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
