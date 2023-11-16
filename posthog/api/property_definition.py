@@ -142,7 +142,7 @@ class QueryContext:
         if properties_to_filter:
             return dataclasses.replace(
                 self,
-                name_filter="AND name IN %(names)s",
+                name_filter="AND name = ANY(%(names)s)",
                 params={**self.params, "names": tuple(properties_to_filter.split(","))},
             )
         else:
@@ -218,7 +218,7 @@ class QueryContext:
 
         if event_names and len(event_names) > 0:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
-            event_name_join_filter = "AND event in %(event_names)s"
+            event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(
             self,
@@ -249,7 +249,9 @@ class QueryContext:
         )
         return dataclasses.replace(
             self,
-            excluded_properties_filter=f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
+            excluded_properties_filter=(
+                f"AND NOT ({self.property_definition_table}.name = ANY(%(excluded_properties)s))"
+            )
             if len(excluded_list) > 0
             else "",
             params={
