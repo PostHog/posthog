@@ -91,11 +91,7 @@ export function ExportedInsight({
                             <QueriesUnsupportedHere />
                         )
                     ) : (
-                        <FilterBasedCardContent
-                            insight={insight as any}
-                            insightProps={insightLogicProps}
-                            style={{ top: 0, left: 0 }}
-                        />
+                        <FilterBasedCardContent insight={insight as any} insightProps={insightLogicProps} />
                     )}
                     {showLegend ? (
                         <div className="p-4">

@@ -57,7 +57,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className={'insights-page'}>
+            <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {insightMode === ItemMode.Edit && <InsightsNav />}

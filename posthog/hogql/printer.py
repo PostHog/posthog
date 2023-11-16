@@ -29,7 +29,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
@@ -39,6 +39,7 @@ from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema import MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -556,7 +557,11 @@ class _Printer(Visitor):
             return op
 
         # Special optimization for "Eq" operator
-        if node.op == ast.CompareOperationOp.Eq:
+        if (
+            node.op == ast.CompareOperationOp.Eq
+            or node.op == ast.CompareOperationOp.Like
+            or node.op == ast.CompareOperationOp.ILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNull({left})"
@@ -568,7 +573,11 @@ class _Printer(Visitor):
             return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
 
         # Special optimization for "NotEq" operator
-        if node.op == ast.CompareOperationOp.NotEq:
+        if (
+            node.op == ast.CompareOperationOp.NotEq
+            or node.op == ast.CompareOperationOp.NotLike
+            or node.op == ast.CompareOperationOp.NotILike
+        ):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNotNull({left})"
@@ -655,7 +664,19 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
 
     def visit_call(self, node: ast.Call):
-        if node.name in HOGQL_AGGREGATIONS:
+        if node.name in HOGQL_COMPARISON_MAPPING:
+            op = HOGQL_COMPARISON_MAPPING[node.name]
+            if len(node.args) != 2:
+                raise HogQLException(f"Comparison '{node.name}' requires exactly two arguments")
+            # We do "cleverer" logic with nullable types in visit_compare_operation
+            return self.visit_compare_operation(
+                ast.CompareOperation(
+                    left=node.args[0],
+                    right=node.args[1],
+                    op=op,
+                )
+            )
+        elif node.name in HOGQL_AGGREGATIONS:
             func_meta = HOGQL_AGGREGATIONS[node.name]
 
             validate_function_args(
@@ -887,47 +908,51 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        # find a materialized property for the first part of the chain
-        materialized_property_sql: Optional[str] = None
-        if isinstance(table, ast.TableType):
-            if self.dialect == "clickhouse":
-                table_name = table.table.to_printed_clickhouse(self.context)
-            else:
-                table_name = table.table.to_printed_hogql()
-            if field is None:
-                raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
-            if materialized_column:
-                property_sql = self._print_identifier(materialized_column)
-                property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
-                materialized_property_sql = property_sql
-        elif (
-            self.context.within_non_hogql_query
-            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
-            or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
-        ):
-            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
-            if materialized_column:
-                materialized_property_sql = self._print_identifier(materialized_column)
-
         args: List[str] = []
-        if materialized_property_sql is not None:
-            # When reading materialized columns, treat the values "" and "null" as NULL-s.
-            # TODO: rematerialize all columns to support empty strings and "null" string values.
-            materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
-            if len(type.chain) == 1:
-                return materialized_property_sql
-            else:
-                for name in type.chain[1:]:
-                    args.append(self.context.add_value(name))
-                return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
+        if self.context.modifiers.materializationMode != "disabled":
+            # find a materialized property for the first part of the chain
+            materialized_property_sql: Optional[str] = None
+            if isinstance(table, ast.TableType):
+                if self.dialect == "clickhouse":
+                    table_name = table.table.to_printed_clickhouse(self.context)
+                else:
+                    table_name = table.table.to_printed_hogql()
+                if field is None:
+                    raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
+                field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+                materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
+                if materialized_column:
+                    property_sql = self._print_identifier(materialized_column)
+                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
+                    materialized_property_sql = property_sql
+            elif (
+                self.context.within_non_hogql_query
+                and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
+                or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
+            ):
+                # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                    materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                else:
+                    materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                if materialized_column:
+                    materialized_property_sql = self._print_identifier(materialized_column)
+
+            if materialized_property_sql is not None:
+                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
+                if self.context.modifiers.materializationMode == MaterializationMode.legacy_null_as_string:
+                    materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
+                else:  # MaterializationMode.auto.legacy_null_as_null
+                    materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+
+                if len(type.chain) == 1:
+                    return materialized_property_sql
+                else:
+                    for name in type.chain[1:]:
+                        args.append(self.context.add_value(name))
+                    return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
         for name in type.chain:
             args.append(self.context.add_value(name))

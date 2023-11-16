@@ -191,15 +191,6 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_plans(self, plan_keys: Optional[str]):
-        res = requests.get(
-            f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
-
     def _get_products(self, organization: Optional[Organization]):
         headers = {}
         params = {"plan": "standard"}

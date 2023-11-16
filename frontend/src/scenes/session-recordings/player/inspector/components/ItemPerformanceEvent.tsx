@@ -9,6 +9,7 @@ import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -179,6 +180,10 @@ export function ItemPerformanceEvent({
             return acc
         }
 
+        if (key.includes('time') || key.includes('end') || key.includes('start')) {
+            return acc
+        }
+
         return {
             ...acc,
             [key]: typeof value === 'number' ? Math.round(value) : value,
@@ -312,7 +317,7 @@ export function ItemPerformanceEvent({
                     ) : (
                         <>
                             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                                <StatusRow status={item.response_status} />
+                                <StatusRow item={item} />
                             </FlaggedFeature>
                             <p>
                                 Request started at{' '}
@@ -334,58 +339,75 @@ export function ItemPerformanceEvent({
                             </p>
                         </>
                     )}
-
                     <LemonDivider dashed />
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(newKey) => setActiveTab(newKey)}
-                            tabs={[
-                                {
-                                    key: 'timings',
-                                    label: 'timings',
-                                    content: <SimpleKeyValueList item={sanitizedProps} />,
-                                },
-                                {
-                                    key: 'headers',
-                                    label: 'Headers',
-                                    content: (
-                                        <HeadersDisplay
-                                            request={item.request_headers}
-                                            response={item.response_headers}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && {
-                                    key: 'payload',
-                                    label: 'Payload',
-                                    content: (
-                                        <BodyDisplay
-                                            content={item.request_body}
-                                            headers={item.request_headers}
-                                            emptyMessage={'No request body captured'}
-                                        />
-                                    ),
-                                },
-                                item.entry_type !== 'navigation' && item.response_body
-                                    ? {
-                                          key: 'response_body',
-                                          label: 'Response',
-                                          content: (
-                                              <BodyDisplay
-                                                  content={item.response_body}
-                                                  headers={item.response_headers}
-                                                  emptyMessage={'No response body captured'}
-                                              />
-                                          ),
-                                      }
-                                    : false,
-                            ]}
-                        />
-                    </FlaggedFeature>
-                    <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
-                        <SimpleKeyValueList item={sanitizedProps} />
-                    </FlaggedFeature>
+                    {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
+                        <>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                                <LemonTabs
+                                    activeKey={activeTab}
+                                    onChange={(newKey) => setActiveTab(newKey)}
+                                    tabs={[
+                                        {
+                                            key: 'timings',
+                                            label: 'Timings',
+                                            content: (
+                                                <>
+                                                    <SimpleKeyValueList item={sanitizedProps} />
+                                                    <LemonDivider dashed />
+                                                    <NetworkRequestTiming performanceEvent={item} />
+                                                </>
+                                            ),
+                                        },
+                                        {
+                                            key: 'headers',
+                                            label: 'Headers',
+                                            content: (
+                                                <HeadersDisplay
+                                                    request={item.request_headers}
+                                                    response={item.response_headers}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && {
+                                            key: 'payload',
+                                            label: 'Payload',
+                                            content: (
+                                                <BodyDisplay
+                                                    content={item.request_body}
+                                                    headers={item.request_headers}
+                                                    emptyMessage={'No request body captured'}
+                                                />
+                                            ),
+                                        },
+                                        item.entry_type !== 'navigation' && item.response_body
+                                            ? {
+                                                  key: 'response_body',
+                                                  label: 'Response',
+                                                  content: (
+                                                      <BodyDisplay
+                                                          content={item.response_body}
+                                                          headers={item.response_headers}
+                                                          emptyMessage={'No response body captured'}
+                                                      />
+                                                  ),
+                                              }
+                                            : false,
+                                    ]}
+                                />
+                            </FlaggedFeature>
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
+                                <SimpleKeyValueList item={sanitizedProps} />
+                                <LemonDivider dashed />
+                                <NetworkRequestTiming performanceEvent={item} />
+                            </FlaggedFeature>
+                        </>
+                    ) : (
+                        <>
+                            <SimpleKeyValueList item={sanitizedProps} />
+                            <LemonDivider dashed />
+                            <NetworkRequestTiming performanceEvent={item} />
+                        </>
+                    )}
                 </div>
             )}
         </div>
@@ -444,29 +466,44 @@ function HeadersDisplay({
     )
 }
 
-function StatusRow({ status }: { status: number | undefined }): JSX.Element | null {
-    if (status === undefined) {
-        return null
+function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    let statusRow = null
+    let methodRow = null
+
+    if (item.response_status) {
+        const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
+
+        let statusType: LemonTagType = 'success'
+        if (item.response_status >= 400 || item.response_status < 100) {
+            statusType = 'warning'
+        } else if (item.response_status >= 500) {
+            statusType = 'danger'
+        }
+
+        statusRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Status code</div>
+                <LemonTag type={statusType}>{statusDescription}</LemonTag>
+            </div>
+        )
     }
 
-    const statusDescription = `${status} ${friendlyHttpStatus[status] || ''}`
-
-    let statusType: LemonTagType = 'success'
-    if (status >= 400 || status < 100) {
-        statusType = 'warning'
-    } else if (status >= 500) {
-        statusType = 'danger'
+    if (item.method) {
+        methodRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Request method</div>
+                <div className={'uppercase font-semibold'}>{item.method}</div>
+            </div>
+        )
     }
 
-    return (
+    return methodRow || statusRow ? (
         <p>
             <div className="text-xs space-y-1 max-w-full">
-                <div className="flex gap-4 items-start justify-between overflow-hidden">
-                    <span className="font-semibold">Status code</span>
-                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                </div>
+                {methodRow}
+                {statusRow}
             </div>
             <LemonDivider dashed />
         </p>
-    )
+    ) : null
 }

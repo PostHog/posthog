@@ -48,7 +48,7 @@ export function Sidebar(): JSX.Element {
                                 dropdown={{
                                     visible: isProjectSwitcherShown,
                                     onClickOutside: hideProjectSwitcher,
-                                    overlay: <ProjectSwitcherOverlay />,
+                                    overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
                                     actionable: true,
                                     placement: 'top-end',
                                 }}

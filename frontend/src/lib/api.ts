@@ -1259,7 +1259,7 @@ const api = {
             const params = toParams(
                 {
                     limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
+                    level_filter: typeFilters,
                     search: searchTerm || undefined,
                     before: trailingEntry?.timestamp,
                     after: leadingEntry?.timestamp,

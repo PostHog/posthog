@@ -309,8 +309,20 @@ export const supportLogic = kea<supportLogicType>([
 
     urlToAction(({ actions, values }) => ({
         '*': (_, _search, hashParams) => {
-            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+            if (values.isSupportFormOpen) {
+                return
+            }
+
+            // Legacy supportModal param
+            if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                actions.openSupportForm(
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
+                )
+            } else if ((hashParams['panel'] as string | undefined)?.startsWith('support')) {
+                const [kind, area] = hashParams['panel'].split(':').slice(1)
 
                 actions.openSupportForm(
                     Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
@@ -322,7 +334,8 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values }) => {
         const updateUrl = (): any => {
             const hashParams = router.values.hashParams
-            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
+            delete hashParams['supportModal'] // legacy value
+            hashParams['panel'] = `support:${values.sendSupportRequest.kind || ''}:${
                 values.sendSupportRequest.target_area || ''
             }`
             return [router.values.location.pathname, router.values.searchParams, hashParams]
@@ -332,7 +345,9 @@ export const supportLogic = kea<supportLogicType>([
             setSendSupportRequestValue: () => updateUrl(),
             closeSupportForm: () => {
                 const hashParams = router.values.hashParams
-                delete hashParams['supportModal']
+                delete hashParams['supportModal'] // legacy value
+                delete hashParams['panel']
+
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },
         }

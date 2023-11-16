@@ -362,6 +362,8 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
+psycopg==3.1
+    # via -r requirements.in
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
@@ -503,7 +505,7 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.1.0
+temporalio==1.4.0
     # via -r requirements.in
 tenacity==6.1.0
     # via celery-redbeat
@@ -529,6 +531,7 @@ types-s3transfer==0.6.1
     # via boto3-stubs
 typing-extensions==4.7.1
     # via
+    #   psycopg
     #   pydantic
     #   pydantic-core
     #   qrcode
