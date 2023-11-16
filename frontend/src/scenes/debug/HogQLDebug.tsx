@@ -80,7 +80,25 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                             }
                             value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
                         />
-                    </LemonLabel>{' '}
+                    </LemonLabel>
+                    <LemonLabel>
+                        Materialization Mode:
+                        <LemonSelect
+                            options={[
+                                { value: 'auto', label: 'auto' },
+                                { value: 'legacy_null_as_string', label: 'legacy_null_as_string' },
+                                { value: 'legacy_null_as_null', label: 'legacy_null_as_null' },
+                                { value: 'disabled', label: 'disabled' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, materializationMode: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.materializationMode ?? response?.modifiers?.materializationMode}
+                        />
+                    </LemonLabel>
                 </div>
                 {dataLoading ? (
                     <>

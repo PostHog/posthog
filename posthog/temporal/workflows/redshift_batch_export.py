@@ -32,10 +32,65 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 
 
+def remove_escaped_whitespace_recursive(value):
+    """Remove all escaped whitespace characters from given value.
+
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongst other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
+    """
+    match value:
+        case str(s):
+            return " ".join(s.replace("\b", " ").split())
+
+        case bytes(b):
+            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
+
+        case [*sequence]:
+            # mypy could be bugged as it's raising a Statement unreachable error.
+            # But we are definitely reaching this statement in tests; hence the ignore comment.
+            # Maybe: https://github.com/python/mypy/issues/16272.
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+
+        case set(elements):
+            return set(remove_escaped_whitespace_recursive(element) for element in elements)
+
+        case {**mapping}:
+            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case value:
+            return value
+
+
+@contextlib.asynccontextmanager
+async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
+    """Manage a Redshift connection.
+
+    This just yields a Postgres connection but we adjust a couple of things required for
+    psycopg to work with Redshift:
+    1. Set UNICODE encoding to utf-8 as Redshift reports back UNICODE.
+    2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
+        which is not supported on Redshift.
+    """
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
+
+    async with postgres_connection(inputs) as connection:
+        connection.prepare_threshold = None
+        yield connection
+
+
 async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
     redshift_connection: psycopg.AsyncConnection,
-    schema: str,
+    schema: str | None,
     table: str,
     batch_size: int = 100,
 ):
@@ -61,8 +116,13 @@ async def insert_records_to_redshift(
     first_record = next(records)
     columns = first_record.keys()
 
+    if schema:
+        table_identifier = sql.Identifier(schema, table)
+    else:
+        table_identifier = sql.Identifier(table)
+
     pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
-        table=sql.Identifier(schema, table),
+        table=table_identifier,
         fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
     )
     template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
@@ -181,7 +241,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
-        async with postgres_connection(inputs) as connection:
+        async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
@@ -219,7 +279,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(row[key]) if key in json_columns and row[key] is not None else row[key]
+                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
+                if key in json_columns and row[key] is not None
+                else row[key]
                 for key in schema_columns
             }
 

@@ -194,7 +194,6 @@ export function FilterBasedCardContent({
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div
                 className="InsightCard__viz"
-                // eslint-disable-next-line react/forbid-dom-props
                 onClick={
                     setAreDetailsShown
                         ? () => {

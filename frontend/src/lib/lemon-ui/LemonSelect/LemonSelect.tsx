@@ -140,7 +140,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <div /> : undefined}
+                sideIcon={isClearButtonShown ? <></> : undefined}
                 type="secondary"
                 status="stealth"
                 {...buttonProps}

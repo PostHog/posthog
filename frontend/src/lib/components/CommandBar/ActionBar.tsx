@@ -2,10 +2,10 @@ import { useValues } from 'kea'
 
 import { actionBarLogic } from './actionBarLogic'
 
-import ActionInput from './ActionInput'
-import ActionResults from './ActionResults'
+import { ActionInput } from './ActionInput'
+import { ActionResults } from './ActionResults'
 
-const ActionBar = (): JSX.Element => {
+export const ActionBar = (): JSX.Element => {
     const { activeFlow } = useValues(actionBarLogic)
 
     return (
@@ -15,5 +15,3 @@ const ActionBar = (): JSX.Element => {
         </div>
     )
 }
-
-export default ActionBar

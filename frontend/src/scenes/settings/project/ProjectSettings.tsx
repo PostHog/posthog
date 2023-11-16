@@ -58,7 +58,7 @@ export function WebSnippet(): JSX.Element {
             </p>
             {currentTeamLoading && !currentTeam ? (
                 <div className="space-y-4">
-                    <LemonSkeleton className="w-1/2" />
+                    <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton repeat={3} />
                 </div>
             ) : (

@@ -13,6 +13,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team
 
+LIMIT = 25
+
 
 class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -29,7 +31,10 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             qs = qs.union(klass_qs)
             counts[type] = klass_qs.count()
 
-        return Response({"results": qs, "counts": counts})
+        if query:
+            qs = qs.order_by("-rank")
+
+        return Response({"results": qs[:LIMIT], "counts": counts})
 
 
 UNSAFE_CHARACTERS = r"[\'&|!<>():]"
@@ -63,9 +68,12 @@ def class_queryset(klass: type[Model], team: Team, query: str | None):
         qs = qs.annotate(result_id=Cast("pk", CharField()))
 
     if query:
-        qs = qs.annotate(rank=SearchRank(SearchVector("name"), SearchQuery(query, search_type="raw")))
+        qs = qs.annotate(
+            rank=SearchRank(
+                SearchVector("name", config="simple"), SearchQuery(query, config="simple", search_type="raw")
+            )
+        )
         qs = qs.filter(rank__gt=0.05)
-        qs = qs.order_by("-rank")
         values.append("rank")
 
     qs = qs.values(*values)
