@@ -30,6 +30,7 @@ export const tagColors: LemonTagType[] = [
     'success',
     'completion',
     'caution',
+    'option',
 ]
 
 export function getColorVar(variable: string): string {
