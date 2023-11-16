@@ -24,9 +24,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team. 
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -61,9 +59,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team. 
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.

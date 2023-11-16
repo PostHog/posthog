@@ -82,7 +82,6 @@ describe('plugins', () => {
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
             'composeWebhook',
-            'exportEvents',
             'getSettings',
             'onEvent',
             'processEvent',
@@ -730,27 +729,6 @@ describe('plugins', () => {
         expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
         expect(setPluginCapabilities.mock.calls.length).toBe(1)
         expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
-    })
-
-    test.skip('exportEvents automatically sets metrics', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            export function exportEvents() {}
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-
-        expect(pluginConfig.plugin!.metrics).toEqual({
-            events_delivered_successfully: 'sum',
-            events_seen: 'sum',
-            other_errors: 'sum',
-            retry_errors: 'sum',
-            undelivered_events: 'sum',
-        })
     })
 
     describe('loadSchedule()', () => {
