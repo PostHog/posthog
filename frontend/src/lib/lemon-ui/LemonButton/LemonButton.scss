@@ -123,7 +123,7 @@
         font-size: 1.5rem;
         flex-shrink: 0;
         transition: color 200ms ease;
-        justify-items: center;
+        place-items: center center;
     }
 
     @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
