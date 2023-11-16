@@ -72,7 +72,7 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
             "elements": json.dumps(elements_chain) if elements_chain else None,
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
-            "properties": json.dumps(properties) if properties else None,
+            "properties": json.dumps(properties, ensure_ascii=False) if properties else None,
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
@@ -185,9 +185,10 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         properties={
             "$browser": "Chrome",
             "$os": "Mac OS X",
-            "newline": "\n\n",
-            "nested_newline": {"newline": "\n\n"},
-            "sequence": {"mucho_whitespace": ["\n\n", "\t\t", "\f\f"]},
+            "whitespace": "hi\t\n\r\f\bhi",
+            "nested_whitespace": {"whitespace": "hi\t\n\r\f\bhi"},
+            "sequence": {"mucho_whitespace": ["hi", "hi\t\n\r\f\bhi", "hi\t\n\r\f\bhi", "hi"]},
+            "multi-byte": "é",
         },
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )

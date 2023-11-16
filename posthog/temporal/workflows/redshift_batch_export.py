@@ -279,7 +279,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(remove_escaped_whitespace_recursive(row[key]))
+                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
                 if key in json_columns and row[key] is not None
                 else row[key]
                 for key in schema_columns
