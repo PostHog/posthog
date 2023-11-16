@@ -31,6 +31,46 @@ from posthog.temporal.workflows.postgres_batch_export import (
     postgres_connection,
 )
 
+WHITESPACE_TRANSLATE = str.maketrans(
+    {
+        whitespace_char: None
+        for whitespace_char in (
+            "\n",
+            "\t",
+            "\f",
+            "\r",
+            "\b",
+        )
+    }
+)
+
+
+def translate_whitespace_recursive(value: typing.Any):
+    """Translate all whitespace from given dict values using WHITESPACE_TRANSLATE.
+
+    PostgreSQL supports literal escaped strings that append an E' to each string that
+    contains whitespace in them (amongts other characters). However, Redshift does not
+    support this. So, to avoid any escaping by underlying PostgreSQL library, we remove
+    the whitespace as defined in the translation table WHITESPACE_TRANSLATE.
+    """
+    match value:
+        case str(s):
+            new_value = s.translate(WHITESPACE_TRANSLATE)
+
+        case bytes(b):
+            new_value = b.decode("utf-8").translate(WHITESPACE_TRANSLATE).encode("utf-8")
+
+        case {**mapping}:
+            new_value = {k: translate_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case [*sequence]:
+            new_value = type(value)(translate_whitespace_recursive(sequence_value) for sequence_value in sequence)
+
+        case _:
+            new_value = value
+
+    return new_value
+
 
 @contextlib.asynccontextmanager
 async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
@@ -242,7 +282,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(row[key]) if key in json_columns and row[key] is not None else row[key]
+                key: json.dumps(translate_whitespace_recursive(row[key]))
+                if key in json_columns and row[key] is not None
+                else row[key]
                 for key in schema_columns
             }
 
