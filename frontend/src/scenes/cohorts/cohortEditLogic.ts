@@ -66,7 +66,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
-        submitCohort: () => Promise<any>
     }),
 
     selectors({
@@ -206,7 +205,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
-                actions.submitCohort()
                 actions.saveCohort(cohort)
             },
         },
