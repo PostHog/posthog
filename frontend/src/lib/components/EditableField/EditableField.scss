@@ -3,6 +3,10 @@
     align-items: center;
     max-width: 100%;
 
+    &:not(.EditableField--multiline) {
+        line-height: 1.15em;
+    }
+
     i {
         color: var(--muted);
     }
