@@ -330,6 +330,14 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
     return logEntries
 }
 
+export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
+    // TODO: clean up, better type handling
+    const { data: appMetrics } = await clickHouseClient.querying(
+        `SELECT * FROM app_metrics WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp`
+    )
+    return appMetrics
+}
+
 export const createOrganization = async (organizationProperties = {}) => {
     const organizationId = new UUIDT().toString()
     await insertRow(postgres, 'posthog_organization', {

@@ -12,6 +12,7 @@ import {
     createTeam,
     enablePluginConfig,
     fetchEvents,
+    fetchPluginAppMetrics,
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
@@ -108,9 +109,6 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
 
     const event = {
         event: 'custom event',
-        // NOTE: Before `sanitizeJsonbValue` was added, the null byte below would blow up the error
-        // UPDATE, breaking this test. It is now replaced with the Unicode replacement character,
-        // \uFFFD.
         properties: { name: 'haha', other: '\u0000' },
     }
 
@@ -122,16 +120,19 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
         return events
     })
 
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
+    const { error_details } = await waitForExpect(async () => {
+        // TODO: clean up, move parsing down to fetch
+        const errors = (await fetchPluginAppMetrics(pluginConfig.id))
+            .filter((record) => record.error_type)
+            .map((record) => ({ ...record, error_details: JSON.parse(record.error_details) }))
+        expect(errors.length).toEqual(1)
+        return errors[0]
     })
 
-    expect(error.message).toEqual('error thrown in plugin')
-    const errorProperties = error.event.properties
-    expect(errorProperties.name).toEqual('haha')
-    expect(errorProperties.other).toEqual('\uFFFD')
+    expect(error_details).toMatchObject({
+        error: { message: 'error thrown in plugin' },
+        event: { properties: event.properties },
+    })
 })
 
 test.concurrent(`plugin method tests: creates error on unhandled rejection`, async () => {
