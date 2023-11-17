@@ -121,10 +121,7 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
     })
 
     const { error_details } = await waitForExpect(async () => {
-        // TODO: clean up, move parsing down to fetch
-        const errors = (await fetchPluginAppMetrics(pluginConfig.id))
-            .filter((record) => record.error_type)
-            .map((record) => ({ ...record, error_details: JSON.parse(record.error_details) }))
+        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
         expect(errors.length).toEqual(1)
         return errors[0]
     })

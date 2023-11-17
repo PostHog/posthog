@@ -335,7 +335,12 @@ export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
     const { data: appMetrics } = await clickHouseClient.querying(
         `SELECT * FROM app_metrics WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp`
     )
-    return appMetrics
+    return appMetrics.map((row) => {
+        if (row.error_type) {
+            row.error_details = JSON.parse(row.error_details)
+        }
+        return row
+    })
 }
 
 export const createOrganization = async (organizationProperties = {}) => {
