@@ -7,10 +7,6 @@
     display: flex;
     background: var(--accent-3000);
 
-    .LemonButton {
-        min-height: 2.25rem !important; // Reduce minimum height
-    }
-
     &--open {
         position: relative;
         max-width: 60%;
@@ -21,10 +17,10 @@
             top: 0;
             right: 0;
             max-width: calc(100vw - 3rem);
-            box-shadow: 0px 0px 30px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 0 30px rgb(0 0 0 / 20%);
 
             [theme='dark'] & {
-                box-shadow: 0px 0px 30px rgba(255, 255, 255, 0.1);
+                box-shadow: none;
             }
         }
 
@@ -46,6 +42,10 @@
         border-left-width: 1px;
         overflow-y: auto;
         user-select: none;
+
+        .LemonButton {
+            min-height: 2.25rem !important; // Reduce minimum height
+        }
     }
 
     .SidePanel3000__content {

@@ -59,7 +59,7 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
         <div className="NotebookFloatingButton" style={{ top: position.top }}>
             {shouldShow && (
                 <div className="FloatingSuggestion flex items-center justify-content">
-                    {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
+                    {Component && notebookEditor && <Component previousNode={previousNode} editor={notebookEditor} />}
                 </div>
             )}
         </div>

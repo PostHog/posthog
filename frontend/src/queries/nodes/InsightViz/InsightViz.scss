@@ -1,0 +1,151 @@
+.InsightViz {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 1rem;
+    container-type: inline-size;
+    flex: 1; // important for when rendered within a flex parent
+
+    &.InsightViz--horizontal {
+        flex-flow: row wrap;
+        align-items: start;
+
+        .EditorFiltersWrapper {
+            width: 100%;
+
+            @container (min-width: 768px) {
+                width: 30%;
+                min-width: 26rem;
+                max-width: 30rem;
+            }
+        }
+    }
+}
+
+.InsightVizDisplay {
+    --insight-viz-min-height: calc(80vh - 6rem);
+
+    display: flex;
+    flex-direction: column;
+
+    .NotebookNode & {
+        height: 100%;
+        flex: 1;
+    }
+
+    .InsightVizDisplay__content {
+        display: flex;
+        flex: 1;
+        position: relative;
+        flex-direction: column;
+
+        &--with-legend {
+            flex-direction: row;
+        }
+
+        .InsightVizDisplay__content__left {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            position: relative;
+            width: 100%;
+        }
+
+        .InsightVizDisplay__content__right {
+            flex-shrink: 1;
+            max-width: 45%;
+            max-height: var(--insight-viz-min-height);
+            width: fit-content;
+            margin: 1rem;
+            display: flex;
+            align-items: center;
+        }
+    }
+
+    .InsightDisplayConfig {
+        border-bottom-width: 1px;
+        padding: 0.5rem;
+    }
+}
+
+.RetentionContainer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+
+    .RetentionContainer__graph {
+        flex: 1;
+        margin: 0.5rem;
+    }
+
+    .RetentionContainer__table {
+        flex-shrink: 0;
+    }
+
+    .LineGraph {
+        position: relative;
+        width: 100%;
+        min-height: 30vh;
+    }
+
+    .NotebookNode & {
+        .LineGraph {
+            position: relative;
+            min-height: 100px;
+        }
+    }
+}
+
+.TrendsInsight {
+    position: relative;
+    flex: 1;
+    margin: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    min-height: var(--insight-viz-min-height);
+
+    .NotebookNode & {
+        min-height: auto;
+    }
+
+    &--ActionsTable,
+    &--WorldMap,
+    &--BoldNumber {
+        margin: 0;
+        min-height: auto;
+    }
+
+    &--BoldNumber {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+.FunnelInsight {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+
+    &--type-steps-vertical,
+    &--type-time_to_convert,
+    &--type-trends {
+        min-height: var(--insight-viz-min-height);
+
+        .NotebookNode & {
+            min-height: auto;
+        }
+    }
+}
+
+.funnel-significance-highlight {
+    display: inline-flex;
+    background: var(--primary);
+    color: var(--bg-light);
+
+    .LemonIcon {
+        color: var(--bg-light);
+    }
+}

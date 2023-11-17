@@ -142,8 +142,8 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     This variable will be set to the distinct ID if you've called{' '}
-                    <pre style={{ display: 'inline' }}>posthog.identify('distinct id')</pre>. If the user is anonymous,
-                    it'll be empty.
+                    <pre className="inline">posthog.identify('distinct id')</pre>. If the user is anonymous, it'll be
+                    empty.
                 </span>
             ),
         },
@@ -835,7 +835,7 @@ export function getKeyMapping(
         data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+            data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {

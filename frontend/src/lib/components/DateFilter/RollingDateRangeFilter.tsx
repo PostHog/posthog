@@ -83,7 +83,7 @@ export function RollingDateRangeFilter({
                     data-attr="rolling-date-range-date-options-selector"
                     id="rolling-date-range-date-options-selector"
                     value={dateOption}
-                    onChange={(newValue): void => setDateOption(newValue as string)}
+                    onChange={(newValue): void => setDateOption(newValue)}
                     onClick={(e): void => {
                         e.stopPropagation()
                         toggleDateOptionsSelector()

@@ -26,7 +26,7 @@ export function ErrorDetailsModal(): JSX.Element {
             footer={
                 <div className="flex items-center justify-end gap-1 h-">
                     {errorDetailsLoading ? (
-                        <LemonSkeleton className="1-10" />
+                        <LemonSkeleton className="h-10" />
                     ) : (
                         <>
                             <span>

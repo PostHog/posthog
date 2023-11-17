@@ -1,13 +1,13 @@
-import { Tooltip } from 'antd'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
+import { TZLabel } from '@posthog/apps-common'
 
 export function Timestamp(): JSX.Element {
     const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
@@ -21,9 +21,9 @@ export function Timestamp(): JSX.Element {
 
     return (
         <div className="whitespace-nowrap mr-4">
-            <Tooltip overlay={dayjs(currentTimestamp).format('HH:mm:ss A')}>
-                {colonDelimitedDuration(startTimeSeconds, fixedUnits)}
-            </Tooltip>{' '}
+            <TZLabel time={dayjs(currentTimestamp)} showSeconds>
+                <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+            </TZLabel>{' '}
             / {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
         </div>
     )

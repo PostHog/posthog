@@ -228,9 +228,27 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
             "exclude_events": plugin_config.config.get("eventsToIgnore", "").split(",") or None,
         }
         export_type = "Postgres"
+
+    elif plugin.name == "Redshift Export Plugin":
+        config = {
+            "database": plugin_config.config["dbName"],
+            "user": plugin_config.config["dbUsername"],
+            "password": plugin_config.config["dbPassword"],
+            "schema": "",
+            "host": plugin_config.config["clusterHost"],
+            "port": int(
+                plugin_config.config.get("clusterPort", "5439"),
+            ),
+            "table_name": plugin_config.config.get("tableName", "posthog_event"),
+            "exclude_events": plugin_config.config.get("eventsToIgnore", "").split(",") or None,
+            "properties_data_type": plugin_config.config.get("propertiesDataType", "varchar"),
+        }
+        export_type = "Redshift"
+
     else:
         raise CommandError(
-            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"
+            f"Unsupported Plugin: '{plugin.name}'."
+            "Supported Plugins are: 'BigQuery Export', 'PostgreSQL Export Plugin', 'Redshift Export Plugin', 'Snowflake Export', and 'S3 Export Plugin'"
         )
 
     return (export_type, config)

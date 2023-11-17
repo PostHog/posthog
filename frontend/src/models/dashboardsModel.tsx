@@ -1,5 +1,5 @@
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
@@ -321,11 +322,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadDashboards()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadDashboards()
+    }),
+    permanentlyMount(),
 ])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {

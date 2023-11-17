@@ -5,7 +5,11 @@ import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useActions } from 'kea'
+
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
 
@@ -43,7 +47,11 @@ const shouldForcePageLoad = (input: any): boolean => {
 }
 
 const isPostHogDomain = (url: string): boolean => {
-    return /https:\/\/((app|eu)\.)?posthog\.com'/.test(url)
+    return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
+}
+
+const isPostHogComDomain = (url: string): boolean => {
+    return /^https:\/\/(www\.)?posthog\.com/.test(url)
 }
 
 /**
@@ -74,6 +82,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
+        const is3000 = useFeatureFlag('POSTHOG_3000')
+        const { openDocsPage } = useActions(sidePanelDocsLogic)
+
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -84,6 +95,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (event.isDefaultPrevented()) {
                 event.preventDefault()
+                return
+            }
+
+            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
+                event.preventDefault()
+                openDocsPage(to)
                 return
             }
 
@@ -117,10 +134,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <Tooltip
-                isDefaultTooltip
-                title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
-            >
+            <Tooltip title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
                 <span>
                     <button
                         ref={ref as any}

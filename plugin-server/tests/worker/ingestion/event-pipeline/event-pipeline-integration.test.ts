@@ -52,7 +52,6 @@ describe('Event Pipeline integration test', () => {
             hub.db.postgres,
             hub.teamManager,
             hub.organizationManager,
-            new Set(hub.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
             hub.appMetrics,
             undefined,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS

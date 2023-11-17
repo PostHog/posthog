@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Progress, Space } from 'antd'
+import { Button, Progress } from 'antd'
 import { useActions, useValues } from 'kea'
-import { PlayCircleOutlined } from '@ant-design/icons'
 import {
     AsyncMigration,
     migrationStatusNumberToMessage,
@@ -21,7 +20,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
+import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from '@posthog/lemon-ui'
@@ -153,7 +152,7 @@ export function AsyncMigrations(): JSX.Element {
                         <Tooltip title="Start">
                             <Button
                                 type="link"
-                                icon={<PlayCircleOutlined />}
+                                icon={<IconPlayCircle />}
                                 onClick={() => triggerMigration(asyncMigration)}
                             >
                                 Run
@@ -309,7 +308,6 @@ export function AsyncMigrations(): JSX.Element {
                                     Refresh
                                 </LemonButton>
                             </div>
-                            <Space />
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}

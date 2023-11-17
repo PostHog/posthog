@@ -1,4 +1,6 @@
-.funnel-histogram-outer-container {
+.FunnelHistogram {
+    flex: 1;
+
     &.scrollable {
         overflow-x: auto;
     }

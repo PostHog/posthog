@@ -1,4 +1,4 @@
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
@@ -9,6 +9,7 @@ import { App } from 'scenes/App'
 import { DatabaseSchemaQueryResponse } from '~/queries/schema'
 import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     events: [
@@ -116,6 +117,7 @@ export function Database(): JSX.Element {
 }
 
 export function IngestionWarnings(): JSX.Element {
+    setFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])
     useEffect(() => {
         router.actions.push(urls.ingestionWarnings())
     }, [])

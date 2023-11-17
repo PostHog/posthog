@@ -13,35 +13,30 @@ import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { appContextLogic } from './appContextLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Action]: Scene.DataManagement,
-    [Scene.Actions]: Scene.DataManagement,
-    [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.IngestionWarnings]: Scene.DataManagement,
-    [Scene.Person]: Scene.Persons,
-    [Scene.Cohort]: Scene.Cohorts,
-    [Scene.Groups]: Scene.Persons,
+    [Scene.Person]: Scene.PersonsManagement,
+    [Scene.Cohort]: Scene.PersonsManagement,
     [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.Persons,
+    [Scene.Group]: Scene.PersonsManagement,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
     [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
+    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -256,23 +251,14 @@ export const sceneLogic = kea<sceneLogicType>([
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/onboarding') &&
                         !location.pathname.startsWith('/products') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !location.pathname.startsWith('/settings')
                     ) {
                         if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===
-                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                             !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
                         ) {
-                            console.warn('No onboarding completed, redirecting to products')
+                            console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
-                            return
-                        } else if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
-                                'test' &&
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding
-                        ) {
-                            console.warn('Ingestion tutorial not completed, redirecting to it')
-                            router.actions.replace(urls.ingestion())
                             return
                         }
                     }

@@ -15,7 +15,7 @@ type FunnelStepMoreProps = {
 export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const filterProps = cleanFilters(queryNodeToFilter(querySource!))
 
     const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index

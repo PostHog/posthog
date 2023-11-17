@@ -18,6 +18,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+// eslint-disable-next-line no-restricted-imports
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -41,11 +42,6 @@ interface InsightMetaProps
         | 'showDetailsControls'
         | 'moreButtons'
     > {
-    /**
-     * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
-     * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
-     */
-    setPrimaryHeight?: (primaryHeight: number | undefined) => void
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
@@ -61,7 +57,6 @@ export function InsightMeta({
     rename,
     duplicate,
     moveToDashboard,
-    setPrimaryHeight,
     areDetailsShown,
     setAreDetailsShown,
     showEditingControls = true,
@@ -90,13 +85,11 @@ export function InsightMeta({
 
     return (
         <CardMeta
-            setPrimaryHeight={setPrimaryHeight}
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            className={'border-b'}
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>

@@ -1,13 +1,13 @@
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined } from '@ant-design/icons'
 import { SavedInsightsTabs } from '~/types'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { IconCalendar } from '@posthog/icons'
 
 export function SavedInsightsFilters(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
@@ -66,7 +66,7 @@ export function SavedInsightsFilters(): JSX.Element {
                         }
                         makeLabel={(key) => (
                             <>
-                                <CalendarOutlined />
+                                <IconCalendar />
                                 <span className="hide-when-small"> {key}</span>
                             </>
                         )}

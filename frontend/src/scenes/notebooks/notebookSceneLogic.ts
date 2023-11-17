@@ -1,5 +1,5 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, NotebookTarget } from '~/types'
 
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -41,7 +41,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
 
     afterMount(({ actions, props }) => {
         if (props.shortId === 'new') {
-            actions.createNotebook()
+            actions.createNotebook(NotebookTarget.Scene)
         } else {
             actions.loadNotebook()
         }

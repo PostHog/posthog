@@ -105,8 +105,8 @@ export class ConsoleLogsIngester {
             return
         }
 
-        const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', `[console-log-events-ingester] ${text}`, {
+        const logDebug = (text: string, labels: Record<string, any> = {}) =>
+            status.debug('⚠️', `[console-log-events-ingester] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -120,7 +120,7 @@ export class ConsoleLogsIngester {
                 })
                 .inc()
 
-            warn(reason, {
+            logDebug(reason, {
                 reason,
                 ...labels,
             })

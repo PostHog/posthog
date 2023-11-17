@@ -1,5 +1,4 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
-import { Row } from 'antd'
 import { useValues } from 'kea'
 import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
@@ -13,8 +12,8 @@ import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
+} from './settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -114,7 +113,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconSettings />}
-                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        to={`${urls.settings('organization')}?tab=role_based_access`}
                                         status="stealth"
                                         targetBlank
                                         size="small"
@@ -182,12 +181,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div
-                            className="pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
                             {roles.map((role) => {
                                 return (
                                     <RoleRow
@@ -247,7 +241,7 @@ function OrganizationResourcePermissionLabel({
                 icon={
                     <LemonButton
                         icon={<IconSettings />}
-                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        to={`${urls.settings('organization')}?tab=role_based_access`}
                         status="stealth"
                         targetBlank
                         size="small"
@@ -267,13 +261,13 @@ function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): 
     return (
         <>
             <h5 className="mt-4">Roles with edit access</h5>
-            <Row>
+            <div className="flex">
                 {roles.map((role) => (
                     <span key={role.id} className="simple-tag tag-light-blue text-primary-alt mr-2">
                         <b>{role.name}</b>{' '}
                     </span>
                 ))}
-            </Row>
+            </div>
         </>
     )
 }

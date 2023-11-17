@@ -11,7 +11,7 @@ import { CopyToClipboardInline } from '../CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
+import { NewProperty } from 'scenes/persons/NewProperty'
 import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyDefinitionType } from '~/types'
@@ -283,7 +283,7 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object) {
+                if (Array.isArray(item[1]) || item[1] instanceof Object || item[1] === null) {
                     return false
                 }
                 return (
@@ -351,7 +351,7 @@ export function PropertiesTable({
                             )}
                         </span>
 
-                        {onEdit && <NewPropertyComponent editProperty={onEdit} />}
+                        {onEdit && <NewProperty onSave={onEdit} />}
                     </div>
                 )}
 

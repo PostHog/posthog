@@ -1385,7 +1385,7 @@ export function humanTzOffset(timezone?: string): string {
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
 export function humanList(arr: readonly string[]): string {
-    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.at(-1) : arr.join(' and ')
 }
 
 export function resolveWebhookService(webhookUrl: string): string {
@@ -1447,7 +1447,7 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-export function toString(input?: any | null): string {
+export function toString(input?: any): string {
     return input?.toString() || ''
 }
 
@@ -1826,4 +1826,28 @@ export function shouldCancelQuery(error: any): boolean {
     // We cancel queries "manually" when the request times out or is aborted since in these cases
     // the query will continue running in ClickHouse
     return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+}
+
+export function flattenObject(ob: Record<string, any>): Record<string, any> {
+    const toReturn = {}
+
+    for (const i in ob) {
+        if (!ob.hasOwnProperty(i)) {
+            continue
+        }
+
+        if (typeof ob[i] == 'object') {
+            const flatObject = flattenObject(ob[i])
+            for (const x in flatObject) {
+                if (!flatObject.hasOwnProperty(x)) {
+                    continue
+                }
+
+                toReturn[i + '.' + x] = flatObject[x]
+            }
+        } else {
+            toReturn[i] = ob[i]
+        }
+    }
+    return toReturn
 }

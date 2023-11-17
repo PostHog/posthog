@@ -31,7 +31,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={async () => await copyToClipboard(url, 'notebook link')}
+                onClick={() => void copyToClipboard(url, 'notebook link')}
                 title={url}
             >
                 <span className="truncate">{url}</span>

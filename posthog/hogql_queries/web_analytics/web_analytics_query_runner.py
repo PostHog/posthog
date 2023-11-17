@@ -4,6 +4,7 @@ from math import ceil
 from typing import Optional, List, Union, Type
 
 from django.utils.timezone import datetime
+
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.caching.utils import is_stale
 from posthog.hogql.parser import parse_expr
@@ -16,14 +17,10 @@ from posthog.schema import (
     WebTopClicksQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    HogQLPropertyFilter,
+    PersonPropertyFilter,
 )
 
-WebQueryNode = Union[
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
-]
+WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
@@ -47,7 +44,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         return None
 
     @cached_property
-    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, HogQLPropertyFilter]]:
+    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, PersonPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self, include_previous_period: Optional[bool] = None):

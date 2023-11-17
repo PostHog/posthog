@@ -4,55 +4,108 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/navigation/SideBar/SidebarChangeNotice'
+import { navigation3000Logic } from '../navigationLogic'
+import { LemonTag } from '@posthog/lemon-ui'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
     title?: string
+    shortTitle?: string
+    tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
     persistentTooltip?: boolean
     active?: boolean
-    popoverMarker?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, title, onClick, persistentTooltip, popoverMarker, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, shortTitle, title, tag, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-    const here = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV] ? aliasedActiveScene === identifier : false
+    const here = aliasedActiveScene === identifier
+    const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
+
+    if (!isUsingNewNav) {
+        buttonProps.active = here
+    }
+
+    let content: JSX.Element | string | undefined
+    if (!isNavCollapsedActually) {
+        content = shortTitle || title
+        if (tag) {
+            if (tag === 'alpha') {
+                content = (
+                    <>
+                        <span className="grow">{content}</span>
+                        <LemonTag type="completion" size="small" className="ml-2">
+                            ALPHA
+                        </LemonTag>
+                    </>
+                )
+            } else if (tag === 'beta') {
+                content = (
+                    <>
+                        <span className="grow">{content}</span>
+                        <LemonTag type="warning" size="small" className="ml-2">
+                            BETA
+                        </LemonTag>
+                    </>
+                )
+            }
+        }
+    }
+
+    const buttonContent = (
+        <LemonButton
+            ref={ref}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+            onMouseEnter={() => setHasBeenClicked(false)}
+            onClick={() => {
+                setHasBeenClicked(true)
+                onClick?.()
+            }}
+            className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+            fullWidth
+            type="secondary"
+            stealth={true}
+            {...buttonProps}
+        >
+            {content}
+        </LemonButton>
+    )
+
+    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     return (
-        <li>
-            <Tooltip
-                title={here ? `${title} (you are here)` : title}
-                placement="right"
-                delayMs={0}
-                visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
-            >
-                <LemonButton
-                    ref={ref}
-                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                    onMouseEnter={() => setHasBeenClicked(false)}
-                    onClick={() => {
-                        setHasBeenClicked(true)
-                        onClick?.()
-                    }}
-                    className={clsx(
-                        'NavbarButton',
-                        here && 'NavbarButton--here',
-                        popoverMarker && 'NavbarButton--popover'
-                    )}
-                    {...buttonProps}
-                />
-            </Tooltip>
+        <li className="w-full">
+            {notices.length ? (
+                <Tooltip
+                    title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
+                    placement={notices[0].placement ?? 'right'}
+                    delayMs={0}
+                    visible={true}
+                >
+                    {buttonContent}
+                </Tooltip>
+            ) : (
+                <Tooltip
+                    title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
+                    placement="right"
+                    delayMs={0}
+                    visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                >
+                    {buttonContent}
+                </Tooltip>
+            )}
         </li>
     )
 })

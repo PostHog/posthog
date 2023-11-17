@@ -27,7 +27,8 @@ from prometheus_client import Counter, Gauge
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
-from posthog.utils import get_crontab, get_instance_region
+from posthog.utils import get_crontab
+from posthog.ph_client import get_ph_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -326,6 +327,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
         )
+
+    sender.add_periodic_task(
+        crontab(minute="*/10"),
+        sync_datawarehouse_sources.s(),
+        name="sync datawarehouse sources that have settled in s3 bucket",
+    )
+
+    # Every 30 minutes try to retrieve and calculate total rows synced in period
+    sender.add_periodic_task(
+        crontab(minute="*/30"),
+        calculate_external_data_rows_synced.s(),
+        name="calculate external data rows synced",
+    )
 
 
 # Set up clickhouse query instrumentation
@@ -897,29 +911,10 @@ def debug_task(self):
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from django.db.models import Q
-    from posthoganalytics import Posthog
-
     from posthog.models import Team
     from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
-    if not is_cloud():
-        return
-
-    # send EU data to EU, US data to US
-    api_key = None
-    host = None
-    region = get_instance_region()
-    if region == "EU":
-        api_key = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
-        host = "https://eu.posthog.com"
-    elif region == "US":
-        api_key = "sTMFPsFhdP1Ssg"
-        host = "https://app.posthog.com"
-
-    if not api_key:
-        return
-
-    ph_client = Posthog(api_key, host=host)
+    ph_client = get_ph_client()
 
     for team in Team.objects.select_related("organization").exclude(
         Q(organization__for_internal_metrics=True) | Q(is_demo=True)
@@ -927,6 +922,22 @@ def calculate_decide_usage() -> None:
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
     ph_client.shutdown()
+
+
+@app.task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    from django.db.models import Q
+    from posthog.models import Team
+    from posthog.tasks.warehouse import (
+        capture_workspace_rows_synced_by_team,
+        check_external_data_source_billing_limit_by_team,
+    )
+
+    for team in Team.objects.select_related("organization").exclude(
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
+    ):
+        capture_workspace_rows_synced_by_team.delay(team.pk)
+        check_external_data_source_billing_limit_by_team.delay(team.pk)
 
 
 @app.task(ignore_result=True)
@@ -1081,3 +1092,13 @@ def ee_persist_finished_recordings():
         pass
     else:
         persist_finished_recordings()
+
+
+@app.task(ignore_result=True)
+def sync_datawarehouse_sources():
+    try:
+        from posthog.tasks.warehouse import sync_resources
+    except ImportError:
+        pass
+    else:
+        sync_resources()

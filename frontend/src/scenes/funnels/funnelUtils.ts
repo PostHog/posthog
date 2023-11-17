@@ -600,7 +600,7 @@ export const parseDisplayNameForCorrelation = (
         first_value = autoCaptureEventToDescription({
             ...record.event,
             event: '$autocapture',
-        }) as string
+        })
         return { first_value, second_value }
     } else {
         // FunnelCorrelationResultsType.EventWithProperties

@@ -78,8 +78,8 @@ export function FeatureFlagReleaseConditions({
             <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
                             <div>
                                 {group.properties?.length ? (
@@ -100,9 +100,9 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {!readOnly && (
-                            <Row>
+                            <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
                                     status="muted"
@@ -117,9 +117,9 @@ export function FeatureFlagReleaseConditions({
                                         onClick={() => removeConditionSet(index)}
                                     />
                                 )}
-                            </Row>
+                            </div>
                         )}
-                    </Row>
+                    </div>
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
@@ -244,7 +244,7 @@ export function FeatureFlagReleaseConditions({
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
@@ -323,12 +323,15 @@ export function FeatureFlagReleaseConditions({
             return <></>
         }
 
+        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
+        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
+
         return (
             <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -343,8 +346,8 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
-                    </Row>
+                        </div>
+                    </div>
                     <LemonDivider className="my-3" />
 
                     {(group.properties?.length || 0) > 0 && (
@@ -362,9 +365,13 @@ export function FeatureFlagReleaseConditions({
                             <LemonDivider className="my-3" />
                         </>
                     )}
-                    <Row justify="space-between" align="middle">
+                    <div className="flex items-center justify-between">
                         <div />
                         <LemonButton
+                            disabledReason={
+                                !hasMatchingEarlyAccessFeature &&
+                                'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
+                            }
                             aria-label="more"
                             data-attr={'feature-flag-feature-list-button'}
                             status="primary"
@@ -375,9 +382,9 @@ export function FeatureFlagReleaseConditions({
                                 router.actions.push(urls.earlyAccessFeature(featureFlag.features[0].id))
                             }
                         >
-                            View Early Access Feature
+                            {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
                         </LemonButton>
-                    </Row>
+                    </div>
                 </div>
             </Col>
         )

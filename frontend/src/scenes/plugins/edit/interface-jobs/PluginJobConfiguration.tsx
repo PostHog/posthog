@@ -1,6 +1,4 @@
 import { useMemo } from 'react'
-import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
-import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { useValues, useActions } from 'kea'
@@ -15,6 +13,9 @@ import { dayjs } from 'lib/dayjs'
 import { formatDate, formatDateRange } from 'lib/utils'
 import { DatePicker } from 'lib/components/DatePicker'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
+import { IconCheck } from '@posthog/icons'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -38,11 +39,11 @@ export function PluginJobConfiguration(props: InterfaceJobsProps): JSX.Element {
             <span className="ml-1" onClick={() => playButtonOnClick(jobHasEmptyPayload)}>
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
-                        <PlayCircleOutlined
+                        <IconPlayCircle
                             className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     ) : (
-                        <SettingOutlined
+                        <IconSettings
                             className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     )}
@@ -104,7 +105,7 @@ function FieldInput({
         case 'string':
             return <LemonInput value={value || ''} onChange={onChange} />
         case 'number':
-            return <InputNumber value={value} onChange={onChange} />
+            return <LemonInput type="number" value={value} onChange={onChange} />
         case 'json':
             return (
                 <CodeEditor
@@ -118,19 +119,22 @@ function FieldInput({
             )
         case 'boolean':
             return (
-                <Radio.Group
-                    id="propertyValue"
-                    buttonStyle="solid"
+                <LemonSegmentedButton
+                    onChange={onChange}
                     value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                >
-                    <Radio.Button value={true} defaultChecked>
-                        <CheckOutlined /> True
-                    </Radio.Button>
-                    <Radio.Button value={false}>
-                        <CloseOutlined /> False
-                    </Radio.Button>
-                </Radio.Group>
+                    options={[
+                        {
+                            value: true,
+                            label: 'True',
+                            icon: <IconCheck />,
+                        },
+                        {
+                            value: false,
+                            label: 'False',
+                            icon: <IconClose />,
+                        },
+                    ]}
+                />
             )
         case 'date':
             return (

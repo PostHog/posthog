@@ -57,7 +57,7 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        import('./types/packages.json').then((files) => {
+        void import('./types/packages.json').then((files) => {
             for (const [fileName, fileContents] of Object.entries(files).filter(
                 ([fileName]) => fileName !== 'default'
             )) {
@@ -80,7 +80,7 @@ export function PluginSource({
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
-                <div style={{ textAlign: 'right' }}>
+                <div className="text-right">
                     <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
                         Close
                     </Button>
@@ -126,7 +126,7 @@ export function PluginSource({
                                                 }}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
-                                                <div style={{ marginTop: '0.5rem' }}>
+                                                <div className="mt-2">
                                                     <LemonButton
                                                         type="primary"
                                                         onClick={() =>

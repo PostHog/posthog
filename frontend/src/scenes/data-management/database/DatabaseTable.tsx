@@ -2,12 +2,12 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
-import { DatabaseSceneRow } from 'scenes/data-warehouse/types'
+import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 
 interface DatabaseTableProps {
     table: string
-    tables: DatabaseSceneRow[]
+    tables: DatabaseTableListRow[]
 }
 
 export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Element {

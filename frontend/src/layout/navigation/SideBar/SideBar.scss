@@ -31,9 +31,11 @@
         // because the sidebar does not affect the rest of the layout on mobile
         transform: translateX(-15.5rem);
     }
+
     @include screen($lg) {
         height: initial;
         position: relative;
+
         .SideBar--hidden & {
             margin-left: -15.5rem;
         }
@@ -49,6 +51,7 @@
         > ul {
             overflow: auto;
             padding: 1rem 0.5rem;
+
             li {
                 margin-top: 1px;
             }
@@ -64,15 +67,15 @@
     position: absolute;
     height: 100%;
     width: 100%;
-
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
 
     .SideBar--hidden & {
         background-color: transparent;
-        backdrop-filter: blur(0px);
+        backdrop-filter: blur(0);
         pointer-events: none;
     }
+
     @include screen($lg) {
         display: none;
     }
@@ -87,6 +90,7 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-top: 1rem;
+
     &:first-of-type {
         margin-top: 0;
     }

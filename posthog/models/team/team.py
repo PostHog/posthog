@@ -181,6 +181,7 @@ class Team(UUIDClassicModel):
         validators=[MinValueValidator(0), MaxValueValidator(15000)],
     )
     session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
+    session_recording_network_payload_capture_config: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -245,6 +246,8 @@ class Team(UUIDClassicModel):
     event_properties: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
+    external_data_workspace_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
 

@@ -256,7 +256,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
@@ -286,7 +286,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.Query,
-                                        attrs: { id: insight.short_id },
+                                        attrs: {
+                                            query: {
+                                                kind: NodeKind.SavedInsightNode,
+                                                shortId: insight.short_id,
+                                            },
+                                        },
                                     }}
                                     type="secondary"
                                 />

@@ -1,15 +1,19 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
-import { SidePanelTab, sidePanelLogic } from './sidePanelLogic'
+import { sidePanelLogic } from './sidePanelLogic'
 import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
+import { IconNotebook, IconInfo, IconSupport, IconGear } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
+import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelTab } from '~/types'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -17,9 +21,9 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconNotebook,
         Content: NotebookPanel,
     },
-    [SidePanelTab.Feedback]: {
-        label: 'Feedback',
-        Icon: IconQuestion,
+    [SidePanelTab.Support]: {
+        label: 'Support',
+        Icon: IconSupport,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
@@ -27,11 +31,23 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconInfo,
         Content: SidePanelDocs,
     },
+
+    [SidePanelTab.Activation]: {
+        label: 'Quick start',
+        Icon: SidePanelActivationIcon,
+        Content: SidePanelActivation,
+    },
+    [SidePanelTab.Settings]: {
+        label: 'Settings',
+        Icon: IconGear,
+        Content: SidePanelSettings,
+    },
 }
 
 export function SidePanel(): JSX.Element | null {
-    const { selectedTab, sidePanelOpen, enabledTabs } = useValues(sidePanelLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelLogic)
+    const { visibleTabs } = useValues(sidePanelLogic)
+    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -51,7 +67,7 @@ export function SidePanel(): JSX.Element | null {
 
     const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
 
-    if (!enabledTabs.length) {
+    if (!visibleTabs.length) {
         return null
     }
 
@@ -71,9 +87,9 @@ export function SidePanel(): JSX.Element | null {
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
                 <div className="rotate-90 flex items-center gap-1 px-2">
-                    {Object.entries(SidePanelTabs)
-                        .filter(([tab]) => enabledTabs.includes(tab as SidePanelTab))
-                        .map(([tab, { label, Icon }]) => (
+                    {visibleTabs.map((tab: SidePanelTab) => {
+                        const { Icon, label } = SidePanelTabs[tab]
+                        return (
                             <LemonButton
                                 key={tab}
                                 icon={<Icon className="rotate-270 w-6" />}
@@ -82,10 +98,13 @@ export function SidePanel(): JSX.Element | null {
                                 }
                                 data-attr={`sidepanel-tab-${tab}`}
                                 active={activeTab === tab}
+                                type="secondary"
+                                stealth={true}
                             >
                                 {label}
                             </LemonButton>
-                        ))}
+                        )
+                    })}
                 </div>
             </div>
             <Resizer {...resizerLogicProps} offset={'3rem'} />

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -89,7 +89,7 @@ class AggregationOperations:
             else:
                 raise NotImplementedError()
 
-        return parse_expr("count(e.uuid)")
+        return parse_expr("count(e.uuid)")  # All "count per actor" get replaced during query orchestration
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
@@ -280,9 +280,9 @@ class AggregationOperations:
         )
 
     def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
-        events_query = self._events_query(events_where_clause, sample_value)
-        inner_select = self._inner_select_query(events_query)
-        parent_select = self._parent_select_query(inner_select)
+        events_query = cast(ast.SelectQuery, self._events_query(events_where_clause, sample_value))
+        inner_select = cast(ast.SelectQuery, self._inner_select_query(events_query))
+        parent_select = cast(ast.SelectQuery, self._parent_select_query(inner_select))
 
         class QueryOrchestrator:
             events_query_builder: QueryAlternator
