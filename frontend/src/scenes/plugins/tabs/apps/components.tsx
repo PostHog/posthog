@@ -23,7 +23,7 @@ export function RepositoryTag({ plugin }: { plugin: PluginType | PluginRepositor
 
         if (plugin.plugin_type === 'local' && plugin.url) {
             return (
-                <LemonTag type="completion" onClick={async () => await copyToClipboard(plugin.url?.substring(5) || '')}>
+                <LemonTag type="completion" onClick={() => void copyToClipboard(plugin.url?.substring(5) || '')}>
                     Installed Locally
                 </LemonTag>
             )

@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { inAppPromptLogic, PromptConfig, PromptSequence, PromptUserState } from './inAppPromptLogic'
+import { inAppPromptLogic, PromptConfig, PromptUserState } from './inAppPromptLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -289,7 +289,7 @@ describe('inAppPromptLogic', () => {
                 })
                 .toDispatchActions([
                     'closePrompts',
-                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 0),
+                    logic.actionCreators.runSequence(configProductTours.sequences[1], 0),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
                         'tooltip',
                         configProductTours.sequences[1].key,
@@ -333,7 +333,7 @@ describe('inAppPromptLogic', () => {
                 logic.actions.nextPrompt()
             })
                 .toDispatchActions([
-                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 1),
+                    logic.actionCreators.runSequence(configProductTours.sequences[1], 1),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptForward(
                         configProductTours.sequences[1].key,
                         1,
@@ -359,7 +359,7 @@ describe('inAppPromptLogic', () => {
                 logic.actions.previousPrompt()
             })
                 .toDispatchActions([
-                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 0),
+                    logic.actionCreators.runSequence(configProductTours.sequences[1], 0),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptBackward(
                         configProductTours.sequences[1].key,
                         0,

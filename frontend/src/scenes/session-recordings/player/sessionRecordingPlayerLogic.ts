@@ -605,7 +605,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
             if (values.player?.replayer) {
                 for (const event of eventsToAdd) {
-                    await values.player?.replayer?.addEvent(event)
+                    values.player?.replayer?.addEvent(event)
                 }
             }
 
@@ -615,7 +615,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.checkBufferingCompleted()
             breakpoint()
         },
-        loadRecordingMetaSuccess: async () => {
+        loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.updateFromMetadata()
             if (props.autoPlay) {
@@ -624,7 +624,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
 
-        loadRecordingSnapshotsSuccess: async () => {
+        loadRecordingSnapshotsSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.updateFromMetadata()
         },
@@ -690,7 +690,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.reportRecordingPlayerSpeedChanged(speed)
             actions.syncPlayerSpeed()
         },
-        seekToTimestamp: async ({ timestamp, forcePlay }, breakpoint) => {
+        seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
             actions.setCurrentTimestamp(timestamp)
 
@@ -959,7 +959,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     console.warn('Failed to enable native full-screen mode:', e)
                 }
             } else if (document.fullscreenElement === props.playerRef?.current) {
-                document.exitFullscreen()
+                await document.exitFullscreen()
             }
         },
     })),

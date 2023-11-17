@@ -109,7 +109,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                 ))}
                             </div>
                         ) : playlistsLoading ? (
-                            <LemonSkeleton className="my-2" repeat={3} />
+                            <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
                             <div className="p-2 text-center text-muted">No playlists found</div>
                         )}

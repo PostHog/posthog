@@ -1,12 +1,9 @@
 .legacy-ph-graph-tooltip {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
     font-size: 14px;
     overflow-x: hidden;
     z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
-}
-
-.legacy-ph-graph-tooltip {
     max-width: 480px;
     padding: 8px 12px;
     border: 1px solid var(--border);
@@ -41,6 +38,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
+
         svg {
             font-size: 1.4em;
             margin-right: 4px;
@@ -56,6 +54,7 @@
         align-items: center;
         margin-top: 2px;
         font-style: italic;
+
         svg {
             margin-left: 2px;
             margin-right: 6px;

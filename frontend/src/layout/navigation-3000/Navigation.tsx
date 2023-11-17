@@ -1,4 +1,4 @@
-import { CommandPalette } from 'lib/components/CommandPalette'
+import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from './components/Breadcrumbs'

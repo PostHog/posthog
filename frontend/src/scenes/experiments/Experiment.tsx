@@ -250,7 +250,7 @@ export function Experiment(): JSX.Element {
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
                                                         <div
-                                                            key={`${variant}-${index}`}
+                                                            key={`${variant.key}-${index}`}
                                                             className={clsx(
                                                                 'feature-flag-variant',
                                                                 index === 0
@@ -855,10 +855,10 @@ export function ResultsTag(): JSX.Element {
 export function LoadingState(): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3" />
+            <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
 }

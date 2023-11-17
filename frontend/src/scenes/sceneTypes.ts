@@ -22,6 +22,7 @@ export enum Scene {
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     Pipeline = 'Pipeline',
+    PipelineApp = 'PipelineApp',
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',

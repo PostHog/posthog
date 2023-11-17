@@ -526,6 +526,12 @@ export enum PipelineTabs {
     Destinations = 'destinations',
 }
 
+export enum PipelineAppTabs {
+    Configuration = 'configuration',
+    Logs = 'logs',
+    Metrics = 'metrics',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -1142,6 +1148,7 @@ export interface PerformanceEvent {
     response_headers?: Record<string, string>
     request_body?: Body
     response_body?: Body
+    method?: string
 }
 
 export interface CurrentBillCycleType {
@@ -1340,7 +1347,7 @@ export interface InsightModel extends Cacheable {
     description?: string
     favorited?: boolean
     order: number | null
-    result: any | null
+    result: any
     deleted: boolean
     saved: boolean
     created_at: string
@@ -2195,6 +2202,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    autoDisappear?: boolean
     position?: string
 }
 
@@ -3158,6 +3166,7 @@ export enum NotebookNodeType {
     PersonFeed = 'ph-person-feed',
     Properties = 'ph-properties',
     Map = 'ph-map',
+    Embed = 'ph-embed',
 }
 
 export type NotebookNodeResource = {

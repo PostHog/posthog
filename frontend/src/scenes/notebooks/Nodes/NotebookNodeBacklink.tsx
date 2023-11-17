@@ -43,7 +43,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         >
             <Link
                 to={href}
-                onClick={() => openNotebook(shortId, NotebookTarget.Popover)}
+                onClick={() => void openNotebook(shortId, NotebookTarget.Popover)}
                 target={undefined}
                 className="space-x-1"
             >

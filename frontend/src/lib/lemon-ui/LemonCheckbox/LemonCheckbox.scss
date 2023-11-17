@@ -14,6 +14,7 @@
     label {
         --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
         --box-color: var(--primary);
+
         display: flex;
         align-items: center;
         cursor: pointer;
@@ -45,6 +46,7 @@
 
     &.LemonCheckbox--full-width {
         width: 100%;
+
         label {
             width: 100%;
         }
@@ -61,17 +63,12 @@
 
             .LemonCheckbox__box {
                 border-color: var(--box-color);
-                border-color: var(--box-color);
             }
         }
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
         --box-color: var(--primary-dark);
-    }
-
-    &.LemonCheckbox--full-width label {
-        width: 100%;
     }
 
     &.LemonCheckbox--checked {

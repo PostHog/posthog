@@ -29,8 +29,11 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    const copy = async (): Promise<boolean> =>
-        await copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
+    if (typeof children !== 'string' && !explicitValue) {
+        throw new Error('CopyToClipboardInline must have a string child or explicitValue prop')
+    }
+
+    const copy = async (): Promise<boolean> => await copyToClipboard((explicitValue ?? children) as string, description)
 
     const content = (
         <span

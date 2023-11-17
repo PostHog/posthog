@@ -4,6 +4,7 @@
 
 .FileDropTarget--active::after {
     --file-drop-target-padding: 0.5rem;
+
     content: '';
     position: absolute;
     top: calc(-1 * var(--file-drop-target-padding));

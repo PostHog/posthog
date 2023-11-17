@@ -42,7 +42,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             {},
             {
                 setup: async (_, breakpoint) => {
-                    await breakpoint()
+                    breakpoint()
                     await api.get('api/users/@me/start_2fa_setup/')
                     return { status: 'completed' }
                 },
@@ -56,7 +56,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
                 token: !token ? 'Please enter a token to continue' : undefined,
             }),
             submit: async ({ token }, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     return await api.create('api/users/@me/validate_2fa/', { token })
                 } catch (e) {
