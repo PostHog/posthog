@@ -36,5 +36,11 @@
             background: var(--border);
             color: var(--default);
         }
+        .Toolbar3000--dragging & {
+            button {
+                background: none;
+                color: var(--muted-alt);
+            }
+        }
     }
 }

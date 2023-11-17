@@ -33,8 +33,6 @@ export const Toolbar3000Button: FunctionComponent<Toolbar3000ButtonProps> = Reac
 
         e.preventDefault()
 
-        // TODO: Control the detection of dragging here so that we can appropriately
-        // choose whether to fire the event. Also prevent default so we can turn on the "onClickOutside" of the more button
         onClick?.()
         if (menuId) {
             visibleMenu === menuId ? setVisibleMenu('none') : setVisibleMenu(menuId)
