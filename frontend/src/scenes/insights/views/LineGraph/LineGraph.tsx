@@ -37,6 +37,7 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import clsx from 'clsx'
 
 let tooltipRoot: Root
 
@@ -725,7 +726,10 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
-        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
+        <div
+            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
+            data-attr={dataAttr}
+        >
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
