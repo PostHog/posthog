@@ -7,6 +7,7 @@ import { retentionPeopleLogic } from './retentionPeopleLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -35,7 +36,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
             (querySource, aggregationLabel): Noun => {
-                const { aggregation_group_type_index } = querySource || {}
+                const aggregation_group_type_index =
+                    isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? undefined
+                        : querySource?.aggregation_group_type_index
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],

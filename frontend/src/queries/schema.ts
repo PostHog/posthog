@@ -11,12 +11,13 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
+    InsightType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
     PathsFilterType,
+    PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -136,17 +137,29 @@ export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'leftjoin' | 'subquery'
+    materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
 export interface HogQLQueryResponse {
+    /** Input query string */
     query?: string
+    /** Generated HogQL query */
     hogql?: string
+    /** Executed ClickHouse query */
     clickhouse?: string
+    /** Query results */
     results?: any[]
-    types?: any[]
+    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    error?: string
+    /** Returned columns */
     columns?: any[]
+    /** Types of returned columns */
+    types?: any[]
+    /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    /** Query explanation output */
     explain?: string[]
+    /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
 
@@ -380,6 +393,18 @@ export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTab
 
 // Insight viz node
 
+/** Chart specific rendering options.
+ * Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+ * @see ChartRenderingMetadata
+ * **/
+export interface VizSpecificOptions {
+    [InsightType.RETENTION]?: {
+        hideLineGraph?: boolean
+        hideSizeColumn?: boolean
+        useSmallLayout?: boolean
+    }
+}
+
 export interface InsightVizNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
@@ -397,6 +422,10 @@ interface InsightVizNodeViewProps {
     showResults?: boolean
     /** Query is embedded inside another bordered component */
     embedded?: boolean
+    suppressSessionAnalysisWarning?: boolean
+    hidePersonsModal?: boolean
+
+    vizSpecificOptions?: VizSpecificOptions
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -488,7 +517,7 @@ export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
-export interface StickinessQuery extends InsightsQueryBase {
+export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -517,7 +546,7 @@ export interface LifecycleQueryResponse extends QueryResponse {
     results: Record<string, any>[]
 }
 
-export interface LifecycleQuery extends InsightsQueryBase {
+export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -575,8 +604,8 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-
-export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange

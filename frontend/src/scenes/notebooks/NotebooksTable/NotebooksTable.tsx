@@ -10,7 +10,7 @@ import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
@@ -97,7 +97,7 @@ export function NotebooksTable(): JSX.Element {
                 dismissKey="notebooks-preview-banner"
             >
                 <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
-                PostHog prodcuts together into one place.
+                PostHog products together into one place.
             </LemonBanner>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput

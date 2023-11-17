@@ -7,8 +7,10 @@ import {
     PluginConfigSchema,
     PluginEvent,
     PluginSettings,
+    PostHogEvent,
     ProcessedPluginEvent,
     Properties,
+    Webhook,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
@@ -381,6 +383,11 @@ export interface PluginCapabilities {
     methods?: string[]
 }
 
+export enum PluginMethod {
+    onEvent = 'onEvent',
+    composeWebhook = 'composeWebhook',
+}
+
 export interface PluginConfig {
     id: number
     team_id: TeamId
@@ -394,6 +401,10 @@ export interface PluginConfig {
     vm?: LazyPluginVM | null
     created_at: string
     updated_at?: string
+    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
+    // we'll need to know which method this plugin is using to call it the right way
+    // undefined for old plugins with multiple or deprecated methods
+    method?: PluginMethod
 }
 
 export interface PluginJsonConfig {
@@ -410,7 +421,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | ProcessedPluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -457,12 +468,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginSourceFileStatus {
-    Transpiled = 'TRANSPILED',
-    Locked = 'LOCKED',
-    Error = 'ERROR',
-}
-
 export enum PluginTaskType {
     Job = 'job',
     Schedule = 'schedule',
@@ -482,6 +487,7 @@ export type VMMethods = {
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
+    composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 

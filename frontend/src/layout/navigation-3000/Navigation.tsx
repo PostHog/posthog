@@ -1,4 +1,4 @@
-import { CommandPalette } from 'lib/components/CommandPalette'
+import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from './components/Breadcrumbs'
@@ -29,6 +29,9 @@ export function Navigation({
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
+    if (sceneConfig?.layout === 'plain') {
+        return <>{children}</>
+    }
     return (
         <div className="Navigation3000">
             <Navbar />

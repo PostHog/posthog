@@ -86,7 +86,7 @@ export const SimpleSessionRecordingsFilters = ({
                     }}
                 />
                 {displayNameProperties.length === 0 && (
-                    <Link to={urls.projectSettings('person-display-name')}>
+                    <Link to={urls.settings('project', 'person-display-name')}>
                         <LemonButton type="tertiary" size="small" className="whitespace-nowrap" icon={<IconPlus />}>
                             Add person properties
                         </LemonButton>

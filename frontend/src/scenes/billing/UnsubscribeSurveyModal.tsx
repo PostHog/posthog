@@ -9,7 +9,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
     const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
 
-    const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     return (
         <LemonModal
             onClose={() => {
@@ -82,7 +82,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                             status={textAreaNotEmpty ? 'primary' : 'muted'}
                             onClick={() => {
-                                textAreaNotEmpty && reportSurveySent(surveyID, surveyResponse)
+                                textAreaNotEmpty
+                                    ? reportSurveySent(surveyID, surveyResponse)
+                                    : reportSurveyDismissed(surveyID)
                                 deactivateProduct(product.type)
                             }}
                         >

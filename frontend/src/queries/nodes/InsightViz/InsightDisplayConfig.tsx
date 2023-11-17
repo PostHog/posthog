@@ -2,7 +2,6 @@ import { ReactNode } from 'react'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -23,47 +22,63 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const {
-        showDateRange,
-        disableDateRange,
-        showCompare,
-        showValueOnSeries,
-        showPercentStackView,
-        showUnit,
-        showChart,
-        showInterval,
-        showSmoothing,
-        showRetention,
-        showPaths,
-        showFunnelDisplayLayout,
-        showFunnelBins,
+        isTrends,
+        isFunnels,
+        isRetention,
+        isPaths,
+        isStickiness,
+        isLifecycle,
+        supportsDisplay,
         display,
+        breakdown,
         trendsFilter,
         hasLegend,
         showLegend,
-    } = useValues(insightDisplayConfigLogic(insightProps))
-
-    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
-        trendsDataLogic(insightProps)
+        supportsValueOnSeries,
+        showPercentStackView,
+    } = useValues(insightVizDataLogic(insightProps))
+    const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
+        funnelDataLogic(insightProps)
     )
 
+    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
+    const showInterval =
+        isTrendsFunnel ||
+        isLifecycle ||
+        ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
+    const showSmoothing =
+        isTrends &&
+        !breakdown?.breakdown_type &&
+        !trendsFilter?.compare &&
+        (!display || display === ChartDisplayType.ActionsLineGraph) &&
+        featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
+
+    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries } = useValues(trendsDataLogic(insightProps))
+
     const advancedOptions: LemonMenuItems = [
-        ...(showValueOnSeries || showPercentStackView || hasLegend
+        ...(supportsValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
                       items: [
-                          ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                       ],
                   },
               ]
             : []),
-        ...(!isPercentStackViewOn && showUnit
+        ...(!isPercentStackViewOn && isTrends
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -73,10 +88,10 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
     ]
     const advancedOptionsCount: number =
-        (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
+        (supportsValueOnSeries && showValueOnSeries ? 1 : 0) +
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
-        showUnit &&
+        isTrends &&
         trendsFilter?.aggregation_axis_format &&
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
@@ -84,11 +99,14 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0)
 
     return (
-        <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center gap-x-2 flex-wrap my-2 gap-y-2">
-                {showDateRange && (
+        <div
+            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2"
+            data-attr="insight-filters"
+        >
+            <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
+                {!isRetention && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={disableDateRange} />
+                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
                 )}
 
@@ -104,14 +122,14 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {showRetention && (
+                {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
                     </ConfigFilter>
                 )}
 
-                {showPaths && (
+                {!!isPaths && (
                     <ConfigFilter>
                         <PathStepPicker />
                     </ConfigFilter>
@@ -123,7 +141,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center gap-x-2 flex-wrap my-2">
+            <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
@@ -133,17 +151,17 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonButton>
                     </LemonMenu>
                 )}
-                {showChart && (
+                {supportsDisplay && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
                 )}
-                {showFunnelDisplayLayout && (
+                {!!isStepsFunnel && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {showFunnelBins && (
+                {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

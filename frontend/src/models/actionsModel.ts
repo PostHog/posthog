@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { ActionType } from '~/types'
 import type { actionsModelType } from './actionsModelType'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export interface ActionsModelProps {
     params?: string
@@ -57,4 +58,5 @@ export const actionsModel = kea<actionsModelType>([
             }
         },
     })),
+    permanentlyMount(),
 ])

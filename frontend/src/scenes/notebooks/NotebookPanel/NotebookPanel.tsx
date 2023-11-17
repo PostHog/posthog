@@ -2,21 +2,23 @@ import { useActions, useValues } from 'kea'
 import './NotebookPanel.scss'
 import { Notebook } from '../Notebook/Notebook'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { openNotebookShareDialog } from '../Notebook/NotebookShare'
 import { notebookPanelLogic } from './notebookPanelLogic'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { urls } from 'scenes/urls'
+import { NotebookMenu } from '../NotebookMenu'
+import { NotebookTarget } from '~/types'
+import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPane'
 
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
@@ -30,8 +32,8 @@ export function NotebookPanel(): JSX.Element | null {
         <div ref={ref} className="NotebookPanel" {...dropProperties}>
             {!droppedResource ? (
                 <>
-                    <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
-                        <span className="flex items-center gap-1 text-primary-alt overflow-hidden">
+                    <SidePanelPaneHeader>
+                        <span className="flex-1">
                             <NotebookListMini
                                 selectedNotebookId={selectedNotebook}
                                 onSelectNotebook={(notebook) => {
@@ -39,31 +41,22 @@ export function NotebookPanel(): JSX.Element | null {
                                 }}
                             />
                         </span>
-                        <span className="flex items-center gap-1 px-1">
-                            {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
+                        {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
-                            <LemonButton
-                                size="small"
-                                to={urls.notebook(selectedNotebook)}
-                                onClick={() => closeSidePanel()}
-                                status="primary-alt"
-                                icon={<IconOpenInNew />}
-                                tooltip="Open as main focus"
-                                tooltipPlacement="left"
-                            />
+                        <LemonButton
+                            size="small"
+                            to={urls.notebook(selectedNotebook)}
+                            onClick={() => closeSidePanel()}
+                            status="primary-alt"
+                            icon={<IconOpenInNew />}
+                            tooltip="Open as main focus"
+                            tooltipPlacement="left"
+                        />
 
-                            <LemonButton
-                                size="small"
-                                onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
-                                status="primary-alt"
-                                icon={<IconShare />}
-                                tooltip="Share notebook"
-                                tooltipPlacement="left"
-                            />
+                        {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
 
-                            {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
-                        </span>
-                    </header>
+                        <NotebookMenu shortId={selectedNotebook} />
+                    </SidePanelPaneHeader>
 
                     <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
                         <Notebook

@@ -29,7 +29,6 @@ import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
@@ -40,6 +39,9 @@ import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { MentionsExtension } from './MentionsExtension'
+import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
+import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -118,8 +120,10 @@ export function Editor(): JSX.Element {
             NotebookNodeSurvey,
             NotebookNodeImage,
             NotebookNodeProperties,
+            NotebookNodeMention,
+            NotebookNodeEmbed,
             SlashCommandsExtension,
-            BacklinkCommandsExtension,
+            MentionsExtension,
             NotebookNodePersonFeed,
             NotebookNodeMap,
         ],

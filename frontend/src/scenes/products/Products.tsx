@@ -1,5 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BillingProductV2Type, ProductKey } from '~/types'
 import { useActions, useValues } from 'kea'
@@ -14,6 +13,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { router } from 'kea-router'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { productsLogic } from './productsLogic'
+import * as Icons from '@posthog/icons'
 
 export const scene: SceneExport = {
     component: Products,
@@ -49,14 +49,26 @@ function OnboardingCompletedButton({
     )
 }
 
-function OnboardingNotCompletedButton({ url, productKey }: { url: string; productKey: ProductKey }): JSX.Element {
+function OnboardingNotCompletedButton({
+    url,
+    productKey,
+    getStartedActionOverride,
+}: {
+    url: string
+    productKey: ProductKey
+    getStartedActionOverride?: () => void
+}): JSX.Element {
     const { onSelectProduct } = useActions(productsLogic)
     return (
         <LemonButton
             type="primary"
             onClick={() => {
-                onSelectProduct(productKey)
-                router.actions.push(url)
+                if (getStartedActionOverride) {
+                    getStartedActionOverride()
+                } else {
+                    onSelectProduct(productKey)
+                    router.actions.push(url)
+                }
             }}
         >
             Get started
@@ -64,25 +76,40 @@ function OnboardingNotCompletedButton({ url, productKey }: { url: string; produc
     )
 }
 
-function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Element {
+export function getProductIcon(iconKey?: string | null, className?: string): JSX.Element {
+    return Icons[iconKey || 'IconLogomark']({ className })
+}
+
+export function ProductCard({
+    product,
+    getStartedActionOverride,
+    orientation = 'vertical',
+    className,
+}: {
+    product: BillingProductV2Type
+    getStartedActionOverride?: () => void
+    orientation?: 'horizontal' | 'vertical'
+    className?: string
+}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
+    const vertical = orientation === 'vertical'
+
     return (
-        <LemonCard className={`max-w-80 flex flex-col`} key={product.type}>
-            <div className="flex mb-2">
-                <div className="bg-mid rounded p-2 flex">
-                    {product.image_url ? (
-                        <img className="w-6 h-6" alt={`Logo for PostHog ${product.name}`} src={product.image_url} />
-                    ) : (
-                        <IconBarChart className="w-6 h-6" />
-                    )}
+        <LemonCard
+            className={`flex gap-x-4 gap-y-4 ${vertical ? 'flex-col max-w-80' : 'items-center'} ${className}`}
+            key={product.type}
+        >
+            <div className="flex">
+                <div>
+                    <div className="bg-mid rounded p-2">{getProductIcon(product.icon_key, 'text-2xl')}</div>
                 </div>
             </div>
-            <div className="mb-2">
-                <h3 className="bold mb-0">{product.name}</h3>
+            <div>
+                <h3 className={`bold ${vertical ? 'mb-2' : 'mb-0'}`}>{product.name}</h3>
+                <p className="grow m-0">{product.description}</p>
             </div>
-            <p className="grow">{product.description}</p>
-            <div className="flex gap-x-2">
+            <div className={`flex gap-x-2 grow shrink-0 ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
                         productUrl={getProductUri(product.type as ProductKey)}
@@ -90,10 +117,13 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
                         productKey={product.type as ProductKey}
                     />
                 ) : (
-                    <OnboardingNotCompletedButton
-                        url={urls.onboarding(product.type)}
-                        productKey={product.type as ProductKey}
-                    />
+                    <div>
+                        <OnboardingNotCompletedButton
+                            url={urls.onboarding(product.type)}
+                            productKey={product.type as ProductKey}
+                            getStartedActionOverride={getStartedActionOverride}
+                        />
+                    </div>
                 )}
             </div>
         </LemonCard>

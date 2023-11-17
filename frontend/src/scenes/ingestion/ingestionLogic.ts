@@ -11,7 +11,7 @@ import { windowValues } from 'kea-window-values'
 import { subscriptions } from 'kea-subscriptions'
 import { TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import type { ingestionLogicType } from './ingestionLogicType'
@@ -296,7 +296,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             },
         ],
         isDemoProject: [
-            teamLogic.values.currentTeam?.is_demo as null | boolean,
+            false as null | boolean,
             {
                 setState: (_, { isDemoProject }) => isDemoProject,
             },

@@ -27,12 +27,13 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -302,9 +303,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
     logger.info(
-        "Running Snowflake export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -341,7 +342,29 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Snowflake", count)
+        logger.info("BatchExporting %s rows", count)
+
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
+
+        async def flush_to_snowflake(
+            connection: SnowflakeConnection,
+            file: BatchExportTemporaryFile,
+            table_name: str,
+            file_no: int,
+            last: bool = False,
+        ):
+            logger.info(
+                "Putting %sfile %s containing %s records with size %s bytes",
+                "last " if last else "",
+                file_no,
+                file.records_since_last_reset,
+                file.bytes_since_last_reset,
+            )
+
+            await put_file_to_snowflake_table(connection, file, table_name, file_no)
+            rows_exported.add(file.records_since_last_reset)
+            bytes_exported.add(file.bytes_since_last_reset)
 
         with snowflake_connection(inputs) as connection:
             await create_table_in_snowflake(connection, inputs.table_name)
@@ -360,10 +383,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             async def worker_shutdown_handler():
                 """Handle the Worker shutting down by heart-beating our latest status."""
                 await activity.wait_for_worker_shutdown()
-                # TODO: Add these heartbeat parameters as contextvars with structlog.
-                logger.debug(
-                    f"Worker shutting down! last_inserted_at:{last_inserted_at}, file_no:{file_no}",
-                )
+                logger.bind(last_inserted_at=last_inserted_at, file_no=file_no).debug("Worker shutting down!")
 
                 if last_inserted_at is None:
                     # Don't heartbeat if worker shuts down before we could even send anything
@@ -392,15 +412,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     local_results_file.write_records_to_jsonl([record])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
-                            "Putting file containing %s records with size %s bytes",
-                            local_results_file.records_since_last_reset,
-                            local_results_file.bytes_since_last_reset,
-                        )
-
-                        await put_file_to_snowflake_table(
-                            connection, local_results_file, inputs.table_name, file_no=file_no
-                        )
+                        await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
                         last_inserted_at = result["inserted_at"]
                         file_no += 1
@@ -410,14 +422,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    logger.info(
-                        "Putting last file containing %s records with size %s bytes",
-                        local_results_file.records_since_last_reset,
-                        local_results_file.bytes_since_last_reset,
-                    )
-                    await put_file_to_snowflake_table(
-                        connection, local_results_file, inputs.table_name, file_no=file_no
-                    )
+                    await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
 
                     last_inserted_at = result["inserted_at"]
                     file_no += 1
@@ -446,14 +451,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
-        logger = get_batch_exports_logger(inputs=inputs)
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting Snowflake export batch %s - %s",
-            data_interval_start,
-            data_interval_end,
-        )
-
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
@@ -474,7 +471,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,

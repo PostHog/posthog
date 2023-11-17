@@ -92,7 +92,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                     )
                 })
             ) : (
-                <LemonSkeleton className="w-18 my-1" />
+                <LemonSkeleton className="h-4 w-18 my-1" />
             )}
         </div>
     )

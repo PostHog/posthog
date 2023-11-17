@@ -28,7 +28,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 
 export const openNotebook = async (
     notebookId: string,
-    target: NotebookTarget = NotebookTarget.Auto,
+    target: NotebookTarget,
     focus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
@@ -60,8 +60,8 @@ export const notebooksModel = kea<notebooksModelType>([
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
+            location: NotebookTarget,
             title?: string,
-            location: NotebookTarget = NotebookTarget.Auto,
             content?: JSONContent[],
             onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
         ) => ({
@@ -186,7 +186,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
             }))
 
-            await actions.createNotebook(dashboard.name + ' (copied)', NotebookTarget.Auto, resources)
+            await actions.createNotebook(NotebookTarget.Scene, dashboard.name + ' (copied)', resources)
         },
     })),
 ])

@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { IconCottage } from 'lib/lemon-ui/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
@@ -83,7 +83,7 @@ export function ProjectHomepage(): JSX.Element {
                 <>
                     <div className="homepage-dashboard-header">
                         <div className="dashboard-title-container">
-                            {!dashboard && <LemonSkeleton className="w-20" />}
+                            {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                             {dashboard?.name && (
                                 <>
                                     <IconCottage className="mr-2 text-warning text-2xl" />

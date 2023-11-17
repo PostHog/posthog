@@ -56,6 +56,20 @@ TrendsLineEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
+export const TrendsLineMulti: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')
+)
+TrendsLine.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+}
+export const TrendsLineMultiEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    'edit'
+)
+TrendsLineEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+}
+
 export const TrendsLineBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
 )
@@ -67,6 +81,15 @@ export const TrendsLineBreakdownEdit: Story = createInsightStory(
     'edit'
 )
 TrendsLineBreakdownEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+}
+
+export const TrendsLineBreakdownLabels: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
+    'view',
+    true
+)
+TrendsLineBreakdownLabels.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
@@ -207,6 +230,13 @@ export const TrendsPieBreakdownEdit: Story = createInsightStory(
 TrendsPieBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' },
 }
+
+export const TrendsPieBreakdownLabels: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
+    'view',
+    true
+)
+TrendsPieBreakdownLabels.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
 
 export const TrendsWorldMap: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')

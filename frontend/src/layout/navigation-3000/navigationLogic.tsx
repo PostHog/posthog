@@ -19,9 +19,7 @@ import {
     IconHome,
     IconLive,
     IconPeople,
-    IconPerson,
     IconPieChart,
-    IconQuestion,
     IconRewindPlay,
     IconTestTube,
     IconToggle,
@@ -32,8 +30,6 @@ import {
     IconChat,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
-import { annotationsSidebarLogic } from './sidebars/annotations'
-import { cohortsSidebarLogic } from './sidebars/cohorts'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
@@ -322,32 +318,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
-                            identifier: Scene.Persons,
-                            label: 'People and groups',
-                            icon: <IconPerson />,
+                            identifier: Scene.PersonsManagement,
+                            label: 'People',
+                            icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
-                        },
-                        {
-                            identifier: Scene.Cohorts,
-                            label: 'Cohorts',
-                            icon: <IconPeople />,
-                            logic: isUsingSidebar ? cohortsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.cohorts(),
-                        },
-                        {
-                            identifier: Scene.Annotations,
-                            label: 'Annotations',
-                            icon: <IconQuestion />,
-                            logic: isUsingSidebar ? annotationsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.annotations(),
-                        },
-                        {
-                            identifier: Scene.ToolbarLaunch,
-                            label: 'Toolbar',
-                            icon: <IconToolbar />,
-                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
                     ],
                     [
@@ -364,7 +339,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Web analytics',
                                   icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                                  tag: 'alpha' as const,
+                                  tag: 'beta' as const,
                               }
                             : null,
                         {
@@ -414,6 +389,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Apps',
                             icon: <IconApps />,
                             to: urls.projectApps(),
+                        },
+                        {
+                            identifier: Scene.ToolbarLaunch,
+                            label: 'Toolbar',
+                            icon: <IconToolbar />,
+                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
                     ],
                 ]
