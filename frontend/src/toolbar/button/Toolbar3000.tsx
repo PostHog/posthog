@@ -84,10 +84,16 @@ function MoreMenu(): JSX.Element {
 
 function ToolbarInfoMenu(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { visibleMenu, isDragging, menuProperties } = useValues(toolbarButtonLogic)
+    const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarButtonLogic)
     const { setMenu } = useActions(toolbarButtonLogic)
 
-    const fullIsShowing = visibleMenu === 'heatmap' || visibleMenu === 'actions' || visibleMenu === 'flags'
+    const content = minimized ? null : visibleMenu === 'flags' ? (
+        <FlagsToolbarMenu />
+    ) : visibleMenu === 'heatmap' ? (
+        <HeatmapToolbarMenu />
+    ) : visibleMenu === 'actions' ? (
+        <ActionsToolbarMenu />
+    ) : null
 
     useEffect(() => {
         setMenu(ref.current)
@@ -98,7 +104,7 @@ function ToolbarInfoMenu(): JSX.Element {
         <div
             className={clsx(
                 'Toolbar3000Menu',
-                fullIsShowing && 'Toolbar3000Menu--visible',
+                !!content && 'Toolbar3000Menu--visible',
                 isDragging && 'Toolbar3000Menu--dragging',
                 menuProperties.isBelow && 'Toolbar3000Menu--below'
             )}
@@ -115,13 +121,7 @@ function ToolbarInfoMenu(): JSX.Element {
                     maxHeight: menuProperties.maxHeight,
                 }}
             >
-                {visibleMenu === 'flags' ? (
-                    <FlagsToolbarMenu />
-                ) : visibleMenu === 'heatmap' ? (
-                    <HeatmapToolbarMenu />
-                ) : visibleMenu === 'actions' ? (
-                    <ActionsToolbarMenu />
-                ) : null}
+                {content}
             </div>
         </div>
     )
@@ -151,17 +151,19 @@ export function Toolbar3000(): JSX.Element {
             <div
                 ref={ref}
                 className={clsx(
-                    'Toolbar3000 Toolbar3000Bar fixed h-10 rounded-lg flex flex-row items-center floating-toolbar-button overflow-hidden',
-                    minimized && 'Toolbar3000--minimized-width',
+                    'Toolbar3000',
+                    minimized && 'Toolbar3000--minimized',
+                    hedgehogMode && 'Toolbar3000--hedgehog-mode',
                     isDragging && 'Toolbar3000--dragging'
                 )}
                 onMouseDown={(e) => onMouseDown(e as any)}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    transform:
-                        `translate(${dragPosition.x}px, ${dragPosition.y}px)` +
-                        (hedgehogMode && minimized ? ' scale(0)' : ''),
-                }}
+                style={
+                    {
+                        '--toolbar-button-x': `${dragPosition.x}px`,
+                        '--toolbar-button-y': `${dragPosition.y}px`,
+                    } as any
+                }
             >
                 <Toolbar3000Button
                     icon={<IconLogomark />}

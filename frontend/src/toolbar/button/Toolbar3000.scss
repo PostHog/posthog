@@ -86,6 +86,10 @@
 }
 
 .Toolbar3000 {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    z-index: 1;
     background-color: var(--bg-3000);
     color: var(--text-3000);
     transition-property: filter, width, transform;
@@ -94,34 +98,38 @@
     filter: drop-shadow(2px 10px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);
+    overflow: hidden;
 
+    position: fixed;
     // fixed width so that animations work when changing width
-    width: 15.1rem;
-    transform: translate(50vh, 50vw); // This is immediately overwritten
+    width: 15.2rem;
+
+    > :first-child {
+        border-right: 1px solid var(--border-bold-3000);
+    }
+
+    > :last-child {
+        border-left: 1px solid var(--border-bold-3000);
+    }
+
+    --toolbar-button-x: 50vh;
+    --toolbar-button-y: 50vw;
+    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
+
+    transform: var(--toolbar-translate);
 
     &--dragging {
         // Disable transform transition whilst dragging
         transition-property: filter, width;
+        transform: var(--toolbar-translate) scale(1.2);
     }
 
-    &.Toolbar3000Bar {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-
-        > :first-child {
-            border-right: 1px solid var(--border-bold-3000);
-        }
-
-        > :last-child {
-            border-left: 1px solid var(--border-bold-3000);
-        }
-
-        z-index: 1;
-    }
-
-    &.Toolbar3000--minimized-width {
+    &--minimized {
         width: 2.5rem;
+
+        &.Toolbar3000--hedgehog-mode {
+            transform: var(--toolbar-translate) scale(0);
+        }
     }
 
     form {

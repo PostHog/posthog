@@ -62,7 +62,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                toggleMinimized: () => 'none',
             },
         ],
         minimized: [
