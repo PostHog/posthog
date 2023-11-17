@@ -1,13 +1,15 @@
 import json
 import dataclasses
 import uuid
+import datetime as dt
+from posthog.warehouse.data_load.pipeline import PIPELINE_TYPE_INPUTS_MAPPING, PIPELINE_TYPE_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     update_external_job_status,
     get_external_data_source,
 )
-
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.workflows.base import PostHogWorkflow
 from temporalio import activity, workflow, exceptions
 from asgiref.sync import sync_to_async
@@ -54,12 +56,17 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    await sync_to_async(get_external_data_source)(
+    model: ExternalDataSource = await sync_to_async(get_external_data_source)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
     )
 
-    # TODO: map inputs to the right pipeline type and run
+    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
+        team_id=inputs.team_id, job_type=model.source_type, **model.job_inputs
+    )
+    job_fn = PIPELINE_TYPE_MAPPING[model.source_type]
+
+    await sync_to_async(job_fn)(job_inputs)
 
 
 # TODO: add retry policies
@@ -81,12 +88,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_external_data_job_model,
             create_external_data_job_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id,
-            run_id=run_id,
-            status=ExternalDataJob.Status.COMPLETED,
+            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None
         )
 
         run_job_inputs = ExternalDataJobInputs(
@@ -95,24 +101,26 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         try:
-            workflow.execute_activity(
+            await workflow.execute_activity(
                 run_external_data_job,
                 run_job_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
             )
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
-                update_inputs.status = "Cancelled"
+                update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
-                update_inputs.status = "Failed"
+                update_inputs.status = ExternalDataJob.Status.FAILED
 
             update_inputs.latest_error = str(e.cause)
             raise
         except Exception:
-            update_inputs.status = "Failed"
+            update_inputs.status = ExternalDataJob.Status.FAILED
             update_inputs.latest_error = "An unexpected error has ocurred"
             raise
         finally:
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
             )

@@ -9,6 +9,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline: models.ForeignKey = models.ForeignKey(ExternalDataSource, on_delete=models.CASCADE)

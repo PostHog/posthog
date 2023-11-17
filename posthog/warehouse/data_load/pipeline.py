@@ -35,4 +35,5 @@ def run_stripe_pipeline(inputs: StripeJobInputs):
     pipeline.run(source, loader_file_format="parquet")
 
 
+PIPELINE_TYPE_INPUTS_MAPPING = {"Stripe": StripeJobInputs}
 PIPELINE_TYPE_MAPPING = {"Stripe": run_stripe_pipeline}
