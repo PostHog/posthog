@@ -574,8 +574,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # destination flag contains the head cohort
         destination_flag = FeatureFlag.objects.get(key=feature_flag_key, team_id=target_project.id)
         destination_flag_head_cohort_id = destination_flag.filters["groups"][0]["properties"][0]["value"]
-        destination_head_cohort = Cohort.objects.get(pk=destination_flag_head_cohort_id)
+        destination_head_cohort = Cohort.objects.get(pk=destination_flag_head_cohort_id, team_id=target_project.id)
         self.assertEqual(destination_head_cohort.name, head_cohort.name)
+        self.assertNotEqual(destination_head_cohort.id, head_cohort.id)
 
         # get topological order of the original cohorts
         original_cohorts_cache = {}
