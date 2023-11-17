@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
-import { SearchResult, SearchResult as SearchResultType } from './types'
+import { SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 type SearchResultProps = {
@@ -86,7 +86,7 @@ export const SearchResultSkeleton = (): JSX.Element => (
 )
 
 type ResultNameProps = {
-    result: SearchResult
+    result: SearchResultType
 }
 const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
     if (result.type === 'insight') {
