@@ -5,29 +5,15 @@ import './LemonSkeleton.scss'
 
 export interface LemonSkeletonProps {
     className?: string
-    /** Height of the skeleton bar */
-    height?: number
     /** Repeat this component this many of times */
     repeat?: number
     /** Used in combination with repeat to progressively fade out the repeated skeletons */
     fade?: boolean
     active?: boolean
 }
-export function LemonSkeleton({
-    className,
-    repeat,
-    height = 4,
-    active = true,
-    fade = false,
-}: LemonSkeletonProps): JSX.Element {
+export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
     const content = (
-        <div
-            className={clsx(
-                `LemonSkeleton rounded h-${height}`,
-                !active && 'LemonSkeleton--static',
-                className || 'w-full'
-            )}
-        >
+        <div className={clsx('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}>
             {/* The span is for accessibility, but also because @storybook/test-runner smoke tests require content */}
             <span>Loading…</span>
         </div>

@@ -45,7 +45,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             if (tag === 'alpha') {
                 content = (
                     <>
-                        {content}
+                        <span className="grow">{content}</span>
                         <LemonTag type="completion" size="small" className="ml-2">
                             ALPHA
                         </LemonTag>
@@ -54,7 +54,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             } else if (tag === 'beta') {
                 content = (
                     <>
-                        {content}
+                        <span className="grow">{content}</span>
                         <LemonTag type="warning" size="small" className="ml-2">
                             BETA
                         </LemonTag>
@@ -75,6 +75,8 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             }}
             className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
             fullWidth
+            type="secondary"
+            stealth={true}
             {...buttonProps}
         >
             {content}

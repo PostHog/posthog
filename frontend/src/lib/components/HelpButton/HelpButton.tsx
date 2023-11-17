@@ -9,8 +9,6 @@ import {
     IconHelpOutline,
     IconQuestionAnswer,
     IconMessages,
-    IconFlare,
-    IconLive,
     IconSupport,
     IconFeedback,
     IconBugReport,
@@ -18,8 +16,6 @@ import {
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
-import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { supportLogic } from '../Support/supportLogic'
 import { SupportModal } from '../Support/SupportModal'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -88,8 +84,6 @@ export function HelpButton({
     const { validProductTourSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
@@ -103,20 +97,6 @@ export function HelpButton({
         <>
             <LemonMenu
                 items={[
-                    !contactOnly && {
-                        items: [
-                            {
-                                icon: <IconLive />,
-                                label: "What's new?",
-                                onClick: () => {
-                                    reportHelpButtonUsed(HelpType.Updates)
-                                    hideHelp()
-                                },
-                                to: 'https://posthog.com/changelog',
-                                targetBlank: true,
-                            },
-                        ],
-                    },
                     showSupportOptions && {
                         items: [
                             {
@@ -182,14 +162,6 @@ export function HelpButton({
                                     hideHelp()
                                 },
                             },
-                            {
-                                label: `${hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
-                                icon: <IconFlare />,
-                                onClick: () => {
-                                    setHedgehogModeEnabled(!hedgehogModeEnabled)
-                                    hideHelp()
-                                },
-                            },
                         ],
                     },
                 ]}
@@ -208,7 +180,6 @@ export function HelpButton({
                     )}
                 </div>
             </LemonMenu>
-            <HedgehogBuddyWithLogic />
             <SupportModal />
         </>
     )

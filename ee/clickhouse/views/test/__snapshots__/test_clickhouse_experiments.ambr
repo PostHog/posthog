@@ -1613,8 +1613,7 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-            AND (ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''), 'true'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''))
-                        and isNull('true'))))
+            AND (ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''), 'true'), 0)))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1655,8 +1654,7 @@
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-                  AND (ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''), 'true'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''))
-                              and isNull('true'))))
+                  AND (ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''), 'true'), 0)))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
