@@ -14,7 +14,6 @@ instance_license_cached: Optional["License"] = None
 
 # NOTE: This is cached for the lifetime of the instance but this is not an issue as the value is not expected to change
 def is_cloud():
-    return True
     global is_cloud_cached
 
     if not settings.EE_AVAILABLE:
