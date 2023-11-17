@@ -540,9 +540,9 @@ def clickhouse_lag():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = (
-                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-                )
+                QUERY = """SELECT max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag
+                    FROM {table}
+                    WHERE timestamp >= now() -  toIntervalDay(3);"""
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
                 statsd.gauge(
@@ -744,10 +744,10 @@ def clickhouse_part_count():
     from posthog.client import sync_execute
 
     QUERY = """
-        select table, count(1) freq
-        from system.parts
-        group by table
-        order by freq desc;
+        SELECT table, count(1) freq
+        FROM system.parts
+        GROUP BY table
+        ORDER BY freq DESC;
     """
     rows = sync_execute(QUERY)
 
