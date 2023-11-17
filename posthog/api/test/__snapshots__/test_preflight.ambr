@@ -24,7 +24,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '
 ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.1
@@ -35,7 +35,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" IN ('constance:posthog:SLACK_APP_CLIENT_ID',
                                             'constance:posthog:SLACK_APP_CLIENT_SECRET',
-                                            'constance:posthog:SLACK_APP_SIGNING_SECRET') /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+                                            'constance:posthog:SLACK_APP_SIGNING_SECRET')
   '
 ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.2
@@ -92,6 +92,6 @@
          "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  LIMIT 21
   '
 ---
