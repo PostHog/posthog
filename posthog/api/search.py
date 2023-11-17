@@ -32,7 +32,7 @@ class QuerySerializer(serializers.Serializer):
     q = serializers.CharField(required=False, default="")
     entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
 
-    def validate_q(self, value: str | None):
+    def validate_q(self, value: str):
         return process_query(value)
 
 
