@@ -256,7 +256,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {

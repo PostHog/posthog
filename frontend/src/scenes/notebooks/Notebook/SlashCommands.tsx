@@ -462,7 +462,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => await execute(item)}
+                        onClick={() => void execute(item)}
                         icon={item.icon}
                     />
                 ))}
@@ -477,7 +477,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => await execute(item)}
+                    onClick={() => void execute(item)}
                 >
                     {item.title}
                 </LemonButton>

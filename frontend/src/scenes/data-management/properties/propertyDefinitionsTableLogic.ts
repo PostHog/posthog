@@ -193,7 +193,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setPropertyType: ({ propertyType }) => {
             const [type, index] = propertyType.split('::')
             actions.setFilters({
-                type: type as string,
+                type: type,
                 group_type_index: index ? +index : null,
             })
         },

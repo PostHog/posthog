@@ -21,7 +21,7 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import { batchExportLogic } from './batchExportLogic'
 
 export type BatchExportsEditLogicProps = {
-    id: string | 'new'
+    id: string
 }
 
 export type BatchExportConfigurationForm = Omit<

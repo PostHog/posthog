@@ -285,7 +285,7 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object) {
+                if (Array.isArray(item[1]) || item[1] instanceof Object || item[1] === null) {
                     return false
                 }
                 return (
