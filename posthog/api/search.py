@@ -1,3 +1,4 @@
+import functools
 import re
 from typing import Any
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
@@ -12,18 +13,29 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team
+from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
 
 
 ENTITY_MAP = {
-    "action": {"klass": Action},
-    "cohort": {"klass": Cohort},
-    "insight": {"klass": Insight, "extra_fields": ["derived_name"]},
-    "dashboard": {"klass": Dashboard},
-    "experiment": {"klass": Experiment},
-    "feature_flag": {"klass": FeatureFlag, "extra_fields": ["key"]},
+    "insight": {
+        "klass": Insight,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "derived_name"],
+    },
+    "dashboard": {"klass": Dashboard, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
+    "experiment": {"klass": Experiment, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
+    "feature_flag": {"klass": FeatureFlag, "search_fields": {"name": "A"}, "extra_fields": ["key"]},
+    "notebook": {"klass": Notebook, "search_fields": {"title": "A"}, "extra_fields": ["title"]},
+    "action": {"klass": Action, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
+    "cohort": {"klass": Cohort, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
 }
+"""
+Map of entity names to their class, search_fields and extra_fields.
+
+The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C or D.
+"""
 
 
 class QuerySerializer(serializers.Serializer):
@@ -59,6 +71,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 klass=entity_meta.get("klass"),  # type: ignore
                 team=self.team,
                 query=query,
+                search_fields=entity_meta.get("search_fields"),  # type: ignore
                 extra_fields=entity_meta.get("extra_fields"),  # type: ignore
             )
             qs = qs.union(klass_qs)
@@ -92,17 +105,18 @@ def class_queryset(
     klass: type[Model],
     team: Team,
     query: str | None,
+    search_fields: dict[str, str],
     extra_fields: dict | None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
-    values = ["type", "result_id", "name", "extra_fields"]
+    values = ["type", "result_id", "extra_fields"]
 
     qs: QuerySet[Any] = klass.objects.filter(team=team)  # filter team
     qs = qs.annotate(type=Value(entity_type, output_field=CharField()))  # entity type
 
     # entity id
-    if entity_type == "insight":
+    if entity_type == "insight" or entity_type == "notebook":
         qs = qs.annotate(result_id=F("short_id"))
     else:
         qs = qs.annotate(result_id=Cast("pk", CharField()))
@@ -115,10 +129,10 @@ def class_queryset(
 
     # full-text search rank
     if query:
+        search_vectors = [SearchVector(key, weight=value, config="simple") for key, value in search_fields.items()]
+        combined_vector = functools.reduce(lambda a, b: a + b, search_vectors)
         qs = qs.annotate(
-            rank=SearchRank(
-                SearchVector("name", config="simple"), SearchQuery(query, config="simple", search_type="raw")
-            ),
+            rank=SearchRank(combined_vector, SearchQuery(query, config="simple", search_type="raw")),
         )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

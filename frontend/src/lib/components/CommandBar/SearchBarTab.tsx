@@ -1,3 +1,4 @@
+import { Ref } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'

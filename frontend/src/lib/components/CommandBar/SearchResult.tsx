@@ -89,11 +89,14 @@ type ResultNameProps = {
     result: SearchResultType
 }
 const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
-    if (result.type === 'insight') {
-        return result.name ? <span>{result.name}</span> : <i>{result.extra_fields.derived_name}</i>
-    } else if (result.type === 'feature_flag') {
-        return result.name ? <span>{result.name}</span> : <span>{result.extra_fields.key}</span>
+    const { type, extra_fields } = result
+    if (type === 'insight') {
+        return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{extra_fields.derived_name}</i>
+    } else if (type === 'feature_flag') {
+        return <span>{extra_fields.key}</span>
+    } else if (type === 'notebook') {
+        return <span>{extra_fields.title}</span>
     } else {
-        return <span>{result.name}</span>
+        return <span>{extra_fields.name}</span>
     }
 }

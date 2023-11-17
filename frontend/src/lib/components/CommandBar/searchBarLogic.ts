@@ -158,6 +158,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.featureFlag(result.result_id)
         case 'insight':
             return urls.insightView(result.result_id as InsightShortId)
+        case 'notebook':
+            return urls.notebook(result.result_id)
         default:
             throw new Error(`No action for type '${result.type}' defined.`)
     }
