@@ -9,7 +9,7 @@ import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
-const DEFAULT_PADDING = { width: 16, height: 16 }
+const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect'
 
@@ -107,34 +107,20 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 setHedgehogActor: (_, { actor }) => actor,
             },
         ],
-        padding: [
-            DEFAULT_PADDING,
-            {
-                setHedgehogMode: (_, { hedgehogMode }) => {
-                    if (DEFAULT_PADDING && hedgehogMode) {
-                        return DEFAULT_PADDING
-                    } else {
-                        return DEFAULT_PADDING
-                    }
-                },
-            },
-        ],
     })),
     selectors({
         dragPosition: [
-            (s) => [s.element, s.padding, s.lastDragPosition, s.windowWidth, s.windowHeight],
-            (element, padding, lastDragPosition, windowWidth, windowHeight) => {
+            (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight],
+            (element, lastDragPosition, windowWidth, windowHeight) => {
                 if (!element || !lastDragPosition) {
                     return { x: 0, y: 0 }
                 }
-                const widthPadding = padding.width
-                const heightPadding = padding.height
                 const elWidth = element.offsetWidth + 2 // account for border
                 const elHeight = element.offsetHeight + 2 // account for border
 
                 return {
-                    x: inBounds(DEFAULT_PADDING.width, lastDragPosition.x, windowWidth - elWidth - widthPadding),
-                    y: inBounds(DEFAULT_PADDING.height, lastDragPosition.y, windowHeight - elHeight - heightPadding),
+                    x: inBounds(MARGIN, lastDragPosition.x, windowWidth - elWidth - MARGIN),
+                    y: inBounds(MARGIN, lastDragPosition.y, windowHeight - elHeight - MARGIN),
                 }
             },
         ],
@@ -161,11 +147,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 const desiredY = isBelow ? dragPosition.y + elHeight + margin : dragPosition.y - margin
                 const desiredX = dragPosition.x + elWidth * 0.5
 
-                const top = inBounds(DEFAULT_PADDING.height, desiredY, windowHeight - elHeight)
+                const top = inBounds(MARGIN, desiredY, windowHeight - elHeight)
                 const left = inBounds(
-                    DEFAULT_PADDING.width + menu.clientWidth * 0.5,
+                    MARGIN + menu.clientWidth * 0.5,
                     desiredX,
-                    windowWidth - menu.clientWidth * 0.5 - DEFAULT_PADDING.width
+                    windowWidth - menu.clientWidth * 0.5 - MARGIN
                 )
 
                 return {
