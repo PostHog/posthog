@@ -96,8 +96,8 @@
     justify-content: center;
 
     .LemonSwitch--checked & {
-        background-color: var(--primary-3000);
-        border-color: var(--primary-3000);
+        background-color: var(--primary);
+        border-color: var(--primary);
         transform: translateX(1rem);
     }
 
