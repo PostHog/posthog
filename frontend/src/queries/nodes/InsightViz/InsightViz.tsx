@@ -9,15 +9,16 @@ import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { InsightVizNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
-import { InsightContainer } from './InsightContainer'
+import { InsightVizDisplay } from './InsightVizDisplay'
 import { EditorFilters } from './EditorFilters'
 import { InsightLogicProps, ItemMode } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getCachedResults } from './utils'
 import { useState } from 'react'
 
-import './Insight.scss'
+import './InsightViz.scss'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -56,6 +57,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
+    const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
 
     const showIfFull = !!query.full
     const disableHeader = !(query.showHeader ?? showIfFull)
@@ -72,16 +74,16 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <BindLogic logic={insightVizDataLogic} props={insightProps}>
                     <div
-                        className={clsx('insight-wrapper', {
-                            'insight-wrapper--singlecolumn': isFunnels,
+                        className={clsx('InsightViz', {
+                            'InsightViz--horizontal': isFunnels || isHorizontalAlways,
                         })}
                     >
                         {!readOnly && (
                             <EditorFilters query={query.source} showing={showingFilters} embedded={embedded} />
                         )}
 
-                        <div className="insights-container ph-no-capture" data-attr="insight-view">
-                            <InsightContainer
+                        <div className="flex-1 h-full overflow-x-hidden">
+                            <InsightVizDisplay
                                 insightMode={insightMode}
                                 context={context}
                                 disableHeader={disableHeader}

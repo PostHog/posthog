@@ -78,7 +78,7 @@ export function MetricsOverview({
     exportFailureReason,
 }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
-        return <LemonSkeleton className="w-20 mb-2" repeat={4} />
+        return <LemonSkeleton className="w-20 h-4 mb-2" repeat={4} />
     }
 
     return (

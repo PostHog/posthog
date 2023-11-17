@@ -296,7 +296,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             },
         ],
         isDemoProject: [
-            teamLogic.values.currentTeam?.is_demo as null | boolean,
+            false as null | boolean,
             {
                 setState: (_, { isDemoProject }) => isDemoProject,
             },

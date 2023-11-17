@@ -13,49 +13,6 @@
         justify-content: space-between;
     }
 
-    .insights-graph-container {
-        margin-bottom: 1rem;
-
-        .display-config-inner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            overflow-x: auto;
-        }
-
-        .ant-card-body {
-            padding: 0;
-        }
-
-        .insights-graph-container-row {
-            .insights-graph-container-row-left {
-                width: 100%;
-            }
-
-            .insights-graph-container-row-right {
-                width: 100%;
-                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
-                max-width: 300px;
-                padding: 0 1rem 1rem 0;
-                display: flex;
-                align-items: center;
-            }
-        }
-
-        .LineGraph {
-            width: calc(100% - 2rem);
-            height: calc(100% - 2rem) !important;
-            margin-top: 1rem;
-        }
-    }
-
-    .insights-graph-header {
-        margin-top: 0 !important;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        min-height: 48px;
-    }
-
     .experiment-preview {
         margin-bottom: 1rem;
         border-bottom: 1px solid var(--border);

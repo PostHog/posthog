@@ -225,6 +225,7 @@ class BillingManager:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
+                rows_synced=usage_summary.get("rows_synced", None),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

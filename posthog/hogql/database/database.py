@@ -90,7 +90,7 @@ class Database(BaseModel):
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
 
-    def __init__(self, timezone: Optional[str], week_start_day: Optional[WeekStartDay]):
+    def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None

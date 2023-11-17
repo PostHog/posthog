@@ -70,4 +70,24 @@
             }
         }
     }
+
+    &.RetentionTable--small-layout {
+        font-size: 0.75rem;
+        line-height: 1rem;
+
+        th {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+
+        .RetentionTable__TextTab {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+
+        .RetentionTable__Tab {
+            margin: 0;
+            padding: 0.5rem 0.25rem;
+        }
+    }
 }

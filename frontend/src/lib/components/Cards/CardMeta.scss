@@ -35,17 +35,22 @@
 }
 
 .CardMeta {
-    position: absolute;
-    top: 0;
-    left: 0;
     display: flex;
+    position: relative;
+    flex-shrink: 0;
     flex-direction: column;
     width: 100%;
     max-height: calc(100% - 2rem);
     background: var(--bg-light);
     z-index: 101; // Elevate above viz
-    overflow: hidden;
     border-radius: var(--radius);
+
+    &--with-details {
+        .CardMeta__top {
+            // Reduced height so that, considering the padding set above, CardMeta__top doesn't have too much margin
+            height: 1.5rem;
+        }
+    }
 
     h5 {
         color: var(--muted);
@@ -62,44 +67,54 @@
         font-weight: 600;
         margin-bottom: 0.125rem;
     }
-}
 
-.CardMeta--with-details {
-    padding: 1rem;
-
-    .CardMeta__top {
-        // Reduced height so that, considering the padding set above, CardMeta__top doesn't have too much margin
-        height: 1.5rem;
+    .CardMeta__primary {
+        display: flex;
+        width: 100%;
+        padding: 1rem;
     }
-}
 
-.CardMeta--expansion-enter-active,
-.CardMeta--expansion-exit-active,
-.CardMeta--expansion-enter,
-.CardMeta--expansion-exit {
-    transition: box-shadow 200ms ease, height 200ms ease;
-}
+    .CardMeta__divider {
+        margin: 0 1rem;
+        height: 1px;
+        background: var(--border);
+        opacity: 0;
+        transition: opacity 200ms ease;
+    }
 
-.CardMeta--expansion-exit.CardMeta--expansion-exit-active,
-.CardMeta--expansion-exit-done,
-.CardMeta--expansion-enter {
-    box-shadow: none;
-}
+    .CardMeta__details {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        max-height: 18rem;
+        margin-top: -1px; // To cause overlap with the divider when closed
+        border-bottom-width: 1px;
+        background: var(--bg-light);
+        transition: box-shadow 200ms ease, height 200ms ease, margin 200ms ease;
+        overflow-y: auto;
 
-.CardMeta--expansion-enter.CardMeta--expansion-enter-active,
-.CardMeta--expansion-enter-done,
-.CardMeta--expansion-exit {
-    box-shadow: var(--shadow-elevation);
-}
+        .CardMeta__details__content {
+            pointer-events: none;
+            overflow-y: auto;
+        }
+    }
 
-.CardMeta--expansion-enter-done {
-    overflow: auto;
-}
+    &.CardMeta--details-shown {
+        .CardMeta__details {
+            box-shadow: var(--shadow-elevation);
+            margin-top: 0;
 
-.CardMeta__primary {
-    display: flex;
-    width: 100%;
-    margin-bottom: 0.5rem;
+            .CardMeta__details__content {
+                opacity: 1;
+                pointer-events: all;
+            }
+        }
+
+        .CardMeta__divider {
+            opacity: 1;
+        }
+    }
 }
 
 .CardMeta__ribbon {

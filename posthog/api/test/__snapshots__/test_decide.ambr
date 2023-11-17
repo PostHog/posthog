@@ -81,7 +81,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -306,7 +307,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -461,7 +463,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -604,7 +607,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21

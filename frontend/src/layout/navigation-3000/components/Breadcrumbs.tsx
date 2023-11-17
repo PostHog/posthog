@@ -124,7 +124,7 @@ interface HereProps {
 function Here({ breadcrumb }: HereProps): JSX.Element {
     return (
         <h1 className="Breadcrumbs3000__here">
-            <span>{breadcrumb.name || <LemonSkeleton className="w-40" />}</span>
+            <span>{breadcrumb.name || <LemonSkeleton className="w-40 h-4" />}</span>
         </h1>
     )
 }

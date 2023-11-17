@@ -110,7 +110,7 @@ function ActivityIndicators({
                     )
                 })
             ) : (
-                <LemonSkeleton className="w-18 my-1" />
+                <LemonSkeleton className="w-18 h-4 my-1" />
             )}
         </div>
     )
@@ -236,8 +236,8 @@ export function SessionRecordingPreview({
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
         <div className="p-4 space-y-2">
-            <LemonSkeleton className="w-1/2" />
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton className="w-1/3 h-4" />
         </div>
     )
 }
