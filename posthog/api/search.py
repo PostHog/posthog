@@ -2,7 +2,7 @@ import re
 from typing import Any
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models import Model, Value, CharField, F, QuerySet
-from django.db.models.functions import Cast, JSONObject
+from django.db.models.functions import Cast, JSONObject  # type: ignore
 from django.http import HttpResponse
 from rest_framework import viewsets, serializers
 from rest_framework.permissions import IsAuthenticated
@@ -56,10 +56,10 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             klass_qs, entity_name = class_queryset(
-                klass=entity_meta.get("klass"),
+                klass=entity_meta.get("klass"),  # type: ignore
                 team=self.team,
                 query=query,
-                extra_fields=entity_meta.get("extra_fields"),
+                extra_fields=entity_meta.get("extra_fields"),  # type: ignore
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
