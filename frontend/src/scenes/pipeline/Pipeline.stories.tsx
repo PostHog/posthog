@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { PipelineTabs } from '~/types'
+import { PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { pipelineLogic } from './pipelineLogic'
 
@@ -57,6 +57,32 @@ export function PipelineTransformationsPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTabs.Transformations))
         pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineAppConfiguration(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Configuration))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppMetrics(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Metrics))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppLogs(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/plugin_configs/1/logs': require('./__mocks__/pluginLogs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Logs))
     }, [])
     return <App />
 }

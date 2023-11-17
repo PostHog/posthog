@@ -29,6 +29,7 @@ export enum AppMetricsTab {
     Logs = 'logs',
     ProcessEvent = 'processEvent',
     OnEvent = 'onEvent',
+    ComposeWebhook = 'composeWebhook',
     ExportEvents = 'exportEvents',
     ScheduledTask = 'scheduledTask',
     HistoricalExports = 'historical_exports',
@@ -37,6 +38,7 @@ export enum AppMetricsTab {
 export const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
     AppMetricsTab.HistoricalExports,
@@ -96,6 +98,7 @@ const DEFAULT_DATE_FROM = '-30d'
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
 ]

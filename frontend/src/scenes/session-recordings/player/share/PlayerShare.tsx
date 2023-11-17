@@ -1,4 +1,5 @@
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -28,7 +29,7 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={async () => await copyToClipboard(url, 'recording link')}
+                onClick={() => void copyToClipboard(url, 'recording link').then(captureException)}
                 title={url}
             >
                 <span className="truncate">{url}</span>

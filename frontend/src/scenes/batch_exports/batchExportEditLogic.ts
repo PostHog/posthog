@@ -20,7 +20,7 @@ import type { batchExportsEditLogicType } from './batchExportEditLogicType'
 import { batchExportLogic } from './batchExportLogic'
 
 export type BatchExportsEditLogicProps = {
-    id: string | 'new'
+    id: string
 }
 
 export type BatchExportConfigurationForm = Omit<

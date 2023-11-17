@@ -267,7 +267,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
     })),
 
-    afterMount(async (logic) => {
+    afterMount((logic) => {
         const { props, actions, values } = logic
         props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
 

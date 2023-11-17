@@ -55,9 +55,9 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     clearTimeout(values.pollTimeout)
 
                     try {
-                        const response = (await api.get(
+                        const response = await api.get<ChangesResponse>(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
-                        )) as ChangesResponse
+                        )
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
@@ -115,14 +115,17 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         a.created_at.isAfter(b.created_at) ? a : b
                     ).created_at
                     actions.setMarkReadTimeout(
-                        window.setTimeout(async () => {
-                            await api.create(
-                                `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
-                                {
-                                    bookmark: bookmarkDate.toISOString(),
-                                }
-                            )
-                            actions.markAllAsRead(bookmarkDate.toISOString())
+                        window.setTimeout(() => {
+                            void api
+                                .create(
+                                    `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                                    {
+                                        bookmark: bookmarkDate.toISOString(),
+                                    }
+                                )
+                                .then(() => {
+                                    actions.markAllAsRead(bookmarkDate.toISOString())
+                                })
                         }, MARK_READ_TIMEOUT)
                     )
                 }

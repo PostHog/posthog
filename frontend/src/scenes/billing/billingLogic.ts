@@ -10,7 +10,6 @@ import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, BillingV2Type } from '~/types'
@@ -79,9 +78,7 @@ export const billingLogic = kea<billingLogicType>([
             '' as string,
             {
                 setRedirectPath: () => {
-                    return window.location.pathname.includes('/ingestion')
-                        ? urls.ingestion() + '/billing'
-                        : window.location.pathname.includes('/onboarding')
+                    return window.location.pathname.includes('/onboarding')
                         ? window.location.pathname + window.location.search
                         : ''
                 },
@@ -90,7 +87,7 @@ export const billingLogic = kea<billingLogicType>([
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
+                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
     }),

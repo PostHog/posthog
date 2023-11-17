@@ -65,9 +65,9 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
                     },
                 ],
             }
-            expectLogic(logic, async () => {
-                await logic.actions.setFilters(newFilter)
-                await logic.actions.updatePlaylist({})
+            expectLogic(logic, () => {
+                logic.actions.setFilters(newFilter)
+                logic.actions.updatePlaylist({})
             })
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({ filters: expect.objectContaining(newFilter), hasChanges: true })

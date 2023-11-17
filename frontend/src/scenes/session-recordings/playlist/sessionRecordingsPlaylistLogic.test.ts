@@ -167,7 +167,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 it('starts as null', () => {
                     expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })
                 })
-                it('is set by setSessionRecordingId', async () => {
+                it('is set by setSessionRecordingId', () => {
                     expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
                         .toDispatchActions(['loadSessionRecordingsSuccess'])
                         .toMatchValues({
@@ -177,7 +177,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
                 })
 
-                it('is partial if sessionRecordingId not in list', async () => {
+                it('is partial if sessionRecordingId not in list', () => {
                     expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
                         .toDispatchActions(['loadSessionRecordingsSuccess'])
                         .toMatchValues({
@@ -200,7 +200,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
 
                 it('mounts and loads the recording when a recording is opened', () => {
-                    expectLogic(logic, async () => await logic.actions.setSelectedRecordingId('abcd'))
+                    expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
                         .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
                         .toDispatchActions(['loadEntireRecording'])
                 })

@@ -1,6 +1,5 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import type { PostHog } from 'posthog-js'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
@@ -32,8 +31,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         source: [props.source || null, { logout: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        dataAttributes: [(props.dataAttributes || []) as string[]],
-        posthog: [(props.posthog ?? null) as PostHog | null],
+        dataAttributes: [props.dataAttributes || []],
+        posthog: [props.posthog ?? null],
     })),
 
     selectors({
@@ -65,7 +64,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
             clearSessionToolbarToken()
         },
-        processUserIntent: async () => {
+        processUserIntent: () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
                 actionsTabLogic.actions.showButtonActions()
                 toolbarButtonLogic.actions.showActionsInfo()

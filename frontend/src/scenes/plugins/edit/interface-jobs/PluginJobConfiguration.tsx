@@ -1,6 +1,5 @@
 import { IconCheck } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { InputNumber, Radio } from 'antd'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
@@ -108,7 +107,7 @@ function FieldInput({
         case 'string':
             return <LemonInput value={value || ''} onChange={onChange} />
         case 'number':
-            return <InputNumber value={value} onChange={onChange} />
+            return <LemonInput type="number" value={value} onChange={onChange} />
         case 'json':
             return (
                 <CodeEditor
@@ -122,19 +121,22 @@ function FieldInput({
             )
         case 'boolean':
             return (
-                <Radio.Group
-                    id="propertyValue"
-                    buttonStyle="solid"
+                <LemonSegmentedButton
+                    onChange={onChange}
                     value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                >
-                    <Radio.Button value={true} defaultChecked>
-                        <IconCheck /> True
-                    </Radio.Button>
-                    <Radio.Button value={false}>
-                        <IconClose /> False
-                    </Radio.Button>
-                </Radio.Group>
+                    options={[
+                        {
+                            value: true,
+                            label: 'True',
+                            icon: <IconCheck />,
+                        },
+                        {
+                            value: false,
+                            label: 'False',
+                            icon: <IconClose />,
+                        },
+                    ]}
+                />
             )
         case 'date':
             return (

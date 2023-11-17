@@ -247,7 +247,7 @@ export function FeatureFlagReleaseConditions({
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}

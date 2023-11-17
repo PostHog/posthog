@@ -52,6 +52,7 @@ const columns: LemonTableColumns<Record<string, any>> = [
         title: 'Message',
         key: 'message',
         dataIndex: 'message',
+        render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
     },
 ]
 

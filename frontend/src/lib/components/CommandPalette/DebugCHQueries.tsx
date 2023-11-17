@@ -11,7 +11,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
-export async function debugCHQueries(): Promise<void> {
+export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
         title: 'ClickHouse queries recently executed for this user',
         content: <DebugCHQueries />,

@@ -172,9 +172,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
         },
     })),
-    afterMount(async ({ props, actions }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
-            await actions.loadEarlyAccessFeature()
+            actions.loadEarlyAccessFeature()
         }
     }),
 ])

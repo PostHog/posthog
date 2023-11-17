@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ReactNode } from 'react'
-import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig } from 'scenes/sceneTypes'
 
 import { Breadcrumbs } from './Breadcrumbs/Breadcrumbs'
 import { ProjectNotice } from './ProjectNotice'
@@ -10,16 +10,14 @@ import { TopBar } from './TopBar/TopBar'
 
 export function Navigation({
     children,
-    scene,
     sceneConfig,
 }: {
     children: ReactNode
-    scene: Scene | null
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     return (
         <div className="h-screen flex flex-col">
-            {scene !== Scene.Ingestion && <TopBar />}
+            <TopBar />
             <SideBar>
                 <div
                     className={clsx(

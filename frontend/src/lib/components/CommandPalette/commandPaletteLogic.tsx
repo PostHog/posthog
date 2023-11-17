@@ -49,7 +49,7 @@ import { DashboardType, InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
-import { debugCHQueries } from './DebugCHQueries'
+import { openCHQueriesDebugModal } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -578,9 +578,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         ? {
                               icon: IconTools,
                               display: 'Debug ClickHouse Queries',
-                              executor: () => {
-                                  debugCHQueries()
-                              },
+                              executor: () => openCHQueriesDebugModal(),
                           }
                         : [],
             }

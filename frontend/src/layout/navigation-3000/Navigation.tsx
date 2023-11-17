@@ -6,7 +6,7 @@ import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useEffect } from 'react'
-import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig } from 'scenes/sceneTypes'
 
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { Navbar } from './components/Navbar'
@@ -20,7 +20,6 @@ export function Navigation({
     sceneConfig,
 }: {
     children: ReactNode
-    scene: Scene | null
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)

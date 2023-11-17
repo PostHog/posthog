@@ -1,9 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
@@ -122,14 +119,7 @@ const SurveysOnboarding = (): JSX.Element => {
 }
 
 export function Onboarding(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { product } = useValues(onboardingLogic)
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
-            location.href = urls.ingestion()
-        }
-    }, [])
 
     if (!product) {
         return <></>

@@ -167,9 +167,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            <Navigation scene={activeScene} sceneConfig={sceneConfig}>
-                {wrappedSceneElement}
-            </Navigation>
+            <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
         </>

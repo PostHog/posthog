@@ -640,7 +640,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
-            deleteWithUndo({
+            await deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
@@ -781,7 +781,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
             } else {
-                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
+                lemonToast.error(
+                    `Error while saving feature flag: ${JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy}`
+                )
             }
 
             actions.loadProjectsWithCurrentFlag()

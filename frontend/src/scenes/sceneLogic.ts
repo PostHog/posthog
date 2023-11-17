@@ -1,7 +1,5 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
@@ -258,20 +256,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !location.pathname.startsWith('/settings')
                     ) {
                         if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===
-                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                             !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
                         ) {
-                            console.warn('No onboarding completed, redirecting to products')
+                            console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
-                            return
-                        } else if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
-                                'test' &&
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding
-                        ) {
-                            console.warn('Ingestion tutorial not completed, redirecting to it')
-                            router.actions.replace(urls.ingestion())
                             return
                         }
                     }

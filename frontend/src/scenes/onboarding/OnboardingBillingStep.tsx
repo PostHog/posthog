@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
@@ -27,6 +27,7 @@ export const OnboardingBillingStep = ({
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const plan = currentAndUpgradePlans?.upgradePlan
+    const currentPlan = currentAndUpgradePlans?.currentPlan
 
     return (
         <OnboardingStep
@@ -54,7 +55,7 @@ export const OnboardingBillingStep = ({
                 <div className="mt-6">
                     {product.subscribed ? (
                         <div className="mb-8">
-                            <div className="bg-success-highlight rounded-lg p-6 flex justify-between items-center mb-8">
+                            <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
                                     <IconCheckCircleOutline className="text-success text-3xl mb-6" />
                                     <div>
@@ -66,6 +67,15 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
+                            {currentPlan.initial_billing_limit && (
+                                <div className="mt-2">
+                                    <LemonBanner type="info">
+                                        To protect your costs and ours, this product has an initial billing limit of $
+                                        {currentPlan.initial_billing_limit}. You can change or remove this limit on the
+                                        Billing page.
+                                    </LemonBanner>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <>

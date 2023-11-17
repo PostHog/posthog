@@ -53,7 +53,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('loads properties', async () => {
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
@@ -70,7 +70,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('does not loads cached properties', async () => {
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
@@ -81,7 +81,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             },
         })
 
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions(mockSessons)
         }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
 

@@ -2,6 +2,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -191,7 +192,7 @@ function createPinstripePattern(color: string): CanvasPattern {
     const canvas = document.createElement('canvas')
     canvas.width = 1
     canvas.height = stripeWidth * 2
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const ctx = canvas.getContext('2d')!
 
     // fill the canvas with given color
@@ -203,7 +204,7 @@ function createPinstripePattern(color: string): CanvasPattern {
     ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
 
     // create a canvas pattern and rotate it
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const pattern = ctx.createPattern(canvas, 'repeat')!
     const xAx = Math.cos(stripeAngle)
     const xAy = Math.sin(stripeAngle)
@@ -727,7 +728,10 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
-        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
+        <div
+            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
+            data-attr={dataAttr}
+        >
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

@@ -233,7 +233,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             filters: values.filters,
                         })
                     } catch (e) {
-                        lemonToast.error('Could not update dashboardFilters: ' + e)
+                        lemonToast.error('Could not update dashboardFilters: ' + String(e))
                         return values.dashboard
                     }
                 },
@@ -267,7 +267,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: values.tiles.filter((t) => t.id !== tile.id),
                         } as DashboardType
                     } catch (e) {
-                        lemonToast.error('Could not remove tile from dashboard: ' + e)
+                        lemonToast.error('Could not remove tile from dashboard: ' + String(e))
                         return values.dashboard
                     }
                 },
@@ -282,7 +282,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: [newTile],
                         } as Partial<InsightModel>)
                     } catch (e) {
-                        lemonToast.error('Could not duplicate tile: ' + e)
+                        lemonToast.error('Could not duplicate tile: ' + String(e))
                         return values.dashboard
                     }
                 },
@@ -466,7 +466,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
                         insight: {
-                            ...((tiles[tileIndex] as DashboardTile).insight as InsightModel),
+                            ...(tiles[tileIndex].insight as InsightModel),
                             name: item.name,
                             last_modified_at: item.last_modified_at,
                         },
@@ -963,7 +963,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     )
                     actions.setRefreshStatus(insight.short_id)
 
-                    captureTimeToSeeData(values.currentTeamId, {
+                    void captureTimeToSeeData(values.currentTeamId, {
                         type: 'insight_load',
                         context: 'dashboard',
                         primary_interaction_id: dashboardQueryId,
@@ -1002,13 +1002,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         insights_fetched: insights.length,
                         insights_fetched_cached: 0,
                     }
-                    captureTimeToSeeData(values.currentTeamId, {
+                    void captureTimeToSeeData(values.currentTeamId, {
                         ...payload,
                         is_primary_interaction: !initialLoad,
                     })
                     if (initialLoad) {
                         const { startTime, responseBytes } = values.dashboardLoadTimerData
-                        captureTimeToSeeData(values.currentTeamId, {
+                        void captureTimeToSeeData(values.currentTeamId, {
                             ...payload,
                             action: 'initial_load_full',
                             time_to_see_data_ms: Math.floor(performance.now() - startTime),
@@ -1019,9 +1019,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            function loadNextPromise(): void {
+            async function loadNextPromise(): Promise<void> {
                 if (!cancelled && fetchItemFunctions.length > 0) {
-                    fetchItemFunctions.shift()?.().then(loadNextPromise)
+                    const nextPromise = fetchItemFunctions.shift()
+                    if (nextPromise) {
+                        await nextPromise()
+                        await loadNextPromise()
+                    }
                 }
             }
 
@@ -1068,7 +1072,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardItemsSuccess: function (...args) {
-            sharedListeners.reportLoadTiming(...args)
+            void sharedListeners.reportLoadTiming(...args)
 
             const dashboard = values.dashboard as DashboardType
             const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
@@ -1125,9 +1129,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 is_primary_interaction: !initialLoad,
             }
 
-            captureTimeToSeeData(values.currentTeamId, payload)
+            void captureTimeToSeeData(values.currentTeamId, payload)
             if (initialLoad && allLoaded) {
-                captureTimeToSeeData(values.currentTeamId, {
+                void captureTimeToSeeData(values.currentTeamId, {
                     ...payload,
                     action: 'initial_load_full',
                     is_primary_interaction: true,

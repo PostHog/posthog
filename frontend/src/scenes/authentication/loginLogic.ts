@@ -84,7 +84,7 @@ export const loginLogic = kea<loginLogicType>([
                         return { status: 'pending' }
                     }
 
-                    await breakpoint()
+                    breakpoint()
                     const response = await api.create('api/login/precheck', { email })
                     return { status: 'completed', ...response }
                 },
@@ -103,7 +103,7 @@ export const loginLogic = kea<loginLogicType>([
                     : undefined,
             }),
             submit: async ({ email, password }, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     return await api.create('api/login', { email, password })
                 } catch (e) {

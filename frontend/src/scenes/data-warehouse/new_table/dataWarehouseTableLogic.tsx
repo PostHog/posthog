@@ -14,7 +14,8 @@ import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
-    id: string | 'new'
+    /** A UUID or 'new'. */
+    id: string
 }
 
 const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {

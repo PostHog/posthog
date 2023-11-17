@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { InsightShortId, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
+import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -113,6 +113,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Pipeline',
     },
+    [Scene.PipelineApp]: {
+        projectBased: true,
+        name: 'Pipeline app',
+    },
     [Scene.Experiments]: {
         projectBased: true,
         name: 'Experiments',
@@ -192,10 +196,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations Redirect',
-    },
-    [Scene.Ingestion]: {
-        projectBased: true,
-        layout: 'plain',
     },
     [Scene.Products]: {
         projectBased: true,
@@ -406,10 +406,14 @@ export const routes: Record<string, Scene> = {
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipeline()]: Scene.Pipeline,
     // One entry for every available tab
-    ...Object.values(PipelineTabs).reduce((acc, tab) => {
-        acc[urls.pipeline(tab)] = Scene.Pipeline
-        return acc
-    }, {} as Record<string, Scene>),
+    ...(Object.fromEntries(Object.values(PipelineTabs).map((tab) => [urls.pipeline(tab), Scene.Pipeline])) as Record<
+        string,
+        Scene
+    >),
+    // One entry for each available tab (key by app config id)
+    ...(Object.fromEntries(
+        Object.values(PipelineAppTabs).map((tab) => [urls.pipelineApp(':id', tab), Scene.PipelineApp])
+    ) as Record<string, Scene>),
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -465,8 +469,6 @@ export const routes: Record<string, Scene> = {
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.ingestion()]: Scene.Ingestion,
-    [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
     [urls.verifyEmail()]: Scene.VerifyEmail,

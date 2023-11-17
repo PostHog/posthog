@@ -74,7 +74,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         allOnboardingSteps: [
             [] as AllOnboardingSteps,
             {
-                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
+                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
             },
         ],
         stepKey: [
@@ -84,7 +84,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            urls.default() as string,
+            urls.default(),
             {
                 setProductKey: (_, { productKey }) => {
                     return productKey ? getProductUri(productKey as ProductKey) : urls.default()
@@ -153,7 +153,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
-            actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            if (window.location.pathname.startsWith('/onboarding')) {
+                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            }
         },
         setProduct: ({ product }) => {
             if (!product) {
@@ -205,7 +207,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         resetStepKey: () => {
-            actions.setStepKey(values.allOnboardingSteps[0].props.stepKey)
+            values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
     actionToUrl(({ values }) => ({

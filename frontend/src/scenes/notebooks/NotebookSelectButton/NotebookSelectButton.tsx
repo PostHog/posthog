@@ -86,9 +86,9 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const { setShowPopover, setSearchQuery, loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
 
-    const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
+    const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
         const position = props.resource ? 'end' : 'start'
-        await openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
+        void openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
             if (!exists && props.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([props.resource])
             }
@@ -169,9 +169,9 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                                     emptyState={
                                         searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
                                     }
-                                    onClick={async (notebookShortId) => {
+                                    onClick={(notebookShortId) => {
                                         setShowPopover(false)
-                                        await openAndAddToNotebook(notebookShortId, true)
+                                        openAndAddToNotebook(notebookShortId, true)
                                     }}
                                 />
                                 <LemonDivider />
@@ -181,9 +181,9 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                         <NotebooksChoiceList
                             notebooks={notebooksNotContainingResource}
                             emptyState={searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
-                            onClick={async (notebookShortId) => {
+                            onClick={(notebookShortId) => {
                                 setShowPopover(false)
-                                await openAndAddToNotebook(notebookShortId, false)
+                                openAndAddToNotebook(notebookShortId, false)
                             }}
                         />
                     </>

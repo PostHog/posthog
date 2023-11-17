@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, TeamBasicType } from '~/types'
+import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
@@ -329,7 +329,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: async ({ id }) => {
             switch (id) {
                 case ActivationTasks.IngestFirstEvent:
-                    router.actions.push(urls.ingestion())
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
                     break
                 case ActivationTasks.InviteTeamMember:
                     actions.showInviteModal()

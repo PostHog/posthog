@@ -93,10 +93,9 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     listeners(({ values }) => ({
-        selectSetting({ setting }) {
+        async selectSetting({ setting }) {
             const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-
-            copyToClipboard(window.location.origin + url)
+            await copyToClipboard(window.location.origin + url)
         },
     })),
 ])

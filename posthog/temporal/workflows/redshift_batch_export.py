@@ -129,27 +129,28 @@ async def insert_records_to_redshift(
     rows_exported = get_rows_exported_metric()
 
     async with async_client_cursor_from_connection(redshift_connection) as cursor:
-        batch = [pre_query.as_string(cursor).encode("utf-8")]
+        batch = []
+        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
         async def flush_to_redshift(batch):
-            await cursor.execute(b"".join(batch))
-            rows_exported.add(len(batch) - 1)
+            values = b",".join(batch).replace(b" E'", b" '")
+
+            await cursor.execute(pre_query_str + values)
+            rows_exported.add(len(batch))
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
 
         for record in itertools.chain([first_record], records):
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
-
             if len(batch) < batch_size:
-                batch.append(b",")
                 continue
 
             await flush_to_redshift(batch)
-            batch = [pre_query.as_string(cursor).encode("utf-8")]
+            batch = []
 
         if len(batch) > 0:
-            await flush_to_redshift(batch[:-1])
+            await flush_to_redshift(batch)
 
 
 @contextlib.asynccontextmanager
@@ -278,12 +279,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
-            return {
-                key: json.dumps(remove_escaped_whitespace_recursive(row[key]))
+            record = {
+                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
                 if key in json_columns and row[key] is not None
                 else row[key]
                 for key in schema_columns
             }
+            record["elements"] = ""
+            return record
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(

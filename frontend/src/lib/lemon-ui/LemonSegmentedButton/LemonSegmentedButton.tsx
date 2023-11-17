@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 
 import { useSliderPositioning } from '../hooks'
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
     value: T
@@ -23,7 +23,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
 }

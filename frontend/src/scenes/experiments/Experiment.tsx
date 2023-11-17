@@ -253,7 +253,7 @@ export function Experiment(): JSX.Element {
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
                                                         <div
-                                                            key={`${variant}-${index}`}
+                                                            key={`${variant.key}-${index}`}
                                                             className={clsx(
                                                                 'feature-flag-variant',
                                                                 index === 0

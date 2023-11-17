@@ -120,7 +120,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     })),
     forms(({ props }) => ({
         secondaryMetricModal: {
-            defaults: defaultFormValuesGenerator(props.defaultAggregationType) as SecondaryMetricForm,
+            defaults: defaultFormValuesGenerator(props.defaultAggregationType),
             errors: () => ({}),
             submit: async () => {
                 // We don't use the form submit anymore

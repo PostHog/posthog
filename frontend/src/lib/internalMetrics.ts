@@ -58,7 +58,7 @@ export async function apiGetWithTimeToSeeDataTracking<T>(
         error = e
     }
     const requestDurationMs = performance.now() - requestStartMs
-    captureTimeToSeeData(teamId, {
+    void captureTimeToSeeData(teamId, {
         ...timeToSeeDataPayload,
         api_url: url,
         status: error ? 'failure' : 'success',

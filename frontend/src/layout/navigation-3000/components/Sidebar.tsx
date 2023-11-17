@@ -8,7 +8,7 @@ import React, { useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { navigation3000Logic } from '../navigationLogic'
-import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
+import { SidebarLogic, SidebarNavbarItem } from '../types'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { NewItemButton } from './NewItemButton'
 import { pluralizeCategory, SidebarAccordion } from './SidebarAccordion'
@@ -178,7 +178,7 @@ function SidebarContent({
 
     return contents.length !== 1 ? (
         <>
-            {(contents as SidebarCategory[]).map((accordion) => (
+            {contents.map((accordion) => (
                 <SidebarAccordion key={accordion.key} category={accordion} />
             ))}
         </>

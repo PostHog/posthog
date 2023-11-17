@@ -23,7 +23,7 @@ import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineTabs, PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
@@ -102,7 +102,12 @@ export function Transformations(): JSX.Element {
                                     return (
                                         <>
                                             <Tooltip title={'Click to update configuration, view metrics, and more'}>
-                                                <Link to={urls.appMetrics(pluginConfig.id)}>
+                                                <Link
+                                                    to={urls.pipelineApp(
+                                                        pluginConfig.id,
+                                                        PipelineAppTabs.Configuration
+                                                    )}
+                                                >
                                                     <span className="row-name">{pluginConfig.name}</span>
                                                 </Link>
                                             </Tooltip>
@@ -155,7 +160,9 @@ export function Transformations(): JSX.Element {
                                                             </>
                                                         }
                                                     >
-                                                        <Link to={urls.appLogs(pluginConfig.id)}>
+                                                        <Link
+                                                            to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
+                                                        >
                                                             <LemonTag type="danger" className="uppercase">
                                                                 Error
                                                             </LemonTag>
@@ -209,7 +216,10 @@ export function Transformations(): JSX.Element {
                                                     )}
                                                     <LemonButton
                                                         status="stealth"
-                                                        to={urls.appMetrics(pluginConfig.id)} // TODO: fix the URL
+                                                        to={urls.pipelineApp(
+                                                            pluginConfig.id,
+                                                            PipelineAppTabs.Configuration
+                                                        )}
                                                         id={`app-${pluginConfig.id}-configuration`}
                                                         fullWidth
                                                     >
@@ -217,7 +227,7 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     <LemonButton
                                                         status="stealth"
-                                                        to={urls.appMetrics(pluginConfig.id)}
+                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
                                                     >
@@ -225,7 +235,7 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     <LemonButton
                                                         status="stealth"
-                                                        to={urls.appLogs(pluginConfig.id)}
+                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth
                                                     >
@@ -246,7 +256,7 @@ export function Transformations(): JSX.Element {
                                                     <LemonButton
                                                         status="danger"
                                                         onClick={() => {
-                                                            deleteWithUndo({
+                                                            void deleteWithUndo({
                                                                 endpoint: `plugin_config`,
                                                                 object: {
                                                                     id: pluginConfig.id,

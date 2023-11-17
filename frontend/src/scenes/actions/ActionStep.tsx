@@ -1,7 +1,6 @@
 import './ActionStep.scss'
 
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
-import { Radio, RadioChangeEvent } from 'antd'
+import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
@@ -168,9 +167,10 @@ function Option({
 
     return (
         <div className="space-y-1">
-            <LemonLabel>
-                {label} {extra_options}
-            </LemonLabel>
+            <div className="flex space-x-1">
+                <LemonLabel>{label}</LemonLabel>
+                {extra_options}
+            </div>
             {caption && <div className="action-step-caption">{caption}</div>}
             <LemonInput
                 data-attr="edit-action-url-input"
@@ -286,8 +286,7 @@ function TypeSwitcher({
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
-    const handleChange = (e: RadioChangeEvent): void => {
-        const type = e.target.value
+    const handleChange = (type: string): void => {
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
@@ -303,19 +302,30 @@ function TypeSwitcher({
 
     return (
         <div className="type-switcher">
-            <Radio.Group
-                buttonStyle="solid"
+            <LemonSegmentedButton
                 onChange={handleChange}
                 value={
                     step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
                         ? step.event
                         : 'event'
                 }
-            >
-                <Radio.Button value="$autocapture">Autocapture</Radio.Button>
-                <Radio.Button value="event">Custom event</Radio.Button>
-                <Radio.Button value="$pageview">Page view</Radio.Button>
-            </Radio.Group>
+                options={[
+                    {
+                        value: '$autocapture',
+                        label: 'Autocapture',
+                    },
+                    {
+                        value: 'event',
+                        label: 'Custom event',
+                    },
+                    {
+                        value: '$pageview',
+                        label: 'Page view',
+                    },
+                ]}
+                fullWidth
+                size="small"
+            />
         </div>
     )
 }
@@ -330,15 +340,32 @@ function StringMatchingSelection({
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
     const key = `${field}_matching`
-    const handleURLMatchChange = (e: RadioChangeEvent): void => {
-        sendStep({ ...step, [key]: e.target.value })
+    const handleURLMatchChange = (value: string): void => {
+        sendStep({ ...step, [key]: value })
     }
     const defaultValue = field === 'url' ? StringMatching.Contains : StringMatching.Exact
     return (
-        <Radio.Group buttonStyle="solid" onChange={handleURLMatchChange} value={step[key] || defaultValue} size="small">
-            <Radio.Button value="exact">matches exactly</Radio.Button>
-            <Radio.Button value="regex">matches regex</Radio.Button>
-            <Radio.Button value="contains">contains</Radio.Button>
-        </Radio.Group>
+        <div className="flex flex-1">
+            <LemonSegmentedButton
+                onChange={handleURLMatchChange}
+                value={step[key] || defaultValue}
+                options={[
+                    {
+                        value: 'exact',
+                        label: 'matches exactly',
+                    },
+                    {
+                        value: 'regex',
+                        label: 'matches regex',
+                    },
+                    {
+                        value: 'contains',
+                        label: 'contains',
+                    },
+                ]}
+                fullWidth
+                size="xsmall"
+            />
+        </div>
     )
 }

@@ -76,7 +76,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     reducers(({ props, selectors }) => ({
         cohort: [
-            NEW_COHORT as CohortType,
+            NEW_COHORT,
             {
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
@@ -214,7 +214,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     loaders(({ actions, values, key }) => ({
         cohort: [
-            NEW_COHORT as CohortType,
+            NEW_COHORT,
             {
                 setCohort: ({ cohort }) => processCohort(cohort),
                 fetchCohort: async ({ id }, breakpoint) => {
@@ -321,6 +321,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
+                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()

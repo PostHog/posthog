@@ -80,7 +80,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                     items: [
                                         {
                                             label: 'Edit',
-                                            to: urls.featureFlag(featureFlag.id as number),
+                                            to: urls.featureFlag(featureFlag.id),
                                             onClick: () => {
                                                 featureFlagLogic({ id: featureFlag.id as number }).mount()
                                                 featureFlagLogic({
@@ -108,8 +108,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Copy flag key',
-                                            onClick: async () => {
-                                                await copyToClipboard(featureFlag.key, 'feature flag key')
+                                            onClick: () => {
+                                                void copyToClipboard(featureFlag.key, 'feature flag key')
                                             },
                                         },
                                         {
@@ -130,7 +130,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         {
                                             label: 'Delete feature flag',
                                             onClick: () => {
-                                                deleteWithUndo({
+                                                void deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/feature_flags`,
                                                     object: { name: featureFlag.key, id: featureFlag.id },
                                                     callback: actions.loadFeatureFlags,

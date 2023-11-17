@@ -2,11 +2,8 @@ import * as Icons from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -133,17 +130,10 @@ export function ProductCard({
 }
 
 export function Products(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
-            location.href = urls.ingestion()
-        }
-    }, [])
 
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">

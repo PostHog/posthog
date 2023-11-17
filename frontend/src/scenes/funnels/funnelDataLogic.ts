@@ -14,7 +14,6 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
-    FunnelStep,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
@@ -165,7 +164,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             : breakdown?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
-                    return (results as FunnelStep[]).sort((a, b) => a.order - b.order)
+                    return results.sort((a, b) => a.order - b.order)
                 } else {
                     return []
                 }

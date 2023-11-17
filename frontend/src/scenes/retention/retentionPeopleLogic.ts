@@ -31,7 +31,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
                 const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
-                return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
+                return await api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
             },
         },
     })),

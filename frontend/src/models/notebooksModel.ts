@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, NotebookType } from '~/types'
+import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
 
@@ -80,7 +80,7 @@ export const notebooksModel = kea<notebooksModelType>([
 
     reducers({
         scratchpadNotebook: [
-            SCRATCHPAD_NOTEBOOK as NotebookListItemType,
+            SCRATCHPAD_NOTEBOOK,
             {
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
@@ -105,7 +105,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         content: defaultNotebookContent(title, content),
                     })
 
-                    openNotebook(notebook.short_id, location, 'end', (logic) => {
+                    await openNotebook(notebook.short_id, location, 'end', (logic) => {
                         onCreate?.(logic)
                     })
 
@@ -117,7 +117,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {
-                    deleteWithUndo({
+                    await deleteWithUndo({
                         endpoint: `projects/${values.currentTeamId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
                         callback: actions.loadNotebooks,
@@ -137,14 +137,14 @@ export const notebooksModel = kea<notebooksModelType>([
             },
         ],
         notebookTemplates: [
-            LOCAL_NOTEBOOK_TEMPLATES as NotebookType[],
+            LOCAL_NOTEBOOK_TEMPLATES,
             {
                 // In the future we can load these from remote
             },
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ asyncActions }) => ({
         createNotebookFromDashboard: async ({ dashboard }) => {
             const queries = dashboard.tiles.reduce((acc, tile) => {
                 if (!tile.insight) {
@@ -185,7 +185,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
             }))
 
-            await actions.createNotebook(NotebookTarget.Scene, dashboard.name + ' (copied)', resources)
+            await asyncActions.createNotebook(NotebookTarget.Scene, dashboard.name + ' (copied)', resources)
         },
     })),
 ])
