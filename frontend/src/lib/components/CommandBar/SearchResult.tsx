@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
-import { SearchResult as SearchResultType } from './types'
+import { SearchResult, SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 type SearchResultProps = {
@@ -63,7 +63,9 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
                 <span className="text-muted-3000 text-xs">{resultTypeToName[result.type]}</span>
-                <span className="text-text-3000">{result.name}</span>
+                <span className="text-text-3000">
+                    <ResultName result={result} />
+                </span>
                 <span className="text-trace-3000 text-xs">
                     {location.host}
                     <span className="text-muted-3000">{urlForResult(result)}</span>
@@ -82,3 +84,16 @@ export const SearchResultSkeleton = (): JSX.Element => (
         </div>
     </div>
 )
+
+type ResultNameProps = {
+    result: SearchResult
+}
+const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
+    if (result.type === 'insight') {
+        return result.name ? <span>{result.name}</span> : <i>{result.extra_fields.derived_name}</i>
+    } else if (result.type === 'feature_flag') {
+        return result.name ? <span>{result.name}</span> : <span>{result.extra_fields.key}</span>
+    } else {
+        return <span>{result.name}</span>
+    }
+}

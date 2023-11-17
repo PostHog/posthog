@@ -22,7 +22,7 @@ ENTITY_MAP = {
     "insight": {"klass": Insight, "extra_fields": ["derived_name"]},
     "dashboard": {"klass": Dashboard},
     "experiment": {"klass": Experiment},
-    "feature_flag": {"klass": FeatureFlag},
+    "feature_flag": {"klass": FeatureFlag, "extra_fields": ["key"]},
 }
 
 
