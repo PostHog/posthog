@@ -154,7 +154,7 @@ class OrganizationFeatureFlagView(
             for group in flag_to_copy.conditions:
                 props = group.get("properties", [])
                 for prop in props:
-                    if prop.get("type") == "cohort":
+                    if isinstance(prop, dict) and prop.get("type") == "cohort":
                         original_cohort_id = prop["value"]
                         cohort_name = (seen_cohorts_cache[str(original_cohort_id)]).name
                         prop["value"] = name_to_dest_cohort_id[cohort_name]
