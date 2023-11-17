@@ -65,7 +65,7 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            {currentPlan.initial_billing_limit && (
+                            {currentPlan?.initial_billing_limit && (
                                 <div className="mt-2">
                                     <LemonBanner type="info">
                                         To protect your costs and ours, this product has an initial billing limit of $
