@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import structlog
 from dateutil import parser
@@ -468,3 +468,53 @@ def get_dependent_cohorts(
             continue
 
     return cohorts
+
+
+def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[str, Cohort]) -> List[int]:
+    """
+    Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
+    followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
+    only depends on cohorts that appear earlier in the list.
+    """
+
+    if not cohort_ids:
+        return []
+
+    dependency_graph: Dict[int, List[int]] = {}
+    seen = set()
+
+    # build graph (adjacency list)
+    def traverse(cohort):
+        # add parent
+        dependency_graph[cohort.id] = []
+        for prop in cohort.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                # add child
+                dependency_graph[cohort.id].append(int(prop.value))
+
+                neighbor_cohort = seen_cohorts_cache[str(prop.value)]
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    traverse(neighbor_cohort)
+
+    for cohort_id in cohort_ids:
+        cohort = seen_cohorts_cache[str(cohort_id)]
+        traverse(cohort)
+
+    # post-order DFS (children first, then the parent)
+    def dfs(node, seen, sorted_arr):
+        neighbors = dependency_graph.get(node, [])
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                dfs(neighbor, seen, sorted_arr)
+        sorted_arr.append(int(node))
+        seen.add(node)
+
+    sorted_cohort_ids: List[int] = []
+    seen = set()
+    for cohort_id in cohort_ids:
+        if cohort_id not in seen:
+            seen.add(cohort_id)
+            dfs(cohort_id, seen, sorted_cohort_ids)
+
+    return sorted_cohort_ids

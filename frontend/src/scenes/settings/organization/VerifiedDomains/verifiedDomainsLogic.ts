@@ -109,7 +109,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                             'We could not verify your domain yet. DNS propagation may take up to 72 hours. Please try again later.'
                         )
                     }
-                    actions.replaceDomain(response as OrganizationDomainType)
+                    actions.replaceDomain(response)
                     actions.setVerifyModal(null)
                     return false
                 },

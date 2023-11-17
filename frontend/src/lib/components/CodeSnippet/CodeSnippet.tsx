@@ -132,8 +132,10 @@ export function CodeSnippet({
                 <LemonButton
                     data-attr="copy-code-button"
                     icon={<IconCopy />}
-                    onClick={async () => {
-                        text && (await copyToClipboard(text, thing))
+                    onClick={() => {
+                        if (text) {
+                            void copyToClipboard(text, thing)
+                        }
                     }}
                     size={compact ? 'small' : 'medium'}
                 />

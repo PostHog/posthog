@@ -526,6 +526,12 @@ export enum PipelineTabs {
     Destinations = 'destinations',
 }
 
+export enum PipelineAppTabs {
+    Configuration = 'configuration',
+    Logs = 'logs',
+    Metrics = 'metrics',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -1342,7 +1348,7 @@ export interface InsightModel extends Cacheable {
     description?: string
     favorited?: boolean
     order: number | null
-    result: any | null
+    result: any
     deleted: boolean
     saved: boolean
     created_at: string

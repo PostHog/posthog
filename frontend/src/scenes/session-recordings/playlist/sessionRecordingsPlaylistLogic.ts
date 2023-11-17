@@ -350,7 +350,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         customFilters: [
-            (props.filters ?? null) as RecordingFilters | null,
+            props.filters ?? null,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,

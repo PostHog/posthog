@@ -61,7 +61,6 @@ export function dayjsLocalToTimezone(
 // We could only use types like "dayjs.OpUnitType", causing errors such as:
 // error TS2312: An interface can only extend an object type or intersection of object types with statically known members.
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Dayjs extends DayjsOriginal {}
 
 export type UnitTypeShort = 'd' | 'D' | 'M' | 'y' | 'h' | 'm' | 's' | 'ms'

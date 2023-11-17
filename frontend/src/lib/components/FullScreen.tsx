@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 export function FullScreen({ onExit }: { onExit?: () => any }): null {
     const selector = 'aside.ant-layout-sider, .layout-top-content'
     useEffect(() => {
-        const myClasses = window.document.querySelectorAll(selector) as NodeListOf<HTMLElement>
+        const myClasses = window.document.querySelectorAll<HTMLElement>(selector)
 
         for (let i = 0; i < myClasses.length; i++) {
             myClasses[i].style.display = 'none'
@@ -16,7 +16,7 @@ export function FullScreen({ onExit }: { onExit?: () => any }): null {
         }
 
         try {
-            window.document.body.requestFullscreen().then(() => {
+            void document.body.requestFullscreen().then(() => {
                 window.addEventListener('fullscreenchange', handler, false)
             })
         } catch {
@@ -31,15 +31,15 @@ export function FullScreen({ onExit }: { onExit?: () => any }): null {
         }
 
         return () => {
-            const elements = window.document.querySelectorAll(selector) as NodeListOf<HTMLElement>
+            const elements = window.document.querySelectorAll<HTMLElement>(selector)
 
             for (let i = 0; i < elements.length; i++) {
                 elements[i].style.display = 'block'
             }
             try {
                 window.removeEventListener('fullscreenchange', handler, false)
-                if (window.document.fullscreenElement !== null) {
-                    window.document.exitFullscreen()
+                if (document.fullscreenElement !== null) {
+                    void document.exitFullscreen()
                 }
             } catch {
                 // will break on IE11

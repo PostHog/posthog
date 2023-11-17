@@ -353,8 +353,8 @@ function SavedInsightsGrid(): JSX.Element {
                         insight={{ ...insight }}
                         rename={() => renameInsight(insight)}
                         duplicate={() => duplicateInsight(insight)}
-                        deleteWithUndo={() =>
-                            deleteWithUndo({
+                        deleteWithUndo={async () =>
+                            await deleteWithUndo({
                                 object: insight,
                                 endpoint: `projects/${currentTeamId}/insights`,
                                 callback: loadInsights,
@@ -501,7 +501,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        deleteWithUndo({
+                                        void deleteWithUndo({
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,

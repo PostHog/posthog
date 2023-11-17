@@ -55,7 +55,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>([
         ],
     }),
     listeners(() => ({
-        testWebhookSuccess: async ({ testedWebhook }) => {
+        testWebhookSuccess: ({ testedWebhook }) => {
             if (testedWebhook) {
                 teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: testedWebhook })
             }
