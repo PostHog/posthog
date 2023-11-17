@@ -164,13 +164,16 @@ test.concurrent(`plugin method tests: creates error on unhandled rejection`, asy
         return events
     })
 
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
+    const { error_details } = await waitForExpect(async () => {
+        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
+        expect(errors.length).toEqual(1)
+        return errors[0]
     })
 
-    expect(error.message).toEqual('error thrown in plugin')
+    expect(error_details).toMatchObject({
+        error: { message: 'error thrown in plugin' },
+        event: { properties: event.properties },
+    })
 })
 
 test.concurrent(`plugin method tests: creates error on unhandled promise errors`, async () => {
@@ -205,13 +208,16 @@ test.concurrent(`plugin method tests: creates error on unhandled promise errors`
         return events
     })
 
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
+    const { error_details } = await waitForExpect(async () => {
+        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
+        expect(errors.length).toEqual(1)
+        return errors[0]
     })
 
-    expect(error.message).toEqual('error thrown in plugin')
+    expect(error_details).toMatchObject({
+        error: { message: 'error thrown in plugin' },
+        event: { properties: event.properties },
+    })
 })
 
 test.concurrent(`plugin method tests: teardown is called on stateful plugin reload if they are updated`, async () => {
