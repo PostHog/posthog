@@ -227,9 +227,7 @@ def get_decide(request: HttpRequest):
                     response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
             if settings.ELEMENT_CHAIN_AS_STRING_TEAMS and str(team.id) in settings.ELEMENT_CHAIN_AS_STRING_TEAMS:
-                response["analytics"] = {
-                    "elementsChainAsString": True,
-                }
+                response["elementsChainAsString"] = True
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
