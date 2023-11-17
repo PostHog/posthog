@@ -14,6 +14,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
@@ -268,10 +269,12 @@ def get_decide(request: HttpRequest):
 
             if feature_flags:
                 # Billing analytics for decide requests with feature flags
-                # Sample no. of decide requests with feature flags
-                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                    increment_request_count(team.pk, count)
+                # Don't count if all requests are for survey targeting flags only.
+                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+                    # Sample no. of decide requests with feature flags
+                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                        increment_request_count(team.pk, count)
 
         else:
             # no auth provided

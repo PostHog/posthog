@@ -52,7 +52,14 @@
 
         .LemonButton {
             min-height: 2.25rem !important; // Reduce minimum height
-            padding: 0.375rem !important; // Use a custom padding for the navbar only
+
+            > span {
+                padding: 0.25rem !important;
+            }
+
+            .LemonButton__content {
+                font-size: 0.813rem;
+            }
         }
 
         ul {
@@ -64,7 +71,7 @@
         }
 
         li + li {
-            margin-top: 1px;
+            margin-top: 0.25rem;
         }
     }
 }
