@@ -24,9 +24,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     return (
         <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
             <div
-                className={`w-full pl-3 pr-2 ${
-                    focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
-                } border-b cursor-pointer`}
+                className={`w-full pl-3 pr-2 ${focused ? 'bg-accent-3000' : 'bg-bg-light'} border-b cursor-pointer`}
                 onMouseEnter={() => {
                     onMouseEnterResult(result.index)
                 }}

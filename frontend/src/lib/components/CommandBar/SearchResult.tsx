@@ -42,8 +42,8 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
     return (
         <div
             className={`w-full pl-3 pr-2 ${
-                focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
-            } border-b cursor-pointer`}
+                focused ? 'bg-accent-3000' : 'bg-bg-light'
+            } border-r border-b cursor-pointer`}
             onMouseEnter={() => {
                 if (isAutoScrolling) {
                     return
@@ -76,7 +76,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="w-full pl-3 pr-2 bg-secondary-3000 border-b">
+    <div className="w-full pl-3 pr-2 bg-bg-light border-b">
         <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
             <LemonSkeleton className="w-32 opacity-75 h-3" />
             <LemonSkeleton className="w-80 h-4" />
@@ -88,7 +88,8 @@ export const SearchResultSkeleton = (): JSX.Element => (
 type ResultNameProps = {
     result: SearchResultType
 }
-const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
+
+export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
     const { type, extra_fields } = result
     if (type === 'insight') {
         return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{extra_fields.derived_name}</i>
@@ -98,5 +99,16 @@ const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
         return <span>{extra_fields.title}</span>
     } else {
         return <span>{extra_fields.name}</span>
+    }
+}
+
+export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | null => {
+    const { type, extra_fields } = result
+    if (type === 'feature_flag') {
+        return <span>{extra_fields.name}</span>
+    } else if (type === 'notebook') {
+        return <span className="whitespace-pre">{extra_fields.text_content}</span>
+    } else {
+        return <span>{extra_fields.description}</span>
     }
 }
