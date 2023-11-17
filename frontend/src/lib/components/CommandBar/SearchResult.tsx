@@ -63,7 +63,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
                 <span className="text-muted-3000 text-xs">{resultTypeToName[result.type]}</span>
-                <span className="text-text-3000">
+                <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
                 </span>
                 <span className="text-trace-3000 text-xs">
