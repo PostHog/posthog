@@ -14,6 +14,7 @@ import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -77,6 +78,18 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 listeningForName="event"
                 teamPropertyToVerify="ingested_event"
                 stepKey={OnboardingStepKey.VERIFY}
+            />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={[
+                    {
+                        title: 'Autocapture frontend interactions',
+                        description: `If you use our JavaScript or React Native libraries, we'll automagically 
+                            capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
+                            capture directly in your code snippet.`,
+                        key: 'autocapture',
+                    },
+                ]}
             />
         </OnboardingWrapper>
     )
