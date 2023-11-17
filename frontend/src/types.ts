@@ -911,6 +911,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
+    post_to_webhook?: boolean
     csv?: UploadFile
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {

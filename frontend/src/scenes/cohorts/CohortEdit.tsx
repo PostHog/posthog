@@ -23,14 +23,17 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, Link } from '@posthog/lemon-ui'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
+    const { currentTeam } = useValues(teamLogic)
+    const slackEnabled = currentTeam?.slack_incoming_webhook
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -230,6 +233,25 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             />
                         </div>
                         <CohortCriteriaGroups id={logicProps.id} />
+                        <Divider />
+                        <Field name="post_to_webhook">
+                            {({ value, onChange }) => (
+                                <div>
+                                    <LemonCheckbox
+                                        id="webhook-checkbox"
+                                        checked={!!value}
+                                        onChange={onChange}
+                                        disabledReason={!slackEnabled && 'Configure webhooks in project settings'}
+                                        label={<span>Post to webhook when this cohort is updated.</span>}
+                                    />
+                                    <div className="mt-1 pl-6">
+                                        <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
+                                            {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
+                                        </Link>
+                                    </div>
+                                </div>
+                            )}
+                        </Field>
                     </>
                 )}
 

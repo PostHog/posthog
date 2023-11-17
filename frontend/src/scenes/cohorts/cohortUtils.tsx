@@ -88,6 +88,7 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 
 export function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
+        ...(cohort.post_to_webhook ? { post_to_webhook: cohort.post_to_webhook } : {}),
         ...(cohort.name ? { name: cohort.name } : {}),
         ...(cohort.description ? { description: cohort.description } : {}),
         ...(cohort.csv ? { csv: cohort.csv } : {}),

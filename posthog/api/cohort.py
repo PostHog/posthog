@@ -90,6 +90,7 @@ class CohortSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "post_to_webhook",
             "description",
             "groups",
             "deleted",
@@ -190,6 +191,7 @@ class CohortSerializer(serializers.ModelSerializer):
         user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
+        cohort.post_to_webhook = validated_data.get("post_to_webhook", False)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
