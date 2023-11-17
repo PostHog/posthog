@@ -11,7 +11,7 @@ import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, FinalizedBreadcrumb } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
@@ -37,12 +37,24 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     })),
     actions({
         setActionsContainer: (element: HTMLElement | null) => ({ element }),
+        tentativelyRename: (breadcrumbGlobalKey: string, tentativeName: string) => ({
+            breadcrumbGlobalKey,
+            tentativeName,
+        }),
+        finishRenaming: (breadcrumbGlobalKey: string) => ({ breadcrumbGlobalKey }),
     }),
     reducers({
         actionsContainer: [
             null as HTMLElement | null,
             {
                 setActionsContainer: (_, { element }) => element,
+            },
+        ],
+        renameState: [
+            null as [breadcrumbGlobalKey: string, tentativeName: string] | null,
+            {
+                tentativelyRename: (_, { breadcrumbGlobalKey, tentativeName }) => [breadcrumbGlobalKey, tentativeName],
+                finishRenaming: () => null,
             },
         ],
     }),
@@ -94,6 +106,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'me',
                         name: user.first_name,
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
                     })
@@ -104,6 +117,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'instance',
                         name: stripHTTP(preflight.site_url),
                         symbol: <Lettermark name="@" />,
                     })
@@ -114,6 +128,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'organization',
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
                         popover:
@@ -131,6 +146,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'project',
                         name: currentTeam.name,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
@@ -144,8 +160,24 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (appBreadcrumbs, sceneBreadcrumbs) => {
-                return [...appBreadcrumbs, ...sceneBreadcrumbs]
+            (appBreadcrumbs, sceneBreadcrumbs): FinalizedBreadcrumb[] => {
+                const breadcrumbs = Array<FinalizedBreadcrumb>(appBreadcrumbs.length + sceneBreadcrumbs.length)
+                const globalPathSoFar: string[] = []
+                for (let i = 0; i < appBreadcrumbs.length; i++) {
+                    globalPathSoFar.push(String(appBreadcrumbs[i].key))
+                    breadcrumbs[i] = {
+                        ...appBreadcrumbs[i],
+                        globalKey: globalPathSoFar.join('.'),
+                    }
+                }
+                for (let i = 0; i < sceneBreadcrumbs.length; i++) {
+                    globalPathSoFar.push(String(sceneBreadcrumbs[i].key))
+                    breadcrumbs[i + appBreadcrumbs.length] = {
+                        ...sceneBreadcrumbs[i],
+                        globalKey: globalPathSoFar.join('.'),
+                    }
+                }
+                return breadcrumbs
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],
