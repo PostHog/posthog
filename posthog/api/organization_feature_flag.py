@@ -121,7 +121,7 @@ class OrganizationFeatureFlagView(
                     # create new cohort in the destination project
                     if not destination_cohort:
                         prop_group = Filter(
-                            data={"properties": original_cohort.filters["properties"], "is_simplified": True}
+                            data={"properties": original_cohort.properties.to_dict(), "is_simplified": True}
                         ).property_groups
 
                         for prop in prop_group.flat:
