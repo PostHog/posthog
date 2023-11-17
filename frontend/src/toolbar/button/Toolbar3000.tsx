@@ -64,7 +64,7 @@ function MoreMenu(): JSX.Element {
             ]}
             maxContentWidth={true}
         >
-            <Toolbar3000Button icon={<IconMenu />} />
+            <Toolbar3000Button icon={<IconMenu />} title="More options" />
         </LemonMenu>
     )
 }
