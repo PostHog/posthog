@@ -260,8 +260,9 @@ class FeatureFlag(models.Model):
         self,
         using_database: str = "default",
         seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        sort_by_topological_order=False,
     ) -> List[int]:
-        from posthog.models.cohort.util import get_dependent_cohorts
+        from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
 
         if seen_cohorts_cache is None:
             seen_cohorts_cache = {}
@@ -293,6 +294,8 @@ class FeatureFlag(models.Model):
                         )
                     except Cohort.DoesNotExist:
                         continue
+        if sort_by_topological_order:
+            return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
         return list(cohort_ids)
 

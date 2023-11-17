@@ -43,7 +43,7 @@ export function RetentionModal(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         onClick={() =>
-                            triggerExport({
+                            void triggerExport({
                                 export_format: ExporterFormat.CSV,
                                 export_context: {
                                     path: row?.people_url,
