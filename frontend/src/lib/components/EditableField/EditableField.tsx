@@ -70,6 +70,9 @@ export function EditableField({
     useEffect(() => {
         setLocalTentativeValue(value)
     }, [value])
+    useEffect(() => {
+        setLocalIsEditing(mode === 'edit')
+    }, [mode])
 
     const isSaveable = !minLength || localTentativeValue.length >= minLength
 
