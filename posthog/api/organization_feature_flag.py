@@ -101,7 +101,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[int, Cohort] = {}
+            seen_cohorts_cache: Dict[str, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
@@ -111,22 +111,24 @@ class OrganizationFeatureFlagView(
             # create cohorts in the destination project
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
-                    original_cohort = seen_cohorts_cache[cohort_id]
+                    original_cohort = seen_cohorts_cache[str(cohort_id)]
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
                         name=original_cohort.name, team_id=target_project_id, deleted=False
                     ).first()
+
                     # create new cohort in the destination project
                     if not destination_cohort:
                         prop_group = Filter(
                             data={"properties": original_cohort.filters["properties"], "is_simplified": True}
                         ).property_groups
 
+                        # we're going to reference the destination cohort - it must already exist!
                         for prop in prop_group.flat:
                             if prop.type == "cohort":
                                 original_child_cohort_id = prop.value
-                                original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                original_child_cohort = seen_cohorts_cache[str(original_child_cohort_id)]
                                 prop.value = name_to_dest_cohort_id[original_child_cohort.name]
 
                         destination_cohort_serializer = CohortSerializer(
@@ -155,7 +157,7 @@ class OrganizationFeatureFlagView(
                 for prop in props:
                     if prop.get("type") == "cohort":
                         original_cohort_id = prop["value"]
-                        cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                        cohort_name = (seen_cohorts_cache[str(original_cohort_id)]).name
                         prop["value"] = name_to_dest_cohort_id[cohort_name]
 
             flag_data = {

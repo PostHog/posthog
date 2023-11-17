@@ -50,9 +50,9 @@ class TestFeatureFlagUtils(APIBaseTest):
 
         cohort_ids = {cohorts["a"].pk, cohorts["b"].pk, cohorts["c"].pk}
         seen_cohorts_cache = {
-            cohorts["a"].pk: cohorts["a"],
-            cohorts["b"].pk: cohorts["b"],
-            cohorts["c"].pk: cohorts["c"],
+            str(cohorts["a"].pk): cohorts["a"],
+            str(cohorts["b"].pk): cohorts["b"],
+            str(cohorts["c"].pk): cohorts["c"],
         }
 
         # (a)-->(c)-->(b)

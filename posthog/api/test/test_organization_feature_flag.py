@@ -580,8 +580,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # get topological order of the original cohorts
         original_cohorts_cache = {}
         for _, cohort in cohorts.items():
-            original_cohorts_cache[cohort.id] = cohort
-        original_cohort_ids = set(original_cohorts_cache.keys())
+            original_cohorts_cache[str(cohort.id)] = cohort
+        original_cohort_ids = {int(str_id) for str_id in original_cohorts_cache.keys()}
         topologically_sorted_original_cohort_ids = sort_cohorts_topologically(
             original_cohort_ids, original_cohorts_cache
         )
@@ -591,7 +591,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         topologically_sorted_original_cohort_ids_reversed = topologically_sorted_original_cohort_ids[::-1]
 
         def traverse(cohort, index):
-            expected_name = original_cohorts_cache[topologically_sorted_original_cohort_ids_reversed[index]].name
+            expected_cohort_id = topologically_sorted_original_cohort_ids_reversed[index]
+            expected_name = original_cohorts_cache[str(expected_cohort_id)].name
             self.assertEqual(expected_name, cohort.name)
 
             prop = cohort.filters["properties"]["values"][0]

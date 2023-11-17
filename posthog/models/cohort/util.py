@@ -440,7 +440,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
 def get_dependent_cohorts(
     cohort: Cohort,
     using_database: str = "default",
-    seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
 ) -> List[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
@@ -449,32 +449,28 @@ def get_dependent_cohorts(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue: List[int] = []
-    for prop in cohort.properties.flat:
-        if prop.type == "cohort" and not isinstance(prop.value, list):
-            queue.append(int(prop.value))
+    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
 
     while queue:
         cohort_id = queue.pop()
         try:
-            if cohort_id in seen_cohorts_cache:
-                cohort = seen_cohorts_cache[cohort_id]
+            parsed_cohort_id = str(cohort_id)
+            if parsed_cohort_id in seen_cohorts_cache:
+                cohort = seen_cohorts_cache[parsed_cohort_id]
             else:
                 cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                seen_cohorts_cache[cohort_id] = cohort
+                seen_cohorts_cache[parsed_cohort_id] = cohort
             if cohort.id not in seen_cohort_ids:
                 cohorts.append(cohort)
                 seen_cohort_ids.add(cohort.id)
-                for prop in cohort.properties.flat:
-                    if prop.type == "cohort" and not isinstance(prop.value, list):
-                        queue.append(int(prop.value))
+                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
         except Cohort.DoesNotExist:
             continue
 
     return cohorts
 
 
-def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, Cohort]) -> List[int]:
+def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[str, Cohort]) -> List[int]:
     """
     Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
     followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
@@ -493,13 +489,13 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[in
                 # add child
                 dependency_graph[cohort.id].append(int(prop.value))
 
-                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
+                neighbor_cohort = seen_cohorts_cache[str(prop.value)]
                 if cohort.id not in seen:
                     seen.add(cohort.id)
                     traverse(neighbor_cohort)
 
     for cohort_id in cohort_ids:
-        cohort = seen_cohorts_cache[cohort_id]
+        cohort = seen_cohorts_cache[str(cohort_id)]
         traverse(cohort)
 
     # post-order DFS (children first, then the parent)
@@ -508,7 +504,7 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[in
         for neighbor in neighbors:
             if neighbor not in seen:
                 dfs(neighbor, seen, sorted_arr)
-        sorted_arr.append(node)
+        sorted_arr.append(int(node))
         seen.add(node)
 
     sorted_cohort_ids: List[int] = []
@@ -517,4 +513,5 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[in
         if cohort_id not in seen:
             seen.add(cohort_id)
             dfs(cohort_id, seen, sorted_cohort_ids)
+
     return sorted_cohort_ids
