@@ -34,6 +34,8 @@ from posthog.temporal.workflows.snowflake_batch_export import (
 )
 from posthog.temporal.workflows.squash_person_overrides import *
 
+from posthog.temporal.workflows.external_data_job import *
+
 WORKFLOWS = [
     BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,
@@ -43,6 +45,7 @@ WORKFLOWS = [
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
+    ExternalDataJobWorkflow,
 ]
 
 ACTIVITIES: Sequence[Callable] = [
@@ -65,4 +68,6 @@ ACTIVITIES: Sequence[Callable] = [
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,
+    create_external_data_job_model,
+    run_external_data_job,
 ]
