@@ -50,7 +50,7 @@ def execute_process_query(
         task_id=task_id,
         complete=False,
         error=True,  # Assume error in case nothing below ends up working
-        start_time=datetime.datetime.utcnow().isoformat(),
+        start_time=datetime.datetime.utcnow(),
     )
     value = query_status.model_dump_json()
 
@@ -63,10 +63,8 @@ def execute_process_query(
         query_status.complete = True
         query_status.error = False
         query_status.results = results
-        query_status.expiration_time = (
-            datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
-        ).isoformat()
-        query_status.end_time = datetime.datetime.utcnow().isoformat()
+        query_status.expiration_time = datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
+        query_status.end_time = datetime.datetime.utcnow()
         value = query_status.model_dump_json()
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty

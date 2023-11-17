@@ -2421,6 +2421,7 @@
                     "type": "boolean"
                 },
                 "end_time": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "error": {
@@ -2432,6 +2433,7 @@
                     "type": "string"
                 },
                 "expiration_time": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "id": {
@@ -2443,6 +2445,7 @@
                 },
                 "results": {},
                 "start_time": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "task_id": {

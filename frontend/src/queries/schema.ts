@@ -555,8 +555,11 @@ export type QueryStatus = {
     /**  @default "" */
     error_message: string
     results?: any
+    /**  @format date-time */
     start_time?: string
+    /**  @format date-time */
     end_time?: string
+    /**  @format date-time */
     expiration_time?: string
     task_id?: string
 }

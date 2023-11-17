@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -444,14 +445,14 @@ class QueryStatus(BaseModel):
         extra="forbid",
     )
     complete: Optional[bool] = False
-    end_time: Optional[str] = None
+    end_time: Optional[datetime] = None
     error: Optional[bool] = False
     error_message: Optional[str] = ""
-    expiration_time: Optional[str] = None
+    expiration_time: Optional[datetime] = None
     id: str
     query_async: Optional[bool] = True
     results: Optional[Any] = None
-    start_time: Optional[str] = None
+    start_time: Optional[datetime] = None
     task_id: Optional[str] = None
     team_id: int
 
