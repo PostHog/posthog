@@ -689,7 +689,7 @@ def clickhouse_row_count():
         for table in CLICKHOUSE_TABLES:
             try:
                 QUERY = """SELECT sum(rows) rows from system.parts
-                       WHERE table = '{table}' and is_active;"""
+                       WHERE table = '{table}' and active;"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -746,6 +746,7 @@ def clickhouse_part_count():
     QUERY = """
         SELECT table, count(1) freq
         FROM system.parts
+        WHERE active
         GROUP BY table
         ORDER BY freq DESC;
     """
