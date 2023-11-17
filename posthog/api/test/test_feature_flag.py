@@ -4128,7 +4128,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
@@ -4138,7 +4138,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
@@ -4147,7 +4147,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent correct group property overrides
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -4160,7 +4160,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -4226,7 +4226,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -4324,7 +4324,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to set statement timeout
             # 1 query to get person properties
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -4434,7 +4434,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 query to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -4447,7 +4447,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
             500,
-        ), self.assertNumQueries(2):
+        ), self.assertNumQueries(4):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
@@ -4526,7 +4526,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 queries to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
@@ -4539,7 +4539,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
             500,
         ):
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
@@ -4548,7 +4548,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is slow, but decide was sent correct group property overrides
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -4570,7 +4570,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 )
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -4637,7 +4637,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -4657,7 +4657,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is slow, but decide was sent email parameter with correct email
             # still need to get hash key override from db, so should time out
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -4729,7 +4729,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(5), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
+        with self.assertNumQueries(9), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
