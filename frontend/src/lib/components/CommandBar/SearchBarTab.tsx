@@ -1,8 +1,9 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 import { ResultTypeWithAll } from './types'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 type SearchBarTabProps = {
     type: ResultTypeWithAll
@@ -18,7 +19,27 @@ export const SearchBarTab = ({ type, active, count }: SearchBarTabProps): JSX.El
             onClick={() => setActiveTab(type)}
         >
             {resultTypeToName[type]}
-            {count != null && <span className="ml-1 text-xxs text-muted-3000">{count}</span>}
+            <Count type={type} active={active} count={count} />
         </div>
     )
+}
+
+type CountProps = {
+    type: ResultTypeWithAll
+    active: boolean
+    count?: number | null
+}
+
+const Count = ({ type, active, count }: CountProps): JSX.Element | null => {
+    const { searchResponseLoading } = useValues(searchBarLogic)
+
+    if (type === 'all') {
+        return null
+    } else if (active && searchResponseLoading) {
+        return <Spinner className="ml-0.5" />
+    } else if (count != null) {
+        return <span className="ml-1 text-xxs text-muted-3000">{count}</span>
+    } else {
+        return <span className="ml-1 text-xxs text-muted-3000">&mdash;</span>
+    }
 }
