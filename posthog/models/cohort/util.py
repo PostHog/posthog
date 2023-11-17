@@ -477,6 +477,9 @@ def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[st
     only depends on cohorts that appear earlier in the list.
     """
 
+    if not cohort_ids:
+        return []
+
     dependency_graph: Dict[int, List[int]] = {}
     seen = set()
 

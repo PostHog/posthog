@@ -1,3 +1,4 @@
+from typing import Dict, Set
 from posthog.test.base import (
     APIBaseTest,
 )
@@ -64,3 +65,9 @@ class TestFeatureFlagUtils(APIBaseTest):
         destination_creation_order = [cohorts["b"].pk, cohorts["c"].pk, cohorts["a"].pk]
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
         self.assertEqual(topologically_sorted_cohort_ids, destination_creation_order)
+
+    def test_empty_cohorts_set(self):
+        cohort_ids: Set[int] = set()
+        seen_cohorts_cache: Dict[str, Cohort] = {}
+        topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+        self.assertEqual(topologically_sorted_cohort_ids, [])
