@@ -26,7 +26,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
             <div className="text-text-3000 font-bold text-lg">
                 <ResultName result={result} />
             </div>
-            <div>
+            <div className="mt-2 text-muted">
                 <ResultDescription result={result} />
                 {/*{type === 'insight' && <Query query={{ kind: NodeKind.SavedInsightNode, shortId: result.id }} />}*/}
             </div>
