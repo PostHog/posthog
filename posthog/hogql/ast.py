@@ -346,6 +346,10 @@ class LambdaArgumentType(Type):
 class Alias(Expr):
     alias: str
     expr: Expr
+    # Hidden aliases are created when HogQL invisibly renames fields, e.g "events.timestamp" gets turned into a
+    # "toDateTime(...) as timestamp". Unlike normal aliases, hidden aliases can be overriden. Visible aliases will throw
+    # if overridden, hidden ones will noop. Hidden aliases are shown if used as select columns in a subquery.
+    hidden: bool = False
 
 
 class ArithmeticOperationOp(str, Enum):

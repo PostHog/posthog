@@ -118,6 +118,7 @@ class Resolver(CloningVisitor):
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
+        hidden_aliases = {}
         for expr in node.select or []:
             new_expr = self.visit(expr)
 
@@ -128,14 +129,29 @@ class Resolver(CloningVisitor):
 
             # not an asterisk
             if isinstance(new_expr.type, ast.FieldAliasType):
-                node_type.columns[new_expr.type.alias] = new_expr.type
+                alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
-                node_type.columns[new_expr.type.name] = new_expr.type
+                alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
-                node_type.columns[new_expr.alias] = new_expr.type
+                alias = new_expr.alias
+
+            if alias:
+                if isinstance(new_expr, ast.Alias) and new_expr.hidden:
+                    hidden_aliases[alias] = new_expr
+                else:
+                    node_type.columns[alias] = new_expr.type
 
             # add the column to the new select query
             new_node.select.append(new_expr)
+
+        # this dict will contain the last used hidden alias with this name
+        for key, hidden_alias in hidden_aliases.items():
+            # if no column took this alias, unhide it
+            if key not in node_type.columns:
+                node_type.columns[key] = hidden_alias.type
+                hidden_alias.hidden = False
+                if isinstance(hidden_alias.type, ast.FieldAliasType):
+                    hidden_alias.type.hidden = False
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -455,6 +471,21 @@ class Resolver(CloningVisitor):
                 start=node.start,
                 end=node.end,
                 message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
+            )
+
+        if isinstance(node.type, ast.FieldType):
+            return ast.Alias(
+                alias=node.type.name,
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=node.type.name, type=node.type),
+            )
+        elif isinstance(node.type, ast.PropertyType):
+            return ast.Alias(
+                alias=node.type.chain[-1],
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=node.type.chain[-1], type=node.type),
             )
 
         return node

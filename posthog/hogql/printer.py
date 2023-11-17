@@ -810,8 +810,13 @@ class _Printer(Visitor):
         raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
-        inside = self.visit(node.expr)
-        if isinstance(node.expr, ast.Alias):
+        if node.hidden:
+            return self.visit(node.expr)
+        expr = node.expr
+        while isinstance(expr, ast.Alias) and expr.hidden:
+            expr = expr.expr
+        inside = self.visit(expr)
+        if isinstance(expr, ast.Alias):
             inside = f"({inside})"
         alias = self._print_identifier(node.alias)
         return f"{inside} AS {alias}"
