@@ -7,7 +7,12 @@ import { replaceImports } from './replace-imports'
 
 const memoize: Record<string, string> = {}
 
-export function transformCode(rawCode: string, server: Hub, imports?: Record<string, any>): string {
+export function transformCode(
+    rawCode: string,
+    server: Hub,
+    imports: Record<string, any>,
+    usedImports: Set<string>
+): string {
     if (process.env.NODE_ENV === 'test' && memoize[rawCode]) {
         // Memoizing in tests for speed, not in production though due to reliability concerns
         return memoize[rawCode]
@@ -20,7 +25,7 @@ export function transformCode(rawCode: string, server: Hub, imports?: Record<str
         configFile: false,
         filename: 'index.ts',
         presets: ['typescript', ['env', { targets: { node: process.versions.node } }]],
-        plugins: [replaceImports(server, imports), loopTimeout(server), promiseTimeout(server)],
+        plugins: [replaceImports(server, imports, usedImports), loopTimeout(server), promiseTimeout(server)],
     })
     if (!code) {
         throw new Error(`Babel transform gone wrong! Could not process the following code:\n${rawCode}`)

@@ -7,6 +7,7 @@ import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
 export async function setupPlugins(hub: Hub): Promise<void> {
+    const startTime = Date.now()
     status.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
@@ -59,5 +60,8 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         await loadSchedule(hub)
     }
 
-    status.info('✅', `Loaded ${pluginConfigs.size} configs for ${plugins.size} plugins`)
+    status.info(
+        '✅',
+        `Loaded ${pluginConfigs.size} configs for ${plugins.size} plugins, took ${Date.now() - startTime}ms`
+    )
 }
