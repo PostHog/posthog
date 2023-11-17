@@ -530,11 +530,13 @@ const OpenEndedChoice = ({
     label,
     initialChecked,
     inputType,
+    key,
 }: {
     label: string
     initialChecked: boolean
     inputType: string
     textColor: string
+    key: number
 }): JSX.Element => {
     const textRef = useRef<HTMLInputElement | null>(null)
     const checkRef = useRef<HTMLInputElement | null>(null)
@@ -543,23 +545,23 @@ const OpenEndedChoice = ({
         <div
             className="choice-option choice-option-open"
             onClick={() => {
-                if (checkRef.current && checkRef.current.checked) {
+                if (checkRef.current?.checked || checkRef.current?.disabled) {
                     textRef.current?.focus()
                 }
             }}
         >
             <input
+                id={`${label}-${key}`}
                 ref={checkRef}
                 type={inputType}
                 disabled={!initialChecked || !checkRef.current?.value}
                 defaultChecked={initialChecked}
                 name="choice"
             />
-            <label className="flex flex-wrap gap-2 max-w-full">
+            <label htmlFor={`${label}-${key}`}>
                 <span>{label}:</span>
                 <input
                     ref={textRef}
-                    className="grow"
                     type="text"
                     maxLength={100}
                     onClick={(e) => e.stopPropagation()}
