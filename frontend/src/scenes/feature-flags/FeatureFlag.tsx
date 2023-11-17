@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, Popconfirm, Skeleton, Card } from 'antd'
+import { Radio, Popconfirm, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -874,24 +874,22 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <span>No payload associated with this flag</span>
                         )
                     ) : (
-                        <Row gutter={16}>
-                            <Col span={12}>
-                                <div className="text-muted mb-4">
-                                    Specify a payload to be returned when the served value is{' '}
-                                    <strong>
-                                        <code>true</code>
-                                    </strong>
-                                </div>
-                                <Group name={['filters', 'payloads']}>
-                                    <Field name="true">
-                                        <JSONEditorInput
-                                            readOnly={readOnly}
-                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
-                                        />
-                                    </Field>
-                                </Group>
-                            </Col>
-                        </Row>
+                        <div className="w-1/2">
+                            <div className="text-muted mb-4">
+                                Specify a payload to be returned when the served value is{' '}
+                                <strong>
+                                    <code>true</code>
+                                </strong>
+                            </div>
+                            <Group name={['filters', 'payloads']}>
+                                <Field name="true">
+                                    <JSONEditorInput
+                                        readOnly={readOnly}
+                                        placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                    />
+                                </Field>
+                            </Group>
+                        </div>
                     )}
                 </div>
             )}
