@@ -196,7 +196,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Session replay`,
+                    name: 'Session replay',
                     path: urls.replay(),
                 },
                 {

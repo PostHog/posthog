@@ -542,6 +542,7 @@ body {
     --glass-bg-3000: var(--bg-light);
     --glass-border-3000: var(--border);
     --bg-light: #fff;
+    --bg-table: var(--bg-light);
     --link: var(--primary-3000);
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
