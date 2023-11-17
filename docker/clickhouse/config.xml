@@ -1115,8 +1115,6 @@
     </merge_tree>
     -->
 
-    <throw_on_max_partitions_per_insert_block>0</throw_on_max_partitions_per_insert_block>
-
     <!-- Protection from accidental DROP.
          If size of a MergeTree table is greater than max_table_size_to_drop (in bytes) than table could not
     be dropped with any DROP query.
