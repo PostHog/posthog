@@ -2,15 +2,14 @@ import dataclasses
 import datetime
 import json
 import uuid
-
-import structlog
 from dataclasses import dataclass
 from typing import Any, Optional
+
+import structlog
+from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import NotFound
 
-from posthog import celery
-
-from posthog import redis
+from posthog import celery, redis
 from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 
@@ -67,9 +66,10 @@ def execute_process_query(
         team_id=team_id,
         task_id=task_id,
         complete=False,
-        error=False,
+        error=True,  # Assume error in case nothing below ends up working
         start_time=datetime.datetime.utcnow().isoformat(),
     )
+    value = json.dumps(dataclasses.asdict(query_status))
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
@@ -78,18 +78,24 @@ def execute_process_query(
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
+        query_status.error = False
         query_status.results = results
         query_status.expiration_time = (
             datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
         ).isoformat()
         query_status.end_time = datetime.datetime.utcnow().isoformat()
+        value = json.dumps(  # Dump here to catch any errors before setting in redis
+            dataclasses.asdict(query_status),
+            cls=DjangoJSONEncoder,
+        )
     except Exception as err:
-        query_status.error = True
+        query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
         logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        value = json.dumps(dataclasses.asdict(query_status))
         raise err
     finally:
-        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
+        redis_client.set(key, value, ex=REDIS_STATUS_TTL_SECONDS)
 
 
 def enqueue_process_query_task(

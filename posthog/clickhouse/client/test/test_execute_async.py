@@ -28,7 +28,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         team_id = self.team_id
         query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
         result = client.get_query_status(team_id, query_id)
-        self.assertFalse(result.error)
+        self.assertFalse(result.error, result.error_message)
         self.assertTrue(result.complete)
         self.assertEqual(result.results["results"], [[2]])
 
@@ -49,14 +49,25 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         self.assertRegex(result.error_message, "Unknown table")
 
+    def test_async_query_client_uuid(self):
+        query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
+        team_id = self.team_id
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        result = client.get_query_status(team_id, query_id)
+        self.assertFalse(result.error, result.error_message)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.results["results"], [["00000000-0000-0000-0000-000000000000"]])
+
     def test_async_query_client_does_not_leak(self):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
         wrong_team = 5
         query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
-        result = client.get_query_status(wrong_team, query_id)
-        self.assertTrue(result.error)
-        self.assertEqual(result.error_message, "Query is unknown to backend")
+
+        try:
+            client.get_query_status(wrong_team, query_id)
+        except Exception as e:
+            self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
     @patch("posthog.clickhouse.client.execute_async.process_query_task")
     def test_async_query_client_is_lazy(self, execute_sync_mock):

@@ -805,8 +805,6 @@ class TestQueryRetrieve(APIBaseTest):
             {
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
-                "num_rows": 100,
-                "total_rows": 200,
                 "error": False,
                 "complete": True,
                 "results": ["result1", "result2"],
