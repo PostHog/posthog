@@ -599,7 +599,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             prop = cohort.filters["properties"]["values"][0]
             if prop["type"] == "cohort":
                 next_cohort_id = prop["value"]
-                next_cohort = Cohort.objects.get(pk=next_cohort_id)
+                next_cohort = Cohort.objects.get(pk=next_cohort_id, team_id=target_project.id)
                 traverse(next_cohort, index + 1)
 
         traverse(destination_head_cohort, 0)

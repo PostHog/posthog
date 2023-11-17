@@ -124,7 +124,6 @@ class OrganizationFeatureFlagView(
                             data={"properties": original_cohort.filters["properties"], "is_simplified": True}
                         ).property_groups
 
-                        # we're going to reference the destination cohort - it must already exist!
                         for prop in prop_group.flat:
                             if prop.type == "cohort":
                                 original_child_cohort_id = prop.value
@@ -152,7 +151,7 @@ class OrganizationFeatureFlagView(
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
-            for group in flag_to_copy.filters.get("groups", []):
+            for group in flag_to_copy.conditions:
                 props = group.get("properties", [])
                 for prop in props:
                     if prop.get("type") == "cohort":
