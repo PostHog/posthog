@@ -1526,6 +1526,10 @@
                     "enum": ["leftjoin", "subquery"],
                     "type": "string"
                 },
+                "materializationMode": {
+                    "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -1732,6 +1736,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "source"],
@@ -1801,10 +1808,6 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2686,6 +2689,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "shortId"],
@@ -2799,10 +2805,6 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -3129,6 +3131,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VizSpecificOptions": {
+            "additionalProperties": false,
+            "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
+            "properties": {
+                "RETENTION": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hideLineGraph": {
+                            "type": "boolean"
+                        },
+                        "hideSizeColumn": {
+                            "type": "boolean"
+                        },
+                        "useSmallLayout": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "WebAnalyticsPropertyFilter": {

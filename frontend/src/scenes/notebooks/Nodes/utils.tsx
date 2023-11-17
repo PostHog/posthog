@@ -16,7 +16,7 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 }
 
 export function posthogNodePasteRule(options: {
-    find: string
+    find: string | RegExp
     type: NodeType
     editor: TTEditor
     getAttributes: (
@@ -24,7 +24,7 @@ export function posthogNodePasteRule(options: {
     ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
     return new PasteRule({
-        find: createUrlRegex(options.find),
+        find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 chain().deleteRange(range).run()

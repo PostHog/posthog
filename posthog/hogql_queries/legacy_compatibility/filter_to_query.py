@@ -298,7 +298,7 @@ def _breakdown_filter(_filter: Dict):
 
 
 def _group_aggregation_filter(filter: Dict):
-    if _insight_type(filter) == "STICKINESS":
+    if _insight_type(filter) == "STICKINESS" or _insight_type(filter) == "LIFECYCLE":
         return {}
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 

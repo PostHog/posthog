@@ -29,6 +29,7 @@
         max-height: 80%;
         width: 100%;
     }
+
     @media (max-height: 500px) {
         top: 0%;
         max-height: 100%;
@@ -84,6 +85,7 @@
 
 .palette__result--focused {
     background: var(--default-dark);
+
     &::before,
     &::after {
         content: '';
@@ -93,24 +95,27 @@
         bottom: 0;
         width: 0.375rem;
     }
+
     &::before {
-        background: hsla(210, 10%, 19%, 1) !important;
+        background: hsl(210deg 10% 19% / 100%) !important;
     }
+
     &::after {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgb(255 255 255 / 10%);
     }
 }
 
 .palette__result--executable {
     cursor: pointer;
+
     &::after {
         background: var(--primary);
     }
 }
 
 .palette__scope {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background-color: rgb(255 255 255 / 10%);
+    color: rgb(255 255 255 / 80%);
 }
 
 .palette__icon {

@@ -1,0 +1,19 @@
+import { useMountedLogic } from 'kea'
+
+import { searchBarLogic } from './searchBarLogic'
+
+import { SearchInput } from './SearchInput'
+import { SearchResults } from './SearchResults'
+import { SearchTabs } from './SearchTabs'
+
+export const SearchBar = (): JSX.Element => {
+    useMountedLogic(searchBarLogic) // load initial results
+
+    return (
+        <div className="flex flex-col h-full">
+            <SearchInput />
+            <SearchResults />
+            <SearchTabs />
+        </div>
+    )
+}

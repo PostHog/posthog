@@ -12,14 +12,15 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
+
     &:not(:last-child) {
         border-bottom-width: 1px;
     }
 }
 
 .LemonCollapsePanel__header {
-    min-height: 2.875rem;
-    border-radius: 0;
+    min-height: 2.875rem !important;
+    border-radius: 0 !important;
     padding: 0.5rem 0.75rem !important; // Override reduced side padding
     font-weight: 500 !important; // Override status="stealth"'s font-weight
 

@@ -43,6 +43,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         usage_summary={
             "events": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_features=[],
@@ -96,6 +97,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         usage_summary={
             "events": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -292,6 +294,7 @@ class TestBillingAPI(APILicensedTest):
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
+                "rows_synced": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -363,6 +366,7 @@ class TestBillingAPI(APILicensedTest):
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
+                "rows_synced": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
@@ -521,6 +525,11 @@ class TestBillingAPI(APILicensedTest):
                 "todays_usage": 0,
                 "usage": 0,
             },
+            "rows_synced": {
+                "limit": None,
+                "todays_usage": 0,
+                "usage": 0,
+            },
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
@@ -552,6 +561,11 @@ class TestBillingAPI(APILicensedTest):
                 "usage": 0,
             },
             "recordings": {
+                "limit": None,
+                "todays_usage": 0,
+                "usage": 0,
+            },
+            "rows_synced": {
                 "limit": None,
                 "todays_usage": 0,
                 "usage": 0,
@@ -613,5 +627,6 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {"limit": None, "usage": 0, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
+            "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }

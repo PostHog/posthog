@@ -5,10 +5,10 @@ import { FunnelExclusion, ActionFilter as ActionFilterType, FunnelsFilterType } 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
 import clsx from 'clsx'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type ExclusionRowSuffixComponentBaseProps = {
     filter: ActionFilterType | FunnelExclusion
@@ -24,10 +24,10 @@ export function ExclusionRowSuffix({
     isVertical,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, insightFilter, exclusionDefaultStepRange, isFunnelWithEnoughSteps, series } = useValues(
-        funnelDataLogic(insightProps)
+    const { querySource, insightFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+        insightVizDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const setOneEventExclusionFilter = (eventFilter: FunnelExclusion, index: number): void => {
         const exclusions = ((insightFilter as FunnelsFilterType)?.exclusions || []).map((e, e_i) =>

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Dropdown, Tooltip } from 'antd'
+import { Dropdown } from 'antd'
 
 import { InsightLogicProps } from '~/types'
 
@@ -8,6 +8,7 @@ import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
 import { pathsDataLogic } from './pathsDataLogic'
+import { Tooltip } from '@posthog/lemon-ui'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps

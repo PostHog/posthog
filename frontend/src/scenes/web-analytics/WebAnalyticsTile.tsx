@@ -1,8 +1,8 @@
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { UnexpectedNeverError } from 'lib/utils'
-import { useActions } from 'kea'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { useActions, useValues } from 'kea'
+import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { useCallback, useMemo } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -173,11 +173,16 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 }
 
 export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setGeographyTab } = useActions(webAnalyticsLogic)
+    const { hasCountryFilter } = useValues(webAnalyticsLogic)
     const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
             togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
+            if (!hasCountryFilter) {
+                // if we just added a country filter, switch to the region tab, as the world map will not be useful
+                setGeographyTab(GeographyTab.REGIONS)
+            }
         },
         [togglePropertyFilter, worldMapPropertyName]
     )
@@ -187,9 +192,14 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             ...webAnalyticsDataTableQueryContext,
             chartRenderingMetadata: {
                 [ChartDisplayType.WorldMap]: {
-                    countryProps: (countryCode, values) => ({
-                        onClick: values && values.count > 0 ? () => onWorldMapClick(countryCode) : undefined,
-                    }),
+                    countryProps: (countryCode, values) => {
+                        return {
+                            onClick:
+                                values && (values.count > 0 || values.aggregated_value > 0)
+                                    ? () => onWorldMapClick(countryCode)
+                                    : undefined,
+                        }
+                    },
                 },
             },
         }
