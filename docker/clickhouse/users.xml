@@ -22,6 +22,8 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
+            <max_partitions_per_insert_block>5000</max_partitions_per_insert_block>
+
         </default>
 
         <!-- Profile that allows only read queries. -->
