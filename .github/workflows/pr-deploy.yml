@@ -62,19 +62,22 @@ jobs:
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
                   export RELEASE_NAME=posthog
-                  export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//\//-}
-                  export NAMESPACE=${NAMESPACE:0:38}
-                  export NAMESPACE=${NAMESPACE%%-}
-                  export HOSTNAME=$NAMESPACE
-                  export TAILNET_NAME=hedgehog-kitefin
+                  export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME//\//-}
+                  export HOSTNAME=${HOSTNAME:0:38}
+                  export HOSTNAME=${HOSTNAME%%-}
+                  export NAMESPACE="hobby"
+                  export TAILNET_NAME=${HOSTNAME}-hedgehog-kitefin
                   export TS_AUTHKEY=${{ secrets.TAILSCALE_SERVICE_AUTHKEY }}
 
                   export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
                   export POSTHOG_WEB_SERVICE_PORT=8000
                   envsubst < posthog/.github/pr-deploy/tailscale.yaml.tmpl > posthog/.github/pr-deploy/tailscale.yaml
-                  envsubst < posthog/.github/pr-deploy/values.yaml.tmpl > posthog/.github/pr-deploy/values.yaml
+                  envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
 
-                  echo "url=$NAMESPACE.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
+                  kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
+                  kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
+
+                  echo "url=$NAMESPACE.${HOSTNAME}-hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
                 #   helm upgrade --install \
                 #   -f posthog/.github/pr-deploy/values.yaml \
                 #   --set image.tag=pr-$PR_NUM \
@@ -90,7 +93,6 @@ jobs:
                 #   || kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py generate_demo_data \
                 #   && kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py shell -c "from posthog.models import Team; t = Team.objects.first(); t.is_demo = False; t.save()"
 
-                #   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
 
             - name: update deployment status
               uses: bobheadxi/deployments@v1
