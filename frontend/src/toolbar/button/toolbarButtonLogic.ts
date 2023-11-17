@@ -11,7 +11,7 @@ import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
 const DEFAULT_PADDING = { width: 16, height: 16 }
 
-export type MenuState = 'none' | 'more' | 'heatmap' | 'actions' | 'flags' | 'inspect'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     path(['toolbar', 'button', 'toolbarButtonLogic']),

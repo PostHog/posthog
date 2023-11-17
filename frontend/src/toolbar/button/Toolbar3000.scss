@@ -121,7 +121,7 @@
     &--dragging {
         // Disable transform transition whilst dragging
         transition-property: filter, width;
-        transform: var(--toolbar-translate) scale(1.2);
+        transform: var(--toolbar-translate) scale(1.1);
     }
 
     &--minimized {

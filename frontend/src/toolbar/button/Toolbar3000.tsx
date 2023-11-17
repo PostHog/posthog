@@ -27,8 +27,8 @@ import './Toolbar3000.scss'
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function MoreMenu(): JSX.Element {
-    const { visibleMenu, hedgehogMode, theme } = useValues(toolbarButtonLogic)
-    const { setHedgehogMode, setVisibleMenu, toggleTheme } = useActions(toolbarButtonLogic)
+    const { hedgehogMode, theme } = useValues(toolbarButtonLogic)
+    const { setHedgehogMode, toggleTheme } = useActions(toolbarButtonLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
@@ -37,26 +37,14 @@ function MoreMenu(): JSX.Element {
 
     return (
         <LemonMenu
-            visible={visibleMenu === 'more'}
-            onVisibilityChange={(visible) => {
-                if (!visible && visibleMenu === 'more') {
-                    setVisibleMenu('none')
-                }
-            }}
             placement="top-end"
             fallbackPlacements={['bottom-end']}
             getPopupContainer={getToolbarContainer}
-            onClickOutside={() => {
-                if (visibleMenu === 'more') {
-                    setVisibleMenu('none')
-                }
-            }}
             items={[
                 {
                     icon: <>🦔</>,
                     label: 'Hedgehog mode',
                     onClick: () => {
-                        setVisibleMenu('none')
                         setHedgehogMode(!hedgehogMode)
                     },
                 },
@@ -69,7 +57,6 @@ function MoreMenu(): JSX.Element {
                     icon: <IconQuestion />,
                     label: 'Help',
                     onClick: () => {
-                        setVisibleMenu('none')
                         window.open(HELP_URL, '_blank')?.focus()
                     },
                 },
@@ -77,7 +64,7 @@ function MoreMenu(): JSX.Element {
             ]}
             maxContentWidth={true}
         >
-            <Toolbar3000Button icon={<IconMenu />} menuId="more" />
+            <Toolbar3000Button icon={<IconMenu />} />
         </LemonMenu>
     )
 }
