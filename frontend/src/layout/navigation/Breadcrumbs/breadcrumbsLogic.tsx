@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
@@ -41,7 +41,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             breadcrumbGlobalKey,
             tentativeName,
         }),
-        finishRenaming: (breadcrumbGlobalKey: string) => ({ breadcrumbGlobalKey }),
+        finishRenaming: true,
     }),
     reducers({
         actionsContainer: [
@@ -58,6 +58,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        [sceneLogic.actionTypes.loadScene]: () => actions.finishRenaming(), // Cancel renaming on navigation away
+    })),
     selectors(() => ({
         sceneBreadcrumbs: [
             (s) => [

@@ -109,7 +109,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                     if (newMode === 'edit') {
                         tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
                     } else {
-                        finishRenaming(breadcrumb.globalKey)
+                        finishRenaming()
                     }
                     setPopoverShown(false)
                 }}
@@ -189,7 +189,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                             if (newMode === 'edit') {
                                 tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
                             } else {
-                                finishRenaming(breadcrumb.globalKey)
+                                finishRenaming()
                             }
                         }}
                         compactButtons="xsmall"
