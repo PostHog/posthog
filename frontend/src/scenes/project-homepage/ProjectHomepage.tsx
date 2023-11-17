@@ -81,8 +81,8 @@ export function ProjectHomepage(): JSX.Element {
             </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    <div className="homepage-dashboard-header">
-                        <div className="dashboard-title-container">
+                    <div className="HomepageDashboardHeader">
+                        <div className="HomepageDashboardHeader__title">
                             {!dashboard && <LemonSkeleton className="w-20" />}
                             {dashboard?.name && (
                                 <>

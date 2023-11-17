@@ -1,11 +1,11 @@
 .project-homepage {
-    .homepage-dashboard-header {
+    .HomepageDashboardHeader {
         margin-top: 1rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
 
-        .dashboard-title-container {
+        .HomepageDashboardHeader__title {
             display: flex;
             flex-direction: row;
             align-items: center;

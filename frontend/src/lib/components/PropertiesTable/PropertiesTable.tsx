@@ -92,18 +92,13 @@ function ValueDisplay({
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                <>
-                    <span>{valueString}</span>
-                    {canEdit && <IconPencil />}
-                </>
+                <span>{valueString}</span>
             ) : (
-                <>
-                    <Link to={value} target="_blank" className="value-link" targetBlankIcon>
-                        {valueString}
-                    </Link>
-                    {canEdit && <IconPencil />}
-                </>
+                <Link to={value} target="_blank" className="value-link" targetBlankIcon>
+                    {valueString}
+                </Link>
             )}
+            {canEdit && <IconPencil />}
         </span>
     )
 
