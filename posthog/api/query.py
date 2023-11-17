@@ -39,6 +39,7 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     TeamRateThrottle,
 )
+from posthog.schema import QueryStatus
 from posthog.utils import refresh_requested_by_client
 
 
@@ -131,7 +132,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 query_id=client_query_id,
                 refresh_requested=refresh_requested,
             )
-            return JsonResponse({"id": query_id, "async": True}, safe=False)
+            return JsonResponse(QueryStatus(id=query_id, team_id=self.team.pk).model_dump(), safe=False)
 
         try:
             result = process_query(self.team, query_json, refresh_requested=refresh_requested)

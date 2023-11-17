@@ -1,36 +1,19 @@
-import dataclasses
 import datetime
 import json
 import uuid
-from dataclasses import dataclass
-from typing import Any, Optional
 
 import structlog
-from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import NotFound
 
 from posthog import celery, redis
 from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.schema import QueryStatus
 
 logger = structlog.get_logger(__name__)
 
 REDIS_STATUS_TTL_SECONDS = 600  # 10 minutes
 REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_async"
-
-
-@dataclass
-class QueryStatus:
-    id: str
-    team_id: int
-    error: bool = False
-    complete: bool = False
-    error_message: str = ""
-    results: Any = None
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
-    expiration_time: Optional[str] = None
-    task_id: Optional[str] = None
 
 
 class QueryNotFoundError(NotFound):
@@ -69,7 +52,7 @@ def execute_process_query(
         error=True,  # Assume error in case nothing below ends up working
         start_time=datetime.datetime.utcnow().isoformat(),
     )
-    value = json.dumps(dataclasses.asdict(query_status))
+    value = query_status.model_dump_json()
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
@@ -84,15 +67,12 @@ def execute_process_query(
             datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
         ).isoformat()
         query_status.end_time = datetime.datetime.utcnow().isoformat()
-        value = json.dumps(  # Dump here to catch any errors before setting in redis
-            dataclasses.asdict(query_status),
-            cls=DjangoJSONEncoder,
-        )
+        value = query_status.model_dump_json()
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
         logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-        value = json.dumps(dataclasses.asdict(query_status))
+        value = query_status.model_dump_json()
         raise err
     finally:
         redis_client.set(key, value, ex=REDIS_STATUS_TTL_SECONDS)
@@ -133,7 +113,7 @@ def enqueue_process_query_task(
 
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(id=query_id, team_id=team_id)
-    redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
+    redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)
 
     if bypass_celery:
         # Call directly ( for testing )
@@ -145,7 +125,7 @@ def enqueue_process_query_task(
             team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
-        redis_client.set(key, json.dumps(dataclasses.asdict(query_status)), ex=REDIS_STATUS_TTL_SECONDS)
+        redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)
 
     return query_id
 

@@ -3020,20 +3020,6 @@ export interface ExportedAssetType {
     expires_after?: Dayjs
 }
 
-export type QueryStatus = {
-    id: string
-    async: boolean
-    team_id: number
-    error: boolean
-    complete: boolean
-    error_message: string
-    results: any
-    start_time?: string
-    end_time?: string
-    expiration_time?: string
-    task_id?: string
-}
-
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',

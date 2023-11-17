@@ -105,7 +105,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 
-    if (!queryAsync || !response.async) {
+    if (!queryAsync || !response.query_async) {
         return response
     }
 

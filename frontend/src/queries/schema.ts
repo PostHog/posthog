@@ -526,6 +526,25 @@ export interface QueryResponse {
     next_allowed_client_refresh?: string
 }
 
+export type QueryStatus = {
+    id: string
+    /**  @default true */
+    query_async: boolean
+    /**  @asType integer */
+    team_id: number
+    /**  @default false */
+    error: boolean
+    /**  @default false */
+    complete: boolean
+    /**  @default "" */
+    error_message: string
+    results?: any
+    start_time?: string
+    end_time?: string
+    expiration_time?: string
+    task_id?: string
+}
+
 export interface LifecycleQueryResponse extends QueryResponse {
     results: Record<string, any>[]
 }
