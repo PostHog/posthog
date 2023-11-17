@@ -38,7 +38,7 @@ export interface SavedInsightFilters {
     search: string
     insightType: string
     createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
+    dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null

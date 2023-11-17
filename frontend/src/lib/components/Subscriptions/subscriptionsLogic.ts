@@ -48,8 +48,8 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        deleteSubscription: ({ id }) => {
-            deleteWithUndo({
+        deleteSubscription: async ({ id }) => {
+            await deleteWithUndo({
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },
                 callback: () => actions.loadSubscriptions(),

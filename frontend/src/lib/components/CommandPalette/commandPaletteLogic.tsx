@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
-import { debugCHQueries } from './DebugCHQueries'
+import { openCHQueriesDebugModal } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -576,9 +576,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         ? {
                               icon: IconTools,
                               display: 'Debug ClickHouse Queries',
-                              executor: () => {
-                                  debugCHQueries()
-                              },
+                              executor: () => openCHQueriesDebugModal(),
                           }
                         : [],
             }

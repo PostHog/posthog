@@ -40,7 +40,7 @@ export function InstructionsPanel(): JSX.Element {
         return <></>
     }
 
-    const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework as string] as React.ComponentType
+    const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework as string]
 
     return (
         <div className="InstructionsPanel mb-8">

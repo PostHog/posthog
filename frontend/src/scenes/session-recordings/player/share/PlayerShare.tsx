@@ -8,6 +8,7 @@ import { Field } from 'lib/forms/Field'
 import { copyToClipboard } from 'lib/utils'
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { captureException } from '@sentry/react'
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
@@ -27,7 +28,7 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={async () => await copyToClipboard(url, 'recording link')}
+                onClick={() => void copyToClipboard(url, 'recording link').then(captureException)}
                 title={url}
             >
                 <span className="truncate">{url}</span>
