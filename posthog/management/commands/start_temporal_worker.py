@@ -9,12 +9,23 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.temporal.worker import start_worker
+from posthog.temporal.workflows import (
+    BATCH_EXPORTS_WORKFLOWS,
+    BATCH_EXPORT_ACTIVITIES,
+    DATA_SYNC_ACTIVITIES,
+    DATA_SYNC_WORKFLOWS,
+)
 
 
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--workflow-group",
+            default=settings.WORKFLOW_GROUP,
+            help="Group of temporal workflows and activities to execute (batch-exports, data-sync)",
+        )
         parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
@@ -64,6 +75,14 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+        workflow_group = options.get["workflow_group"]
+
+        if workflow_group == "data-sync":
+            workflows = DATA_SYNC_WORKFLOWS
+            activities = DATA_SYNC_ACTIVITIES
+        else:
+            workflows = BATCH_EXPORTS_WORKFLOWS
+            activities = BATCH_EXPORT_ACTIVITIES
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -83,5 +102,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
+                workflows=workflows,
+                activities=activities,
             )
         )
