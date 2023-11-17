@@ -20,6 +20,12 @@
         width: 25%;
         overflow: hidden;
         height: 100%;
+
+        .text-link {
+            .posthog-3000 & {
+                color: var(--default);
+            }
+        }
     }
 
     .SessionRecordingsPlaylist__player {

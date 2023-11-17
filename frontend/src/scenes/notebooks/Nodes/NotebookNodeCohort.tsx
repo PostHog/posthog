@@ -71,7 +71,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
 
                       {
                           text: 'Cohort trends',
-                          icon: <IconTrends noBackground color="currentColor" />,
+                          icon: <IconTrends color="currentColor" />,
                           onClick: () => {
                               setExpanded(false)
                               insertAfter({
