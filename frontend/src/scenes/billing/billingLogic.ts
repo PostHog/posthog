@@ -160,21 +160,21 @@ export const billingLogic = kea<billingLogicType>([
                                 message: `Automatically added a $${currentPlan?.initial_billing_limit} billing limit for ${product.name}`,
                                 action: {
                                     onClick: () => {
-                                        const element = document.body.querySelector(
+                                        const element: HTMLElement = document.body.querySelector(
                                             `[data-attr="billing-limit-input-${product.type.replace(
                                                 '_',
                                                 '-'
                                             )}"] .text-link`
-                                        )
+                                        ) as HTMLElement
                                         element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
                                         element?.click()
                                         setTimeout(() => {
-                                            const inputElement = document.body.querySelector(
+                                            const inputElement: HTMLElement = document.body.querySelector(
                                                 `[data-attr="billing-limit-input-${product.type.replace(
                                                     '_',
                                                     '-'
                                                 )}"] input`
-                                            )
+                                            ) as HTMLElement
                                             inputElement?.focus()
                                         }, 0)
                                     },
