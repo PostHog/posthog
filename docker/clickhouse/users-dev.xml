@@ -22,9 +22,6 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
-            <max_partitions_per_insert_block>5000</max_partitions_per_insert_block>
-            <throw_on_max_partitions_per_insert_block>false</throw_on_max_partitions_per_insert_block>
-
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
 
         </default>
