@@ -74,7 +74,7 @@ jobs:
                   #envsubst < posthog/.github/pr-deploy/tailscale.yaml.tmpl > posthog/.github/pr-deploy/tailscale.yaml
                   envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
 
-                  kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml 
+                  kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml || true
                   #kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
