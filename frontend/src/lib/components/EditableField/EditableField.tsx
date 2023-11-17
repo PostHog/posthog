@@ -22,7 +22,7 @@ export interface EditableFieldProps {
     multiline?: boolean
     /** Whether to render the content as Markdown in view mode. */
     markdown?: boolean
-    compactButtons?: boolean | 'xsmall'
+    compactButtons?: boolean | 'xsmall' // The 'xsmall' is somewhat hacky, but necessary for 3000 breadcrumbs
     /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
     /** Controlled mode. */

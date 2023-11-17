@@ -175,31 +175,27 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
 
     return (
         <h1 className="Breadcrumbs3000__here">
-            {breadcrumb.name != null ? (
-                breadcrumb.onRename ? (
-                    <EditableField
-                        name="item-name-large"
-                        value={
-                            renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name
-                        }
-                        onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
-                        onSave={(newName) => breadcrumb.onRename?.(newName)}
-                        mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
-                        onModeToggle={(newMode) => {
-                            if (newMode === 'edit') {
-                                tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
-                            } else {
-                                finishRenaming()
-                            }
-                        }}
-                        compactButtons="xsmall"
-                        editingIndication="underlined"
-                    />
-                ) : (
-                    <span>{breadcrumb.name}</span>
-                )
-            ) : (
+            {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
+            ) : breadcrumb.onRename ? (
+                <EditableField
+                    name="item-name-large"
+                    value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
+                    onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                    onSave={(newName) => breadcrumb.onRename?.(newName)}
+                    mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
+                    onModeToggle={(newMode) => {
+                        if (newMode === 'edit') {
+                            tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                        } else {
+                            finishRenaming()
+                        }
+                    }}
+                    compactButtons="xsmall"
+                    editingIndication="underlined"
+                />
+            ) : (
+                <span>{breadcrumb.name}</span>
             )}
         </h1>
     )
