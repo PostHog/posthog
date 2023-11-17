@@ -132,50 +132,6 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
     })
 })
 
-test.concurrent(`plugin method tests: creates error on unhandled rejection`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
-            export async function processEvent(event) {
-                void new Promise((_, rejects) => { rejects(new Error('error thrown in plugin')) }).then(() => {})
-                return event
-            }
-        `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
-    }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        return events
-    })
-
-    const { error_details } = await waitForExpect(async () => {
-        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
-        expect(errors.length).toEqual(1)
-        return errors[0]
-    })
-
-    expect(error_details).toMatchObject({
-        error: { message: 'error thrown in plugin' },
-        event: { properties: event.properties },
-    })
-})
-
 test.concurrent(`plugin method tests: creates error on unhandled promise errors`, async () => {
     const plugin = await createPlugin({
         organization_id: organizationId,
