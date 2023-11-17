@@ -143,7 +143,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -175,6 +174,7 @@ export const FEATURE_FLAGS = {
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

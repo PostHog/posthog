@@ -7,6 +7,7 @@ import {
     InsightShortId,
     ReplayTabs,
     PipelineTabs,
+    PipelineAppTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
@@ -95,8 +96,10 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}`,
-    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}/new`,
+    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
+    pipelineApp: (id: string | number, tab?: PipelineAppTabs): string =>
+        `/pipeline/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
+    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}/new`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>

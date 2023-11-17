@@ -99,80 +99,59 @@ export function DashboardItems(): JSX.Element {
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
+
+                    const commonTileProps = {
+                        dashboardId: dashboard?.id,
+                        showResizeHandles: dashboardMode === DashboardMode.Edit,
+                        canResizeWidth: canResizeWidth,
+                        showEditingControls: [
+                            DashboardPlacement.Dashboard,
+                            DashboardPlacement.ProjectHomepage,
+                        ].includes(placement),
+                        moreButtons: canEditDashboard ? (
+                            <LemonButton
+                                onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)}
+                                status="stealth"
+                                fullWidth
+                            >
+                                Edit layout (E)
+                            </LemonButton>
+                        ) : null,
+                        moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                            if (!dashboard) {
+                                throw new Error('must be on a dashboard to move this tile')
+                            }
+                            moveToDashboard(tile, dashboard.id, id, name)
+                        },
+                        removeFromDashboard: () => removeTile(tile),
+                    }
+
                     if (insight) {
                         return (
                             <InsightCard
                                 key={tile.id}
                                 insight={insight}
-                                dashboardId={dashboard?.id}
                                 loading={isRefreshing(insight.short_id)}
                                 apiErrored={refreshStatus[insight.short_id]?.error || false}
                                 highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
-                                showResizeHandles={dashboardMode === DashboardMode.Edit}
-                                canResizeWidth={canResizeWidth}
                                 updateColor={(color) => updateTileColor(tile.id, color)}
                                 ribbonColor={tile.color}
-                                removeFromDashboard={() => removeTile(tile)}
                                 refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh_manual' })}
                                 rename={() => renameInsight(insight)}
                                 duplicate={() => duplicateInsight(insight)}
-                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    if (!dashboard) {
-                                        throw new Error('must be on a dashboard to move an insight')
-                                    }
-                                    moveToDashboard(tile, dashboard.id, id, name)
-                                }}
-                                showEditingControls={[
-                                    DashboardPlacement.Dashboard,
-                                    DashboardPlacement.ProjectHomepage,
-                                ].includes(placement)}
                                 showDetailsControls={placement != DashboardPlacement.Export}
-                                moreButtons={
-                                    canEditDashboard ? (
-                                        <LemonButton
-                                            onClick={() =>
-                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
-                                            }
-                                            status="stealth"
-                                            fullWidth
-                                        >
-                                            Edit layout (E)
-                                        </LemonButton>
-                                    ) : null
-                                }
                                 placement={placement}
+                                {...commonTileProps}
                             />
                         )
                     }
                     if (text) {
                         return (
                             <TextCard
-                                dashboardId={dashboard?.id}
-                                textTile={tile}
                                 key={tile.id}
-                                showResizeHandles={dashboardMode === DashboardMode.Edit}
-                                canResizeWidth={canResizeWidth}
-                                removeFromDashboard={() => removeTile(tile)}
+                                textTile={tile}
                                 duplicate={() => duplicateTile(tile)}
-                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    if (!dashboard) {
-                                        throw new Error('must be on a dashboard to move a text tile')
-                                    }
-                                    moveToDashboard(tile, dashboard.id, id, name)
-                                }}
-                                moreButtons={
-                                    canEditDashboard ? (
-                                        <LemonButton
-                                            onClick={() =>
-                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
-                                            }
-                                            status="stealth"
-                                            fullWidth
-                                        >
-                                            Edit layout (E)
-                                        </LemonButton>
-                                    ) : null
-                                }
+                                {...commonTileProps}
                             />
                         )
                     }

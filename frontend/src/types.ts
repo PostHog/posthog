@@ -526,6 +526,12 @@ export enum PipelineTabs {
     Destinations = 'destinations',
 }
 
+export enum PipelineAppTabs {
+    Configuration = 'configuration',
+    Logs = 'logs',
+    Metrics = 'metrics',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -1142,6 +1148,7 @@ export interface PerformanceEvent {
     response_headers?: Record<string, string>
     request_body?: Body
     response_body?: Body
+    method?: string
 }
 
 export interface CurrentBillCycleType {
@@ -2195,6 +2202,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    autoDisappear?: boolean
     position?: string
 }
 

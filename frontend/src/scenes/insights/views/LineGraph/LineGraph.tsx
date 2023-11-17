@@ -37,6 +37,7 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import clsx from 'clsx'
 
 let tooltipRoot: Root
 
@@ -221,7 +222,6 @@ export interface LineGraphProps {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
-    inCardView?: boolean
     inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
@@ -255,7 +255,6 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     compare = false,
-    inCardView,
     inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
@@ -297,7 +296,6 @@ export function LineGraph_({
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
-    const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -689,14 +687,6 @@ export function LineGraph_({
                             const height = dynamicHeight
                             const parentNode: any = scale.chart?.canvas?.parentNode
                             parentNode.style.height = `${height}px`
-                        } else if (shouldAutoResize) {
-                            // automatically resize the chart container to fit the number of rows
-                            const MIN_HEIGHT = 575
-                            const ROW_HEIGHT = 16
-                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
-                            const height = Math.max(dynamicHeight, MIN_HEIGHT)
-                            const parentNode: any = scale.chart?.canvas?.parentNode
-                            parentNode.style.height = `${height}px`
                         } else {
                             // display only as many bars, as we can fit labels
                             scale.max = scale.ticks.length
@@ -706,7 +696,7 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         precision,
-                        autoSkip: !shouldAutoResize,
+                        autoSkip: true,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
                                 datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
@@ -737,7 +727,7 @@ export function LineGraph_({
 
     return (
         <div
-            className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
+            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
             data-attr={dataAttr}
         >
             <canvas ref={canvasRef} />

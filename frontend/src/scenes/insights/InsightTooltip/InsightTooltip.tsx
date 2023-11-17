@@ -154,7 +154,7 @@ export function InsightTooltip({
                             seriesColumnData?.count,
                             formatPropertyValueForDisplay,
                             renderCount,
-                            seriesColumnData.color
+                            seriesColumnData?.color
                         )
                     },
                 })

@@ -99,8 +99,11 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0)
 
     return (
-        <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center gap-x-2 flex-wrap my-2 gap-y-2">
+        <div
+            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2"
+            data-attr="insight-filters"
+        >
+            <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
                 {!isRetention && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
@@ -138,7 +141,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center gap-x-2 flex-wrap my-2">
+            <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
