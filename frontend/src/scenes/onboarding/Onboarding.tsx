@@ -15,6 +15,7 @@ import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -67,6 +68,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -87,7 +90,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                         description: `If you use our JavaScript or React Native libraries, we'll automagically 
                             capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
                             capture directly in your code snippet.`,
-                        key: 'autocapture',
+                        teamProperty: 'autocapture_opt_out',
+                        value: !currentTeam?.autocapture_opt_out,
+                        type: 'toggle',
+                        inverseToggle: true,
                     },
                 ]}
             />

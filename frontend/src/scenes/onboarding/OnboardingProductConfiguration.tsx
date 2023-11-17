@@ -13,13 +13,13 @@ export const OnboardingProductConfiguration = ({
     options: ProductConfigOption[]
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
-    const { setConfigOptions } = useActions(onboardingProductConfigurationLogic)
+    const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
     useEffect(() => {
         setConfigOptions(options)
     }, [])
 
     return configOptions ? (
-        <OnboardingStep title={`Set up your configuration`} stepKey={stepKey}>
+        <OnboardingStep title={`Set up your configuration`} stepKey={stepKey} continueAction={saveConfiguration}>
             {configOptions?.map((option) => (
                 <div className="my-8" key={option.key}>
                     <LemonSwitch
