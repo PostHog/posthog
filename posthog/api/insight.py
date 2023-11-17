@@ -31,7 +31,7 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
-from posthog.api.process import cancel_query_on_cluster
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin

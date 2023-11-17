@@ -17,7 +17,7 @@ from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
-from posthog.api.process import process_query
+from posthog.api.services.query import process_query
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.client.execute_async import (
     cancel_query,

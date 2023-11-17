@@ -5,7 +5,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.process import process_query
+from posthog.api.services.query import process_query
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (

@@ -57,7 +57,7 @@ def execute_process_query(
     redis_client = redis.get_client()
 
     from posthog.models import Team
-    from posthog.api.process import process_query
+    from posthog.api.services.query import process_query
 
     team = Team.objects.get(pk=team_id)
 
@@ -172,7 +172,7 @@ def cancel_query(team_id, query_id):
         logger.info("Got task id %s, attempting to revoke", query_status.task_id)
         celery.app.control.revoke(query_status.task_id, terminate=True)
 
-        from posthog.api.process import cancel_query_on_cluster
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
 
         logger.info("Revoked task id %s, attempting to cancel on cluster", query_status.task_id)
         cancel_query_on_cluster(team_id, query_id)
