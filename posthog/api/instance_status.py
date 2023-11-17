@@ -92,7 +92,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             }
         )
         if postgres_alive:
-            postgres_version = connection.cursor().connection.server_version
+            postgres_version = connection.cursor().connection.info.server_version
             metrics.append(
                 {
                     "key": "pg_version",
