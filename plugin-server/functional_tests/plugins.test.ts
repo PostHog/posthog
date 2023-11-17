@@ -132,7 +132,7 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
     })
 })
 
-test.concurrent(`plugin method tests: creates error on unhandled promise errors`, async () => {
+test.concurrent(`plugin method tests: creates error on unhandled promise rejection`, async () => {
     const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'test plugin',
@@ -140,7 +140,7 @@ test.concurrent(`plugin method tests: creates error on unhandled promise errors`
         is_global: false,
         source__index_ts: `
             export async function processEvent(event) {
-                void new Promise(() => { throw new Error('error thrown in plugin') }).then(() => {})
+                void new Promise(() => { throw new Error('error thrown in plugin') })
                 return event
             }
         `,
