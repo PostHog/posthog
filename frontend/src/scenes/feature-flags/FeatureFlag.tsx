@@ -78,7 +78,7 @@ export const scene: SceneExport = {
 
 function focusVariantKeyField(index: number): void {
     setTimeout(
-        () => document.querySelector<HTMLElement>(`.variant-form-list input[data-key-index="${index}"]`)?.focus(),
+        () => document.querySelector<HTMLElement>(`.VariantFormList input[data-key-index="${index}"]`)?.focus(),
         50
     )
 }
@@ -732,17 +732,17 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         <>
                             <h3 className="l3">Variant keys</h3>
                             <div className="border rounded p-4 mb-4 bg-bg-light">
-                                <div className="flex gap-4 font-semibold">
-                                    <div className="flex-6">Key</div>
-                                    <div className="flex-6">Description</div>
-                                    <div className="flex-9">Payload</div>
-                                    <div className="flex-3">Rollout</div>
+                                <div className="grid grid-cols-8 gap-4 font-semibold">
+                                    <div className="col-span-2">Key</div>
+                                    <div className="col-span-2">Description</div>
+                                    <div className="col-span-3">Payload</div>
+                                    <div>Rollout</div>
                                 </div>
                                 <LemonDivider className="my-3" />
                                 {variants.map((variant, index) => (
                                     <div key={index}>
-                                        <div className="flex gap-4">
-                                            <div className="flex-6">
+                                        <div className="grid grid-cols-8 gap-4">
+                                            <div className="col-span-2">
                                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                                 <CopyToClipboardInline
                                                     tooltipMessage={null}
@@ -755,12 +755,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     {variant.key}
                                                 </CopyToClipboardInline>
                                             </div>
-                                            <div className="flex-6">
+                                            <div className="col-span-2">
                                                 <span className={variant.name ? '' : 'text-muted'}>
                                                     {variant.name || 'There is no description for this variant key'}
                                                 </span>
                                             </div>
-                                            <div className="flex-9">
+                                            <div className="col-span-3">
                                                 {featureFlag.filters.payloads?.[index] ? (
                                                     <JSONEditorInput
                                                         readOnly={true}
@@ -772,7 +772,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="flex-3">{variant.rollout_percentage}%</div>
+                                            <div>{variant.rollout_percentage}%</div>
                                         </div>
                                         {index !== variants.length - 1 && <LemonDivider className="my-3" />}
                                     </div>
@@ -897,12 +897,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <div className="feature-flag-variants">
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="variant-form-list space-y-2">
-                        <div className="flex label-row gap-2 items-center">
-                            <div className="flex-1" />
-                            <div className="flex-4">Variant key</div>
-                            <div className="flex-6">Description</div>
-                            <div className="flex-8">
+                    <div className="VariantFormList space-y-2">
+                        <div className="VariantFormList__row grid label-row gap-2 items-center">
+                            <div />
+                            <div className="col-span-4">Variant key</div>
+                            <div className="col-span-6">Description</div>
+                            <div className="col-span-8">
                                 <div className="flex flex-col">
                                     <b>Payload</b>
                                     <span className="text-muted font-normal">
@@ -910,7 +910,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </span>
                                 </div>
                             </div>
-                            <div className="flex-4 flex items-center gap-1">
+                            <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
                                 <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
                                     (Redistribute)
@@ -919,11 +919,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         </div>
                         {variants.map((variant, index) => (
                             <Group key={index} name="filters">
-                                <div className="flex gap-2">
-                                    <div className="flex flex-1 items-center justify-center">
+                                <div className="VariantFormList__row grid gap-2">
+                                    <div className="flex items-center justify-center">
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </div>
-                                    <div className="flex-4">
+                                    <div className="col-span-4">
                                         <Field name={['multivariate', 'variants', index, 'key']}>
                                             <LemonInput
                                                 data-attr="feature-flag-variant-key"
@@ -943,7 +943,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             />
                                         </Field>
                                     </div>
-                                    <div className="flex-6">
+                                    <div className="col-span-6">
                                         <Field name={['multivariate', 'variants', index, 'name']}>
                                             <LemonInput
                                                 data-attr="feature-flag-variant-name"
@@ -952,7 +952,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             />
                                         </Field>
                                     </div>
-                                    <div className="flex-8">
+                                    <div className="col-span-8">
                                         <Field name={['payloads', index]}>
                                             {({ value, onChange }) => {
                                                 return (
@@ -965,7 +965,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             }}
                                         </Field>
                                     </div>
-                                    <div className="flex-3">
+                                    <div className="col-span-3">
                                         <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                             {({ value, onChange }) => (
                                                 <div>
@@ -1011,7 +1011,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             )}
                                         </Field>
                                     </div>
-                                    <div className="flex flex-1 items-center justify-center">
+                                    <div className="flex items-center justify-center">
                                         {variants.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
