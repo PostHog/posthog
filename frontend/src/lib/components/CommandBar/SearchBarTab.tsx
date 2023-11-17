@@ -9,14 +9,18 @@ type SearchBarTabProps = {
     type: ResultTypeWithAll
     active: boolean
     count?: number | null
+    inputRef: Ref<HTMLInputElement>
 }
 
-export const SearchBarTab = ({ type, active, count }: SearchBarTabProps): JSX.Element => {
+export const SearchBarTab = ({ type, active, count, inputRef }: SearchBarTabProps): JSX.Element => {
     const { setActiveTab } = useActions(searchBarLogic)
     return (
         <div
             className={`px-3 py-2 cursor-pointer text-xs whitespace-nowrap ${active && 'font-bold'}`}
-            onClick={() => setActiveTab(type)}
+            onClick={() => {
+                setActiveTab(type)
+                inputRef.current?.focus()
+            }}
         >
             {resultTypeToName[type]}
             <Count type={type} active={active} count={count} />
