@@ -1,4 +1,5 @@
 import uuid
+import requests
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -14,6 +15,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+import json
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -468,3 +470,22 @@ def get_dependent_cohorts(
             continue
 
     return cohorts
+
+
+def call_webhook_on_cohort_update(
+    before_cohortpeople_count: int, after_cohortpeople_count: int, cohort: Cohort
+) -> None:
+    team = Team.objects.filter(pk=cohort.team_id).get()
+    if team.slack_incoming_webhook:
+        webhook_url = team.slack_incoming_webhook
+    else:
+        return
+    change = abs(after_cohortpeople_count - before_cohortpeople_count)
+    is_addition = after_cohortpeople_count > before_cohortpeople_count
+    message = f"{change} {'persons' if change > 1 else 'person'} {'have' if change > 1 else 'has'} been {'added' if is_addition else 'removed'} {'to' if is_addition else 'from'} a cohort named {cohort.name}."
+    data = {"message": message}
+    headers = {"Content-Type": "application/json"}
+    try:
+        requests.post(webhook_url, data=json.dumps(data), headers=headers)
+    except requests.RequestException as e:
+        logger.warn(f"Error sending webhook: {e}")
