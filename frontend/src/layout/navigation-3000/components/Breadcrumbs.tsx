@@ -103,7 +103,9 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                 name="item-name-small"
                 value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
                 onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
-                onSave={(newName) => breadcrumb.onRename?.(newName)}
+                onSave={(newName) => {
+                    void breadcrumb.onRename?.(newName)
+                }}
                 mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
                 onModeToggle={(newMode) => {
                     if (newMode === 'edit') {
@@ -182,7 +184,9 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     name="item-name-large"
                     value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
                     onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
-                    onSave={(newName) => breadcrumb.onRename?.(newName)}
+                    onSave={(newName) => {
+                        void breadcrumb.onRename?.(newName)
+                    }}
                     mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
                     onModeToggle={(newMode) => {
                         if (newMode === 'edit') {
