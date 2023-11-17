@@ -133,8 +133,10 @@ async def insert_records_to_redshift(
         pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
         async def flush_to_redshift(batch):
-            await cursor.execute(pre_query_str + b",".join(batch))
-            rows_exported.add(len(batch) - 1)
+            values = b",".join(batch).replace(b" E'", b" '")
+
+            await cursor.execute(pre_query_str + values)
+            rows_exported.add(len(batch))
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
