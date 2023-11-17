@@ -143,7 +143,7 @@ class QueryContext:
             return dataclasses.replace(
                 self,
                 name_filter="AND name = ANY(%(names)s)",
-                params={**self.params, "names": tuple(properties_to_filter.split(","))},
+                params={**self.params, "names": properties_to_filter.split(",")},
             )
         else:
             return self
@@ -227,7 +227,7 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": tuple(event_names or [])},
+            params={**self.params, "event_names": event_names or []},
         )
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
@@ -241,7 +241,7 @@ class QueryContext:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
-        excluded_list = tuple(
+        excluded_list = list(
             set.union(
                 set(excluded_properties or []),
                 EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [],

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import TypedDict
 from uuid import UUID, uuid4
 
-import psycopg2
+import psycopg
 import pytest
 from django.conf import settings
 from freezegun.api import freeze_time
@@ -794,8 +794,8 @@ def django_db_setup_fixture():
 
 @pytest.fixture
 def pg_connection():
-    """Manage a Postgres connection with psycopg2."""
-    conn = psycopg2.connect(
+    """Manage a Postgres connection with psycopg."""
+    conn = psycopg.connect(
         dbname=settings.DATABASES["default"]["NAME"],
         user=settings.DATABASES["default"]["USER"],
         password=settings.DATABASES["default"]["PASSWORD"],

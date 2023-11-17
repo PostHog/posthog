@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Iterable, NamedTuple
 from uuid import UUID
 
-import psycopg2
+import psycopg
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -446,7 +446,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
     from django.conf import settings
 
     activity.logger.info("Deleting squashed persons from Postgres")
-    with psycopg2.connect(
+    with psycopg.connect(
         dbname=settings.DATABASES["default"]["NAME"],
         user=settings.DATABASES["default"]["USER"],
         password=settings.DATABASES["default"]["PASSWORD"],

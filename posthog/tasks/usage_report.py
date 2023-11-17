@@ -23,7 +23,7 @@ from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
 from posthoganalytics.client import Client
-from psycopg2 import sql
+from psycopg import sql
 from sentry_sdk import capture_exception
 
 from posthog import version_requirement
