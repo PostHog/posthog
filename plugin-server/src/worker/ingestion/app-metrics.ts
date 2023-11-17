@@ -88,9 +88,6 @@ export class AppMetrics {
         // However, we also don't want to wait too long, nor have the queue grow too big resulting in
         // the flush taking a long time.
         const now = Date.now()
-        if (now - this.lastFlushTime > this.flushFrequencyMs || this.queueSize > this.maxQueueSize) {
-            await this.flush()
-        }
 
         timestamp = timestamp || now
         const key = this._key(metric)
@@ -123,6 +120,10 @@ export class AppMetrics {
             this.queuedData[key].failures += failures
         }
         this.queuedData[key].lastTimestamp = timestamp
+
+        if (now - this.lastFlushTime > this.flushFrequencyMs || this.queueSize > this.maxQueueSize) {
+            await this.flush()
+        }
     }
 
     async queueError(metric: AppMetric, errorWithContext: ErrorWithContext, timestamp?: number) {
