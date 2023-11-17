@@ -53,7 +53,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
-    [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Apps]: () => import('./plugins/AppsScene'),
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),

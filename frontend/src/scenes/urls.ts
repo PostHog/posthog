@@ -157,7 +157,6 @@ export const urls = {
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
-    ingestion: (): string => '/ingestion',
     products: (): string => '/products',
     onboarding: (productKey: string): string => `/onboarding/${productKey}`,
     // Cloud only
