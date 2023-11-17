@@ -21,15 +21,35 @@ LIMIT = 25
 ENTITY_MAP = {
     "insight": {
         "klass": Insight,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "derived_name"],
+        "search_fields": {"name": "A", "derived_name": "B", "description": "C"},
+        "extra_fields": ["name", "derived_name", "description"],
     },
-    "dashboard": {"klass": Dashboard, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
-    "experiment": {"klass": Experiment, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
-    "feature_flag": {"klass": FeatureFlag, "search_fields": {"name": "A"}, "extra_fields": ["key"]},
-    "notebook": {"klass": Notebook, "search_fields": {"title": "A"}, "extra_fields": ["title"]},
-    "action": {"klass": Action, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
-    "cohort": {"klass": Cohort, "search_fields": {"name": "A"}, "extra_fields": ["name"]},
+    "dashboard": {
+        "klass": Dashboard,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "experiment": {
+        "klass": Experiment,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "notebook": {
+        "klass": Notebook,
+        "search_fields": {"title": "A", "text_content": "C"},
+        "extra_fields": ["title", "text_content"],
+    },
+    "action": {
+        "klass": Action,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "cohort": {
+        "klass": Cohort,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
 }
 """
 Map of entity names to their class, search_fields and extra_fields.
