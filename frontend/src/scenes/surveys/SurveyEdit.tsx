@@ -850,7 +850,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </PureField>
-                                                        <PureField label="Selector matches:">
+                                                        <PureField label="CSS selector matches:">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>

@@ -529,12 +529,14 @@ export function Experiment(): JSX.Element {
                                 title={`${experiment?.name}`}
                                 buttons={
                                     <>
-                                        <CopyToClipboardInline
-                                            explicitValue={experiment.feature_flag?.key}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        >
-                                            <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                        </CopyToClipboardInline>
+                                        {experiment.feature_flag && (
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag.key}</span>
+                                            </CopyToClipboardInline>
+                                        )}
                                         <StatusTag experiment={experiment} />
                                         <ResultsTag />
                                     </>
