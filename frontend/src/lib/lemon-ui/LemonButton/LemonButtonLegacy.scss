@@ -124,6 +124,12 @@ body:not(.posthog-3000) {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                 }
 
+                color: var(--#{$status}-3000, var(--#{$status}, var(--primary)));
+
+                .LemonButton__icon {
+                    color: var(--#{$status}-3000, var(--#{$status}));
+                }
+
                 &:not([aria-disabled='true']):active {
                     color: var(--#{$status}-dark, var(--primary-dark));
 
