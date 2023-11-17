@@ -118,7 +118,7 @@ def test_includes_only_intervals_within_range(client: Client):
                 {
                     "action": ANY,
                     "breakdown_value": cohort["id"],
-                    "label": "$pageview - test cohort",
+                    "label": "test cohort",
                     "count": 3.0,
                     "data": [1.0, 1.0, 1.0],
                     # Prior to the fix this would also include '29-Aug-2021'
