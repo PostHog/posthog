@@ -69,5 +69,6 @@ ACTIVITIES: Sequence[Callable] = [
     update_batch_export_backfill_model_status,
     update_export_run_status,
     create_external_data_job_model,
+    update_external_data_job_model,
     run_external_data_job,
 ]

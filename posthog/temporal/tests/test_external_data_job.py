@@ -6,6 +6,7 @@ from unittest import mock
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 from posthog.warehouse.data_load.pipeline import StripeJobInputs
+from posthog.warehouse.data_load.service import ExternalDataJobInputs
 
 from posthog.temporal.workflows.external_data_job import (
     create_external_data_job_model,
@@ -14,7 +15,6 @@ from posthog.temporal.workflows.external_data_job import (
     update_external_data_job_model,
     create_external_data_job,
     run_external_data_job,
-    ExternalDataJobInputs,
     ExternalDataJobWorkflow,
 )
 

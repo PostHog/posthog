@@ -6,13 +6,15 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.external_data_source.workspace import get_or_create_workspace
-from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
-from posthog.warehouse.external_data_source.connection import create_connection, start_sync
-from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
+from posthog.warehouse.external_data_source.source import delete_source
+from posthog.warehouse.external_data_source.destination import delete_destination
 from posthog.warehouse.sync_resource import sync_resource
+from posthog.warehouse.data_load.service import start_external_data_job_workflow, ExternalDataJobInputs
 from posthog.api.routing import StructuredViewSetMixin
 from rest_framework.decorators import action
+import uuid
+
+from posthog.temporal.client import sync_connect
 
 from posthog.models import User
 from typing import Any
@@ -53,42 +55,30 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        account_id = request.data["account_id"]
         client_secret = request.data["client_secret"]
 
-        workspace_id = get_or_create_workspace(self.team_id)
-
-        stripe_payload = StripeSourcePayload(
-            account_id=account_id,
-            client_secret=client_secret,
-        )
-        new_source = create_stripe_source(stripe_payload, workspace_id)
-
-        try:
-            new_destination = create_destination(self.team_id, workspace_id)
-        except Exception as e:
-            delete_source(new_source.source_id)
-            raise e
-
-        try:
-            new_connection = create_connection(new_source.source_id, new_destination.destination_id)
-        except Exception as e:
-            delete_source(new_source.source_id)
-            delete_destination(new_destination.destination_id)
-            raise e
-
-        ExternalDataSource.objects.create(
-            source_id=new_source.source_id,
-            connection_id=new_connection.connection_id,
-            destination_id=new_destination.destination_id,
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
             team=self.team,
             status="running",
             source_type="Stripe",
+            job_inputs={
+                "stripe_secret_key": client_secret,
+            },
         )
 
-        start_sync(new_connection.connection_id)
+        inputs = ExternalDataJobInputs(
+            team_id=self.team_id,
+            external_data_source_id=new_source_model.pk,
+        )
 
-        return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source.source_id})
+        temporal = sync_connect()
+        start_external_data_job_workflow(temporal, inputs)
+
+        return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source_model.source_id})
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

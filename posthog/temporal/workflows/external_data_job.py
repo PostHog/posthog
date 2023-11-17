@@ -13,6 +13,7 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.workflows.base import PostHogWorkflow
 from temporalio import activity, workflow, exceptions
 from asgiref.sync import sync_to_async
+from posthog.warehouse.data_load.service import ExternalDataJobInputs
 
 
 @dataclasses.dataclass
@@ -48,12 +49,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     )  # type: ignore
 
 
-@dataclasses.dataclass
-class ExternalDataJobInputs:
-    team_id: int
-    external_data_source_id: str
-
-
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     model: ExternalDataSource = await sync_to_async(get_external_data_source)(
@@ -70,7 +65,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
 
 
 # TODO: add retry policies
-@workflow.defn(name="external_data_job")
+# TODO: add schedule
+@workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ExternalDataJobInputs:
