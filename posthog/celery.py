@@ -541,8 +541,7 @@ def clickhouse_lag():
         for table in CLICKHOUSE_TABLES:
             try:
                 QUERY = """SELECT max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag
-                    FROM {table}
-                    WHERE timestamp >= now() -  toIntervalDay(3);"""
+                    FROM {table}"""
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
                 statsd.gauge(
