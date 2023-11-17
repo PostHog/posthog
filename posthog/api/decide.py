@@ -224,9 +224,7 @@ def get_decide(request: HttpRequest):
 
             if settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS and str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS:
                 if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                    response["analytics"] = {
-                        "endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT,
-                    }
+                    response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
             if settings.ELEMENT_CHAIN_AS_STRING_TEAMS and str(team.id) in settings.ELEMENT_CHAIN_AS_STRING_TEAMS:
                 response["analytics"] = {
