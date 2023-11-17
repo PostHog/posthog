@@ -33,8 +33,8 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const QUERY_ASYNC_DELAY_MILLISECONDS = 1000
-const QUERY_ASYNC_MAX_POLL_SECONDS = 300
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -112,9 +112,9 @@ async function executeQuery<N extends DataNode = DataNode>(
     const pollStart = performance.now()
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
-    while (performance.now() - pollStart < QUERY_ASYNC_MAX_POLL_SECONDS * 1000) {
+    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await delay(currentDelay)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_DELAY_MILLISECONDS)
+        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         if (methodOptions?.signal?.aborted) {
             const customAbortError = new Error('Query aborted')
