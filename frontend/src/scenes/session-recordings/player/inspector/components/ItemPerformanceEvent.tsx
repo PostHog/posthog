@@ -484,7 +484,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let methodRow = null
 
     let fromDiskCache = false
-    if (item.transfer_size === 0 && item.response_body) {
+    if (item.transfer_size === 0 && item.response_body && item.response_status && item.response_status < 400) {
         fromDiskCache = true
     }
 
