@@ -1,6 +1,7 @@
 import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
+import { PluginLogEntryType } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import {
     capture,
@@ -14,6 +15,7 @@ import {
     fetchEvents,
     fetchPluginAppMetrics,
     fetchPluginConsoleLogEntries,
+    fetchPluginLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
     reloadPlugins,
@@ -164,16 +166,15 @@ test.concurrent(`plugin method tests: creates error on unhandled promise rejecti
         return events
     })
 
-    const { error_details } = await waitForExpect(async () => {
-        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
-        expect(errors.length).toEqual(1)
-        return errors[0]
+    const errorLogEntry = await waitForExpect(async () => {
+        const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
+            (entry) => entry.type == PluginLogEntryType.Error
+        )
+        expect(errorLogEntries.length).toBe(1)
+        return errorLogEntries[0]
     })
 
-    expect(error_details).toMatchObject({
-        error: { message: 'error thrown in plugin' },
-        event: { properties: event.properties },
-    })
+    expect(errorLogEntry.message).toContain('error thrown in plugin')
 })
 
 test.concurrent(`plugin method tests: teardown is called on stateful plugin reload if they are updated`, async () => {
