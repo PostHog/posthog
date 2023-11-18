@@ -9,7 +9,7 @@ jest.mock('lib/colors', () => {
 })
 
 describe('calculatePerformanceParts', () => {
-    it('can calculte TTFB', () => {
+    it('can calculate TTFB', () => {
         const perfEvent = {
             connect_end: 9525.599999964237,
             connect_start: 9525.599999964237,
