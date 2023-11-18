@@ -151,7 +151,7 @@ export function calculatePerformanceParts(perfEntry: PerformanceEvent): Performa
                 color: colorForSection('connection time'),
             }
 
-            if (isPresent(perfEntry.secure_connection_start)) {
+            if (isPresent(perfEntry.secure_connection_start) && perfEntry.secure_connection_start > 0) {
                 performanceParts['tls time'] = {
                     start: perfEntry.secure_connection_start,
                     end: perfEntry.connect_end,

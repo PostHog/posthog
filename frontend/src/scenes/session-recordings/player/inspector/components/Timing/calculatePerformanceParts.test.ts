@@ -71,4 +71,62 @@ describe('calculatePerformanceParts', () => {
             },
         })
     })
+
+    it('can handle no TLS connection timing', () => {
+        const tlsFreeReqRes = {
+            name: 'http://localhost:8000/decide/?v=3&ip=1&_=1700319068450&ver=1.91.1',
+            entryType: 'resource',
+            startTime: 6648,
+            duration: 93.40000003576279,
+            initiatorType: 'xmlhttprequest' as InitiatorType,
+            deliveryType: '',
+            nextHopProtocol: 'http/1.1',
+            renderBlockingStatus: 'non-blocking',
+            workerStart: 0,
+            redirectStart: 0,
+            redirectEnd: 0,
+            fetchStart: 6647.699999988079,
+            domainLookupStart: 6648.800000011921,
+            domainLookupEnd: 6648.800000011921,
+            connectStart: 6648.800000011921,
+            secureConnectionStart: 0,
+            connectEnd: 6649.300000011921,
+            requestStart: 6649.5,
+            responseStart: 6740.800000011921,
+            firstInterimResponseStart: 0,
+            responseEnd: 6741.100000023842,
+            transferSize: 2383,
+            encodedBodySize: 2083,
+            decodedBodySize: 2083,
+            responseStatus: 200,
+            serverTiming: [],
+            endTime: 6741,
+            timeOrigin: 1700319061802,
+            timestamp: 1700319068449,
+            isInitial: true,
+        }
+        const mappedToPerfEvent = mapRRWebNetworkRequest(tlsFreeReqRes, 'windowId', 1700319068449)
+        expect(calculatePerformanceParts(mappedToPerfEvent)).toEqual({
+            'app cache': {
+                color: '#000000',
+                end: 6648.800000011921,
+                start: 6647.699999988079,
+            },
+            'connection time': {
+                color: '#000000',
+                end: 6649.300000011921,
+                start: 6648.800000011921,
+            },
+            'receiving response': {
+                color: '#000000',
+                end: 6741.100000023842,
+                start: 6740.800000011921,
+            },
+            'request queuing time': {
+                color: '#000000',
+                end: 6649.5,
+                start: 6649.300000011921,
+            },
+        })
+    })
 })
