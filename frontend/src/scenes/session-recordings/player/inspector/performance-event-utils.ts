@@ -1,4 +1,5 @@
 import { eventWithTime } from '@rrweb/types'
+import { CapturedNetworkRequest } from 'posthog-js'
 import { PerformanceEvent } from '~/types'
 
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
@@ -116,6 +117,26 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     method: 'method',
 }
 
+export function mapRRWebNetworkRequest(
+    capturedRequest: CapturedNetworkRequest,
+    windowId: string,
+    timestamp: PerformanceEvent['timestamp']
+): PerformanceEvent {
+    const data: Partial<PerformanceEvent> = {
+        timestamp: timestamp,
+        window_id: windowId,
+        raw: capturedRequest,
+    }
+
+    Object.entries(RRWebPerformanceEventReverseMapping).forEach(([key, value]) => {
+        if (key in capturedRequest) {
+            data[value] = capturedRequest[key]
+        }
+    })
+
+    return data as PerformanceEvent
+}
+
 export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
     // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
     // apart from during testing, where we might have both
@@ -159,19 +180,9 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                 }
 
                 payload.requests.forEach((capturedRequest: any) => {
-                    const data: Partial<PerformanceEvent> = {
-                        timestamp: snapshot.timestamp,
-                        window_id: windowId,
-                        raw: capturedRequest,
-                    }
+                    const data: PerformanceEvent = mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
 
-                    Object.entries(RRWebPerformanceEventReverseMapping).forEach(([key, value]) => {
-                        if (key in capturedRequest) {
-                            data[value] = capturedRequest[key]
-                        }
-                    })
-
-                    rrwebEvents.push(data as PerformanceEvent)
+                    rrwebEvents.push(data)
                 })
             }
         })

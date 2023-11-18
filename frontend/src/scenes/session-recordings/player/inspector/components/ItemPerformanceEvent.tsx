@@ -483,6 +483,11 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let statusRow = null
     let methodRow = null
 
+    let fromDiskCache = false
+    if (item.transfer_size === 0 && item.response_body) {
+        fromDiskCache = true
+    }
+
     if (item.response_status) {
         const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
 
@@ -496,7 +501,10 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
         statusRow = (
             <div className="flex gap-4 items-center justify-between overflow-hidden">
                 <div className="font-semibold">Status code</div>
-                <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                <div>
+                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                    {fromDiskCache && <span className={'text-muted'}> (from cache)</span>}
+                </div>
             </div>
         )
     }
