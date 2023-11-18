@@ -214,6 +214,10 @@ export function calculatePerformanceParts(perfEntry: PerformanceEvent): Performa
     return performanceParts
 }
 
+function percentage(partDuration: number, totalDuration: number, min: number): number {
+    return Math.min(Math.max(min, (partDuration / totalDuration) * 100), 100)
+}
+
 function percentagesWithinEventRange({
     partStart,
     partEnd,
@@ -229,8 +233,8 @@ function percentagesWithinEventRange({
     const partStartRelativeToTimeline = partStart - rangeStart
     const partDuration = partEnd - partStart
 
-    const partPercentage = Math.max(0.1, (partDuration / totalDuration) * 100) //less than 0.1% is not visible
-    const partStartPercentage = (partStartRelativeToTimeline / totalDuration) * 100
+    const partPercentage = percentage(partDuration, totalDuration, 0.1)
+    const partStartPercentage = percentage(partStartRelativeToTimeline, totalDuration, 0)
     return { startPercentage: `${partStartPercentage}%`, widthPercentage: `${partPercentage}%` }
 }
 
