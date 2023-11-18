@@ -236,7 +236,7 @@ function percentagesWithinEventRange({
 
 const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element | null => {
     const rangeStart = performanceEvent.start_time
-    const rangeEnd = performanceEvent.response_end
+    const rangeEnd = performanceEvent.load_event_end ? performanceEvent.load_event_end : performanceEvent.response_end
     if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
         const timings = calculatePerformanceParts(performanceEvent)
         return (
