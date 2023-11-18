@@ -14,7 +14,7 @@
         color: #c4c4c4;
         font-size: 18px;
         user-select: none;
-        padding: 0px 5px;
+        padding: 0 5px;
     }
 
     .logical-row-divider {
@@ -23,7 +23,7 @@
         text-transform: uppercase;
         align-items: flex-start;
         margin-top: 0.5rem;
-        margin-bottom: 0px;
+        margin-bottom: 0;
 
         &::before,
         &::after {

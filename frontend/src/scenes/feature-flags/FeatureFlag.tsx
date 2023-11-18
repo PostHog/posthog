@@ -219,6 +219,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             <div className="feature-flag">
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
+                        id="feature-flag"
                         logic={featureFlagLogic}
                         props={props}
                         formKey="featureFlag"
@@ -248,8 +249,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         type="primary"
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
+                                        form="feature-flag"
                                         loading={featureFlagLoading}
-                                        disabled={featureFlagLoading}
                                     >
                                         Save
                                     </LemonButton>
@@ -449,8 +450,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-feature-flag"
                                 htmlType="submit"
+                                form="feature-flag"
                                 loading={featureFlagLoading}
-                                disabled={featureFlagLoading}
                             >
                                 Save
                             </LemonButton>
@@ -554,6 +555,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                             : (featureFlag.features?.length || 0) > 0
                                                             ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                            : (featureFlag.experiment_set?.length || 0) > 0
+                                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
                                                             : null
                                                     }
                                                 >

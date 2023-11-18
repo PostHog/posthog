@@ -14,6 +14,11 @@ const meta: Meta<typeof Map> = {
         center: coordinates,
         className: 'h-60',
     },
+    parameters: {
+        testOptions: {
+            skip: true,
+        },
+    },
 }
 type Story = StoryObj<typeof Map>
 

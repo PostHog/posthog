@@ -65,7 +65,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag />
+                            <StatusTag experiment={experiment} />
                             <ResultsTag />
                         </>
                     )}

@@ -1,5 +1,5 @@
 import { useValues, BindLogic, useActions } from 'kea'
-import { PropertyGroupFilterValue, AnyPropertyFilter } from '~/types'
+import { PropertyGroupFilterValue, AnyPropertyFilter, InsightLogicProps } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
@@ -12,8 +12,10 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import React from 'react'
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 type PropertyGroupFiltersProps = {
+    insightProps: InsightLogicProps
     query: TrendsQuery | StickinessQuery
     setQuery: (node: TrendsQuery | StickinessQuery) => void
     pageKey: string
@@ -23,6 +25,7 @@ type PropertyGroupFiltersProps = {
 }
 
 export function PropertyGroupFilters({
+    insightProps,
     query,
     setQuery,
     pageKey,
@@ -104,7 +107,9 @@ export function PropertyGroupFilters({
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}
-                                                    pageKey={`insight-filters-${propertyGroupIndex}`}
+                                                    pageKey={`${keyForInsightLogicProps('new')(
+                                                        insightProps
+                                                    )}-PropertyGroupFilters-${propertyGroupIndex}`}
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}

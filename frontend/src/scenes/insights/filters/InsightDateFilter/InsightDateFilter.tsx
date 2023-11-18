@@ -1,9 +1,9 @@
 import { useValues, useActions } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Tooltip } from 'antd'
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { Tooltip } from '@posthog/lemon-ui'
 
 type InsightDateFilterProps = {
     disabled: boolean
@@ -17,7 +17,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     return (
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
-            dateFrom={dateRange?.date_from ?? '-7d' ?? undefined}
+            dateFrom={dateRange?.date_from ?? '-7d'}
             disabled={disabled}
             onChange={(date_from, date_to) => {
                 updateDateRange({ date_from, date_to })

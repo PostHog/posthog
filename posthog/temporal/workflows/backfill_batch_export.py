@@ -20,9 +20,15 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
     create_batch_export_backfill_model,
-    get_batch_exports_logger,
     update_batch_export_backfill_model_status,
 )
+
+
+class TemporalScheduleNotFoundError(Exception):
+    """Exception raised when a Temporal Schedule is not found."""
+
+    def __init__(self, schedule_id: str):
+        super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
 class HeartbeatDetails(typing.NamedTuple):
@@ -36,14 +42,14 @@ class HeartbeatDetails(typing.NamedTuple):
     def make_activity_heartbeat_while_running(
         self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
     ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
-        """Return a callable that returns a coroutine that hearbeats with these HeartbeatDetails.
+        """Return a callable that returns a coroutine that heartbeats with these HeartbeatDetails.
 
-        The returned callable wraps 'function_to_run' while heartbeatting 'factor' times for every
-        'heartbeat_timeout'.
+        The returned callable wraps 'function_to_run' while heartbeating every 'heartbeat_every'
+        seconds.
         """
 
         async def heartbeat() -> None:
-            """Heartbeat factor times every heartbeat_timeout."""
+            """Heartbeat every 'heartbeat_every' seconds."""
             while True:
                 await asyncio.sleep(heartbeat_every.total_seconds())
                 temporalio.activity.heartbeat(self)
@@ -66,6 +72,9 @@ async def get_schedule_frequency(schedule_id: str) -> float:
     """Return a Temporal Schedule's frequency.
 
     This assumes that the Schedule has one interval set.
+
+    Raises:
+         TemporalScheduleNotFoundError: If the Temporal Schedule whose frequency we are trying to get doesn't exist.
     """
     client = await connect(
         settings.TEMPORAL_HOST,
@@ -77,7 +86,14 @@ async def get_schedule_frequency(schedule_id: str) -> float:
     )
 
     handle = client.get_schedule_handle(schedule_id)
-    desc = await handle.describe()
+
+    try:
+        desc = await handle.describe()
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise TemporalScheduleNotFoundError(schedule_id)
+        else:
+            raise
 
     interval = desc.schedule.spec.intervals[0]
     return interval.every.total_seconds()
@@ -99,8 +115,8 @@ class BackfillScheduleInputs:
 async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """Temporal Activity to backfill a Temporal Schedule.
 
-    The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is requested,
-    we wait for it to be done before continuing with the next.
+    The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is
+    requested, we wait for it to be done before continuing with the next.
 
     This activity heartbeats while waiting to allow cancelling an ongoing backfill.
     """
@@ -146,7 +162,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
-        utcnow = dt.datetime.utcnow()
+        utcnow = dt.datetime.now(dt.timezone.utc)
 
         if jitter is not None:
             backfill_end_at = backfill_end_at + jitter
@@ -208,7 +224,13 @@ async def wait_for_schedule_backfill_in_range(
     execution start time, assuming that backfill runs will have started recently after 'now' whereas regularly
     scheduled runs happened sometime in the past, before 'now'. This should hold true for historical backfills,
     but the heuristic fails for "future backfills", which should not be allowed.
+
+    Raises:
+         TemporalScheduleNotFoundError: If we detect the Temporal Schedule we are waiting on doesn't exist.
     """
+    if await check_temporal_schedule_exists(client, schedule_id) is False:
+        raise TemporalScheduleNotFoundError(schedule_id)
+
     query = (
         f'TemporalScheduledById="{schedule_id}" '
         f'AND TemporalScheduledStartTime >= "{start_at.isoformat()}" '
@@ -224,6 +246,9 @@ async def wait_for_schedule_backfill_in_range(
     done = False
     while not done:
         await asyncio.sleep(wait_delay)
+
+        if await check_temporal_schedule_exists(client, schedule_id) is False:
+            raise TemporalScheduleNotFoundError(schedule_id)
 
         workflows = [workflow async for workflow in client.list_workflows(query=query)]
 
@@ -243,6 +268,20 @@ def check_workflow_executions_not_running(workflow_executions: list[temporalio.c
         workflow_execution.status != temporalio.client.WorkflowExecutionStatus.RUNNING
         for workflow_execution in workflow_executions
     )
+
+
+async def check_temporal_schedule_exists(client: temporalio.client.Client, schedule_id: str) -> bool:
+    """Check if Temporal Schedule exists by trying to describe it."""
+    handle = client.get_schedule_handle(schedule_id)
+
+    try:
+        await handle.describe()
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        else:
+            raise
+    return True
 
 
 def backfill_range(
@@ -284,14 +323,6 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
-        logger = get_batch_exports_logger(inputs=inputs)
-        logger.info(
-            "Starting Backfill for BatchExport %s: %s - %s",
-            inputs.batch_export_id,
-            inputs.start_at,
-            inputs.end_at,
-        )
-
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
@@ -338,6 +369,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
+                    non_retryable_error_types=["TemporalScheduleNotFoundError"],
                 ),
                 # Temporal requires that we set a timeout.
                 # Allocate 5 minutes per expected number of runs to backfill as a timeout.
@@ -348,16 +380,13 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                logger.error("Backfill was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("Backfill failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             raise
 
-        except Exception as e:
-            logger.exception("Backfill failed with an unexpected error.", exc_info=e)
+        except Exception:
             update_inputs.status = "Failed"
             raise
 

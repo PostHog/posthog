@@ -5,9 +5,10 @@ import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useActions } from 'kea'
+
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
@@ -81,7 +82,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const docsPanelEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
         const is3000 = useFeatureFlag('POSTHOG_3000')
         const { openDocsPage } = useActions(sidePanelDocsLogic)
 
@@ -98,7 +98,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && docsPanelEnabled && isPostHogComDomain(to)) {
+            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
                 event.preventDefault()
                 openDocsPage(to)
                 return

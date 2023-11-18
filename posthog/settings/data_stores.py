@@ -280,6 +280,12 @@ USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=s
 # so that we don't have to worry about changing config.
 REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 
+# Ingestion is now using a separate Redis cluster for better resource isolation.
+# Django and plugin-server currently communicate via the reload-plugins Redis
+# pubsub channel, pushed to when plugin configs change.
+# We should move away to a different communication channel and remove this.
+PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",

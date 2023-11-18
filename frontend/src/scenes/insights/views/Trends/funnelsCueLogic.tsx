@@ -89,7 +89,7 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
         ],
     }),
     events(({ actions, values }) => ({
-        afterMount: async () => {
+        afterMount: () => {
             if (values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
                 actions.setPermanentOptOut()
             }

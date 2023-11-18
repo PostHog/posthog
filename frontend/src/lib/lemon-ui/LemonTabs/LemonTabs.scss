@@ -3,6 +3,11 @@
     display: flex;
     flex-direction: column;
     align-self: stretch;
+
+    .Navigation3000__scene > &:first-child,
+    .Navigation3000__scene > :first-child > &:first-child {
+        margin-top: -0.75rem;
+    }
 }
 
 .LemonTabs__bar {
@@ -14,6 +19,7 @@
     flex-direction: row;
     align-items: stretch;
     overflow-x: auto;
+
     &::before {
         // The bottom border
         content: '';
@@ -24,6 +30,7 @@
         width: 100%;
         background: var(--border);
     }
+
     &::after {
         // The active tab slider
         content: '';
@@ -34,6 +41,7 @@
         width: var(--lemon-tabs-slider-width);
         transform: translateX(var(--lemon-tabs-slider-offset));
         background: var(--link);
+
         .LemonTabs--transitioning & {
             transition: width 200ms ease, transform 200ms ease;
         }
@@ -44,19 +52,24 @@
     .LemonTabs--transitioning & {
         transition: color 200ms ease;
     }
+
     &:not(:last-child) {
         margin-right: 2rem;
     }
+
     &:hover {
         color: var(--link);
     }
+
     &:active {
         color: var(--primary-dark);
     }
+
     &.LemonTabs__tab--active {
         color: var(--link);
         text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
     }
+
     a {
         // Make tab labels that are links the same colors as regular tab labels
         text-decoration: none;

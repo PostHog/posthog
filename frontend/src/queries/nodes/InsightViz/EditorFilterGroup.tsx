@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { InsightLogicProps, InsightModel, InsightEditorFilterGroup } from '~/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
@@ -48,7 +48,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                             )
                         }
                         return (
-                            <div key={key}>
+                            <Fragment key={key}>
                                 <PureField
                                     label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
                                     info={tooltip}
@@ -56,7 +56,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                                 >
                                     {Component ? <Component insightProps={insightProps} /> : null}
                                 </PureField>
-                            </div>
+                            </Fragment>
                         )
                     })}
                 </div>

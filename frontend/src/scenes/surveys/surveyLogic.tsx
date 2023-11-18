@@ -23,7 +23,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
-import { sanitize } from 'dompurify'
+import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -33,7 +33,8 @@ export enum SurveyEditSection {
     Targeting = 'targeting',
 }
 export interface SurveyLogicProps {
-    id: string | 'new'
+    /** Either a UUID or 'new'. */
+    id: string
 }
 
 export interface SurveyMetricsQueries {
@@ -134,7 +135,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         actions.reportSurveyViewed(survey)
                         return survey
                     } catch (error: any) {
-                        actions.setSurveyMissing()
+                        if (error.status === 404) {
+                            actions.setSurveyMissing()
+                            return { ...NEW_SURVEY }
+                        }
                         throw error
                     }
                 }
@@ -415,7 +419,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             actions.reportSurveyResumed(survey)
         },
-        archiveSurvey: async () => {
+        archiveSurvey: () => {
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: () => {
@@ -679,7 +683,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // controlled using a PureField in the form
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
-            submit: async (surveyPayload) => {
+            submit: (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
                 if (values.hasTargetingFlag) {
@@ -718,12 +722,12 @@ export const surveyLogic = kea<surveyLogicType>([
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
-    afterMount(async ({ props, actions }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
-            await actions.loadSurvey()
+            actions.loadSurvey()
         }
         if (props.id === 'new') {
-            await actions.resetSurvey()
+            actions.resetSurvey()
         }
     }),
 ])
@@ -733,16 +737,16 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
         return surveyPayload
     }
 
-    const sanitizedThankYouHeader = sanitize(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitize(surveyPayload.appearance?.thankYouMessageDescription || '')
+    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
+    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
 
     return {
         ...surveyPayload,
         questions: surveyPayload.questions?.map((rawQuestion) => {
             return {
                 ...rawQuestion,
-                description: sanitize(rawQuestion.description || ''),
-                question: sanitize(rawQuestion.question || ''),
+                description: sanitizeHTML(rawQuestion.description || ''),
+                question: sanitizeHTML(rawQuestion.question || ''),
             }
         }),
         appearance: {

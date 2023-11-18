@@ -157,6 +157,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -175,6 +176,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
 
     def test_user_performance_opt_in(self, *args):
@@ -272,6 +274,27 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
 
+    def test_session_recording_network_payload_capture_config(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["networkPayloadCapture"] is None
+
+        self._update_team(
+            {
+                "session_recording_network_payload_capture_config": {"recordHeaders": True},
+            }
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
+
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
 
@@ -346,6 +369,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -372,6 +396,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
 
     def test_user_autocapture_opt_out(self, *args):
@@ -395,6 +420,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
@@ -413,6 +439,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
         }
 
     @snapshot_postgres_queries
@@ -2406,6 +2433,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "sampleRate": "0.20",
                 "linkedFlag": None,
                 "minimumDurationMilliseconds": None,
+                "networkPayloadCapture": None,
             },
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2430,6 +2458,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     "sampleRate": "0.20",
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
+                    "networkPayloadCapture": None,
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2814,7 +2843,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_fires_with_survey_linked_and_targeting_flags(self, *args):
+    def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
         ff = FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -2876,7 +2905,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_fire_for_survey_targeting_flags(self, *args):
+    def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -2931,10 +2960,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"1"},
-            )
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_new_capture_activation(self, *args):
@@ -3123,6 +3149,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     "sampleRate": "0.40",
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
+                    "networkPayloadCapture": None,
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])

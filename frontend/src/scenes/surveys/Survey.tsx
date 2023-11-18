@@ -50,7 +50,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     return (
-        <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
+        <Form id="survey" formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
             <PageHeader
                 title={id === 'new' ? 'New survey' : survey.name}
                 buttons={
@@ -75,6 +75,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             data-attr="save-feature-flag"
                             htmlType="submit"
                             loading={surveyLoading}
+                            form="survey"
                         >
                             {id === 'new' ? 'Save as draft' : 'Save'}
                         </LemonButton>

@@ -95,9 +95,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 }),
             },
         ],
-        userSelectedView: {
-            setActiveView: (_, { view }) => view,
-        },
+        userSelectedView: [
+            null as InsightType | null,
+            {
+                setActiveView: (_, { view }) => view,
+            },
+        ],
     }),
     selectors({
         activeView: [

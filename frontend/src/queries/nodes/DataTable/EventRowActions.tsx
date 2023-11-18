@@ -27,7 +27,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         <LemonButton
                             status="stealth"
                             onClick={() =>
-                                createActionFromEvent(
+                                void createActionFromEvent(
                                     getCurrentTeamId(),
                                     event,
                                     0,
@@ -46,8 +46,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconLink />}
                             data-attr="events-table-event-link"
-                            onClick={async () =>
-                                await copyToClipboard(
+                            onClick={() =>
+                                void copyToClipboard(
                                     `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
                                     'link to event'
                                 )

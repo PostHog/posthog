@@ -30,10 +30,12 @@
             > .is-empty::before {
                 content: attr(data-placeholder);
                 float: left;
-                color: rgba(0, 0, 0, 0.2);
+                color: rgb(0 0 0 / 20%);
+
                 [theme='dark'] & {
-                    color: rgba(255, 255, 255, 0.2);
+                    color: rgb(255 255 255 / 20%);
                 }
+
                 pointer-events: none;
                 height: 0;
             }
@@ -48,7 +50,7 @@
 
             > ul[data-type='taskList'] {
                 list-style-type: none;
-                padding-left: 0px;
+                padding-left: 0;
 
                 li {
                     display: flex;
@@ -86,7 +88,7 @@
             }
 
             > pre {
-                background-color: rgba(0, 0, 0, 0.05);
+                background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
                 overflow-x: auto;
                 margin-bottom: 0.5rem;
@@ -95,7 +97,7 @@
 
             > code,
             > p code {
-                background-color: rgba(0, 0, 0, 0.05);
+                background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
                 padding: 0.2rem;
             }
@@ -155,7 +157,7 @@
 
     .NotebookColumn {
         position: relative;
-        width: 0px;
+        width: 0;
         transition: width var(--notebook-popover-transition-properties);
 
         --notebook-sidebar-height: calc(100vh - 9rem);
@@ -163,8 +165,7 @@
         .NotebookColumn__content {
             position: sticky;
             align-self: flex-start;
-            top: 0px;
-
+            top: 0;
             transform: translateX(-100%);
             transition: transform var(--notebook-popover-transition-properties);
         }
@@ -227,11 +228,11 @@
 
     .NotebookInlineMenu {
         margin-bottom: -0.2rem;
-        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 10px 0 rgb(0 0 0 / 10%);
 
         .LemonInput {
-            border: 0px;
-            min-height: 0px;
+            border: 0;
+            min-height: 0;
         }
     }
 
@@ -262,5 +263,14 @@
     // antd makes it invisible otherwise
     span::selection {
         color: var(--primary);
+    }
+
+    // Overrides for insight controls
+
+    .InsightVizDisplay {
+        .InsightDisplayConfig {
+            padding: 0;
+            border-bottom-width: 0;
+        }
     }
 }

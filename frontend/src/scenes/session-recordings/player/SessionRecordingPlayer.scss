@@ -16,7 +16,7 @@
 
     &--no-border {
         border: none;
-        border-radius: 0px;
+        border-radius: 0;
     }
 
     .SessionRecordingPlayer__body {
@@ -30,23 +30,21 @@
 
     .SessionRecordingPlayer__main {
         flex: 1;
+        padding-right: var(--inspector-peek-width);
     }
 
     &--fullscreen {
         position: fixed;
-        left: 0px;
-        top: 0px;
-        right: 0px;
-        bottom: 0px;
+        inset: 0;
         overflow-y: auto;
         background-color: var(--bg-light);
         z-index: var(--z-modal);
         border: none;
-        border-radius: 0px;
+        border-radius: 0;
 
         .SessionRecordingPlayer__body {
             height: 100%;
-            margin: 0rem;
+            margin: 0;
             border-radius: 0;
         }
     }
@@ -64,14 +62,9 @@
         }
     }
 
-    .SessionRecordingPlayer__main {
-        padding-right: var(--inspector-peek-width);
-    }
-
     .SessionRecordingPlayer__inspector {
         flex-shrink: 0;
         border-left: 1px solid var(--border);
-
         position: absolute;
         right: 0;
         top: 0;
@@ -79,17 +72,13 @@
         z-index: 10;
         width: var(--inspector-width);
         max-width: 95%;
-
         transform: translateX(calc(100% - var(--inspector-peek-width)));
         transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-        box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 0 5px rgb(0 0 0 / 10%);
 
         .PlayerInspectorPreview {
             position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            top: 0;
+            inset: 0;
             z-index: 1;
             pointer-events: none;
             transition: opacity 0.2s ease-in-out;
@@ -99,7 +88,7 @@
     &--inspector-focus {
         .SessionRecordingPlayer__inspector {
             transform: translateX(0);
-            box-shadow: -10px 0px 20px rgba(0, 0, 0, 0.2);
+            box-shadow: -10px 0 20px rgb(0 0 0 / 20%);
 
             .PlayerInspectorPreview {
                 opacity: 0;
@@ -112,7 +101,7 @@
         .SessionRecordingPlayer__main {
             padding-right: 0;
         }
-        .SessionRecordingPlayer__inspector,
+
         .SessionRecordingPlayer__inspector {
             min-width: 30%;
             width: 40%;
@@ -148,10 +137,7 @@
         font-size: 6px;
         font-weight: bold;
         text-align: center;
-        left: 0;
-        right: 0;
-        top: 0;
-        bottom: 0;
+        inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;

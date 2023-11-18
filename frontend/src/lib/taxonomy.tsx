@@ -835,7 +835,7 @@ export function getKeyMapping(
         data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+            data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {

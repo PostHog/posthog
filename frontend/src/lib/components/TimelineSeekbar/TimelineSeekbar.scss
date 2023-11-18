@@ -2,6 +2,7 @@
     --timeline-seekbar-thickness: 0.125rem;
     --timeline-seekbar-arrow-width: 0.5rem;
     --timeline-seekbar-arrow-height: 0.75rem;
+
     margin: 0.75rem 0.5rem;
 }
 
@@ -27,9 +28,11 @@
     line-height: 1.25rem;
     font-size: 0.75rem;
     font-weight: 500;
+
     &::selection {
         background: var(--primary-light); // Default selection background is invisible on primary
     }
+
     .Spinner {
         margin-right: 0.25rem;
     }
@@ -48,6 +51,7 @@
     top: 0;
     left: calc(var(--timeline-seekbar-thickness) * 2);
     width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) * 3 - 1.25rem);
+
     .LemonBadge:not(.LemonBadge--active) {
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
@@ -61,6 +65,7 @@
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
     border-left: var(--timeline-seekbar-thickness) solid var(--bg-light);
+
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
     }
@@ -80,6 +85,7 @@
     position: absolute;
     top: calc(var(--timeline-seekbar-thickness) / 2 - 0.625rem);
     height: 1.25rem;
+
     &::before {
         content: '';
         display: block;
@@ -98,6 +104,7 @@
     left: 100%;
     width: var(--timeline-seekbar-arrow-width);
     cursor: pointer;
+
     &::before {
         clip-path: polygon(0 0, 100% 50%, 0 100%);
     }

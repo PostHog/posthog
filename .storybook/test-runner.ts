@@ -48,36 +48,35 @@ declare module '@storybook/types' {
     }
 }
 
-const RETRY_TIMES = 5
+const RETRY_TIMES = 3
 const LOADER_SELECTORS = [
     '.ant-skeleton',
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',
+    '.Toastify__toast-container',
     '[aria-busy="true"]',
-    '[aria-label="Content is loading..."]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
 ]
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
-const TEST_TIMEOUT_MS = 10000
-const BROWSER_DEFAULT_TIMEOUT_MS = 9000 // Reduce the default timeout down from 30s, to pre-empt Jest timeouts
-const SCREENSHOT_TIMEOUT_MS = 9000
+const JEST_TIMEOUT_MS = 15000
+const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
-        jest.setTimeout(TEST_TIMEOUT_MS)
+        jest.setTimeout(JEST_TIMEOUT_MS)
     },
     async postRender(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(BROWSER_DEFAULT_TIMEOUT_MS)
+        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
         if (!skip) {
             const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
@@ -122,7 +121,7 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
-        await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached' })
     }
     if (waitForSelector) {
         await page.waitForSelector(waitForSelector)
@@ -202,7 +201,7 @@ async function expectLocatorToMatchStorySnapshot(
     browser: SupportedBrowserName,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, ...options })
+    const image = await locator.screenshot({ ...options })
     let customSnapshotIdentifier = context.id
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`

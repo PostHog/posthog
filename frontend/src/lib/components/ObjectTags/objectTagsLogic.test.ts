@@ -28,7 +28,7 @@ describe('objectTagsLogic', () => {
         })
         it('handle adding a new tag', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setNewTag('Nigh')
+                logic.actions.setNewTag('Nigh')
                 logic.actions.handleAdd('Nightly')
             })
                 .toDispatchActions(['setNewTag'])
@@ -43,7 +43,7 @@ describe('objectTagsLogic', () => {
                     newTag: '',
                 })
             // @ts-expect-error
-            const mockedOnChange = props.onChange?.mock as any
+            const mockedOnChange = props.onChange?.mock
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('nightly')
             expect(mockedOnChange.calls[0][1]).toEqual(['a', 'b', 'c', 'nightly'])
@@ -69,7 +69,7 @@ describe('objectTagsLogic', () => {
                     tags: ['b', 'c'],
                 })
             // @ts-expect-error
-            const mockedOnChange = props.onChange?.mock as any
+            const mockedOnChange = props.onChange?.mock
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('a')
             expect(mockedOnChange.calls[0][1]).toEqual(['b', 'c'])

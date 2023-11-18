@@ -158,8 +158,8 @@ export function OverViewTab({
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={async () => {
-                                        await copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={() => {
+                                        void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
@@ -210,13 +210,21 @@ export function OverViewTab({
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
+                                            void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
-                                        disabled={!featureFlag.can_edit}
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                : (featureFlag.features?.length || 0) > 0
+                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                : null
+                                        }
                                         fullWidth
                                     >
                                         Delete feature flag

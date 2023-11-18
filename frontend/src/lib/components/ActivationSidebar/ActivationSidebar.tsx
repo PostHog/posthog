@@ -9,7 +9,15 @@ import { IconCheckmark, IconClose } from 'lib/lemon-ui/icons'
 import { ProfessorHog } from '../hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-const Task = ({ id, name, description, completed, canSkip, skipped, url }: ActivationTaskType): JSX.Element => {
+export const ActivationTask = ({
+    id,
+    name,
+    description,
+    completed,
+    canSkip,
+    skipped,
+    url,
+}: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
     const { runTask, skipTask } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
@@ -59,7 +67,7 @@ const Task = ({ id, name, description, completed, canSkip, skipped, url }: Activ
     )
 }
 
-const ActivationSidebar = (): JSX.Element => {
+export const ActivationSidebar = (): JSX.Element => {
     const { isActivationSideBarShown } = useValues(navigationLogic)
     const { hideActivationSideBar } = useActions(navigationLogic)
     const { activeTasks, completedTasks, completionPercent } = useValues(activationLogic)
@@ -93,7 +101,7 @@ const ActivationSidebar = (): JSX.Element => {
                             <div className="text-muted uppercase text-xs">What's next?</div>
                             <ul>
                                 {activeTasks.map((task: ActivationTaskType) => (
-                                    <Task key={task.id} {...task} />
+                                    <ActivationTask key={task.id} {...task} />
                                 ))}
                             </ul>
                         </div>
@@ -103,7 +111,7 @@ const ActivationSidebar = (): JSX.Element => {
                             <div className="text-muted uppercase text-xs">Completed</div>
                             <ul>
                                 {completedTasks.map((task: ActivationTaskType) => (
-                                    <Task key={task.id} {...task} />
+                                    <ActivationTask key={task.id} {...task} />
                                 ))}
                             </ul>
                         </div>
@@ -113,5 +121,3 @@ const ActivationSidebar = (): JSX.Element => {
         </div>
     )
 }
-
-export default ActivationSidebar

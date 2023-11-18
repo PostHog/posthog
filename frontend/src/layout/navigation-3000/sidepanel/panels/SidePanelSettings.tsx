@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 import { Settings } from 'scenes/settings/Settings'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { SettingsLogicProps, settingsLogic } from 'scenes/settings/settingsLogic'
 import { useEffect } from 'react'
+import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { IconExternal } from '@posthog/icons'
 
 export const SidePanelSettings = (): JSX.Element => {
     const { settings } = useValues(sidePanelSettingsLogic)
@@ -26,19 +27,16 @@ export const SidePanelSettings = (): JSX.Element => {
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className="border-b flex-0 p-1 flex items-center justify-end gap-2">
+            <SidePanelPaneHeader>
                 <LemonButton
                     size="small"
                     to={urls.settings(settings.sectionId ?? settings.settingLevelId, settings.settingId)}
                     onClick={() => closeSidePanel()}
-                    icon={<IconOpenInNew />}
+                    sideIcon={<IconExternal />}
                 >
                     All settings
                 </LemonButton>
-                <LemonButton size="small" onClick={() => closeSidePanel()}>
-                    Done
-                </LemonButton>
-            </div>
+            </SidePanelPaneHeader>
             <div className="flex-1 p-4 overflow-y-auto">
                 <Settings {...settingsLogicProps} />
             </div>

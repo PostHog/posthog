@@ -307,7 +307,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                                 navigation3000Logic.actions.focusPreviousItem()
                                 e.preventDefault()
                             } else if (e.key === 'Enter') {
-                                save(newName || '').then(() => {
+                                void save(newName || '').then(() => {
                                     // In the keyboard nav experience, we need to refocus the item once it's a link again
                                     setTimeout(() => ref.current?.focus(), 0)
                                 })
@@ -327,7 +327,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                         }}
                         onBlur={(e) => {
                             if (e.relatedTarget?.ariaLabel === 'Save name') {
-                                save(newName || '')
+                                void save(newName || '')
                             } else {
                                 cancel()
                             }
