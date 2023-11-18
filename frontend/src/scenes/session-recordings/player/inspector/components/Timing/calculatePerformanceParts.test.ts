@@ -1,5 +1,5 @@
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/player/inspector/performance-event-utils'
-import { InitiatorType } from '../../../../../../../../.yalc/posthog-js'
+import { InitiatorType } from 'posthog-js'
 import { calculatePerformanceParts } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 jest.mock('lib/colors', () => {
