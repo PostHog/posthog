@@ -140,7 +140,7 @@ export function ItemPerformanceEvent({
     expanded,
     setExpanded,
 }: ItemPerformanceEvent): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body'>('timings')
+    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
 
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
     const startTime = item.start_time || item.fetch_start || 0
@@ -176,7 +176,11 @@ export function ItemPerformanceEvent({
             return acc
         }
 
-        if (['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status'].includes(key)) {
+        if (
+            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
+                key
+            )
+        ) {
             return acc
         }
 
@@ -392,6 +396,15 @@ export function ItemPerformanceEvent({
                                                   ),
                                               }
                                             : false,
+                                        {
+                                            key: 'raw',
+                                            label: 'Json',
+                                            content: (
+                                                <CodeSnippet language={Language.JSON} wrap thing="performance event">
+                                                    {JSON.stringify(item.raw, null, 2)}
+                                                </CodeSnippet>
+                                            ),
+                                        },
                                     ]}
                                 />
                             </FlaggedFeature>

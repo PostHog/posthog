@@ -1149,6 +1149,10 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+
+    //rrweb/network@1 - i.e. not in ClickHouse table
+    is_initial?: boolean
+    raw?: Record<string, any>
 }
 
 export interface CurrentBillCycleType {
