@@ -2998,7 +2998,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
             self.assertTrue("elementsChainAsString" in response.json())
-            self.assertEqual(response["elementsChainAsString"], True)
+            self.assertTrue(response.json()["elementsChainAsString"])
 
         with self.settings(ELEMENT_CHAIN_AS_STRING_TEAMS={"0"}):
             response = self._post_decide(api_version=3)
