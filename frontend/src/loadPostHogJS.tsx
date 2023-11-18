@@ -27,10 +27,9 @@ export function loadPostHogJS(): void {
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
                 loaded: (posthog) => {
-                    // TODO we still need to do this?
-                    // if (posthog.webPerformance) {
-                    //     posthog.webPerformance._forceAllowLocalhost = true
-                    // }
+                    if (posthog.sessionRecording) {
+                        posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
+                    }
 
                     if (window.IMPERSONATED_SESSION) {
                         posthog.opt_out_capturing()
