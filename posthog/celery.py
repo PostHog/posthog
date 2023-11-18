@@ -515,10 +515,10 @@ def pg_row_count():
 
 
 CLICKHOUSE_TABLES = [
-    "events",
+    "sharded_events",
     "person",
     "person_distinct_id2",
-    "session_replay_events",
+    "sharded_session_replay_events",
     "log_entries",
 ]
 if not is_cloud():
