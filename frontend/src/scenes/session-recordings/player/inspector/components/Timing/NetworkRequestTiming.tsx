@@ -177,7 +177,7 @@ export function calculatePerformanceParts(perfEntry: PerformanceEvent): Performa
     }
 
     if (isPresent(perfEntry.response_start) && isPresent(perfEntry.request_start)) {
-        if (perfEntry.request_start - perfEntry.response_start > 0) {
+        if (perfEntry.response_start - perfEntry.request_start > 0) {
             performanceParts['waiting for first byte'] = {
                 start: perfEntry.request_start,
                 end: perfEntry.response_start,
