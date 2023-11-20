@@ -1,52 +1,55 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonButton, LemonButtonProps } from './LemonButton'
-import { IconCalculate } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { setFeatureFlags } from '~/mocks/browser'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions } from 'kea'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { useEffect } from 'react'
 
 type Story = StoryObj<typeof LemonButton>
+
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
+
 const meta: Meta<typeof LemonButton> = {
     title: 'Lemon UI/Lemon Button 3000',
     component: LemonButton,
     tags: ['autodocs'],
-    argTypes: {
-        icon: {
-            type: 'function',
-        },
-    },
 }
+
 export default meta
-const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {
+
+const BasicButton: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {
     return <LemonButton {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    icon: <IconCalculate />,
-    children: 'Click me',
-}
+const TypesTemplate = ({ darkMode }: { darkMode: boolean }) => {
+    const { overrideTheme } = useActions(themeLogic)
 
-export const Hover: Story = {
-    play: async (props) => {
-        debugger
-    },
-}
+    setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000])
 
-// export const Hover: Story = () => {
-//     return <LemonButton type="primary">Click me</LemonButton>
-// }
-// Hover.parameters = { pseudo: { hover: true }, featureFlags: [FEATURE_FLAGS.POSTHOG_3000] }
+    useEffect(() => {
+        overrideTheme(darkMode)
+    }, [])
 
-export const Active = (): JSX.Element => {
     return (
-        <div className="space-y-2">
-            <p>
-                Sometimes you may need to keep the LemonButton in it's active state e.g. the hover state. This can be
-                done by setting the <code>active</code> property
-            </p>
-            <div className="flex items-center gap-2">
-                <LemonButton>I am not active</LemonButton>
-                <LemonButton active>I am active</LemonButton>
-            </div>
+        <div className={'flex gap-2 border rounded-lg p-2 flex-wrap'}>
+            {types.map((type) => (
+                <BasicButton key={type} type={type}>
+                    {capitalizeFirstLetter(type || 'default')}
+                </BasicButton>
+            ))}
         </div>
     )
 }
+
+export const LightMode = () => <TypesTemplate darkMode={false} />
+export const DarkMode = () => <TypesTemplate darkMode />
+
+// export const Hover: Story = TypesTemplate.bind({})
+// Hover.args = Default.args
+// Hover.parameters = { pseudo: { hover: ['.LemonButton'] } }
+
+// export const Active: Story = TypesTemplate.bind({})
+// Active.args = Default.args
+// Active.parameters = { pseudo: { active: ['.LemonButton'] } }
