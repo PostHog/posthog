@@ -24,7 +24,6 @@ const MenuHeader = (): JSX.Element => {
             fullWidth
             type={'search'}
             value={searchTerm}
-            className={'Toolbar__top_input'}
             onChange={(s) => setSearchTerm(s)}
         />
     )
