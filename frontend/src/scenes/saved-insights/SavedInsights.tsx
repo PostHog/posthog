@@ -432,7 +432,7 @@ export function SavedInsights(): JSX.Element {
                                         <IconStar className="text-muted" />
                                     )
                                 }
-                                tooltip={`${insight.favorited ? 'Add to' : 'Remove from'} favorite insights`}
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (
