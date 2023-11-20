@@ -17,3 +17,11 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     are_tables_created: models.BooleanField = models.BooleanField(default=False)
 
     __repr__ = sane_repr("source_id")
+
+    @property
+    def folder_path(self) -> str:
+        return f"{self.team_id}/{self.source_type}/{str(self.pk)}"
+
+    @property
+    def draft_folder_path(self) -> str:
+        return f"team-{self.team_id}/{self.source_type}/{str(self.pk)}-draft"

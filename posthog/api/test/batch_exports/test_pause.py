@@ -17,7 +17,7 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.service import delete_schedule, describe_schedule
+from posthog.temporal.schedule import delete_schedule, describe_schedule
 from posthog.temporal.client import sync_connect
 
 pytestmark = [

@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0363_add_replay_payload_capture_config"),
+        ("posthog", "0364_team_external_data_workspace_rows"),
     ]
 
     operations = [

@@ -29,11 +29,11 @@ from posthog.batch_exports.service import (
     BatchExportServiceRPCError,
     backfill_export,
     cancel_running_batch_export_backfill,
-    delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.temporal.schedule import delete_schedule
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,

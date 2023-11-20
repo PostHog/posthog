@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 @dataclass
 class PipelineInputs:
+    dataset_name: str
     job_type: str
     team_id: int
 
@@ -14,7 +15,7 @@ def create_pipeline(inputs: PipelineInputs):
     return dlt.pipeline(
         pipeline_name=f"{inputs.job_type}_pipeline",
         destination="filesystem",
-        dataset_name=f"{inputs.job_type}_team_{inputs.team_id}",
+        dataset_name=inputs.dataset_name,
         credentials={
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,

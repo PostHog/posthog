@@ -75,7 +75,7 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
-        workflow_group = options.get["workflow_group"]
+        workflow_group = options["workflow_group"]
 
         if workflow_group == "data-sync":
             workflows = DATA_SYNC_WORKFLOWS

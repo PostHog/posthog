@@ -9,23 +9,17 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleOverlapPolicy,
 )
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from posthog.warehouse.models import ExternalDataSource
 
 from posthog.temporal.client import sync_connect
-from posthog.temporal.workflows.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.workflows.external_data_job import ExternalDataJobWorkflow, ExternalDataJobInputs
 from posthog.temporal.schedule import (
     create_schedule,
     update_schedule,
     trigger_schedule,
     pause_schedule,
 )
-
-
-@dataclass
-class ExternalDataJobInputs:
-    team_id: int
-    external_data_source_id: str
 
 
 def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:

@@ -13,7 +13,6 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.workflows.base import PostHogWorkflow
 from temporalio import activity, workflow, exceptions
 from asgiref.sync import sync_to_async
-from posthog.warehouse.data_load.service import ExternalDataJobInputs
 
 
 @dataclasses.dataclass
@@ -49,6 +48,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     )  # type: ignore
 
 
+@dataclasses.dataclass
+class ExternalDataJobInputs:
+    team_id: int
+    external_data_source_id: str
+
+
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     model: ExternalDataSource = await sync_to_async(get_external_data_source)(
@@ -57,7 +62,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     )
 
     job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
-        team_id=inputs.team_id, job_type=model.source_type, **model.job_inputs
+        team_id=inputs.team_id, job_type=model.source_type, dataset_name=model.draft_folder_path, **model.job_inputs
     )
     job_fn = PIPELINE_TYPE_MAPPING[model.source_type]
 
