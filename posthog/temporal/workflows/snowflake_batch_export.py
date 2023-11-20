@@ -1,17 +1,28 @@
+import asyncio
+import contextlib
+import dataclasses
 import datetime as dt
+import functools
+import io
 import json
-import tempfile
-from dataclasses import dataclass
+import typing
 
 import snowflake.connector
 from django.conf import settings
-from snowflake.connector.cursor import SnowflakeCursor
+from snowflake.connector.connection import SnowflakeConnection
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
+from posthog.temporal.utils import (
+    HeartbeatDetails,
+    HeartbeatParseError,
+    NotEnoughHeartbeatValuesError,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
+    BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
@@ -43,7 +54,32 @@ class SnowflakeFileNotLoadedError(Exception):
         )
 
 
-@dataclass
+@dataclasses.dataclass
+class SnowflakeHeartbeatDetails(HeartbeatDetails):
+    """The Snowflake batch export details included in every heartbeat.
+
+    Attributes:
+        file_no: The file number of the last file we managed to upload.
+    """
+
+    file_no: int
+
+    @classmethod
+    def from_activity(cls, activity):
+        details = super().from_activity(activity)
+
+        if details.total_details < 2:
+            raise NotEnoughHeartbeatValuesError(details.total_details, 2)
+
+        try:
+            file_no = int(details._remaining[1])
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("file_no") from e
+
+        return cls(last_inserted_at=details.last_inserted_at, file_no=file_no, _remaining=details._remaining[2:])
+
+
+@dataclasses.dataclass
 class SnowflakeInsertInputs:
     """Inputs for Snowflake."""
 
@@ -66,23 +102,137 @@ class SnowflakeInsertInputs:
     include_events: list[str] | None = None
 
 
-def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
-    """Executes a PUT query using the provided cursor to the provided table_name.
+def use_namespace(connection: SnowflakeConnection, database: str, schema: str) -> None:
+    """Switch to a namespace given by database and schema.
+
+    This allows all queries that follow to ignore database and schema.
+    """
+    cursor = connection.cursor()
+    cursor.execute(f'USE DATABASE "{database}"')
+    cursor.execute(f'USE SCHEMA "{schema}"')
+
+
+@contextlib.contextmanager
+def snowflake_connection(inputs) -> typing.Generator[SnowflakeConnection, None, None]:
+    """Context manager that yields a Snowflake connection.
+
+    Before yielding we ensure we are in the right namespace, and we set ABORT_DETACHED_QUERY
+    to FALSE to avoid Snowflake cancelling any async queries.
+    """
+    with snowflake.connector.connect(
+        user=inputs.user,
+        password=inputs.password,
+        account=inputs.account,
+        warehouse=inputs.warehouse,
+        database=inputs.database,
+        schema=inputs.schema,
+        role=inputs.role,
+    ) as connection:
+        use_namespace(connection, inputs.database, inputs.schema)
+        connection.cursor().execute("SET ABORT_DETACHED_QUERY = FALSE")
+
+        yield connection
+
+
+async def execute_async_query(
+    connection: SnowflakeConnection,
+    query: str,
+    parameters: dict | None = None,
+    file_stream=None,
+    poll_interval: float = 1.0,
+) -> str:
+    """Wrap Snowflake connector's polling API in a coroutine.
+
+    This enables asynchronous execution of queries to release the event loop to execute other tasks
+    while we poll for a query to be done. For example, the event loop may use this time for heartbeating.
 
     Args:
-        cursor: A Snowflake cursor to execute the PUT query.
-        file_name: The name of the file to PUT.
-        table_name: The name of the table where to PUT the file.
+        connection: A SnowflakeConnection object as produced by snowflake.connector.connect.
+        query: A query string to run asynchronously.
+        parameters: An optional dictionary of parameters to bind to the query.
+        poll_interval: Specify how long to wait in between polls.
+    """
+    cursor = connection.cursor()
+
+    # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.
+    result = cursor.execute_async(query, params=parameters, file_stream=file_stream)
+    query_id = cursor.sfqid or result["queryId"]
+
+    # Snowflake does a blocking HTTP request, so we send it to a thread.
+    query_status = await asyncio.to_thread(connection.get_query_status_throw_if_error, query_id)
+
+    while connection.is_still_running(query_status):
+        query_status = await asyncio.to_thread(connection.get_query_status_throw_if_error, query_id)
+        await asyncio.sleep(poll_interval)
+
+    return query_id
+
+
+async def create_table_in_snowflake(connection: SnowflakeConnection, table_name: str) -> None:
+    """Asynchronously create the table if it doesn't exist.
+
+    Note that we use the same schema as the snowflake-plugin for backwards compatibility."""
+    await execute_async_query(
+        connection,
+        f"""
+        CREATE TABLE IF NOT EXISTS "{table_name}" (
+            "uuid" STRING,
+            "event" STRING,
+            "properties" VARIANT,
+            "elements" VARIANT,
+            "people_set" VARIANT,
+            "people_set_once" VARIANT,
+            "distinct_id" STRING,
+            "team_id" INTEGER,
+            "ip" STRING,
+            "site_url" STRING,
+            "timestamp" TIMESTAMP
+        )
+        COMMENT = 'PostHog generated events table'
+        """,
+    )
+
+
+async def put_file_to_snowflake_table(
+    connection: SnowflakeConnection,
+    file: BatchExportTemporaryFile,
+    table_name: str,
+    file_no: int,
+):
+    """Executes a PUT query using the provided cursor to the provided table_name.
+
+    Sadly, Snowflake's execute_async does not work with PUT statements. So, we pass the execute
+    call to run_in_executor: Since execute ends up boiling down to blocking IO (HTTP request),
+    the event loop should not be locked up.
+
+    We add a file_no to the file_name when executing PUT as Snowflake will reject any files with the same
+    name. Since batch exports re-use the same file, our name does not change, but we don't want Snowflake
+    to reject or overwrite our new data.
+
+    Args:
+        connection: A SnowflakeConnection object as produced by snowflake.connector.connect.
+        file: The name of the local file to PUT.
+        table_name: The name of the Snowflake table where to PUT the file.
+        file_no: An int to identify which file number this is.
 
     Raises:
         TypeError: If we don't get a tuple back from Snowflake (should never happen).
         SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
     """
-    cursor.execute(
-        f"""
-        PUT file://{file_name} @%"{table_name}"
-        """
-    )
+    file.rewind()
+
+    # We comply with the file-like interface of io.IOBase.
+    # So we ask mypy to be nice with us.
+    reader = io.BufferedReader(file)  # type: ignore
+    query = f'PUT file://{file.name}_{file_no}.jsonl @%"{table_name}"'
+    cursor = connection.cursor()
+
+    execute_put = functools.partial(cursor.execute, query, file_stream=reader)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, func=execute_put)
+    reader.detach()  # BufferedReader closes the file otherwise.
+
     result = cursor.fetchone()
     if not isinstance(result, tuple):
         # Mostly to appease mypy, as this query should always return a tuple.
@@ -91,6 +241,55 @@ def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_n
     status, message = result[6:8]
     if status != "UPLOADED":
         raise SnowflakeFileNotUploadedError(table_name, status, message)
+
+
+async def copy_loaded_files_to_snowflake_table(
+    connection: SnowflakeConnection,
+    table_name: str,
+):
+    """Execute a COPY query in Snowflake to load any files PUT into the table.
+
+    The query is executed asynchronously using Snowflake's polling API.
+
+    Args:
+        connection: A SnowflakeConnection as returned by snowflake.connector.connect.
+        table_name: The table we are COPY-ing files into.
+    """
+    query = f"""
+    COPY INTO "{table_name}"
+    FILE_FORMAT = (TYPE = 'JSON')
+    MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
+    PURGE = TRUE
+    """
+    query_id = await execute_async_query(connection, query)
+
+    cursor = connection.cursor()
+    cursor.get_results_from_sfqid(query_id)
+    results = cursor.fetchall()
+
+    for query_result in results:
+        if not isinstance(query_result, tuple):
+            # Mostly to appease mypy, as this query should always return a tuple.
+            raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(query_result)}'")
+
+        if len(query_result) < 2:
+            raise SnowflakeFileNotLoadedError(
+                table_name,
+                "NO STATUS",
+                0,
+                query_result[0] if len(query_result) == 1 else "NO ERROR MESSAGE",
+            )
+
+        _, status = query_result[0:2]
+
+        if status != "LOADED":
+            errors_seen, first_error = query_result[5:7]
+            raise SnowflakeFileNotLoadedError(
+                table_name,
+                status or "NO STATUS",
+                errors_seen or 0,
+                first_error or "NO ERROR MESSAGE",
+            )
 
 
 @activity.defn
@@ -106,6 +305,17 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         inputs.data_interval_end,
     )
 
+    should_resume, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails, logger)
+
+    if should_resume is True and details is not None:
+        data_interval_start = details.last_inserted_at.isoformat()
+        last_inserted_at = details.last_inserted_at
+        file_no = details.file_no
+    else:
+        data_interval_start = inputs.data_interval_start
+        last_inserted_at = None
+        file_no = 0
+
     async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -113,7 +323,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         count = await get_rows_count(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -129,41 +339,30 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        conn = snowflake.connector.connect(
-            user=inputs.user,
-            password=inputs.password,
-            account=inputs.account,
-            warehouse=inputs.warehouse,
-            database=inputs.database,
-            schema=inputs.schema,
-            role=inputs.role,
-        )
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
 
-        try:
-            cursor = conn.cursor()
-            cursor.execute(f'USE DATABASE "{inputs.database}"')
-            cursor.execute(f'USE SCHEMA "{inputs.schema}"')
-
-            # Create the table if it doesn't exist. Note that we use the same schema
-            # as the snowflake-plugin for backwards compatibility.
-            cursor.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS "{inputs.database}"."{inputs.schema}"."{inputs.table_name}" (
-                    "uuid" STRING,
-                    "event" STRING,
-                    "properties" VARIANT,
-                    "elements" VARIANT,
-                    "people_set" VARIANT,
-                    "people_set_once" VARIANT,
-                    "distinct_id" STRING,
-                    "team_id" INTEGER,
-                    "ip" STRING,
-                    "site_url" STRING,
-                    "timestamp" TIMESTAMP
-                )
-                COMMENT = 'PostHog generated events table'
-                """
+        async def flush_to_snowflake(
+            connection: SnowflakeConnection,
+            file: BatchExportTemporaryFile,
+            table_name: str,
+            file_no: int,
+            last: bool = False,
+        ):
+            logger.info(
+                "Putting %sfile %s containing %s records with size %s bytes",
+                "last " if last else "",
+                file_no,
+                file.records_since_last_reset,
+                file.bytes_since_last_reset,
             )
+
+            await put_file_to_snowflake_table(connection, file, table_name, file_no)
+            rows_exported.add(file.records_since_last_reset)
+            bytes_exported.add(file.bytes_since_last_reset)
+
+        with snowflake_connection(inputs) as connection:
+            await create_table_in_snowflake(connection, inputs.table_name)
 
             results_iterator = get_results_iterator(
                 client=client,
@@ -173,118 +372,59 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
             )
+
             result = None
-            local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
-            rows_in_file = 0
 
-            rows_exported = get_rows_exported_metric()
-            bytes_exported = get_bytes_exported_metric()
+            async def worker_shutdown_handler():
+                """Handle the Worker shutting down by heart-beating our latest status."""
+                await activity.wait_for_worker_shutdown()
+                logger.bind(last_inserted_at=last_inserted_at, file_no=file_no).debug("Worker shutting down!")
 
-            def flush_to_snowflake(lrf: tempfile._TemporaryFileWrapper, rows_in_file: int):
-                lrf.flush()
-                put_file_to_snowflake_table(cursor, lrf.name, inputs.table_name)
-                rows_exported.add(rows_in_file)
-                bytes_exported.add(lrf.tell())
+                if last_inserted_at is None:
+                    # Don't heartbeat if worker shuts down before we could even send anything
+                    # Just start from the beginning again.
+                    return
 
-            try:
-                while True:
-                    try:
-                        result = results_iterator.__next__()
+                activity.heartbeat(last_inserted_at, file_no)
 
-                    except StopIteration:
-                        break
+            asyncio.create_task(worker_shutdown_handler())
 
-                    except json.JSONDecodeError:
-                        logger.info(
-                            "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
-                        )
-                        # This is raised by aiochclient as we try to decode an error message from ClickHouse.
-                        # So far, this error message only indicated that we were too slow consuming rows.
-                        # So, we can resume from the last result.
-                        if result is None:
-                            # We failed right at the beginning
-                            new_interval_start = None
-                        else:
-                            new_interval_start = result.get("inserted_at", None)
+            with BatchExportTemporaryFile() as local_results_file:
+                for result in results_iterator:
+                    record = {
+                        "uuid": result["uuid"],
+                        "event": result["event"],
+                        "properties": result["properties"],
+                        "elements": result["elements"],
+                        "people_set": result["set"],
+                        "people_set_once": result["set_once"],
+                        "distinct_id": result["distinct_id"],
+                        "team_id": result["team_id"],
+                        "ip": result["ip"],
+                        "site_url": result["site_url"],
+                        "timestamp": result["timestamp"],
+                    }
+                    local_results_file.write_records_to_jsonl([record])
 
-                        if not isinstance(new_interval_start, str):
-                            new_interval_start = inputs.data_interval_start
+                    if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
+                        await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
-                        results_iterator = get_results_iterator(
-                            client=client,
-                            team_id=inputs.team_id,
-                            interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
-                            interval_end=inputs.data_interval_end,
-                        )
-                        continue
+                        last_inserted_at = result["inserted_at"]
+                        file_no += 1
 
-                    if not result:
-                        break
+                        activity.heartbeat(last_inserted_at, file_no)
 
-                    # Write the results to a local file
-                    local_results_file.write(json.dumps(result).encode("utf-8"))
-                    local_results_file.write("\n".encode("utf-8"))
-                    rows_in_file += 1
+                        local_results_file.reset()
 
-                    # Write results to Snowflake when the file reaches 50MB and
-                    # reset the file, or if there is nothing else to write.
-                    if (
-                        local_results_file.tell()
-                        and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
-                    ):
-                        logger.info("Uploading to Snowflake")
+                if local_results_file.tell() > 0 and result is not None:
+                    await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
 
-                        # Flush the file to make sure everything is written
-                        flush_to_snowflake(local_results_file, rows_in_file)
+                    last_inserted_at = result["inserted_at"]
+                    file_no += 1
 
-                        # Delete the temporary file and create a new one
-                        local_results_file.close()
-                        local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
-                        rows_in_file = 0
+                    activity.heartbeat(last_inserted_at, file_no)
 
-                # Flush the file to make sure everything is written
-                flush_to_snowflake(local_results_file, rows_in_file)
-
-                # We don't need the file anymore, close (and delete) it.
-                local_results_file.close()
-                cursor.execute(
-                    f"""
-                    COPY INTO "{inputs.table_name}"
-                    FILE_FORMAT = (TYPE = 'JSON')
-                    MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
-                    PURGE = TRUE
-                    """
-                )
-                results = cursor.fetchall()
-
-                for query_result in results:
-                    if not isinstance(query_result, tuple):
-                        # Mostly to appease mypy, as this query should always return a tuple.
-                        raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
-
-                    if len(query_result) < 2:
-                        raise SnowflakeFileNotLoadedError(
-                            inputs.table_name,
-                            "NO STATUS",
-                            0,
-                            query_result[1] if len(query_result) == 1 else "NO ERROR MESSAGE",
-                        )
-
-                    _, status = query_result[0:2]
-
-                    if status != "LOADED":
-                        errors_seen, first_error = query_result[5:7]
-                        raise SnowflakeFileNotLoadedError(
-                            inputs.table_name,
-                            status or "NO STATUS",
-                            errors_seen or 0,
-                            first_error or "NO ERROR MESSAGE",
-                        )
-
-            finally:
-                local_results_file.close()
-        finally:
-            conn.close()
+            await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
 
 @workflow.defn(name="snowflake-export")
@@ -361,6 +501,4 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ForbiddenError",
             ],
             update_inputs=update_inputs,
-            # Disable heartbeat timeout until we add heartbeat support.
-            heartbeat_timeout_seconds=None,
         )
