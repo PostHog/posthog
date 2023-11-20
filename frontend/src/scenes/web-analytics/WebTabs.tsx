@@ -59,7 +59,7 @@ export const WebTabs = ({
                     </div>
                 </div>
             </div>
-            <div>{activeTab?.content}</div>
+            <div className={'flex-1 flex flex-col'}>{activeTab?.content}</div>
         </div>
     )
 }
