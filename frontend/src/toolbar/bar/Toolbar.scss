@@ -46,42 +46,96 @@
     --mark: var(--secondary-3000-hover-dark);
 }
 
-.Toolbar3000 {
+.ToolbarMenu {
+    position: fixed;
+    max-width: calc(100% - 2rem);
+    height: 0;
+    z-index: 2;
+
+    .ToolbarMenu__content {
+        position: absolute;
+        background-color: var(--bg-3000);
+        color: var(--text-3000);
+        border-radius: var(--radius);
+
+        // transition: height 0.5s ease, border 0.5s ease;
+
+        max-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        filter: drop-shadow(0px 5px 10px var(--trace-3000));
+        bottom: 0;
+        width: 30rem;
+        margin-left: -15rem;
+        overflow-y: auto;
+    }
+
+    &--visible {
+        .ToolbarMenu__content {
+            border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &.ToolbarMenu--below {
+        .ToolbarMenu__content {
+            top: 0;
+            bottom: auto;
+        }
+    }
+}
+
+.Toolbar {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    z-index: 1;
     background-color: var(--bg-3000);
     color: var(--text-3000);
-    transition-property: filter, width;
-    transition-duration: 0.3s;
+    transition-property: filter, width, transform;
+    transition-duration: 150ms;
     transition-timing-function: ease;
-    filter: drop-shadow(1px 2px 2px var(--trace-3000));
+    filter: drop-shadow(0px 5px 10px var(--trace-3000));
+    border: 1px solid var(--border-bold-3000);
+    border-radius: var(--radius);
+    overflow: hidden;
 
-    .ToolbarMenu__button--square-right {
-        border-bottom-right-radius: 0;
-        border-top-right-radius: 0;
-    }
-
-    .ToolbarMenu__button--square-left {
-        border-bottom-left-radius: 0;
-        border-top-left-radius: 0;
-    }
-
+    position: fixed;
     // fixed width so that animations work when changing width
-    width: 15.1rem;
+    width: 15.2rem;
 
-    &.Toolbar3000--minimized-width {
-        width: 2.5rem;
+    > :first-child {
+        border-right: 1px solid var(--border-bold-3000);
+    }
+
+    > :last-child {
+        border-left: 1px solid var(--border-bold-3000);
+    }
+
+    --toolbar-button-x: 0;
+    --toolbar-button-y: 0;
+    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
+
+    transform: var(--toolbar-translate);
+
+    &--dragging {
+        // Disable transform transition whilst dragging
+        transition-property: filter, width;
+        transform: var(--toolbar-translate) scale(1.1);
+    }
+
+    &--minimized {
+        width: calc(2.5rem + 1px); // Account for border
+
+        &.Toolbar--hedgehog-mode {
+            transform: var(--toolbar-translate) scale(0);
+        }
     }
 
     form {
         .form-error {
             color: var(--danger);
         }
-    }
-
-    &.Toolbar3000__menu {
-        transition: height 0.5s ease;
-        bottom: 115%;
-        width: 100%;
-        max-height: 45vh;
     }
 
     .FeatureFlagRow {
@@ -125,7 +179,7 @@
     }
 }
 
-.Toolbar3000__top_input {
+.Toolbar__top_input {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }

@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -18,7 +18,7 @@ const MenuHeader = (): JSX.Element => {
 
     return (
         <div>
-            <LemonInput value={wildcardHref} onChange={setWildcardHref} className={'Toolbar3000__top_input'} />
+            <LemonInput value={wildcardHref} onChange={setWildcardHref} className="Toolbar__top_input" />
             <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
         </div>
     )
@@ -31,7 +31,7 @@ const MenuBody = (): JSX.Element => {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
-        <div className={'flex flex-col space-y-2 px-2'}>
+        <div className={'flex flex-col space-y-2'}>
             <div className="flex flex-row items-center space-x-2">
                 <DateFilter
                     dateFrom={heatmapFilter.date_from ?? '-7d'}
@@ -75,7 +75,7 @@ const MenuBody = (): JSX.Element => {
                     />
                 </div>
             </Tooltip>
-            <div className="FlagList flex flex-col w-full overflow-y-scroll h-full">
+            <div className="FlagList flex flex-col w-full h-full">
                 {countedElements.map(({ element, count, actionStep }, index) => {
                     return (
                         <div

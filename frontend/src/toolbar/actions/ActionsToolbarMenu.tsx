@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -26,7 +26,7 @@ const ListMenuHeader = (): JSX.Element => {
                 type={'search'}
                 value={searchTerm}
                 onChange={(s) => setSearchTerm(s)}
-                className={'Toolbar3000__top_input'}
+                className={'Toolbar__top_input'}
             />
         </>
     )
@@ -38,7 +38,7 @@ const ListBody = (): JSX.Element => {
 
     return (
         <>
-            <div className={clsx('actions-list-header pt-2 pb-4 px-2')}>
+            <div className={clsx('actions-list-header my-2')}>
                 <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
                     New action
                 </LemonButton>
@@ -58,7 +58,7 @@ const ListMenuFooter = (): JSX.Element => {
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className="w-full text-right mt-4 pr-2">
+        <div className="w-full text-right">
             <Link to={`${apiURL}${urls.actions()}`} target="_blank">
                 View &amp; edit all actions <IconOpenInNew />
             </Link>

@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { HTMLAttributes } from 'react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -24,7 +24,7 @@ const MenuHeader = (): JSX.Element => {
             fullWidth
             type={'search'}
             value={searchTerm}
-            className={'Toolbar3000__top_input'}
+            className={'Toolbar__top_input'}
             onChange={(s) => setSearchTerm(s)}
         />
     )
@@ -35,11 +35,11 @@ const MenuBody = (): JSX.Element => {
     const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarLogic)
     return (
-        <>
+        <div className="p-2 space-y-2">
             {filteredFlags.length > 0 ? (
                 filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                     <div
-                        className={clsx('FeatureFlagRow px-2 py-1', hasOverride && 'FeatureFlagRow__overridden')}
+                        className={clsx('FeatureFlagRow', hasOverride && 'FeatureFlagRow__overridden')}
                         key={feature_flag.key}
                     >
                         <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header')}>
@@ -112,7 +112,7 @@ const MenuBody = (): JSX.Element => {
                     )}
                 </div>
             )}
-        </>
+        </div>
     )
 }
 

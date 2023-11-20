@@ -3,8 +3,8 @@ import type { toolbarLogicType } from './toolbarLogicType'
 import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+// import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+// import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { PostHog } from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
@@ -65,8 +65,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         processUserIntent: async () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
-                actionsTabLogic.actions.showButtonActions()
-                toolbarButtonLogic.actions.setVisibleMenu('actions')
+                // actionsTabLogic.actions.showButtonActions()
+                // toolbarButtonLogic.actions.setVisibleMenu('actions')
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
             }
         },

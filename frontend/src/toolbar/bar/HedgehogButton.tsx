@@ -1,13 +1,12 @@
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { toolbarButtonLogic } from '~/toolbar/bar/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { useEffect, useRef } from 'react'
 import { heatmapLogic } from '../elements/heatmapLogic'
 
 export function HedgehogButton(): JSX.Element {
     const { hedgehogMode, theme } = useValues(toolbarButtonLogic)
-    const { saveDragPosition, setHedgehogActor } = useActions(toolbarButtonLogic)
+    const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarButtonLogic)
 
     const { heatmapEnabled } = useValues(heatmapLogic)
 
@@ -23,7 +22,7 @@ export function HedgehogButton(): JSX.Element {
         if (actorRef.current) {
             setHedgehogActor(actorRef.current)
         }
-    }, [actorRef.current])
+    }, [actorRef.current, hedgehogMode])
 
     return (
         <>
@@ -32,9 +31,10 @@ export function HedgehogButton(): JSX.Element {
                     onClose={() => {}}
                     actorRef={actorRef}
                     isDarkModeOn={theme === 'dark'}
-                    onPositionChange={(actor) => {
-                        saveDragPosition(actor.x + SPRITE_SIZE, -actor.y - SPRITE_SIZE)
+                    onPositionChange={() => {
+                        syncWithHedgehog()
                     }}
+                    onClick={() => toggleMinimized()}
                 />
             )}
         </>

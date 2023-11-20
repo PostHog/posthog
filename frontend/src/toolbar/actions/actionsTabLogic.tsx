@@ -11,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { toolbarButtonLogic } from '~/toolbar/bar/toolbarButtonLogic'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
