@@ -17,6 +17,7 @@ import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecording
 import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
 import api from 'lib/api'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -135,14 +136,17 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
                 {
+                    key: Scene.Replay,
                     name: 'Replay',
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.Playlists,
                     name: 'Playlists',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
+                    key: playlist?.short_id || 'new',
                     name: playlist?.name || playlist?.derived_name || '(Untitled)',
                     path: urls.replayPlaylist(playlist?.short_id || ''),
                 },

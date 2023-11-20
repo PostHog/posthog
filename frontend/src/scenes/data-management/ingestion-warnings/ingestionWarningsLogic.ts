@@ -8,6 +8,8 @@ import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
 import { teamLogic } from '../../teamLogic'
 import { range } from 'lib/utils'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
+import { DataManagementTab } from '../DataManagementScene'
 
 export interface IngestionWarningSummary {
     type: string
@@ -47,10 +49,12 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data management`,
                         path: urls.eventDefinitions(),
                     },
                     {
+                        key: DataManagementTab.IngestionWarnings,
                         name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
                     },

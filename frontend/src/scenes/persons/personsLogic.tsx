@@ -24,6 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { asDisplay } from './person-utils'
 import { hogqlQuery } from '~/queries/query'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -246,12 +247,14 @@ export const personsLogic = kea<personsLogicType>([
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
-                        name: 'Persons',
+                        key: Scene.PersonsManagement,
+                        name: 'People',
                         path: urls.persons(),
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
+                        key: person.id || 'unknown',
                         name: asDisplay(person),
                     })
                 }
