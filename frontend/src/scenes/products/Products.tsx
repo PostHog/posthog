@@ -11,6 +11,7 @@ import { router } from 'kea-router'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { productsLogic } from './productsLogic'
 import * as Icons from '@posthog/icons'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: Products,
@@ -27,6 +28,7 @@ function OnboardingCompletedButton({
     productKey: ProductKey
 }): JSX.Element {
     const { onSelectProduct } = useActions(productsLogic)
+
     return (
         <>
             <LemonButton type="secondary" status="muted" to={productUrl}>
@@ -94,7 +96,7 @@ export function ProductCard({
 
     return (
         <LemonCard
-            className={`flex gap-x-4 gap-y-4 ${vertical ? 'flex-col max-w-80' : 'items-center'} ${className}`}
+            className={clsx('flex gap-4', vertical ? 'flex-col max-w-80' : 'items-center', className)}
             key={product.type}
         >
             <div className="flex">
@@ -102,11 +104,11 @@ export function ProductCard({
                     <div className="bg-mid rounded p-2">{getProductIcon(product.icon_key, 'text-2xl')}</div>
                 </div>
             </div>
-            <div>
+            <div className="flex-1">
                 <h3 className={`bold ${vertical ? 'mb-2' : 'mb-0'}`}>{product.name}</h3>
                 <p className="grow m-0">{product.description}</p>
             </div>
-            <div className={`flex gap-x-2 grow shrink-0 ${!vertical && 'justify-end'}`}>
+            <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
                         productUrl={getProductUri(product.type as ProductKey)}
