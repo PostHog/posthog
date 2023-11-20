@@ -364,14 +364,14 @@ export function DashboardHeader(): JSX.Element | null {
                                         onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                         saving={dashboardLoading}
                                         tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
-                                        className="insight-metadata-tags"
+                                        className="mt-2"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
                                         tags={dashboard.tags}
                                         saving={dashboardLoading}
                                         staticOnly
-                                        className="insight-metadata-tags"
+                                        className="mt-2"
                                     />
                                 ) : null}
                             </>
