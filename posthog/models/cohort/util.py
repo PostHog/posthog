@@ -449,9 +449,13 @@ def get_dependent_cohorts(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = [
-        int(prop.value) for prop in cohort.properties.flat if prop.type == "cohort" and not isinstance(prop.value, list)
-    ]
+    queue = []
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                queue.append(int(prop.value))
+            except ValueError:
+                continue
 
     while queue:
         cohort_id = queue.pop()
@@ -464,11 +468,14 @@ def get_dependent_cohorts(
             if cohort.id not in seen_cohort_ids:
                 cohorts.append(cohort)
                 seen_cohort_ids.add(cohort.id)
-                queue += [
-                    int(prop.value)
-                    for prop in cohort.properties.flat
-                    if prop.type == "cohort" and not isinstance(prop.value, list)
-                ]
+
+                for prop in cohort.properties.flat:
+                    if prop.type == "cohort" and not isinstance(prop.value, list):
+                        try:
+                            queue.append(int(prop.value))
+                        except ValueError:
+                            continue
+
         except Cohort.DoesNotExist:
             continue
 
