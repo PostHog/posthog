@@ -15,3 +15,7 @@ export type DateFilterLogicProps = {
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
 }
+
+export const CUSTOM_OPTION_KEY = 'Custom'
+export const CUSTOM_OPTION_VALUE = 'No date range override'
+export const CUSTOM_OPTION_DESCRIPTION = 'Use the original date ranges of insights'

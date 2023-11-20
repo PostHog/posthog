@@ -7,7 +7,7 @@ import { PersonPreview } from './PersonPreview'
 import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
 import { asDisplay, asLink } from './person-utils'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookNodeType } from '~/types'
 
 type PersonPropType =

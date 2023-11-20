@@ -9,8 +9,6 @@ import {
     chooseOperatorMap,
     colonDelimitedDuration,
     compactNumber,
-    convertPropertiesToPropertyGroup,
-    convertPropertyGroupToProperties,
     dateFilterToText,
     dateMapping,
     dateStringToDayJs,
@@ -20,7 +18,6 @@ import {
     ensureStringIsNotBlank,
     eventToDescription,
     floorMsToClosestSecond,
-    formatLabel,
     genericOperatorMap,
     getFormattedLastWeekDate,
     hexToRGBA,
@@ -44,18 +41,7 @@ import {
     shortTimeZone,
     humanFriendlyLargeNumber,
 } from './utils'
-import {
-    ActionFilter,
-    AnyPropertyFilter,
-    ElementType,
-    EventType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyOperator,
-    PropertyType,
-    TimeUnitType,
-} from '~/types'
+import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -108,46 +94,6 @@ describe('identifierToHuman()', () => {
         expect(identifierToHuman('500')).toEqual('500')
         expect(identifierToHuman(404)).toEqual('404')
         expect(identifierToHuman('CreateProject')).toEqual('Create project')
-    })
-})
-
-describe('formatLabel()', () => {
-    const action: ActionFilter = {
-        id: 123,
-        name: 'Test Action',
-        properties: [],
-        type: 'actions',
-    }
-
-    it('formats the label', () => {
-        expect(formatLabel('some_event', action)).toEqual('some_event')
-    })
-
-    it('DAU queries', () => {
-        expect(formatLabel('some_event', { ...action, math: 'dau' })).toEqual('some_event (Unique users)')
-    })
-
-    it('summing by property', () => {
-        expect(formatLabel('some_event', { ...action, math: 'sum', math_property: 'event_property' })).toEqual(
-            'some_event (sum of event_property)'
-        )
-    })
-
-    it('action with properties', () => {
-        expect(
-            formatLabel('some_event', {
-                ...action,
-                properties: [
-                    {
-                        value: 'hello',
-                        key: 'greeting',
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Person,
-                    },
-                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: PropertyFilterType.Person },
-                ],
-            })
-        ).toEqual('some_event (greeting = hello, > 5)')
     })
 })
 
@@ -750,70 +696,6 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             it(`correctly maps ${testcase.propertyType} to operator options`, () => {
                 expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
             })
-        })
-    })
-})
-
-describe('convertPropertyGroupToProperties()', () => {
-    it('converts a single layer property group into an array of properties', () => {
-        const propertyGroup = {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                        { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                    ] as AnyPropertyFilter[],
-                },
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                    ] as AnyPropertyFilter[],
-                },
-            ],
-        }
-        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
-            { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-            { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-            { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-        ])
-    })
-
-    it('converts a deeply nested property group into an array of properties', () => {
-        const propertyGroup: PropertyGroupFilter = {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' } as any] }],
-                },
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' } as any] },
-            ],
-        }
-        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
-    })
-})
-
-describe('convertPropertiesToPropertyGroup', () => {
-    it('converts properties to one AND operator property group', () => {
-        const properties: any[] = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
-        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
-                },
-            ],
-        })
-    })
-
-    it('converts properties to one AND operator property group', () => {
-        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [],
         })
     })
 })

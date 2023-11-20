@@ -2,10 +2,7 @@ import './EventDefinitionsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { EventDefinition, EventDefinitionType } from '~/types'
-import {
-    EVENT_DEFINITIONS_PER_PAGE,
-    eventDefinitionsTableLogic,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
@@ -17,6 +14,7 @@ import { combineUrl } from 'kea-router'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { TZLabel } from 'lib/components/TZLabel'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
