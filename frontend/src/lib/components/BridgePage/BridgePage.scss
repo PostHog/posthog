@@ -6,7 +6,12 @@
     display: flex;
     flex-direction: column;
     flex: 1;
-    overflow: scroll;
+    overflow: hidden;
+    height: 100vh;
+
+    .posthog-3000 & {
+        background-color: transparent;
+    }
 
     &::-webkit-scrollbar {
         width: 0 !important;

@@ -21,28 +21,29 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)
-    const { activeNavbarItem } = useValues(navigation3000Logic)
+    const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
-    if (sceneConfig?.layout === 'plain') {
-        return <>{children}</>
-    }
     return (
         <div className="Navigation3000">
             <Navbar />
-            <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
-                {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
-            </FlaggedFeature>
+
+            {mode === 'full' && (
+                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
+                    {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+                </FlaggedFeature>
+            )}
             <main>
-                <Breadcrumbs />
+                {mode === 'full' && <Breadcrumbs />}
                 <div
                     className={clsx(
                         'Navigation3000__scene',
-                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                        // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
+                        (sceneConfig?.layout === 'app-raw' || mode === 'minimal') && 'Navigation3000__scene--raw'
                     )}
                 >
                     {children}
