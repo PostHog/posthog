@@ -1109,7 +1109,7 @@ class _Printer(Visitor):
 
     def _print_settings(self, settings):
         if self.timeout:
-            settings["max_execution_time"] = self.timeout
+            settings.max_execution_time = self.timeout
 
         pairs = []
         for key, value in settings:
