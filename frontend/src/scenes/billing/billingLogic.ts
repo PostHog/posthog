@@ -155,9 +155,9 @@ export const billingLogic = kea<billingLogicType>([
                         const currentPlan = product.plans.find((plan) => plan.current_plan)
                         if (currentPlan?.initial_billing_limit) {
                             alerts.push({
-                                status: 'info',
-                                title: 'Billing Limit Applied',
-                                message: `Automatically added a $${currentPlan?.initial_billing_limit} billing limit for ${product.name}`,
+                                status: 'warning',
+                                title: 'Billing Limit Automatically Applied',
+                                message: `To protect your and our costs, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${product.name}.`,
                                 action: {
                                     onClick: () => {
                                         const element: HTMLElement = document.body.querySelector(
@@ -183,6 +183,7 @@ export const billingLogic = kea<billingLogicType>([
                             })
                         }
                     })
+                    // There should only be one product being upgraded at a time.
                     return alerts.length ? alerts[0] : undefined
                 }
                 if (!billing || !preflight?.cloud) {
