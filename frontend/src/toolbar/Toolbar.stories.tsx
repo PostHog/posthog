@@ -24,6 +24,20 @@ const toolbarParams: ToolbarParams = {
     userEmail: 'foobar@posthog.com',
 }
 
+function useToolbarStyles(): void {
+    useEffect(() => {
+        const head = document.getElementsByTagName('head')[0]
+        const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+        const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
+        styleTags.forEach((tag) => {
+            const style = document.createElement('style')
+            const text = tag.innerText
+            style.appendChild(document.createTextNode(text))
+            shadowRoot?.appendChild(style)
+        })
+    }, [])
+}
+
 const meta: Meta = {
     title: 'Scenes-Other/Toolbar',
     parameters: {
@@ -36,6 +50,7 @@ export default meta
 type ToolbarStoryProps = {
     menu?: MenuState
     minimized?: boolean
+    theme?: 'light' | 'dark'
 }
 
 const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
@@ -66,12 +81,13 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
 
     useMountedLogic(toolbarLogic(toolbarParams))
 
-    const { setVisibleMenu, setDragPosition, toggleMinimized } = useActions(toolbarButtonLogic)
+    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(toolbarButtonLogic)
 
     useEffect(() => {
         setDragPosition(50, 50)
         setVisibleMenu(props.menu || 'none')
         toggleMinimized(props.minimized ?? false)
+        toggleTheme(props.theme || 'light')
     }, [Object.values(props)])
 
     return (
@@ -107,16 +123,27 @@ export const FeatureFlags = (): JSX.Element => {
     return <BasicTemplate menu="flags" />
 }
 
-function useToolbarStyles(): void {
-    useEffect(() => {
-        const head = document.getElementsByTagName('head')[0]
-        const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
-        const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
-        styleTags.forEach((tag) => {
-            const style = document.createElement('style')
-            const text = tag.innerText
-            style.appendChild(document.createTextNode(text))
-            shadowRoot?.appendChild(style)
-        })
-    }, [])
+// Dark theme
+export const DefaultDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" />
+}
+
+export const MinimizedDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" minimized />
+}
+
+export const HeatmapDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="heatmap" />
+}
+
+export const InspectDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="inspect" />
+}
+
+export const ActionsDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="actions" />
+}
+
+export const FeatureFlagsDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="flags" />
 }
