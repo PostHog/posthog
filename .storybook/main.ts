@@ -11,6 +11,7 @@ const config: StorybookConfig = {
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
+        '@storybook/addon-interactions',
     ],
 
     staticDirs: ['public'],
