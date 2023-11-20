@@ -14,16 +14,6 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
 import { listHetmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 
-const toolbarParams: ToolbarParams = {
-    temporaryToken: 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
-    actionId: undefined,
-    userIntent: undefined,
-    dataAttributes: ['data-attr'],
-    apiURL: '/',
-    jsURL: 'http://localhost:8234/',
-    userEmail: 'foobar@posthog.com',
-}
-
 function useToolbarStyles(): void {
     useEffect(() => {
         const head = document.getElementsByTagName('head')[0]
@@ -50,10 +40,20 @@ export default meta
 type ToolbarStoryProps = {
     menu?: MenuState
     minimized?: boolean
+    unauthenticated?: boolean
     theme?: 'light' | 'dark'
 }
 
 const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
+    const toolbarParams: ToolbarParams = {
+        temporaryToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
+        actionId: undefined,
+        userIntent: undefined,
+        dataAttributes: ['data-attr'],
+        apiURL: '/',
+        jsURL: 'http://localhost:8234/',
+        userEmail: 'foobar@posthog.com',
+    }
     useToolbarStyles()
 
     useStorybookMocks({
@@ -66,7 +66,7 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
                     toolbarVersion: 'toolbar',
                     jsURL: 'http://localhost:8234/',
                 },
-                isAuthenticated: true,
+                isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
                 featureFlags: {},
                 sessionRecording: {
@@ -101,6 +101,10 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
 
 export const Default = (): JSX.Element => {
     return <BasicTemplate />
+}
+
+export const Unauthenticated = (): JSX.Element => {
+    return <BasicTemplate unauthenticated />
 }
 
 export const Minimized = (): JSX.Element => {

@@ -119,6 +119,7 @@ export function Toolbar(): JSX.Element {
     const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
+    const { authenticate } = useActions(toolbarConfigLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -146,6 +147,7 @@ export function Toolbar(): JSX.Element {
                 className={clsx(
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
+                    !isAuthenticated && 'Toolbar--unauthenticated',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
@@ -160,9 +162,9 @@ export function Toolbar(): JSX.Element {
             >
                 <ToolbarButton
                     icon={<IconLogomark />}
-                    onClick={toggleMinimized}
-                    title="Minimize"
-                    titleMinimized="Expand the toolbar"
+                    onClick={isAuthenticated ? toggleMinimized : authenticate}
+                    title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
+                    titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 />
                 {isAuthenticated ? (
                     <>
@@ -170,9 +172,10 @@ export function Toolbar(): JSX.Element {
                         <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
                         <ToolbarButton icon={<IconTarget />} menuId="actions" />
                         <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
-                        <MoreMenu />
                     </>
                 ) : null}
+
+                <MoreMenu />
             </div>
         </>
     )
