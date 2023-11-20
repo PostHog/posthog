@@ -21,7 +21,6 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -32,6 +31,7 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -43,7 +43,6 @@ from posthog.caching.fetch_from_cache import (
     synchronously_update_cache,
 )
 from posthog.caching.insights_api import should_refresh_insight
-from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     INSIGHT,
@@ -95,7 +94,6 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -1034,11 +1032,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     def cancel(self, request: request.Request, **kwargs):
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
-        sync_execute(
-            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
-            {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
-        )
-        statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": self.team.pk})
+        cancel_query_on_cluster(team_id=self.team.pk, client_query_id=request.data["client_query_id"])
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
