@@ -15,6 +15,7 @@ import { NewProperty } from 'scenes/persons/NewProperty'
 import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyDefinitionType } from '~/types'
+import { IconPencil } from '@posthog/icons'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -85,18 +86,19 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                valueString
+                <span>{valueString}</span>
             ) : (
                 <Link to={value} target="_blank" className="value-link" targetBlankIcon>
                     {valueString}
                 </Link>
             )}
+            {canEdit && <IconPencil />}
         </span>
     )
 

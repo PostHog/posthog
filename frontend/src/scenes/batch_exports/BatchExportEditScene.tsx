@@ -19,7 +19,7 @@ export function BatchExportsEditScene(): JSX.Element {
 
     return (
         <>
-            <PageHeader title={`${isNew ? 'New' : 'Edit'} Batch Export`} />
+            <PageHeader title={`${isNew ? 'New' : 'Edit'} batch export`} />
 
             <div className="my-8" />
 

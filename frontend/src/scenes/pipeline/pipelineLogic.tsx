@@ -43,7 +43,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
         breadcrumbs: [
             (s) => [s.currentTab],
             (tab): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [{ name: 'Pipeline' }]
+                const breadcrumbs: Breadcrumb[] = [{ name: 'Data pipeline' }]
                 breadcrumbs.push({
                     name: humanFriendlyTabName(tab),
                 })

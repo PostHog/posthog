@@ -100,7 +100,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Warehouse`,
+                    name: `Data warehouse`,
                     path: urls.dataWarehouseExternal(),
                 },
                 {
