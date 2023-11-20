@@ -64,7 +64,7 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        filter: drop-shadow(0px 5px 10px var(--trace-3000));
+        filter: drop-shadow(0 5px 10px var(--trace-3000));
         bottom: 0;
         width: 30rem;
         margin-left: -15rem;
@@ -95,12 +95,12 @@
     transition-property: filter, width, transform;
     transition-duration: 150ms;
     transition-timing-function: ease;
-    filter: drop-shadow(0px 5px 10px var(--trace-3000));
+    filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);
     overflow: hidden;
-
     position: fixed;
+
     // fixed width so that animations work when changing width
     width: 15.2rem;
 
