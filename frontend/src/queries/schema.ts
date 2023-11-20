@@ -405,8 +405,8 @@ export interface VizSpecificOptions {
         useSmallLayout?: boolean
     }
     [ChartDisplayType.ActionsPie]?: {
-        disableHoverOffset?: true
-        hideAggregation?: true
+        disableHoverOffset?: boolean
+        hideAggregation?: boolean
     }
 }
 

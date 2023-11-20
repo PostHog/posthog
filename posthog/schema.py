@@ -594,8 +594,8 @@ class ActionsPie(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    disableHoverOffset: bool = None
-    hideAggregation: bool = None
+    disableHoverOffset: Optional[bool] = None
+    hideAggregation: Optional[bool] = None
 
 
 class RETENTION(BaseModel):

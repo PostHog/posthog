@@ -3147,11 +3147,9 @@
                     "additionalProperties": false,
                     "properties": {
                         "disableHoverOffset": {
-                            "const": true,
                             "type": "boolean"
                         },
                         "hideAggregation": {
-                            "const": true,
                             "type": "boolean"
                         }
                     },
