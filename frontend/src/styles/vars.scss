@@ -251,21 +251,22 @@ $_lifecycle_dormant: $_danger;
     // Tag colors
     --purple-light: #dcb1e3;
 
-    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-brand-blue: var(--primary);
-    --data-purple: #621da6;
-    --data-viridian: #42827e;
-    --data-magenta: #ce0e74;
-    --data-vermilion: #f14f58;
-    --data-brown: #7c440e;
-    --data-green: #529a0a;
-    --data-blue: #0476fb;
-    --data-pink: #fe729e;
-    --data-navy: var(--primary-alt);
-    --data-turquoise: #41cbc4;
-    --data-brick: #b64b02;
-    --data-yellow: #e4a604;
-    --data-lilac: #a56eff;
+    //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-color-1: #1d4aff;
+    --data-color-2: #621da6;
+    --data-color-3: #42827e;
+    --data-color-4: #ce0e74;
+    --data-color-5: #f14f58;
+    --data-color-6: #7c440e;
+    --data-color-7: #529a0a;
+    --data-color-8: #0476fb;
+    --data-color-9: #fe729e;
+    --data-color-10: #35416b;
+    --data-color-11: #41cbc4;
+    --data-color-12: #b64b02;
+    --data-color-13: #e4a604;
+    --data-color-14: #a56eff;
+    --data-color-15: #30d5c8;
 
     // Lifecycle series
     --lifecycle-new: #{$_lifecycle_new};
