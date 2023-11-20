@@ -5,8 +5,10 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { searchBarLogic } from './searchBarLogic'
 import { forwardRef, Ref } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInputElement>): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     const { searchQuery } = useValues(searchBarLogic)
     const { setSearchQuery } = useActions(searchBarLogic)
 
@@ -22,6 +24,7 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
                 autoFocus
                 value={searchQuery}
                 onChange={setSearchQuery}
+                placeholder={currentTeam ? `Search the ${currentTeam.name} project…` : 'Search…'}
             />
         </div>
     )
