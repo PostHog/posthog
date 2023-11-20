@@ -81,7 +81,7 @@ jobs:
                   #kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
-                  echo "url=$NAMESPACE.${HOSTNAME}-hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
+                  echo "url=$NAMESPACE.${HOSTNAME}.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
 
 
             - name: update deployment status
