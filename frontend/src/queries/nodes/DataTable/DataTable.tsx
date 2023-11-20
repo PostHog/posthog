@@ -470,7 +470,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     '::'
                                 ) /* Bust the LemonTable cache when columns change */
                             }
-                            dataSource={(dataTableRows ?? []) as DataTableRow[]}
+                            dataSource={dataTableRows ?? []}
                             rowKey={({ result }: DataTableRow, rowIndex) => {
                                 if (result) {
                                     if (

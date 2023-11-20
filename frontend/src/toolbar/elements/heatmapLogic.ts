@@ -2,7 +2,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import type { heatmapLogicType } from './heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
@@ -22,7 +22,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
-        values: [toolbarLogic, ['apiURL']],
+        values: [toolbarConfigLogic, ['apiURL']],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -125,7 +125,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     )
 
                     if (response.status === 403) {
-                        toolbarLogic.actions.authenticate()
+                        toolbarConfigLogic.actions.authenticate()
                         return emptyElementsStatsPages
                     }
 
@@ -156,7 +156,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         elements: [
             (selectors) => [
                 selectors.elementStats,
-                toolbarLogic.selectors.dataAttributes,
+                toolbarConfigLogic.selectors.dataAttributes,
                 currentPageLogic.selectors.href,
                 selectors.matchLinksByHref,
             ],
@@ -184,7 +184,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             if (domElements === undefined) {
                                 domElements = Array.from(
                                     querySelectorAllDeep(combinedSelector, document, cache.pageElements)
-                                ) as HTMLElement[]
+                                )
                                 cache.selectorToElements[combinedSelector] = domElements
                             }
 
@@ -240,7 +240,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         countedElements: [
-            (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
+            (selectors) => [selectors.elements, toolbarConfigLogic.selectors.dataAttributes],
             (elements, dataAttributes) => {
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
                 ;(elements || []).forEach((countedElement) => {

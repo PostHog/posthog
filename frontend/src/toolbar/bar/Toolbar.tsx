@@ -12,8 +12,8 @@ import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
-import { toolbarButtonLogic } from '~/toolbar/bar/toolbarButtonLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import clsx from 'clsx'
@@ -27,13 +27,13 @@ import './Toolbar.scss'
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme } = useValues(toolbarButtonLogic)
-    const { setHedgehogMode, toggleTheme } = useActions(toolbarButtonLogic)
+    const { hedgehogMode, theme } = useValues(toolbarLogic)
+    const { setHedgehogMode, toggleTheme } = useActions(toolbarLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
-    const { logout } = useActions(toolbarLogic)
+    const { logout } = useActions(toolbarConfigLogic)
 
     return (
         <LemonMenu
@@ -71,8 +71,8 @@ function MoreMenu(): JSX.Element {
 
 export function ToolbarInfoMenu(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarButtonLogic)
-    const { setMenu } = useActions(toolbarButtonLogic)
+    const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarLogic)
+    const { setMenu } = useActions(toolbarLogic)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -116,9 +116,9 @@ export function ToolbarInfoMenu(): JSX.Element {
 
 export function Toolbar(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarButtonLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarButtonLogic)
-    const { isAuthenticated } = useValues(toolbarLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
 
     useEffect(() => {
         setElement(ref.current)

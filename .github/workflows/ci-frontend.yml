@@ -49,14 +49,14 @@ jobs:
             - name: Check formatting with prettier
               run: pnpm prettier:check
 
-            - name: Lint with ESLint
-              run: pnpm lint:js
-
             - name: Lint with Stylelint
               run: pnpm lint:css
 
             - name: Generate logic types and run typescript with strict
               run: pnpm typegen:write && pnpm typescript:check
+
+            - name: Lint with ESLint
+              run: pnpm lint:js
 
             - name: Check if "schema.json" is up to date
               run: pnpm schema:build:json && git diff --exit-code

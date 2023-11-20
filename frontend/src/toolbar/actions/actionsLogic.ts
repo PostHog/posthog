@@ -1,6 +1,6 @@
 import { loaders } from 'kea-loaders'
 import { kea, path, actions, reducers, selectors } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import type { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
@@ -21,7 +21,7 @@ export const actionsLogic = kea<actionsLogicType>([
                     const results = await response.json()
 
                     if (response.status === 403) {
-                        toolbarLogic.actions.authenticate()
+                        toolbarConfigLogic.actions.authenticate()
                         return []
                     }
 
@@ -62,9 +62,7 @@ export const actionsLogic = kea<actionsLogicType>([
                           .search(searchTerm)
                           .map(({ item }) => item)
                     : allActions
-                return [...filteredActions].sort((a, b) =>
-                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                ) as ActionType[]
+                return [...filteredActions].sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
             },
         ],
         actionCount: [(s) => [s.allActions], (allActions) => allActions.length],

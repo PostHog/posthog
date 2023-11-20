@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { MenuState, toolbarButtonLogic } from './toolbarButtonLogic'
+import { MenuState, toolbarLogic } from './toolbarLogic'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -20,8 +20,8 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
     HTMLDivElement,
     ToolbarButtonProps
 >(({ icon, title, onClick, titleMinimized, menuId, ...props }, ref): JSX.Element => {
-    const { visibleMenu, minimized, isDragging } = useValues(toolbarButtonLogic)
-    const { setVisibleMenu } = useActions(toolbarButtonLogic)
+    const { visibleMenu, minimized, isDragging } = useValues(toolbarLogic)
+    const { setVisibleMenu } = useActions(toolbarLogic)
 
     const active = visibleMenu === menuId
     const theTitle = title ?? (menuId ? capitalizeFirstLetter(menuId) : undefined)

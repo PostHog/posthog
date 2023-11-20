@@ -2,7 +2,7 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, StringMatching } from '~/types'
 import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { finder } from '@medv/finder'
@@ -435,11 +435,11 @@ export async function toolbarFetch(
     if (urlConstruction === 'use-as-provided') {
         fullUrl = url
     } else if (urlConstruction === 'only-add-token') {
-        fullUrl = `${url}&temporary_token=${toolbarLogic.values.temporaryToken}`
+        fullUrl = `${url}&temporary_token=${toolbarConfigLogic.values.temporaryToken}`
     } else {
         const { pathname, searchParams } = combineUrl(url)
-        const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
-        fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+        const params = { ...searchParams, temporary_token: toolbarConfigLogic.values.temporaryToken }
+        fullUrl = `${toolbarConfigLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
     }
 
     const payloadData = payload
@@ -459,7 +459,7 @@ export async function toolbarFetch(
         const responseData = await response.json()
         // Do not try to authenticate if the user has no project access altogether
         if (responseData.detail !== "You don't have access to the project.") {
-            toolbarLogic.actions.authenticate()
+            toolbarConfigLogic.actions.authenticate()
         }
     }
     return response

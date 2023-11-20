@@ -1,14 +1,14 @@
 import { useValues } from 'kea'
-import { toolbarLogic } from './toolbarLogic'
+import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { Elements } from './elements/Elements'
 import { Fade } from 'lib/components/Fade/Fade'
-import { toolbarButtonLogic } from './bar/toolbarButtonLogic'
+import { toolbarLogic } from './bar/toolbarLogic'
 import { HedgehogButton } from './bar/HedgehogButton'
 import { Toolbar } from './bar/Toolbar'
 
 export function ToolbarContainer(): JSX.Element {
-    const { buttonVisible } = useValues(toolbarLogic)
-    const { theme } = useValues(toolbarButtonLogic)
+    const { buttonVisible } = useValues(toolbarConfigLogic)
+    const { theme } = useValues(toolbarLogic)
 
     // KLUDGE: if we put theme directly on the div then
     // linting and typescript complain about it not being

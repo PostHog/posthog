@@ -9,12 +9,14 @@ import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
+import type { toolbarLogicType } from './toolbarLogicType'
+
 const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect'
 
-export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
-    path(['toolbar', 'button', 'toolbarButtonLogic']),
+export const toolbarLogic = kea<toolbarLogicType>([
+    path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
         actions: [
             actionsTabLogic,

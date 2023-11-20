@@ -74,7 +74,6 @@ export interface LemonButtonPropsBase
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
     sideIcon?: React.ReactElement | null
-    square?: boolean
 }
 
 /** Styled button. */
@@ -105,7 +104,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disableClientSideRouting,
                 getTooltipPopupContainer,
                 onClick,
-                square = false,
                 ...buttonProps
             },
             ref

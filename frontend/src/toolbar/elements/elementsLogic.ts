@@ -7,10 +7,10 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { elementsLogicType } from './elementsLogicType'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
-import { toolbarButtonLogic } from '../bar/toolbarButtonLogic'
+import { toolbarLogic } from '../bar/toolbarLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -127,7 +127,11 @@ export const elementsLogic = kea<elementsLogicType>([
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
 
         heatmapElements: [
-            (s) => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [
+                heatmapLogic.selectors.countedElements,
+                s.rectUpdateCounter,
+                toolbarConfigLogic.selectors.buttonVisible,
+            ],
             (countedElements) =>
                 countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) } as ElementWithMetadata)),
         ],
@@ -138,7 +142,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         inspectElements: [
-            (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
             (allInspectElements) =>
                 allInspectElements
                     .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
@@ -172,7 +176,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         actionElements: [
-            (s) => [s.allActionElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [s.allActionElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
             (allActionElements) =>
                 allActionElements.map((element) =>
                     element.element ? { ...element, rect: getRectForElement(element.element) } : element
@@ -197,7 +201,11 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         actionsForElementMap: [
-            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [
+                actionsLogic.selectors.sortedActions,
+                s.rectUpdateCounter,
+                toolbarConfigLogic.selectors.buttonVisible,
+            ],
             (sortedActions): ActionElementMap => {
                 const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
@@ -280,7 +288,12 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (s) => [
+                s.selectedElement,
+                s.elementMap,
+                s.actionsForElementMap,
+                toolbarConfigLogic.selectors.dataAttributes,
+            ],
             (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
@@ -298,7 +311,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarConfigLogic.selectors.dataAttributes],
             (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
@@ -316,7 +329,12 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (s) => [
+                s.highlightElement,
+                s.elementMap,
+                s.actionsForElementMap,
+                toolbarConfigLogic.selectors.dataAttributes,
+            ],
             (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
@@ -384,7 +402,7 @@ export const elementsLogic = kea<elementsLogicType>([
             })
         },
         createAction: ({ element }) => {
-            toolbarButtonLogic.actions.setVisibleMenu('actions')
+            toolbarLogic.actions.setVisibleMenu('actions')
             elementsLogic.actions.selectElement(null)
             actionsTabLogic.actions.newAction(element)
         },

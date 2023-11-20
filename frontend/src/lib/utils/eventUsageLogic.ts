@@ -33,7 +33,6 @@ import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/types'
 import { now } from 'lib/dayjs'
 import {
     isFilterWithDisplay,
@@ -332,7 +331,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportIngestionLandingSeen: true,
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -439,27 +437,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
-        reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
-        reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
-        reportIngestionRecordingsTurnedOff: (
-            session_recording_opt_in: boolean,
-            capture_console_log_opt_in: boolean,
-            capture_performance_opt_in: boolean
-        ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
-        reportIngestionAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
-        reportIngestionAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
-        reportIngestionHelpClicked: (type: string) => ({ type }),
-        reportIngestionTryWithBookmarkletClicked: true,
-        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
-        reportIngestionContinueWithoutBilling: true,
-        reportIngestionBillingCancelled: true,
-        reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
-        reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
-        reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
+        reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
+        reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportInviteMembersButtonClicked: true,
-        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
             dashboardId,
@@ -794,9 +776,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('test account filters updated', payload)
         },
-        reportIngestionLandingSeen: async () => {
-            posthog.capture('ingestion landing seen')
-        },
 
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
@@ -1049,70 +1028,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
         },
-        reportIngestionSelectPlatformType: ({ platform }) => {
-            posthog.capture('ingestion select platform type', {
-                platform: platform,
-            })
-        },
-        reportIngestionSelectFrameworkType: ({ framework }) => {
-            posthog.capture('ingestion select framework type', {
-                framework: framework,
-            })
-        },
-        reportIngestionRecordingsTurnedOff: ({
-            session_recording_opt_in,
-            capture_console_log_opt_in,
-            capture_performance_opt_in,
-        }) => {
-            posthog.capture('ingestion recordings turned off', {
-                session_recording_opt_in,
-                capture_console_log_opt_in,
-                capture_performance_opt_in,
-            })
-        },
-        reportIngestionAutocaptureToggled: ({ autocapture_opt_out }) => {
-            posthog.capture('ingestion autocapture toggled', {
-                autocapture_opt_out,
-            })
-        },
-        reportIngestionAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
-            posthog.capture('ingestion autocapture exceptions toggled', {
-                autocapture_opt_in,
-            })
-        },
-        reportIngestionHelpClicked: ({ type }) => {
-            posthog.capture('ingestion help clicked', {
-                type: type,
-            })
-        },
-        reportIngestionTryWithBookmarkletClicked: () => {
-            posthog.capture('ingestion try posthog with bookmarklet clicked')
-        },
-        reportIngestionTryWithDemoDataClicked: () => {
-            posthog.capture('ingestion try posthog with demo data clicked')
-        },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
         },
-        reportIngestionContinueWithoutBilling: () => {
-            posthog.capture('ingestion continue without adding billing details')
-        },
-        reportIngestionBillingCancelled: () => {
-            posthog.capture('ingestion billing cancelled')
-        },
-        reportIngestionThirdPartyAboutClicked: ({ name }) => {
-            posthog.capture('ingestion third party about clicked', {
-                name: name,
+        reportAutocaptureToggled: ({ autocapture_opt_out }) => {
+            posthog.capture('autocapture toggled', {
+                autocapture_opt_out,
             })
         },
-        reportIngestionThirdPartyConfigureClicked: ({ name }) => {
-            posthog.capture('ingestion third party configure clicked', {
-                name: name,
-            })
-        },
-        reportIngestionThirdPartyPluginInstalled: ({ name }) => {
-            posthog.capture('report ingestion third party plugin installed', {
-                name: name,
+        reportAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
+            posthog.capture('autocapture exceptions toggled', {
+                autocapture_opt_in,
             })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
@@ -1120,11 +1046,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
-        },
-        reportIngestionSidebarButtonClicked: ({ name }) => {
-            posthog.capture('ingestion sidebar button clicked', {
-                name: name,
-            })
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {

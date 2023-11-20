@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import clsx from 'clsx'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -55,7 +55,7 @@ const ListBody = (): JSX.Element => {
 }
 
 const ListMenuFooter = (): JSX.Element => {
-    const { apiURL } = useValues(toolbarLogic)
+    const { apiURL } = useValues(toolbarConfigLogic)
 
     return (
         <div className="w-full text-right">

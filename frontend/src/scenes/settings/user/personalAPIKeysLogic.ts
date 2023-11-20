@@ -24,7 +24,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 },
                 deleteKey: async (key: PersonalAPIKeyType) => {
                     await api.delete(`api/personal_api_keys/${key.id}/`)
-                    return (values.keys as PersonalAPIKeyType[]).filter((filteredKey) => filteredKey.id != key.id)
+                    return values.keys.filter((filteredKey) => filteredKey.id != key.id)
                 },
             },
         ],

@@ -3,7 +3,7 @@ import { HTMLAttributes } from 'react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -33,7 +33,7 @@ const MenuHeader = (): JSX.Element => {
 const MenuBody = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
-    const { apiURL } = useValues(toolbarLogic)
+    const { apiURL } = useValues(toolbarConfigLogic)
     return (
         <div className="p-2 space-y-2">
             {filteredFlags.length > 0 ? (

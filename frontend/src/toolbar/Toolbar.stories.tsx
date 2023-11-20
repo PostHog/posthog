@@ -9,8 +9,8 @@ import { ToolbarParams } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
 import { useActions, useMountedLogic } from 'kea'
-import { MenuState, toolbarButtonLogic } from './bar/toolbarButtonLogic'
-import { toolbarLogic } from './toolbarLogic'
+import { MenuState, toolbarLogic } from './bar/toolbarLogic'
+import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
 import { listHetmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 
@@ -79,9 +79,9 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
         },
     })
 
-    useMountedLogic(toolbarLogic(toolbarParams))
+    useMountedLogic(toolbarConfigLogic(toolbarParams))
 
-    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(toolbarButtonLogic)
+    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(toolbarLogic)
 
     useEffect(() => {
         setDragPosition(50, 50)

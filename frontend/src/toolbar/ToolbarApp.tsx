@@ -3,14 +3,14 @@ import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useValues } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 import { Slide, ToastContainer } from 'react-toastify'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { jsURL } = useValues(toolbarLogic(props))
+    const { jsURL } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)

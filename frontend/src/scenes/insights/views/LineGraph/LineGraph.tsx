@@ -190,7 +190,7 @@ function createPinstripePattern(color: string): CanvasPattern {
     const canvas = document.createElement('canvas')
     canvas.width = 1
     canvas.height = stripeWidth * 2
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const ctx = canvas.getContext('2d')!
 
     // fill the canvas with given color
@@ -202,7 +202,7 @@ function createPinstripePattern(color: string): CanvasPattern {
     ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
 
     // create a canvas pattern and rotate it
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const pattern = ctx.createPattern(canvas, 'repeat')!
     const xAx = Math.cos(stripeAngle)
     const xAy = Math.sin(stripeAngle)
