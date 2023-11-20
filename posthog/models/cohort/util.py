@@ -454,7 +454,7 @@ def get_dependent_cohorts(
         if prop.type == "cohort" and not isinstance(prop.value, list):
             try:
                 queue.append(int(prop.value))
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
 
     while queue:
@@ -473,7 +473,7 @@ def get_dependent_cohorts(
                     if prop.type == "cohort" and not isinstance(prop.value, list):
                         try:
                             queue.append(int(prop.value))
-                        except ValueError:
+                        except (ValueError, TypeError):
                             continue
 
         except Cohort.DoesNotExist:
