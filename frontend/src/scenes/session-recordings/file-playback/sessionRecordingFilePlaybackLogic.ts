@@ -197,12 +197,8 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-<<<<<<< HEAD
-                    name: 'Session replay',
-=======
                     key: Scene.Replay,
-                    name: `Replay`,
->>>>>>> 99936b6d70 (Make all breadcrumbs keyed)
+                    name: `Session replay`,
                     path: urls.replay(),
                 },
                 {
