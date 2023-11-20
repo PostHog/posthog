@@ -90,10 +90,9 @@ async def should_resume_from_activity_heartbeat(
         logger.debug("Did not receive details from previous activity execution")
 
     except NotEnoughHeartbeatValuesError:
-        # This is not an error as it's the expected exception when heartbeat is empty.
         heartbeat_details = None
         received = False
-        logger.debug("Did not receive details from previous activity execution")
+        logger.warning("Did not receive details from previous activity execution")
 
     except HeartbeatParseError:
         heartbeat_details = None
@@ -105,7 +104,7 @@ async def should_resume_from_activity_heartbeat(
         # Ideally, any new exceptions should be added to the previous blocks after the first time and we will never land here.
         heartbeat_details = None
         received = False
-        logger.warning(f"Did not receive details from previous activity Excecution due to an unexpected error")
+        logger.exception("Did not receive details from previous activity Excecution due to an unexpected error")
 
     else:
         received = True
