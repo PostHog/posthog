@@ -34,8 +34,8 @@ metadata:
     tailscale.com/expose: "true"
     tailscale.com/hostname: pr-test
     tailscale.com/tags: tag:service
-  finalizers:
-    - tailscale.com/finalizer
+  #finalizers:
+  #  - tailscale.com/finalizer
 spec:
   selector:
     app: hobby-$HOSTNAME
