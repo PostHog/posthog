@@ -82,20 +82,6 @@ jobs:
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
                   echo "url=$NAMESPACE.${HOSTNAME}-hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
-                #   helm upgrade --install \
-                #   -f posthog/.github/pr-deploy/values.yaml \
-                #   --set image.tag=pr-$PR_NUM \
-                #   --timeout 30m \
-                #   --create-namespace \
-                #   --namespace $NAMESPACE \
-                #   $RELEASE_NAME charts-clickhouse/charts/posthog \
-                #   --wait \
-                #   --wait-for-jobs
-
-                #   POD_NAME=$(kubectl -n $NAMESPACE get pod | grep web | cut -d' ' -f1)
-                #   kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py shell -c "import sys;from posthog.models import Team; sys.exit(not Team.objects.exists())" \
-                #   || kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py generate_demo_data \
-                #   && kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py shell -c "from posthog.models import Team; t = Team.objects.first(); t.is_demo = False; t.save()"
 
 
             - name: update deployment status
@@ -105,5 +91,5 @@ jobs:
                   status: ${{ job.status }}
                   env: ${{ steps.deployment.outputs.env }}
                   ref: ${{ github.head_ref }}
-                  env_url: https://${{ steps.deploy_hobby.outputs.url }}
+                  env_url: http://${{ steps.deploy_hobby.outputs.url }}
                   deployment_id: ${{ steps.deployment.outputs.deployment_id }}
