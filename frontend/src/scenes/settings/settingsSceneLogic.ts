@@ -2,6 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -28,10 +29,12 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
             (selectedLevel, selectedSectionId): Breadcrumb[] => [
                 {
+                    key: Scene.Settings,
                     name: `Settings`,
                     path: urls.settings('project'),
                 },
                 {
+                    key: selectedSectionId || selectedLevel,
                     name: selectedSectionId
                         ? SettingsMap.find((x) => x.id === selectedSectionId)?.title
                         : capitalizeFirstLetter(selectedLevel),

@@ -1,7 +1,7 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
+import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -9,6 +9,7 @@ import {
     humanize,
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'

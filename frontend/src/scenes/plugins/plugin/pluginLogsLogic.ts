@@ -1,6 +1,7 @@
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { LOGS_PORTION_LIMIT } from 'lib/constants'
 
 import api from '~/lib/api'
 import { PluginLogEntry, PluginLogEntryType } from '~/types'
@@ -11,8 +12,6 @@ import type { pluginLogsLogicType } from './pluginLogsLogicType'
 export interface PluginLogsProps {
     pluginConfigId: number
 }
-
-export const LOGS_PORTION_LIMIT = 50
 
 export const pluginLogsLogic = kea<pluginLogsLogicType>([
     props({} as PluginLogsProps),

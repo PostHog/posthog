@@ -6,9 +6,10 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
+import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
 
 import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
@@ -195,10 +196,12 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Recordings`,
+                    key: Scene.Replay,
+                    name: `Session replay`,
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.FilePlayback,
                     name: 'Import',
                 },
             ],

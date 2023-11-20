@@ -1,6 +1,8 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ActionType, Breadcrumb } from '~/types'
@@ -52,14 +54,17 @@ export const actionLogic = kea<actionLogicType>([
             (s) => [s.action],
             (action): Breadcrumb[] => [
                 {
+                    key: Scene.DataManagement,
                     name: `Data Management`,
                     path: urls.eventDefinitions(),
                 },
                 {
+                    key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
                 },
                 {
+                    key: action?.id || 'new',
                     name: action?.name || 'Unnamed',
                     path: action ? urls.action(action.id) : undefined,
                 },

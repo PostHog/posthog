@@ -1,5 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineTabs } from '~/types'
@@ -45,12 +46,13 @@ export const pipelineLogic = kea<pipelineLogicType>([
         breadcrumbs: [
             (s) => [s.currentTab],
             (tab): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [{ name: 'Pipeline' }]
-                breadcrumbs.push({
-                    name: humanFriendlyTabName(tab),
-                })
-
-                return breadcrumbs
+                return [
+                    { key: Scene.Pipeline, name: 'Data pipeline' },
+                    {
+                        key: tab,
+                        name: humanFriendlyTabName(tab),
+                    },
+                ]
             },
         ],
     })),

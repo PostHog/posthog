@@ -1,6 +1,7 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
@@ -23,7 +24,8 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Early Access Management',
+                    key: Scene.EarlyAccessFeatures,
+                    name: 'Early access features',
                     path: urls.earlyAccessFeatures(),
                 },
             ],

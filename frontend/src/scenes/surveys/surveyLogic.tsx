@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -574,10 +575,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): Breadcrumb[] => [
                 {
+                    key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                ...(survey?.name ? [{ name: survey.name }] : []),
+                { key: survey?.id || 'new', name: survey.name },
             ],
         ],
         dataTableQuery: [

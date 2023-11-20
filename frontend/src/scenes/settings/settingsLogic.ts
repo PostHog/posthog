@@ -1,22 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { SettingsMap } from './SettingsMap'
-import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } from './types'
-
-export type SettingsLogicProps = {
-    logicKey?: string
-    // Optional - if given, renders only the given level
-    settingLevelId?: SettingLevelId
-    // Optional - if given, renders only the given section
-    sectionId?: SettingSectionId
-    // Optional - if given, renders only the given setting
-    settingId?: SettingId
-}
+import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),

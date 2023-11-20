@@ -8,7 +8,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
 import { ReactChild, useEffect } from 'react'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     notebookSelectButtonLogic,
     NotebookSelectButtonLogicProps,

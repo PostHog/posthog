@@ -30,6 +30,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -736,11 +737,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard],
             (dashboard): Breadcrumb[] => [
                 {
+                    key: Scene.Dashboards,
                     name: 'Dashboards',
                     path: urls.dashboards(),
                 },
                 {
+                    key: dashboard?.id || 'new',
                     name: dashboard?.id ? dashboard.name || 'Unnamed' : null,
+                    onRename: async (name) => {
+                        if (dashboard) {
+                            await dashboardsModel.asyncActions.updateDashboard({
+                                id: dashboard.id,
+                                name,
+                                allowUndo: true,
+                            })
+                        }
+                    },
                 },
             ],
         ],

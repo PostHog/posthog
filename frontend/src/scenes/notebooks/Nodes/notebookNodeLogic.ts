@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import posthog from 'posthog-js'
-import { createContext, useContext } from 'react'
 
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
@@ -283,10 +282,3 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
-
-export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)
-
-// Currently there is no way to optionally get bound logics so this context allows us to maybe get a logic if it is "bound" via the provider
-export const useNotebookNode = (): BuiltLogic<notebookNodeLogicType> | undefined => {
-    return useContext(NotebookNodeContext)
-}

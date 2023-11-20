@@ -661,12 +661,38 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         shouldShowGeographyTile: {
             _default: null as boolean | null,
             loadShouldShowGeographyTile: async (): Promise<boolean> => {
-                const response = await api.propertyDefinitions.list({
-                    event_names: ['$pageview'],
-                    properties: ['$geoip_country_code'],
-                })
-                const countryCodeDefinition = response.results.find((r) => r.name === '$geoip_country_code')
-                return !!countryCodeDefinition && !isDefinitionStale(countryCodeDefinition)
+                const [propertiesResponse, pluginsResponse, pluginsConfigResponse] = await Promise.allSettled([
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageview'],
+                        properties: ['$geoip_country_code'],
+                    }),
+                    api.loadPaginatedResults('api/organizations/@current/plugins'),
+                    api.loadPaginatedResults('api/plugin_config'),
+                ])
+
+                const hasNonStaleCountryCodeDefinition =
+                    propertiesResponse.status === 'fulfilled' &&
+                    propertiesResponse.value.results.some(
+                        (property) => property.name === '$geoip_country_code' && !isDefinitionStale(property)
+                    )
+
+                if (!hasNonStaleCountryCodeDefinition) {
+                    return false
+                }
+
+                const geoIpPlugin =
+                    pluginsResponse.status === 'fulfilled' &&
+                    pluginsResponse.value.find(
+                        (plugin) => plugin.url === 'https://www.npmjs.com/package/@posthog/geoip-plugin'
+                    )
+                const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
+
+                const geoIpPluginConfig =
+                    isNotNil(geoIpPluginId) &&
+                    pluginsConfigResponse.status === 'fulfilled' &&
+                    pluginsConfigResponse.value.find((plugin) => plugin.id === geoIpPluginId)
+
+                return !!geoIpPluginConfig && geoIpPluginConfig.enabled
             },
         },
     })),

@@ -23,11 +23,14 @@ export interface EditableFieldProps {
     multiline?: boolean
     /** Whether to render the content as Markdown in view mode. */
     markdown?: boolean
-    compactButtons?: boolean
+    compactButtons?: boolean | 'xsmall' // The 'xsmall' is somewhat hacky, but necessary for 3000 breadcrumbs
     /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
     /** Controlled mode. */
     mode?: 'view' | 'edit'
+    onModeToggle?: (newMode: 'view' | 'edit') => void
+    /** @default 'outlined' */
+    editingIndication?: 'outlined' | 'underlined'
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
@@ -54,6 +57,8 @@ export function EditableField({
     compactButtons = false,
     paywall = false,
     mode,
+    onModeToggle,
+    editingIndication = 'outlined',
     className,
     style,
     'data-attr': dataAttr,
@@ -61,13 +66,16 @@ export function EditableField({
     notice,
 }: EditableFieldProps): JSX.Element {
     const [localIsEditing, setLocalIsEditing] = useState(false)
-    const [tentativeValue, setTentativeValue] = useState(value)
+    const [localTentativeValue, setLocalTentativeValue] = useState(value)
 
     useEffect(() => {
-        setTentativeValue(value)
+        setLocalTentativeValue(value)
     }, [value])
+    useEffect(() => {
+        setLocalIsEditing(mode === 'edit')
+    }, [mode])
 
-    const isSaveable = !minLength || tentativeValue.length >= minLength
+    const isSaveable = !minLength || localTentativeValue.length >= minLength
 
     const mouseDownOnCancelButton = (e: React.MouseEvent): void => {
         // if saveOnBlur is set the onBlur handler of the input fires before the onClick event of the button
@@ -77,12 +85,14 @@ export function EditableField({
 
     const cancel = (): void => {
         setLocalIsEditing(false)
-        setTentativeValue(value)
+        setLocalTentativeValue(value)
+        onModeToggle?.('view')
     }
 
     const save = (): void => {
-        onSave?.(tentativeValue)
+        onSave?.(localTentativeValue)
         setLocalIsEditing(false)
+        onModeToggle?.('view')
     }
 
     const isEditing = !paywall && (mode === 'edit' || localIsEditing)
@@ -108,6 +118,7 @@ export function EditableField({
                 'EditableField',
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
+                editingIndication === 'underlined' && 'EditableField--underlined',
                 className
             )}
             data-attr={dataAttr}
@@ -128,12 +139,12 @@ export function EditableField({
                             {multiline ? (
                                 <TextareaAutosize
                                     name={name}
-                                    value={tentativeValue}
+                                    value={localTentativeValue}
                                     onChange={(e) => {
                                         onChange?.(e.target.value)
-                                        setTentativeValue(e.target.value)
+                                        setLocalTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
+                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -143,12 +154,12 @@ export function EditableField({
                             ) : (
                                 <AutosizeInput
                                     name={name}
-                                    value={tentativeValue}
+                                    value={localTentativeValue}
                                     onChange={(e) => {
                                         onChange?.(e.target.value)
-                                        setTentativeValue(e.target.value)
+                                        setLocalTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
+                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -156,7 +167,7 @@ export function EditableField({
                                     autoFocus={autoFocus}
                                 />
                             )}
-                            {!mode && (
+                            {(!mode || !!onModeToggle) && (
                                 <div className="EditableField__actions">
                                     {markdown && (
                                         <Tooltip title="Markdown formatting support">
@@ -165,7 +176,7 @@ export function EditableField({
                                     )}
                                     <LemonButton
                                         title="Cancel editing"
-                                        size="small"
+                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
                                         onClick={cancel}
                                         type="secondary"
                                         onMouseDown={mouseDownOnCancelButton}
@@ -182,7 +193,7 @@ export function EditableField({
                                                       'characters'
                                                   )} required)`
                                         }
-                                        size="small"
+                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
                                         disabled={!isSaveable}
                                         onClick={save}
                                         type="primary"
@@ -194,18 +205,27 @@ export function EditableField({
                         </>
                     ) : (
                         <>
-                            {tentativeValue && markdown ? (
-                                <LemonMarkdown lowKeyHeadings>{tentativeValue}</LemonMarkdown>
+                            {localTentativeValue && markdown ? (
+                                <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
                             ) : (
-                                tentativeValue || <i>{placeholder}</i>
+                                localTentativeValue || <i>{placeholder}</i>
                             )}
-                            {!mode && (
+                            {(!mode || !!onModeToggle) && (
                                 <div className="EditableField__actions">
                                     <LemonButton
                                         title="Edit"
                                         icon={<IconEdit />}
-                                        size={compactButtons ? 'small' : undefined}
-                                        onClick={() => setLocalIsEditing(true)}
+                                        size={
+                                            typeof compactButtons === 'string'
+                                                ? compactButtons
+                                                : compactButtons
+                                                ? 'small'
+                                                : undefined
+                                        }
+                                        onClick={() => {
+                                            setLocalIsEditing(true)
+                                            onModeToggle?.('edit')
+                                        }}
                                         data-attr={`edit-prop-${name}`}
                                         disabled={paywall}
                                         noPadding

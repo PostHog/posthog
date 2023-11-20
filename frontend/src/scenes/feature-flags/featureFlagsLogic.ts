@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, FeatureFlagType } from '~/types'
@@ -156,7 +157,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Feature Flags',
+                    key: Scene.FeatureFlags,
+                    name: 'Feature flags',
                     path: urls.featureFlags(),
                 },
             ],

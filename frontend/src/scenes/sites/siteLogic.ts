@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { Scene } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 
@@ -16,9 +17,11 @@ export const siteLogic = kea<siteLogicType>([
             (_, p) => [p.url],
             (url): Breadcrumb[] => [
                 {
+                    key: Scene.Site,
                     name: `Site`,
                 },
                 {
+                    key: url,
                     name: url,
                 },
             ],

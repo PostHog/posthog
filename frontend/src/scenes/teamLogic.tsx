@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -208,6 +208,11 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
         createTeamSuccess: () => {
             organizationLogic.actions.loadCurrentOrganization()
         },

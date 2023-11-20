@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from '../../scenes/teamLogic'
-import { OrganizationMembershipLevel } from '../constants'
-import { EitherMembershipLevel, membershipLevelToName } from '../utils/permissioning'
+import { EitherMembershipLevel, OrganizationMembershipLevel } from '../constants'
+import { membershipLevelToName } from '../utils/permissioning'
 
 export interface RestrictedComponentProps {
     isRestricted: boolean

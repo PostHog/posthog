@@ -7,7 +7,7 @@ import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { Field } from 'lib/forms/Field'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
 

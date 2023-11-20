@@ -3,11 +3,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { range } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
+import { DataManagementTab } from '../DataManagementScene'
 import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
 
 export interface IngestionWarningSummary {
@@ -48,11 +50,13 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        name: `Data Management`,
+                        key: Scene.DataManagement,
+                        name: `Data management`,
                         path: urls.eventDefinitions(),
                     },
                     {
-                        name: 'Ingestion Warnings',
+                        key: DataManagementTab.IngestionWarnings,
+                        name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
                     },
                 ]

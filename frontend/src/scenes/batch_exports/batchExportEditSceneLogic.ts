@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -21,22 +22,25 @@ export const batchExportsEditSceneLogic = kea<batchExportsEditSceneLogicType>([
             (s) => [s.batchExportConfig, s.id],
             (config, id): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 ...(id === 'new'
                     ? [
                           {
+                              key: 'new',
                               name: 'New',
                           },
                       ]
                     : [
                           {
-                              name: config?.name ?? 'Loading',
+                              key: config?.id || 'loading',
+                              name: config?.name,
                               path: config?.id ? urls.batchExport(config.id) : undefined,
                           },
-
                           {
+                              key: 'edit',
                               name: 'Edit',
                           },
                       ]),

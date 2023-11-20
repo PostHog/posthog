@@ -13,7 +13,7 @@ import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
@@ -345,14 +345,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saving={insightSaving}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                             />
                         ) : insight.tags?.length ? (
                             <ObjectTags
                                 tags={insight.tags}
                                 saving={insightSaving}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                                 staticOnly
                             />

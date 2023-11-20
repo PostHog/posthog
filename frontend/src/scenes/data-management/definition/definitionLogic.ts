@@ -3,12 +3,14 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { getPropertyLabel } from 'lib/taxonomy'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
 
+import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
 import type { definitionLogicType } from './definitionLogicType'
@@ -121,14 +123,17 @@ export const definitionLogic = kea<definitionLogicType>([
             (definition, isEvent): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
+                        key: isEvent ? DataManagementTab.EventDefinitions : DataManagementTab.PropertyDefinitions,
                         name: isEvent ? 'Events' : 'Properties',
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
+                        key: definition?.id || 'new',
                         name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
                     },
                 ]

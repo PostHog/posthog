@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { isUserLoggedIn } from 'lib/utils'
@@ -94,6 +94,11 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
+            if (currentOrganization) {
+                ApiConfig.setCurrentOrganizationId(currentOrganization.id)
+            }
+        },
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
         },

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -9,7 +9,6 @@ import posthog from 'posthog-js'
 
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
 
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
@@ -19,9 +18,6 @@ export interface UserDetailsFormType {
 
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),

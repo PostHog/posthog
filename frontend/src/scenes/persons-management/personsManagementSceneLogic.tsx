@@ -6,6 +6,7 @@ import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { Groups } from 'scenes/groups/Groups'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -51,7 +52,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'Persons',
+                        label: 'People',
                         content: <Persons />,
                     },
                     {
@@ -116,15 +117,18 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             (tabs, activeTab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.PersonsManagement,
                         name: `People`,
                         path: tabs[0].url,
                     },
                     activeTab
                         ? {
+                              key: activeTab.key,
                               name: activeTab.label,
                               path: activeTab.url,
                           }
                         : {
+                              key: 'loading',
                               name: 'Loading...',
                           },
                 ]

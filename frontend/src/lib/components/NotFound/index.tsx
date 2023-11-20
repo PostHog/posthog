@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { supportLogic } from '../Support/supportLogic'

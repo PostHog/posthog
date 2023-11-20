@@ -1,7 +1,13 @@
 import { Placement } from '@floating-ui/react'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import {
+    CUSTOM_OPTION_DESCRIPTION,
+    CUSTOM_OPTION_KEY,
+    CUSTOM_OPTION_VALUE,
+    DateFilterLogicProps,
+    DateFilterView,
+} from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -12,7 +18,7 @@ import { useRef } from 'react'
 
 import { DateMappingOption } from '~/types'
 
-import { CUSTOM_OPTION_DESCRIPTION, CUSTOM_OPTION_KEY, CUSTOM_OPTION_VALUE, dateFilterLogic } from './dateFilterLogic'
+import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 
 export interface DateFilterProps {

@@ -3,10 +3,12 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { convertPropertyGroupToProperties, deleteWithUndo, sum, toParams } from 'lib/utils'
+import { sum, toParams } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -14,6 +16,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAcce
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -838,10 +841,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
                 {
+                    key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
-                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+                { key: featureFlag.id || 'unknown', name: featureFlag.key || 'Unnamed' },
             ],
         ],
         propertySelectErrors: [

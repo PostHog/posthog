@@ -1,10 +1,9 @@
 import { actions, connect, kea, listeners, path } from 'kea'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
-import { convertPropertyGroupToProperties } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
     isFilterWithDisplay,

@@ -159,6 +159,16 @@ export enum SurveyTemplateType {
 
 export const defaultSurveyTemplates = [
     {
+        type: SurveyTemplateType.OpenFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What can we do to improve our product?',
+            },
+        ],
+        description: "Let your users share what's on their mind.",
+    },
+    {
         type: SurveyTemplateType.Interview,
         questions: [
             {
@@ -244,15 +254,5 @@ export const defaultSurveyTemplates = [
             },
         ],
         description: 'Find out if it was something you said.',
-    },
-    {
-        type: SurveyTemplateType.OpenFeedback,
-        questions: [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What can we do to improve our product?',
-            },
-        ],
-        description: "Let your users share what's on their mind.",
     },
 ]

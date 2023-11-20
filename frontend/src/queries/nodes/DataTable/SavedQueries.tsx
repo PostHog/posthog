@@ -1,6 +1,5 @@
 import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
-import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -49,7 +48,6 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
             }}
             type="secondary"
             status="primary-alt"
-            icon={<IconBookmarkBorder />}
         >
             {selectedTitle}
         </LemonButtonWithDropdown>

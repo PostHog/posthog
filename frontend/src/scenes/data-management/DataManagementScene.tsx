@@ -15,7 +15,7 @@ import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -97,7 +97,7 @@ const tabs: Record<
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion Warnings',
+        label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
     },
     [DataManagementTab.Database]: {
@@ -136,10 +136,12 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: tabs.events.url,
                     },
                     {
+                        key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
                     },

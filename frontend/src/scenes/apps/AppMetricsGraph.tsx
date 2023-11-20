@@ -6,7 +6,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
-import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
+import { AppMetricsTab } from '~/types'
+
+import { AppMetrics } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 
 export interface AppMetricsGraphProps {

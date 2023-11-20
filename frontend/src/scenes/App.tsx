@@ -28,7 +28,7 @@ import { teamLogic } from './teamLogic'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect(() => [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic, actionsModel, cohortsModel]),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic, actionsModel, cohortsModel]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

@@ -9,7 +9,7 @@ import React, { useState } from 'react'
 
 import { NotebookNodeType } from '~/types'
 
-import { useNotebookNode } from '../Nodes/notebookNodeLogic'
+import { useNotebookNode } from '../Nodes/NotebookNodeContext'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
 export type DraggableToNotebookBaseProps = {

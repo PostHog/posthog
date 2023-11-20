@@ -6,7 +6,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { useMemo, useState } from 'react'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { NotebookNodeType } from '~/types'
 

@@ -1,5 +1,5 @@
 import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -31,8 +31,6 @@ export interface PluginSelectionType {
     url?: string
 }
 
-const PAGINATION_DEFAULT_MAX_PAGES = 10
-
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -42,25 +40,9 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-async function loadPaginatedResults(
-    url: string | null,
-    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-): Promise<any[]> {
-    let results: any[] = []
-    for (let i = 0; i <= maxIterations; ++i) {
-        if (!url) {
-            break
-        }
-
-        const { results: partialResults, next } = await api.get(url)
-        results = results.concat(partialResults)
-        url = next
-    }
-    return results
-}
-
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
+    connect(frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
@@ -103,7 +85,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
+                    const results: PluginType[] = await api.loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
@@ -161,7 +143,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
+                    const results: PluginConfigType[] = await api.loadPaginatedResults('api/plugin_config')
 
                     for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }

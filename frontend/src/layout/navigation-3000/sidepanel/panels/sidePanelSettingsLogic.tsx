@@ -3,7 +3,7 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Settings } from 'scenes/settings/Settings'
-import { SettingsLogicProps } from 'scenes/settings/settingsLogic'
+import { SettingsLogicProps } from 'scenes/settings/types'
 
 import { SidePanelTab } from '~/types'
 

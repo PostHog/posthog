@@ -9,8 +9,8 @@ import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { settingsLogic, SettingsLogicProps } from './settingsLogic'
-import { SettingLevelIds } from './types'
+import { settingsLogic } from './settingsLogic'
+import { SettingLevelIds, SettingsLogicProps } from './types'
 
 export function Settings({
     hideSections = false,

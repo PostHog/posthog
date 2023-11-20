@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import {
@@ -266,22 +267,25 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             (s) => [s.batchExportConfig, s.isNew],
             (config, isNew): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 ...(isNew
                     ? [
                           {
+                              key: 'new',
                               name: 'New',
                           },
                       ]
                     : [
                           {
-                              name: config?.name ?? 'Loading',
+                              key: config?.id ?? 'loading',
+                              name: config?.name,
                               path: config?.id ? urls.batchExport(config.id) : undefined,
                           },
-
                           {
+                              key: 'edit',
                               name: 'Edit',
                           },
                       ]),

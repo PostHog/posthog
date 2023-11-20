@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { convertPropertyGroupToProperties, uuid } from 'lib/utils'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 
 import { ActionFilter, AnyPropertyFilter, Entity, EntityFilter, EntityType, EntityTypes, FilterType } from '~/types'

@@ -8,8 +8,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 
+import { AppMetricsTab } from '~/types'
+
 import { AppMetricsGraph } from './AppMetricsGraph'
-import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
+import { AppErrorSummary, AppMetrics, appMetricsSceneLogic } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 
 export interface MetricsTabProps {

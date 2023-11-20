@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { BatchExportConfiguration, BatchExportRun, Breadcrumb, GroupedBatchExportRuns } from '~/types'
@@ -227,11 +228,13 @@ export const batchExportLogic = kea<batchExportLogicType>([
             (s) => [s.batchExportConfig],
             (config): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 {
-                    name: config?.name ?? 'Loading',
+                    key: config?.id || 'loading',
+                    name: config?.name,
                 },
             ],
         ],

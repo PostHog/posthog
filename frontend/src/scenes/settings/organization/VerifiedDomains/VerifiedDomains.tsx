@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { UPGRADE_LINK } from 'lib/constants'
 import { IconCheckmark, IconDelete, IconExclamation, IconLock, IconOffline, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -11,6 +10,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { OrganizationDomainType } from '~/types'
 
@@ -142,11 +142,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
                 if (!isSSOEnforcementAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
                             enforcement
                         </Link>
@@ -172,11 +168,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SAML(_, { is_verified, saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }, index) {
                 if (!isSAMLAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
                         </Link>
                     ) : (

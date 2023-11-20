@@ -40,7 +40,8 @@ import {
     NotebookNodeProps,
 } from '../Notebook/utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { NotebookNodeContext, notebookNodeLogic, NotebookNodeLogicProps } from './notebookNodeLogic'
+import { NotebookNodeContext } from './NotebookNodeContext'
+import { notebookNodeLogic, NotebookNodeLogicProps } from './notebookNodeLogic'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 

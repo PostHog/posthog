@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { processCohort } from 'lib/utils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -19,7 +18,7 @@ import {
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
 import {
@@ -317,6 +316,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
+        },
+        submitCohort: () => {
+            if (values.cohortHasErrors) {
+                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
+            }
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {

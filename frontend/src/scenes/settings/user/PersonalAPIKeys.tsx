@@ -92,7 +92,9 @@ function PersonalAPIKeysTable(): JSX.Element {
                     dataIndex: 'value',
                     render: function RenderValue(value) {
                         return value ? (
-                            <CopyToClipboardInline description="personal API key value">{`${value}`}</CopyToClipboardInline>
+                            <CopyToClipboardInline description="personal API key value">
+                                {String(value)}
+                            </CopyToClipboardInline>
                         ) : (
                             <i>secret</i>
                         )

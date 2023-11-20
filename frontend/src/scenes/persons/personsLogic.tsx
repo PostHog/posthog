@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -248,12 +249,14 @@ export const personsLogic = kea<personsLogicType>([
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
-                        name: 'Persons',
+                        key: Scene.PersonsManagement,
+                        name: 'People',
                         path: urls.persons(),
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
+                        key: person.id || 'unknown',
                         name: asDisplay(person),
                     })
                 }

@@ -15,6 +15,7 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -636,10 +637,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
                 {
+                    key: Scene.Experiments,
                     name: 'Experiments',
                     path: urls.experiments(),
                 },
                 {
+                    key: experimentId,
                     name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },

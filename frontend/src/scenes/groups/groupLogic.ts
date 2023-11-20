@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -106,10 +107,17 @@ export const groupLogic = kea<groupLogicType>([
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
             (groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => [
                 {
+                    key: Scene.DataManagement,
+                    name: 'People',
+                    path: urls.persons(),
+                },
+                {
+                    key: groupTypeIndex,
                     name: capitalizeFirstLetter(groupTypeName),
                     path: urls.groups(String(groupTypeIndex)),
                 },
                 {
+                    key: `${groupTypeIndex}-${groupKey}`,
                     name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
                 },

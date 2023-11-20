@@ -38,6 +38,7 @@ export function LemonEventName({
             renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}
             allowClear={allEventsOption === 'clear'}
             excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
+            size="small"
         />
     )
 }

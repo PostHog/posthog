@@ -3,13 +3,11 @@ import './PropertyDefinitionsTable.scss'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import {
-    EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    propertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 

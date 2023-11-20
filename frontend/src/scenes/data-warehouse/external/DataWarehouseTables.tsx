@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { teamLogic } from 'scenes/teamLogic'

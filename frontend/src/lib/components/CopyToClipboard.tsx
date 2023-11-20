@@ -1,12 +1,10 @@
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HTMLProps } from 'react'
 
-interface InlineProps extends HTMLProps<HTMLSpanElement> {
-    children?: JSX.Element | string
-    explicitValue?: string
+interface InlinePropsBase extends HTMLProps<HTMLSpanElement> {
     description?: string
     /** Makes text selectable instead of copying on click anywhere */
     selectable?: boolean
@@ -16,6 +14,15 @@ interface InlineProps extends HTMLProps<HTMLSpanElement> {
     iconPosition?: 'end' | 'start'
     style?: React.CSSProperties
 }
+interface InlinePropsWithStringInside extends InlinePropsBase {
+    children: string
+    explicitValue?: string
+}
+interface InlinePropsWithJSXInside extends InlinePropsBase {
+    children?: JSX.Element
+    explicitValue: string
+}
+type InlineProps = InlinePropsWithStringInside | InlinePropsWithJSXInside
 
 export function CopyToClipboardInline({
     children,
@@ -29,10 +36,6 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    if (typeof children !== 'string' && !explicitValue) {
-        throw new Error('CopyToClipboardInline must have a string child or explicitValue prop')
-    }
-
     const copy = async (): Promise<boolean> => await copyToClipboard((explicitValue ?? children) as string, description)
 
     const content = (
@@ -54,7 +57,7 @@ export function CopyToClipboardInline({
             onClick={!selectable ? copy : undefined}
             {...props}
         >
-            <span className={iconPosition === 'start' ? 'grow-1' : undefined}>{children}</span>
+            {children && <span className={iconPosition === 'start' ? 'grow-1' : undefined}>{children}</span>}
             <LemonButton
                 size="small"
                 icon={<IconCopy style={{ ...iconStyle }} />}

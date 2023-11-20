@@ -1,3 +1,15 @@
+import {
+    IconCursor,
+    IconFunnels,
+    IconHogQL,
+    IconLifecycle,
+    IconRetention,
+    IconRewindPlay,
+    IconStickiness,
+    IconTrends,
+    IconUpload,
+    IconUserPaths,
+} from '@posthog/icons'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { Extension } from '@tiptap/core'
@@ -5,21 +17,7 @@ import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import {
-    IconBold,
-    IconCohort,
-    IconItalic,
-    IconRecording,
-    IconTableChart,
-    IconUploadFile,
-    InsightsFunnelsIcon,
-    InsightsLifecycleIcon,
-    InsightsPathsIcon,
-    InsightSQLIcon,
-    InsightsRetentionIcon,
-    InsightsStickinessIcon,
-    InsightsTrendsIcon,
-} from 'lib/lemon-ui/icons'
+import { IconBold, IconCohort, IconItalic } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
@@ -101,7 +99,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Trend',
         search: 'trend insight',
-        icon: <InsightsTrendsIcon noBackground color="currentColor" />,
+        icon: <IconTrends color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -126,7 +124,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Funnel',
         search: 'funnel insight',
-        icon: <InsightsFunnelsIcon noBackground color="currentColor" />,
+        icon: <IconFunnels color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -153,7 +151,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Retention',
         search: 'retention insight',
-        icon: <InsightsRetentionIcon noBackground color="currentColor" />,
+        icon: <IconRetention color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -180,7 +178,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Paths',
         search: 'paths insight',
-        icon: <InsightsPathsIcon noBackground color="currentColor" />,
+        icon: <IconUserPaths color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -195,7 +193,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Stickiness',
         search: 'stickiness insight',
-        icon: <InsightsStickinessIcon noBackground color="currentColor" />,
+        icon: <IconStickiness color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -216,7 +214,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Lifecycle',
         search: 'lifecycle insight',
-        icon: <InsightsLifecycleIcon noBackground color="currentColor" />,
+        icon: <IconLifecycle color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -236,7 +234,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'HogQL',
         search: 'sql',
-        icon: <InsightSQLIcon noBackground color="currentColor" />,
+        icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -268,7 +266,7 @@ order by count() desc
     {
         title: 'Events',
         search: 'data explore',
-        icon: <IconTableChart />,
+        icon: <IconCursor />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -304,13 +302,13 @@ order by count() desc
     {
         title: 'Session Replays',
         search: 'recordings video',
-        icon: <IconRecording />,
+        icon: <IconRewindPlay />,
         command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
         search: 'picture',
-        icon: <IconUploadFile />,
+        icon: <IconUpload />,
         command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {

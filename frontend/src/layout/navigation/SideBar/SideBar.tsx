@@ -204,7 +204,7 @@ function Pages(): JSX.Element {
                     <PageButton
                         icon={<IconRocketLaunch />}
                         identifier={Scene.EarlyAccessFeatures}
-                        title={'Early Access Management'}
+                        title={'Early access features'}
                         to={urls.earlyAccessFeatures()}
                     />
                     <div className="SideBar__heading">Data</div>
@@ -213,7 +213,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={'Event Explorer'}
+                        title={'Event explorer'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}
@@ -233,7 +233,7 @@ function Pages(): JSX.Element {
                         <PageButton
                             icon={<IconDatabase />}
                             identifier={Scene.DataWarehouse}
-                            title={'Data Warehouse'}
+                            title={'Data warehouse'}
                             to={urls.dataWarehouse()}
                             highlight="beta"
                         />
@@ -243,7 +243,7 @@ function Pages(): JSX.Element {
                             <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
                                 <PageButton
-                                    title="Browse Apps"
+                                    title="Browse apps"
                                     icon={<IconApps />}
                                     identifier={Scene.Apps}
                                     to={urls.projectApps()}

@@ -2,7 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'ke
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'

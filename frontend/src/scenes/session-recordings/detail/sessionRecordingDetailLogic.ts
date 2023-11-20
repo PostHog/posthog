@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, SessionRecordingType } from '~/types'
@@ -14,13 +15,15 @@ export const sessionRecordingDetailLogic = kea<sessionRecordingDetailLogicType>(
     props({} as SessionRecordingDetailLogicProps),
     selectors({
         breadcrumbs: [
-            () => [(_, props) => props.id],
+            () => [(_, props) => props.id as SessionRecordingType['id']],
             (sessionRecordingId): Breadcrumb[] => [
                 {
+                    key: Scene.Replay,
                     name: `Replay`,
                     path: urls.replay(),
                 },
                 {
+                    key: sessionRecordingId,
                     name: sessionRecordingId ?? 'Not Found',
                     path: sessionRecordingId ? urls.replaySingle(sessionRecordingId) : undefined,
                 },

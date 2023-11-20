@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import {
     deletePlaylist,
     duplicatePlaylist,
@@ -136,14 +137,17 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
                 {
+                    key: Scene.Replay,
                     name: 'Replay',
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.Playlists,
                     name: 'Playlists',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
+                    key: playlist?.short_id || 'new',
                     name: playlist?.name || playlist?.derived_name || '(Untitled)',
                     path: urls.replayPlaylist(playlist?.short_id || ''),
                 },

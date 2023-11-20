@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -38,8 +39,6 @@ function removeDefaults(filter: Filters): Partial<Filters> {
         group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
     }
 }
-
-export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
 export interface PropertyDefinitionsTableLogicProps {
     key: string

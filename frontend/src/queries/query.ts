@@ -3,7 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { flattenObject, toParams } from 'lib/utils'
+import { delay, flattenObject, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import posthog from 'posthog-js'
 import {
@@ -34,6 +34,9 @@ import {
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
 } from './utils'
+
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -91,6 +94,43 @@ export function queryExportContext<N extends DataNode = DataNode>(
         }
     }
     throw new Error(`Unsupported query: ${query.kind}`)
+}
+
+async function executeQuery<N extends DataNode = DataNode>(
+    queryNode: N,
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean,
+    queryId?: string
+): Promise<NonNullable<N['response']>> {
+    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
+    const excludedKinds = ['HogQLMetadata']
+    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+
+    if (!queryAsync || !response.query_async) {
+        return response
+    }
+
+    const pollStart = performance.now()
+    let currentDelay = 300 // start low, because all queries will take at minimum this
+
+    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+        await delay(currentDelay)
+        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+
+        if (methodOptions?.signal?.aborted) {
+            const customAbortError = new Error('Query aborted')
+            customAbortError.name = 'AbortError'
+            throw customAbortError
+        }
+
+        const statusResponse = await api.queryStatus.get(response.id)
+
+        if (statusResponse.complete || statusResponse.error) {
+            return statusResponse.results
+        }
+    }
+    throw new Error('Query timed out')
 }
 
 // Return data for a given query
@@ -218,7 +258,7 @@ export async function query<N extends DataNode = DataNode>(
                 response = await fetchLegacyInsights()
             }
         } else {
-            response = await api.query(queryNode, methodOptions, queryId, refresh)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

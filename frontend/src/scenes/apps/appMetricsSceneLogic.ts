@@ -6,10 +6,11 @@ import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { AppMetricsTab, AppMetricsUrlParams, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
@@ -19,22 +20,6 @@ export interface AppMetricsLogicProps {
     pluginConfigId: number
 }
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ComposeWebhook = 'composeWebhook',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
 export const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
@@ -198,10 +183,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             (s, p) => [s.pluginConfig, p.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
+                    key: Scene.Apps,
                     name: 'Apps',
                     path: urls.projectApps(),
                 },
                 {
+                    key: pluginConfigId,
                     name: pluginConfig?.plugin_info?.name,
                     path: urls.appMetrics(pluginConfigId),
                 },

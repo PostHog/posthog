@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ExternalDataStripeSource } from '~/types'
@@ -50,10 +51,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.DataWarehouse,
                     name: `Data Warehouse`,
                     path: urls.dataWarehouseExternal(),
                 },
                 {
+                    key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
                     path: urls.dataWarehouseSettings(),
                 },

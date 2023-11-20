@@ -1,10 +1,11 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
+import { convertPropertiesToPropertyGroup } from '../PropertyFilters/utils'
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([

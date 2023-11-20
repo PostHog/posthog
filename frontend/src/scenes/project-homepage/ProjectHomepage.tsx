@@ -1,5 +1,6 @@
 import './ProjectHomepage.scss'
 
+import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
@@ -8,7 +9,6 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -84,12 +84,12 @@ export function ProjectHomepage(): JSX.Element {
             </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    <div className="homepage-dashboard-header">
-                        <div className="dashboard-title-container">
+                    <div className="HomepageDashboardHeader">
+                        <div className="HomepageDashboardHeader__title">
                             {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                             {dashboard?.name && (
                                 <>
-                                    <IconCottage className="mr-2 text-warning text-2xl" />
+                                    <IconHome className="mr-2 text-2xl opacity-50" />
                                     <Link
                                         className="font-semibold text-xl text-default"
                                         to={urls.dashboard(dashboard.id)}

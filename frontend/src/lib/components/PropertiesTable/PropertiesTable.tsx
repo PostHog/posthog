@@ -1,5 +1,6 @@
 import './PropertiesTable.scss'
 
+import { IconPencil } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
@@ -87,18 +88,19 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                valueString
+                <span>{valueString}</span>
             ) : (
                 <Link to={value} target="_blank" className="value-link" targetBlankIcon>
                     {valueString}
                 </Link>
             )}
+            {canEdit && <IconPencil />}
         </span>
     )
 
@@ -285,13 +287,10 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object || item[1] === null) {
-                    return false
-                }
                 return (
                     <CopyToClipboardInline
                         description="property value"
-                        explicitValue={item[1]}
+                        explicitValue={typeof item[1] === 'object' ? JSON.stringify(item[1]) : String(item[1])}
                         selectable
                         isValueSensitive
                         style={{ verticalAlign: 'middle' }}

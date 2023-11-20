@@ -6,6 +6,7 @@ import {
     ActionType,
     AnnotationType,
     AnyPartialFilterType,
+    AppMetricsUrlParams,
     DashboardType,
     FilterType,
     InsightShortId,
@@ -14,7 +15,6 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 

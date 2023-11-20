@@ -4,6 +4,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKea } from '~/initKea'
@@ -34,6 +35,7 @@ export function initKeaTests(mountCommonLogic = true, teamForWindowContext: Team
     ;(history as any).replaceState = history.replace
     initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
     if (mountCommonLogic) {
+        preflightLogic.mount()
         teamLogic.mount()
         organizationLogic.mount()
     }

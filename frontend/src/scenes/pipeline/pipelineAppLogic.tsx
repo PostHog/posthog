@@ -1,5 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineAppTabs } from '~/types'
@@ -30,10 +31,12 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.Pipeline,
                     name: 'Pipeline',
                     path: urls.pipeline(),
                 },
                 {
+                    key: 'todo',
                     name: 'App name',
                 },
             ],
