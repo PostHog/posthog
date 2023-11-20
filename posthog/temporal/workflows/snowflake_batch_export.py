@@ -159,16 +159,11 @@ async def execute_async_query(
     query_id = cursor.sfqid or result["queryId"]
     query_status = None
 
-    try:
-        query_status = connection.get_query_status_throw_if_error(query_id)
+    query_status = await asyncio.to_thread(connection.get_query_status_throw_if_error, query_id)
 
-        while connection.is_still_running(query_status):
-            query_status = connection.get_query_status_throw_if_error(query_id)
-            await asyncio.sleep(poll_interval)
-
-    except snowflake.connector.ProgrammingError:
-        # TODO: logging? Other handling?
-        raise
+    while connection.is_still_running(query_status):
+        query_status = await asyncio.to_thread(connection.get_query_status_throw_if_error, query_id)
+        await asyncio.sleep(poll_interval)
 
     return query_id
 
