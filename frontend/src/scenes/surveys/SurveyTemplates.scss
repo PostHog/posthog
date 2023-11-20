@@ -1,17 +1,17 @@
 @import '../../styles/mixins';
 
 .SurveyTemplateContainer {
-    flex: 1;
-    display: flex;
     align-items: center;
+    background: var(--bg-light);
+    border-radius: var(--radius);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    display: flex;
+    flex: 1;
     min-height: 300px;
-    margin-top: 2px;
 
     &:hover {
         cursor: pointer;
-        border-color: var(--primary-light);
+        border-color: var(--primary-3000-hover);
     }
 
     .SurveyTemplate {

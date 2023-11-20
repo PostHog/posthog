@@ -38,7 +38,7 @@
     opacity: 0;
 
     .Popover--actionable & {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
     }
 
     // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between
@@ -95,7 +95,7 @@
     }
 
     .posthog-3000 & {
-        background: var(--bg-3000);
+        background: var(--bg-light);
         padding: 0.25rem;
     }
 
@@ -136,7 +136,7 @@
     }
 
     .Popover--actionable & {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
     }
 }
 

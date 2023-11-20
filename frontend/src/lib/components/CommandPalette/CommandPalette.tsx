@@ -9,7 +9,7 @@ import squeakFile from 'public/squeak.mp3'
 import './CommandPalette.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import CommandBar from '../CommandBar/CommandBar'
+import { CommandBar } from '../CommandBar/CommandBar'
 
 /** Use the new Cmd+K search when the respective feature flag is enabled. */
 export function CommandPalette(): JSX.Element {
@@ -36,7 +36,7 @@ function _CommandPalette(): JSX.Element | null {
 
     useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
-            squeakAudio?.play()
+            void squeakAudio?.play()
         } else if (event.key === 'Escape') {
             event.preventDefault()
             // Return to previous flow

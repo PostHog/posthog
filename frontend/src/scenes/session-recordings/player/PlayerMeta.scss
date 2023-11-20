@@ -79,4 +79,14 @@
             }
         }
     }
+
+    .Link {
+        .posthog-3000 & {
+            color: var(--default);
+
+            &:hover {
+                color: var(--primary-3000);
+            }
+        }
+    }
 }

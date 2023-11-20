@@ -183,7 +183,7 @@ export function PersonsModal({
                         <LemonButton
                             type="secondary"
                             onClick={() => {
-                                triggerExport({
+                                void triggerExport({
                                     export_format: ExporterFormat.CSV,
                                     export_context: {
                                         path: originalUrl,

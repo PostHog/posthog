@@ -450,7 +450,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                         SurveyQuestionType.MultipleChoice) && (
                                                                     <div className="flex flex-col gap-2">
                                                                         <Field name="choices" label="Choices">
-                                                                            {({ value, onChange }) => (
+                                                                            {({
+                                                                                value,
+                                                                                onChange,
+                                                                            }: {
+                                                                                value: string[]
+                                                                                onChange: (newValue: string[]) => void
+                                                                            }) => (
                                                                                 <div className="flex flex-col gap-2">
                                                                                     {(value || []).map(
                                                                                         (
@@ -527,7 +533,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                     <LemonInput
                                                                         value={
                                                                             question.buttonText === undefined
-                                                                                ? survey.appearance.submitButtonText
+                                                                                ? survey.questions.length > 1 &&
+                                                                                  index !== survey.questions.length - 1
+                                                                                    ? 'Next'
+                                                                                    : survey.appearance.submitButtonText
                                                                                 : question.buttonText
                                                                         }
                                                                     />
@@ -841,7 +850,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </PureField>
-                                                        <PureField label="Selector matches:">
+                                                        <PureField label="CSS selector matches:">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>

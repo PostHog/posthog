@@ -395,7 +395,7 @@ input::-ms-clear {
         cursor: pointer;
 
         div:nth-child(1) {
-            background: var(--primary);
+            background: var(--primary-3000);
         }
 
         div:nth-child(2) {
@@ -526,10 +526,13 @@ input::-ms-clear {
 body {
     // Until we have 3000 rolled out we fallback to standard colors
     --text-3000: var(--default);
+    --text-secondary-3000: var(--text-secondary);
     --muted-3000: var(--muted);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary);
+    --primary-3000-highlight: var(--primary-highlight);
     --primary-3000-hover: var(--primary-light);
+    --primary-3000-active: var(--primary-dark);
     --secondary-3000: var(--secondary);
     --secondary-3000-hover: var(--secondary-light);
     --accent-3000: var(--side);
@@ -539,16 +542,20 @@ body {
     --glass-bg-3000: var(--bg-light);
     --glass-border-3000: var(--border);
     --bg-light: #fff;
-    --link: var(--primary);
+    --bg-table: var(--bg-light);
+    --link: var(--primary-3000);
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
+        --text-secondary-3000: var(--text-secondary-3000-light);
         --muted-3000: var(--muted-3000-light);
         --trace-3000: var(--trace-3000-light);
         --primary-3000: var(--primary-3000-light);
+        --primary-3000-highlight: var(--primary-3000-highlight-light);
         --primary-3000-hover: var(--primary-3000-hover-light);
+        --primary-3000-active: var(--primary-3000-active-light);
         --secondary-3000: var(--secondary-3000-light);
         --secondary-3000-hover: var(--secondary-3000-hover-light);
         --accent-3000: var(--accent-3000-light);
@@ -558,15 +565,31 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
+        --bg-table: #f9faf7;
         --link: var(--link-3000-light);
+        --shadow-elevation-3000: var(--shadow-elevation-3000-light);
+        --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+        --primary-3000-frame-border: var(--primary-3000-frame-border-light);
+        --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+        --primary-3000-button-border: var(--primary-3000-button-border-light);
+        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
+        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+        --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
+        --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+        --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
     }
 
     &.posthog-3000[theme='dark'] {
         --text-3000: var(--text-3000-dark);
+        --text-secondary-3000: var(--text-secondary-3000-dark);
         --muted-3000: var(--muted-3000-dark);
         --trace-3000: var(--trace-3000-dark);
         --primary-3000: var(--primary-3000-dark);
+        --primary-3000-highlight: var(--primary-3000-highlight-dark);
         --primary-3000-hover: var(--primary-3000-hover-dark);
+        --primary-3000-active: var(--primary-3000-active-dark);
         --secondary-3000: var(--secondary-3000-dark);
         --secondary-3000-hover: var(--secondary-3000-hover-dark);
         --accent-3000: var(--accent-3000-dark);
@@ -576,12 +599,26 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-dark);
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
+        --bg-table: #232429;
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
         --link: var(--link-3000-dark);
+        --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+        --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+        --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
+        --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+        --primary-3000-button-border: var(--primary-3000-button-border-dark);
+        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
+        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
+        --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
+        --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
+        --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
+        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
     }
 
     &.posthog-3000 {
         --default: var(--text-3000);
+        --text-secondary: var(--text-secondary-3000);
         --muted: var(--muted-3000);
         --muted-alt: var(--muted-3000);
         --primary-alt: var(--text-3000);
@@ -589,9 +626,25 @@ body {
         --border-bold: var(--border-bold-3000);
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
+        --primary-alt-highlight: var(--primary-alt-highlight-3000);
 
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000);
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--primary-3000);
+                }
+            }
+        }
+
+        --shadow-elevation: var(--shadow-elevation-3000);
 
         * > {
             ::-webkit-scrollbar {

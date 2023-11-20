@@ -1,15 +1,13 @@
 import json
 from datetime import timedelta
-from typing import Optional, Any, Dict, List, cast, Literal
+from typing import List, cast, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models import Team
 from posthog.schema import PersonsQuery, PersonsQueryResponse
 
 PERSON_FULL_TUPLE = ["id", "properties", "created_at", "is_identified"]
@@ -19,25 +17,13 @@ class PersonsQueryRunner(QueryRunner):
     query: PersonsQuery
     query_type = PersonsQuery
 
-    def __init__(
-        self,
-        query: PersonsQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query=query, team=team, timings=timings, in_export_context=in_export_context)
-        if isinstance(query, PersonsQuery):
-            self.query = query
-        else:
-            self.query = PersonsQuery.model_validate(query)
-
     def calculate(self) -> PersonsQueryResponse:
         response = execute_hogql_query(
             query_type="PersonsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
         input_columns = self.input_columns()
         if "person" in input_columns:

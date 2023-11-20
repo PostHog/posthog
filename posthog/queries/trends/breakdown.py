@@ -676,7 +676,11 @@ class TrendsBreakdown:
         extra_label = self._determine_breakdown_label(
             breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
         )
-        label = "{} - {}".format(entity.name, extra_label)
+        if len(filter.entities) > 1:
+            # if there are multiple entities in the query, include the entity name in the labels
+            label = "{} - {}".format(entity.name, extra_label)
+        else:
+            label = extra_label
         additional_values = {"label": label}
         if filter.breakdown_type == "cohort":
             additional_values["breakdown_value"] = "all" if breakdown_value == ALL_USERS_COHORT_ID else breakdown_value

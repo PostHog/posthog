@@ -168,8 +168,8 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                         <div className="flex items-center">
                                             {sentryErrorCount ? (
                                                 <span>
-                                                    <b>{humanFriendlyNumber(sentryErrorCount as number)} </b> sentry
-                                                    errors in the past 24 hours.{' '}
+                                                    <b>{humanFriendlyNumber(sentryErrorCount)} </b> Sentry errors in the
+                                                    past 24 hours.{' '}
                                                 </span>
                                             ) : (
                                                 <Spinner />
@@ -204,7 +204,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                     <b>
                                                         {humanFriendlyNumber(
                                                             Math.round(
-                                                                (sentryErrorCount as number) *
+                                                                sentryErrorCount *
                                                                     (1 +
                                                                         (featureFlag.rollback_conditions[index]
                                                                             .threshold || 0) /

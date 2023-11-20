@@ -244,13 +244,13 @@ export function Experiment(): JSX.Element {
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <div className="variants">
-                                                {experiment.parameters.feature_flag_variants?.map((variant, index) => (
+                                                {experiment.parameters.feature_flag_variants?.map((_, index) => (
                                                     <Group
                                                         key={index}
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
                                                         <div
-                                                            key={`${variant}-${index}`}
+                                                            key={`variant-${index}`}
                                                             className={clsx(
                                                                 'feature-flag-variant',
                                                                 index === 0
@@ -529,12 +529,14 @@ export function Experiment(): JSX.Element {
                                 title={`${experiment?.name}`}
                                 buttons={
                                     <>
-                                        <CopyToClipboardInline
-                                            explicitValue={experiment.feature_flag?.key}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        >
-                                            <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                        </CopyToClipboardInline>
+                                        {experiment.feature_flag && (
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag.key}</span>
+                                            </CopyToClipboardInline>
+                                        )}
                                         <StatusTag experiment={experiment} />
                                         <ResultsTag />
                                     </>
@@ -855,10 +857,10 @@ export function ResultsTag(): JSX.Element {
 export function LoadingState(): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3" />
+            <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
 }

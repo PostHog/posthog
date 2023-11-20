@@ -3,9 +3,9 @@ import { useValues } from 'kea'
 import { DetectiveHog } from '../hedgehogs'
 
 import { searchBarLogic } from './searchBarLogic'
-import SearchResult, { SearchResultSkeleton } from './SearchResult'
+import { SearchResult, SearchResultSkeleton } from './SearchResult'
 
-const SearchResults = (): JSX.Element => {
+export const SearchResults = (): JSX.Element => {
     const { filterSearchResults, searchResponseLoading, activeResultIndex, keyboardResultIndex } =
         useValues(searchBarLogic)
 
@@ -38,5 +38,3 @@ const SearchResults = (): JSX.Element => {
         </div>
     )
 }
-
-export default SearchResults

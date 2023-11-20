@@ -1,8 +1,11 @@
 import clsx from 'clsx'
 import React from 'react'
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
     value: T
@@ -18,7 +21,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
 }
@@ -41,6 +44,15 @@ export function LemonSegmentedButton<T extends React.Key>({
         HTMLDivElement,
         HTMLLIElement
     >(value, 200)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+
+    let buttonProps = {}
+
+    if (has3000) {
+        buttonProps = { status: 'stealth', type: 'secondary', motion: false }
+    }
 
     return (
         <div
@@ -94,6 +106,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                             icon={option.icon}
                             data-attr={option['data-attr']}
                             center
+                            {...buttonProps}
                         >
                             {option.label}
                         </LemonButton>

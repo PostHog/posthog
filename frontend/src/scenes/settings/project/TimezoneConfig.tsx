@@ -17,7 +17,7 @@ export function TimezoneConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
-        return <LemonSkeleton className="w-1/2" />
+        return <LemonSkeleton className="w-1/2 h-4" />
     }
     const options = Object.entries(preflight.available_timezones).map(([tz, offset]) => ({
         key: tz,

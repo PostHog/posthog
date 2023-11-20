@@ -87,7 +87,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     listeners(({ values, actions }) => ({
         openResult: ({ index }) => {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const result = values.searchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
@@ -115,8 +114,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // hide command bar
                 actions.hideCommandBar()
             } else if (event.key === '>') {
-                if (values.searchQuery.length === 0) {
-                    // transition to actions when entering '>' with empty input
+                const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
+                if (
+                    values.searchQuery.length === 0 ||
+                    (selectionStart !== null &&
+                        selectionEnd !== null &&
+                        (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
+                ) {
+                    // transition to actions when entering '>' with empty input, or when replacing the whole input
                     event.preventDefault()
                     actions.setCommandBar(BarStatus.SHOW_ACTIONS)
                 }

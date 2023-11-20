@@ -150,7 +150,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21 /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
