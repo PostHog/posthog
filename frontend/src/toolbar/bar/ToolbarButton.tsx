@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import './ToolbarButton.scss'
-import { FunctionComponent } from 'react'
+import { FunctionComponent, useEffect } from 'react'
 import React from 'react'
 
 export type ToolbarButtonProps = {
@@ -26,8 +26,21 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
     const active = visibleMenu === menuId
     const theTitle = title ?? (menuId ? capitalizeFirstLetter(menuId) : undefined)
 
-    const _onClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>): void => {
+    // We want to delay the cancel of dragging as there is a slight race with the click handler
+    const delayedIsDragging = React.useRef<boolean>(false)
+
+    useEffect(() => {
         if (isDragging) {
+            delayedIsDragging.current = true
+        } else {
+            setTimeout(() => {
+                delayedIsDragging.current = false
+            }, 100)
+        }
+    }, [isDragging])
+
+    const _onClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>): void => {
+        if (delayedIsDragging.current) {
             return
         }
 
