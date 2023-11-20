@@ -1,4 +1,4 @@
-import { Ref } from 'react'
+import { RefObject } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
@@ -10,7 +10,7 @@ type SearchBarTabProps = {
     type: ResultTypeWithAll
     active: boolean
     count?: number | null
-    inputRef: Ref<HTMLInputElement>
+    inputRef: RefObject<HTMLInputElement>
 }
 
 export const SearchBarTab = ({ type, active, count, inputRef }: SearchBarTabProps): JSX.Element => {

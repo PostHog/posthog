@@ -10,7 +10,7 @@ import { SearchTabs } from './SearchTabs'
 export const SearchBar = (): JSX.Element => {
     useMountedLogic(searchBarLogic) // load initial results
 
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
 
     return (
         <div className="flex flex-col h-full">

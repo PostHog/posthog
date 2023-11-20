@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
-import { Ref } from 'react'
+import { RefObject } from 'react'
 
 import { searchBarLogic } from './searchBarLogic'
 import { SearchBarTab } from './SearchBarTab'
 import { ResultType } from './types'
 
 type SearchTabsProps = {
-    inputRef: Ref<HTMLInputElement>
+    inputRef: RefObject<HTMLInputElement>
 }
 
 export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null => {
