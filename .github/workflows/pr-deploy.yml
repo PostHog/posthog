@@ -75,9 +75,9 @@ jobs:
                   envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
 
                   #Clean and deploy
+                  kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/tailscale.yaml || true
                   kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml || true
-                  #kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/tailscale.yaml
-                  #kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
+                  kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
                   echo "url=$NAMESPACE.${HOSTNAME}-hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
