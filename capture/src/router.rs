@@ -58,8 +58,18 @@ pub fn router<
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())))
-        .route("/i/v0/e", post(capture::event).options(capture::options))
-        .route("/i/v0/e/", post(capture::event).options(capture::options))
+        .route(
+            "/i/v0/e",
+            post(capture::event)
+                .get(capture::event)
+                .options(capture::options),
+        )
+        .route(
+            "/i/v0/e/",
+            post(capture::event)
+                .get(capture::event)
+                .options(capture::options),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
