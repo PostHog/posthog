@@ -16,6 +16,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -32,6 +33,7 @@ export function Navbar(): JSX.Element {
     const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     return (
         <nav className="Navbar3000" ref={containerRef}>
@@ -74,9 +76,13 @@ export function Navbar(): JSX.Element {
                             title="Search"
                             onClick={toggleSearchBar}
                             sideIcon={
-                                <span className="text-xs">
-                                    <KeyboardShortcut shift k />
-                                </span>
+                                !isUsingNewNav ? (
+                                    <span className="text-xs">
+                                        <KeyboardShortcut shift k />
+                                    </span>
+                                ) : (
+                                    <></>
+                                )
                             }
                         />
                         <NavbarButton
