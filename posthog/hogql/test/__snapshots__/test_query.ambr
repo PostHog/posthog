@@ -14,34 +14,10 @@
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   '
 ---
-# name: TestQuery.test_hogql_query_filters_alias
-  '
-  
-  SELECT e.event, e.distinct_id 
-  FROM events AS e 
-  WHERE and(equals(e.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
-  LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
-# name: TestQuery.test_hogql_union_all_limits
-  '
-  
-  SELECT events.event 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  LIMIT 100 UNION ALL 
-  SELECT events.event 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
 # name: TestQuery.test_query
   '
   
-  SELECT count(), events.event 
+  SELECT count(), events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event 
@@ -52,12 +28,12 @@
 # name: TestQuery.test_query_distinct
   '
   
-  SELECT DISTINCT persons.properties___sneaky_mail 
+  SELECT DISTINCT persons.properties___sneaky_mail AS sneaky_mail 
   FROM (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -68,25 +44,10 @@
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   '
 ---
-# name: TestQuery.test_query_joins_events_e_pdi
-  '
-  
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), e__pdi.distinct_id, e__pdi.person_id 
-  FROM events AS e INNER JOIN (
-  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-  FROM person_distinct_id2 
-  WHERE equals(person_distinct_id2.team_id, 420) 
-  GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) 
-  WHERE equals(e.team_id, 420) 
-  LIMIT 10 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
 # name: TestQuery.test_query_joins_events_pdi
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, events__pdi.person_id 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi.person_id AS person_id 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -101,17 +62,17 @@
 # name: TestQuery.test_query_joins_events_pdi_e_person_properties
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi.distinct_id, e__pdi__person.properties___sneaky_mail 
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_1)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -125,7 +86,7 @@
 # name: TestQuery.test_query_joins_events_pdi_person
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, events__pdi__person.id 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.id AS id 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -146,17 +107,17 @@
 # name: TestQuery.test_query_joins_events_pdi_person_properties
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi.distinct_id, events__pdi__person.properties___sneaky_mail 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -170,17 +131,17 @@
 # name: TestQuery.test_query_joins_events_person_properties
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi__person.properties___sneaky_mail 
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_1)s) AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -194,17 +155,17 @@
 # name: TestQuery.test_query_joins_events_person_properties_in_aggregration
   '
   
-  SELECT s__pdi__person.properties___sneaky_mail, count() 
+  SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() 
   FROM events AS s INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -219,9 +180,9 @@
 # name: TestQuery.test_query_joins_pdi
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), pdi.person_id 
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.person_id AS person_id 
   FROM events AS e INNER JOIN (
-  SELECT person_distinct_id2.distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
+  SELECT person_distinct_id2.distinct_id AS distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
@@ -231,45 +192,10 @@
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   '
 ---
-# name: TestQuery.test_query_joins_pdi_person_properties
-  '
-  
-  SELECT pdi.distinct_id, pdi__person.properties___sneaky_mail 
-  FROM person_distinct_id2 AS pdi INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
-  FROM person 
-  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
-  FROM person 
-  WHERE equals(person.team_id, 420) 
-  GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, pdi__person.id) 
-  WHERE equals(pdi.team_id, 420) 
-  LIMIT 10 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
-# name: TestQuery.test_query_joins_pdi_persons
-  '
-  
-  SELECT pdi.distinct_id, toTimeZone(pdi__person.created_at, %(hogql_val_0)s) 
-  FROM person_distinct_id2 AS pdi INNER JOIN (
-  SELECT argMax(person.created_at, person.version) AS created_at, person.id AS id 
-  FROM person 
-  WHERE equals(person.team_id, 420) 
-  GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, pdi__person.id) 
-  WHERE equals(pdi.team_id, 420) 
-  LIMIT 10 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
 # name: TestQuery.test_query_joins_simple
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), pdi.distinct_id, p.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(p.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(p.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM events AS e LEFT JOIN person_distinct_id2 AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN person AS p ON equals(p.id, pdi.person_id) 
   WHERE and(equals(p.team_id, 420), equals(pdi.team_id, 420), equals(e.team_id, 420)) 
   LIMIT 100 
@@ -279,7 +205,7 @@
 # name: TestQuery.test_query_person_distinct_ids
   '
   
-  SELECT DISTINCT person_distinct_ids.person_id, person_distinct_ids.distinct_id 
+  SELECT DISTINCT person_distinct_ids.person_id AS person_id, person_distinct_ids.distinct_id AS distinct_id 
   FROM (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -293,17 +219,17 @@
 # name: TestQuery.test_query_select_person_with_joins_without_poe
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi__person.id, events__pdi__person.properties___sneaky_mail 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events__pdi__person.id AS id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
-  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -317,7 +243,7 @@
 # name: TestQuery.test_query_select_person_with_poe_without_joins
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events.person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 10 
@@ -327,7 +253,7 @@
 # name: TestQuery.test_select_person_on_events
   '
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), count() 
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() 
   FROM events AS s 
   WHERE equals(s.team_id, 420) 
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
@@ -338,9 +264,9 @@
 # name: TestQuery.test_subquery
   '
   
-  SELECT count, event 
+  SELECT count AS count, event AS event 
   FROM (
-  SELECT count() AS count, events.event 
+  SELECT count() AS count, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event) 
@@ -352,9 +278,9 @@
 # name: TestQuery.test_subquery_alias
   '
   
-  SELECT c.count, c.event 
+  SELECT c.count AS count, c.event AS event 
   FROM (
-  SELECT count(*) AS count, events.event 
+  SELECT count(*) AS count, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event) AS c 
@@ -366,9 +292,9 @@
 # name: TestQuery.test_tuple_access
   '
   
-  SELECT col_a, arrayZip((sumMap(g.1, g.2) AS x).1, x.2) AS r 
+  SELECT col_a AS col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
   FROM (
-  SELECT col_a, groupArray(tuple(col_b, col_c)) AS g 
+  SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
   FROM (
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
@@ -376,46 +302,6 @@
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) 
   GROUP BY col_a) 
   GROUP BY col_a ORDER BY col_a ASC 
-  LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
-# name: TestQuery.test_with_pivot_table_1_level
-  '
-  
-  SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
-  FROM (
-  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r 
-  FROM (
-  SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
-  FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
-  GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
-  GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC 
-  LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
-  '
----
-# name: TestQuery.test_with_pivot_table_2_levels
-  '
-  
-  SELECT final.col_a, final.r 
-  FROM (
-  SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
-  FROM (
-  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r 
-  FROM (
-  SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
-  FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
-  GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
-  GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   '

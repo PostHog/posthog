@@ -127,7 +127,8 @@ class Resolver(CloningVisitor):
                 self._expand_asterisk_columns(new_node, new_expr.type)
                 continue
 
-            # not an asterisk
+            # Any alias we can use to refer to this field?
+            alias = None
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
@@ -465,6 +466,9 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+
+        if isinstance(node.type, ast.ExpressionFieldType):
+            return self.visit(ast.Alias(alias=node.type.name, expr=node.type.expr, hidden=True))
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
