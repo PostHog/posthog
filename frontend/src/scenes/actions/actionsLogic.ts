@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Scene } from 'scenes/sceneTypes'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 
 export type ActionsFilterType = 'all' | 'me'
 
@@ -68,10 +70,12 @@ export const actionsLogic = kea<actionsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Management`,
+                    key: Scene.DataManagement,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {
+                    key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
                 },

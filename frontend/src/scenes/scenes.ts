@@ -45,7 +45,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.WebAnalytics]: {
         projectBased: true,
-        name: 'Web Analytics',
+        name: 'Web analytics',
         layout: 'app-container',
     },
     [Scene.Cohort]: {
@@ -54,43 +54,43 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Event Explorer',
+        name: 'Event explorer',
     },
     [Scene.BatchExports]: {
         projectBased: true,
-        name: 'Batch Exports',
+        name: 'Batch exports',
     },
     [Scene.BatchExportEdit]: {
         projectBased: true,
-        name: 'Edit Batch Export',
+        name: 'Edit batch export',
     },
     [Scene.BatchExport]: {
         projectBased: true,
-        name: 'Batch Export',
+        name: 'Batch export',
     },
     [Scene.DataManagement]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Data management',
     },
     [Scene.EventDefinition]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Data management',
     },
     [Scene.PropertyDefinition]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Data management',
     },
     [Scene.Replay]: {
         projectBased: true,
-        name: 'Session Replay',
+        name: 'Session replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
-        name: 'Replay Recording',
+        name: 'Replay recording',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
-        name: 'Replay Playlist',
+        name: 'Replay playlist',
     },
     [Scene.Person]: {
         projectBased: true,
@@ -98,7 +98,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.PersonsManagement]: {
         projectBased: true,
-        name: 'Persons & Groups',
+        name: 'People & groups',
     },
     [Scene.Action]: {
         projectBased: true,
@@ -106,7 +106,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Group]: {
         projectBased: true,
-        name: 'Persons & Groups',
+        name: 'People & groups',
     },
     [Scene.Pipeline]: {
         projectBased: true,
@@ -126,7 +126,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
-        name: 'Feature Flags',
+        name: 'Feature flags',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -145,27 +145,27 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
-        name: 'Data Warehouse',
+        name: 'Data warehouse',
     },
     [Scene.DataWarehousePosthog]: {
         projectBased: true,
-        name: 'Data Warehouse',
+        name: 'Data warehouse',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
-        name: 'Data Warehouse',
+        name: 'Data warehouse',
     },
     [Scene.DataWarehouseSavedQueries]: {
         projectBased: true,
-        name: 'Data Warehouse',
+        name: 'Data warehouse',
     },
     [Scene.DataWarehouseSettings]: {
         projectBased: true,
-        name: 'Data Warehouse Settings',
+        name: 'Data warehouse settings',
     },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
-        name: 'Data Warehouse Table',
+        name: 'Data warehouse table',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
@@ -187,14 +187,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.SavedInsights]: {
         projectBased: true,
-        name: 'Insights',
+        name: 'Product analytics',
     },
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
     },
     [Scene.IntegrationsRedirect]: {
-        name: 'Integrations Redirect',
+        name: 'Integrations redirect',
     },
     [Scene.Products]: {
         projectBased: true,
@@ -206,7 +206,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
-        name: 'Launch Toolbar',
+        name: 'Launch toolbar',
     },
     [Scene.Site]: {
         projectBased: true,

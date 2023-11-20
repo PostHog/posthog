@@ -53,6 +53,7 @@ import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { Scene } from 'scenes/sceneTypes'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -734,11 +735,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard],
             (dashboard): Breadcrumb[] => [
                 {
+                    key: Scene.Dashboards,
                     name: 'Dashboards',
                     path: urls.dashboards(),
                 },
                 {
+                    key: dashboard?.id || 'new',
                     name: dashboard?.id ? dashboard.name || 'Unnamed' : null,
+                    onRename: async (name) => {
+                        if (dashboard) {
+                            await dashboardsModel.asyncActions.updateDashboard({
+                                id: dashboard.id,
+                                name,
+                                allowUndo: true,
+                            })
+                        }
+                    },
                 },
             ],
         ],

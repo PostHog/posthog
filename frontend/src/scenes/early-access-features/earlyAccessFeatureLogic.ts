@@ -15,6 +15,7 @@ import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from '@posthog/lemon-ui'
+import { Scene } from 'scenes/sceneTypes'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -121,10 +122,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
                 {
+                    key: Scene.EarlyAccessFeatures,
                     name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
                 },
-                ...(earlyAccessFeature?.name ? [{ name: earlyAccessFeature.name }] : []),
+                {
+                    key: earlyAccessFeature.id || 'new',
+                    name: earlyAccessFeature.name,
+                },
             ],
         ],
     }),

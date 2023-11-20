@@ -4,14 +4,14 @@
     border-radius: 4px;
 
     &.SelectableElement--selected {
-        background: var(--primary);
+        background: var(--primary-3000);
     }
 
     &:hover {
-        background: var(--primary-light);
+        background: var(--primary-3000-hover);
     }
 
     &:active {
-        background: var(--primary-dark);
+        background: var(--primary-3000-active);
     }
 }

@@ -30,11 +30,15 @@
 }
 
 .LemonCollapsePanel__body {
-    transition: height 200ms ease;
-    height: 0;
-    overflow: hidden;
     border-top-width: 1px;
     box-sizing: content-box;
+    height: 0;
+    overflow: hidden;
+    transition: height 200ms ease;
+
+    .posthog-3000 & {
+        background: var(--bg-light);
+    }
 }
 
 .LemonCollapsePanel__content {

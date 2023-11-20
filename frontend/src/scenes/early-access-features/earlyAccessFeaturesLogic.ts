@@ -5,6 +5,7 @@ import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 
 import type { earlyAccessFeaturesLogicType } from './earlyAccessFeaturesLogicType'
 import { urls } from 'scenes/urls'
+import { Scene } from 'scenes/sceneTypes'
 
 export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
     path(['scenes', 'features', 'featuresLogic']),
@@ -22,7 +23,8 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Early Access Management',
+                    key: Scene.EarlyAccessFeatures,
+                    name: 'Early access features',
                     path: urls.earlyAccessFeatures(),
                 },
             ],
