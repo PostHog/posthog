@@ -17,9 +17,9 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     path(['scenes', 'apps', 'frontendAppSceneLogic']),
     props({} as FrontendAppSceneLogicProps),
     key((props) => props.id),
-    connect({
+    connect(() => ({
         values: [frontendAppsLogic, ['frontendApps', 'appConfigs']],
-    }),
+    })),
     selectors(() => ({
         // Frontend app created after receiving a bundle via import('').getFrontendApp()
         frontendApp: [
