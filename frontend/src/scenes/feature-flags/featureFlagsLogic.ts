@@ -154,7 +154,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Feature Flags',
+                    name: 'Feature flags',
                     path: urls.featureFlags(),
                 },
             ],
