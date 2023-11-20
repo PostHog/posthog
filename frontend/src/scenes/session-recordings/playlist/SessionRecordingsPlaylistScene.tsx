@@ -35,8 +35,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         return (
             <div className="space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
-                <LemonSkeleton className=" w-1/3" />
-                <LemonSkeleton className=" w-1/4" />
+                <LemonSkeleton className="h-4 w-1/3" />
+                <LemonSkeleton className="h-4 w-1/4" />
 
                 <div className="flex justify-between mt-4">
                     <LemonSkeleton.Button />

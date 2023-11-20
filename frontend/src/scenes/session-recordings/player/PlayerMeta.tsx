@@ -99,7 +99,7 @@ export function PlayerMeta(): JSX.Element {
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
 
     const resolutionView = sessionPlayerMetaDataLoading ? (
-        <LemonSkeleton className="w-1/3" />
+        <LemonSkeleton className="w-1/3 h-4" />
     ) : resolution ? (
         <Tooltip
             placement="bottom"
@@ -166,12 +166,12 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <div className="overflow-hidden ph-no-capture flex-1">
-                        <div className="font-bold">
+                        <div>
                             {!sessionPerson || !startTime ? (
-                                <LemonSkeleton className="w-1/3 my-1" />
+                                <LemonSkeleton className="w-1/3 h-4 my-1" />
                             ) : (
                                 <div className="flex gap-1">
-                                    <span className="whitespace-nowrap truncate">
+                                    <span className="font-bold whitespace-nowrap truncate">
                                         <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
                                     </span>
                                     {'·'}
@@ -186,7 +186,7 @@ export function PlayerMeta(): JSX.Element {
                         </div>
                         <div className="text-muted">
                             {sessionPlayerMetaDataLoading ? (
-                                <LemonSkeleton className="w-1/4 my-1" />
+                                <LemonSkeleton className="w-1/4 h-4 my-1" />
                             ) : sessionProperties ? (
                                 <SessionPropertyMeta
                                     fullScreen={isFullScreen}
@@ -206,7 +206,7 @@ export function PlayerMeta(): JSX.Element {
                     })}
                 >
                     {sessionPlayerMetaDataLoading ? (
-                        <LemonSkeleton className="w-1/3 my-1" />
+                        <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
                         <>
                             <Tooltip

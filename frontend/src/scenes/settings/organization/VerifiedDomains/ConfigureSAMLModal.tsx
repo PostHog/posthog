@@ -40,7 +40,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                         <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
                     </Field>
                     <Field label="RelayState" name="_RelayState">
-                        <CopyToClipboardInline>{configureSAMLModalId ?? undefined}</CopyToClipboardInline>
+                        <CopyToClipboardInline>{configureSAMLModalId || 'unknown'}</CopyToClipboardInline>
                     </Field>
                     <Field label="Audience / Entity ID" name="_Audience">
                         <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>

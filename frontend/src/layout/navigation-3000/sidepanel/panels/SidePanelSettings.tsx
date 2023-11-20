@@ -3,10 +3,11 @@ import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 import { Settings } from 'scenes/settings/Settings'
 import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { SettingsLogicProps, settingsLogic } from 'scenes/settings/settingsLogic'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { useEffect } from 'react'
 import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { IconExternal } from '@posthog/icons'
+import { SettingsLogicProps } from 'scenes/settings/types'
 
 export const SidePanelSettings = (): JSX.Element => {
     const { settings } = useValues(sidePanelSettingsLogic)

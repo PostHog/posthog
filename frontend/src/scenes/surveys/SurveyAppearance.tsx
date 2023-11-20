@@ -104,7 +104,7 @@ export function SurveyAppearance({
                 surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
                 <SurveyMultipleChoiceAppearance
                     preview={preview}
-                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    multipleChoiceQuestion={surveyQuestionItem}
                     appearance={appearance}
                     onSubmit={() => undefined}
                 />

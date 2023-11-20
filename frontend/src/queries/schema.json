@@ -1526,6 +1526,10 @@
                     "enum": ["leftjoin", "subquery"],
                     "type": "string"
                 },
+                "materializationMode": {
+                    "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -1732,6 +1736,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "source"],
@@ -1801,10 +1808,6 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2410,6 +2413,51 @@
                 }
             ]
         },
+        "QueryStatus": {
+            "additionalProperties": false,
+            "properties": {
+                "complete": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "end_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "error": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "error_message": {
+                    "default": "",
+                    "type": "string"
+                },
+                "expiration_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "query_async": {
+                    "default": true,
+                    "type": "boolean"
+                },
+                "results": {},
+                "start_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "integer"
+                }
+            },
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "type": "object"
+        },
         "QueryTiming": {
             "additionalProperties": false,
             "properties": {
@@ -2644,6 +2692,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "shortId"],
@@ -2757,10 +2808,6 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -3087,6 +3134,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VizSpecificOptions": {
+            "additionalProperties": false,
+            "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
+            "properties": {
+                "RETENTION": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hideLineGraph": {
+                            "type": "boolean"
+                        },
+                        "hideSizeColumn": {
+                            "type": "boolean"
+                        },
+                        "useSmallLayout": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "WebAnalyticsPropertyFilter": {

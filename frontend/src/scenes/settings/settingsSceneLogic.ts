@@ -10,6 +10,7 @@ import { SettingSectionId, SettingLevelId, SettingLevelIds } from './types'
 
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
 import { settingsLogic } from './settingsLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
@@ -28,10 +29,12 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
             (selectedLevel, selectedSectionId): Breadcrumb[] => [
                 {
+                    key: Scene.Settings,
                     name: `Settings`,
                     path: urls.settings('project'),
                 },
                 {
+                    key: selectedSectionId || selectedLevel,
                     name: selectedSectionId
                         ? SettingsMap.find((x) => x.id === selectedSectionId)?.title
                         : capitalizeFirstLetter(selectedLevel),

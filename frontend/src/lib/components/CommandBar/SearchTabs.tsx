@@ -1,10 +1,15 @@
 import { useValues } from 'kea'
+import { RefObject } from 'react'
 
 import { searchBarLogic } from './searchBarLogic'
-import SearchBarTab from './SearchBarTab'
+import { SearchBarTab } from './SearchBarTab'
 import { ResultType } from './types'
 
-const SearchTabs = (): JSX.Element | null => {
+type SearchTabsProps = {
+    inputRef: RefObject<HTMLInputElement>
+}
+
+export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null => {
     const { searchResponse, activeTab } = useValues(searchBarLogic)
 
     if (!searchResponse) {
@@ -12,12 +17,17 @@ const SearchTabs = (): JSX.Element | null => {
     }
 
     return (
-        <div className="flex items-center border-t space-x-3 px-2">
-            <SearchBarTab type="all" active={activeTab === 'all'} />
+        <div className="flex items-center border-t space-x-3 px-2 shrink-0 overflow-x-auto">
+            <SearchBarTab type="all" active={activeTab === 'all'} inputRef={inputRef} />
             {Object.entries(searchResponse.counts).map(([type, count]) => (
-                <SearchBarTab key={type} type={type as ResultType} count={count} active={activeTab === type} />
+                <SearchBarTab
+                    key={type}
+                    type={type as ResultType}
+                    count={count}
+                    active={activeTab === type}
+                    inputRef={inputRef}
+                />
             ))}
         </div>
     )
 }
-export default SearchTabs

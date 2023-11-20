@@ -87,7 +87,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>
-                            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
                             lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
                         )
                     }

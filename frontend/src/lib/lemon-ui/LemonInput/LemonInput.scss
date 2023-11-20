@@ -1,27 +1,26 @@
 .LemonInput {
-    transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, opacity 200ms ease;
-    display: flex;
-    min-height: 2.5rem;
-    padding: 0.25rem 0.5rem;
+    align-items: center;
     background: none;
     border-radius: var(--radius);
-    font-size: 0.875rem;
-    text-align: left;
-    line-height: 1.25rem;
-    cursor: text;
-    color: var(--default);
     border: 1px solid var(--border);
-    background-color: var(--bg-light);
-    align-items: center;
-    justify-content: center;
+    color: var(--default);
+    cursor: text;
+    display: flex;
+    font-size: 0.875rem;
     gap: 0.25rem;
+    justify-content: center;
+    line-height: 1.25rem;
+    min-height: 2.5rem;
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+    background-color: var(--bg-light);
 
     &:hover:not([aria-disabled='true']) {
-        border-color: var(--primary-light);
+        border-color: var(--primary-3000-hover);
     }
 
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
     }
 
     &.LemonInput--transparent-background {
@@ -67,7 +66,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 

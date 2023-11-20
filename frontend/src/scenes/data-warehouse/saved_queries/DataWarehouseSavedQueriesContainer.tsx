@@ -3,7 +3,7 @@ import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { DataWarehouseSceneRow } from '../types'
 import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
@@ -67,7 +67,7 @@ export function DataWarehouseSavedQueriesContainer(): JSX.Element {
                                         <LemonButton
                                             status="danger"
                                             onClick={() => {
-                                                deleteWithUndo({
+                                                void deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/warehouse_saved_queries`,
                                                     object: { name: warehouseView.name, id: warehouseView.id },
                                                     callback: loadDataWarehouseSavedQueries,

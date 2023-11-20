@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { getProductIcon } from 'scenes/products/Products'
+import useResizeObserver from 'use-resize-observer'
 
 export function PlanIcon({
     feature,
@@ -27,7 +28,7 @@ export function PlanIcon({
                 </>
             ) : feature.limit ? (
                 <>
-                    <IconWarning className={`text-warning mx-4 ${className}`} />
+                    <IconWarning className={`text-warning mx-4 shrink-0 ${className}`} />
                     {feature.limit &&
                         `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
                             timeDenominator ? `/${timeDenominator}` : ''
@@ -36,7 +37,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckmark className={`text-success mx-4 ${className}`} />
+                    <IconCheckmark className={`text-success mx-4 shrink-0 ${className}`} />
                     {feature.note}
                 </>
             )}
@@ -48,6 +49,7 @@ const getProductTiers = (
     plan: BillingV2PlanType,
     product: BillingProductV2Type | BillingProductV2AddonType
 ): JSX.Element => {
+    const { width, ref: tiersRef } = useResizeObserver()
     const tiers = plan?.tiers
 
     const allTierPrices = tiers?.map((tier) => parseFloat(tier.unit_amount_usd))
@@ -59,7 +61,8 @@ const getProductTiers = (
                 tiers?.map((tier, i) => (
                     <div
                         key={`${plan.key}-${product.type}-${tier.up_to}`}
-                        className="flex justify-between items-center"
+                        className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
+                        ref={tiersRef}
                     >
                         <span className="text-xs">
                             {convertLargeNumberToWords(tier.up_to, tiers[i - 1]?.up_to, true, product.unit)}
@@ -72,7 +75,11 @@ const getProductTiers = (
                     </div>
                 ))
             ) : product?.free_allocation ? (
-                <div key={`${plan.key}-${product.type}-tiers`} className="flex justify-between items-center">
+                <div
+                    key={`${plan.key}-${product.type}-tiers`}
+                    className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
+                    ref={tiersRef}
+                >
                     <span className="text-xs">
                         Up to {convertLargeNumberToWords(product?.free_allocation, null)} {product?.unit}s/mo
                     </span>
@@ -97,6 +104,7 @@ export const PlanComparison = ({
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { redirectPath, billing } = useValues(billingLogic)
+    const { width, ref: planComparisonRef } = useResizeObserver()
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -132,7 +140,7 @@ export const PlanComparison = ({
     })
 
     return (
-        <table className="PlanComparison w-full table-fixed">
+        <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
             <thead>
                 <tr>
                     <td />
@@ -231,8 +239,8 @@ export const PlanComparison = ({
                     >
                         <th
                             className={`text-muted PlanTable__th__feature ${
-                                i == fullyFeaturedPlan?.features?.length - 1 ? 'PlanTable__th__last-feature' : ''
-                            }`}
+                                width && width < 600 && 'PlanTable__th__feature--reduced_padding'
+                            } ${i == fullyFeaturedPlan?.features?.length - 1 ? 'PlanTable__th__last-feature' : ''}`}
                         >
                             <Tooltip title={feature.description}>{feature.name}</Tooltip>
                         </th>
@@ -283,6 +291,10 @@ export const PlanComparison = ({
                                             <tr key={`tr-${feature.key}`}>
                                                 <th
                                                     className={`text-muted PlanTable__th__feature ${
+                                                        width &&
+                                                        width < 600 &&
+                                                        'PlanTable__th__feature--reduced_padding'
+                                                    } ${
                                                         // If this is the last feature in the list, add a class to add padding to the bottom of
                                                         // the cell (which makes the whole row have the padding)
                                                         i ==

@@ -5,7 +5,7 @@
         // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview
         // https://github.com/react-dnd/react-dnd/issues/832#issuecomment-442071628
         transform: translate3d(0, 0, 0);
-        outline: 1px solid var(--primary);
+        outline: 1px solid var(--primary-3000);
         background-color: var(--bg-light);
     }
 
