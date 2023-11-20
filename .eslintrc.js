@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server'],
+    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
     env,
     settings: {
         react: {
