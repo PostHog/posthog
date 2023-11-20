@@ -792,6 +792,7 @@ export interface ClickHousePersonDistinctId2 {
 export interface Cohort {
     id: number
     name: string
+    post_to_webhook: boolean
     description: string
     deleted: boolean
     groups: any[]

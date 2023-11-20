@@ -15,10 +15,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 2
+    AND version = NULL
   '
 ---
 # name: TestTrends.test_action_filtering_with_cohort.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 2
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort.3
   '
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
@@ -28,7 +38,7 @@
     AND version < 2
   '
 ---
-# name: TestTrends.test_action_filtering_with_cohort.3
+# name: TestTrends.test_action_filtering_with_cohort.4
   '
   
   SELECT groupArray(day_start) as date,
@@ -96,10 +106,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 2
+    AND version = NULL
   '
 ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 2
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
@@ -109,7 +129,7 @@
     AND version < 2
   '
 ---
-# name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.4
   '
   
   SELECT groupArray(day_start) as date,
@@ -1027,10 +1047,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -1092,10 +1122,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.3
   '
   
   SELECT groupArray(day_start) as date,

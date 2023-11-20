@@ -15,10 +15,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestEventQuery.test_account_filters.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestEventQuery.test_account_filters.3
   '
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id

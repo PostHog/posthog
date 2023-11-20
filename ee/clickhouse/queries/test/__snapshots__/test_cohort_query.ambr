@@ -510,10 +510,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
   '
   
   SELECT id

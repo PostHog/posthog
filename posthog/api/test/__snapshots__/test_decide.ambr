@@ -1,6 +1,3 @@
-# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
-  'SELECT 1'
----
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '
   SELECT "posthog_user"."id",
@@ -348,6 +345,7 @@
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
+         "posthog_cohort"."post_to_webhook",
          "posthog_cohort"."created_by_id",
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
@@ -371,6 +369,7 @@
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
+         "posthog_cohort"."post_to_webhook",
          "posthog_cohort"."created_by_id",
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
@@ -504,6 +503,7 @@
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
+         "posthog_cohort"."post_to_webhook",
          "posthog_cohort"."created_by_id",
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
@@ -539,6 +539,7 @@
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
+         "posthog_cohort"."post_to_webhook",
          "posthog_cohort"."created_by_id",
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",

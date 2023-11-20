@@ -373,10 +373,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.3
   '
   
   SELECT countIf(steps = 1) step_1,

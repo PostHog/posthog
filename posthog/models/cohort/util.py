@@ -489,7 +489,8 @@ def call_webhook_on_cohort_update(
         requests.post(webhook_url, data=json.dumps(data), headers=headers)
     except requests.RequestException as e:
         logger.warn(f"Error sending webhook: {e}")
-        
+
+
 def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[str, Cohort]) -> List[int]:
     """
     Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
