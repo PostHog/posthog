@@ -317,10 +317,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             router.actions.push(urls.cohorts())
         },
         submitCohort: () => {
-            if(values.cohortHasErrors){
-                lemonToast.error('Cohort error. There was an error submiting this cohort. Make sure the cohort filters are correct.')
+            if (values.cohortHasErrors) {
+                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
             }
-
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
@@ -367,5 +366,4 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             clearTimeout(values.pollTimeout)
         }
     }),
-
 ])
