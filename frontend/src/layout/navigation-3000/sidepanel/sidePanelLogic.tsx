@@ -23,14 +23,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [
-                s.featureFlags,
-                s.isCloudOrDev,
-                // TODO: This is disabled for now until we can solve the circular dependency problem
-                activationLogic.selectors.isReady,
-                activationLogic.selectors.hasCompletedAllTasks,
-            ],
-            (featureFlags, isCloudOrDev, activationIsReady, activationHasCompletedAllTasks) => {
+            (s) => [s.featureFlags, s.isCloudOrDev],
+            (featureFlags, isCloudOrDev) => {
                 const tabs: SidePanelTab[] = []
 
                 if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
@@ -44,10 +38,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activation)
-
-                if (activationIsReady && !activationHasCompletedAllTasks) {
-                    tabs.push(SidePanelTab.Activation)
-                }
 
                 return tabs
             },
