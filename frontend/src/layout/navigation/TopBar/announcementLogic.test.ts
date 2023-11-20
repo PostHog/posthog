@@ -31,7 +31,7 @@ describe('announcementLogic', () => {
     })
 
     it('hides announcements during the ingestion phase', async () => {
-        router.actions.push(urls.ingestion())
+        router.actions.push(urls.products())
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
             shownAnnouncementType: null,

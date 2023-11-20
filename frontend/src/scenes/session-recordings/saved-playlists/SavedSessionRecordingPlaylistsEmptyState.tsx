@@ -27,7 +27,7 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                             AvailableFeature.RECORDINGS_PLAYLISTS,
                             'recording playlists',
                             "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
-                            () => createPlaylist({}, true),
+                            () => void createPlaylist({}, true),
                             undefined,
                             playlists.count
                         )

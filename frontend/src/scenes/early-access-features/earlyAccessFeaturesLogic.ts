@@ -28,7 +28,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             ],
         ],
     }),
-    afterMount(async ({ actions }) => {
-        await actions.loadEarlyAccessFeatures()
+    afterMount(({ actions }) => {
+        actions.loadEarlyAccessFeatures()
     }),
 ])

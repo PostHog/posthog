@@ -283,13 +283,10 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object) {
-                    return false
-                }
                 return (
                     <CopyToClipboardInline
                         description="property value"
-                        explicitValue={item[1]}
+                        explicitValue={typeof item[1] === 'object' ? JSON.stringify(item[1]) : String(item[1])}
                         selectable
                         isValueSensitive
                         style={{ verticalAlign: 'middle' }}

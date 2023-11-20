@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React from 'react'
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,7 +21,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
 }

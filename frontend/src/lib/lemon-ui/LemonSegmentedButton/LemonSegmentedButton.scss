@@ -18,6 +18,10 @@
     .LemonSegmentedButton__option {
         display: flex;
         flex: 1;
+
+        .LemonButton__content {
+            text-wrap: nowrap;
+        }
     }
 }
 
