@@ -134,6 +134,8 @@ class Resolver(CloningVisitor):
                 alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
+            else:
+                alias = None
 
             if alias:
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
