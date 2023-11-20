@@ -84,6 +84,10 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="running",
             source_type="Stripe",
+            job_inputs={
+                "account_id": account_id,
+                "client_secret": client_secret,
+            },
         )
 
         start_sync(new_connection.connection_id)
