@@ -24,7 +24,9 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     return (
         <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
             <div
-                className={`w-full pl-3 pr-2 ${focused ? 'bg-accent-3000' : 'bg-bg-light'} border-b cursor-pointer`}
+                className={`flex items-center w-full pl-3 pr-2 ${
+                    focused ? 'bg-accent-3000' : 'bg-bg-light'
+                } border-b cursor-pointer`}
                 onMouseEnter={() => {
                     onMouseEnterResult(result.index)
                 }}
@@ -42,6 +44,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                     <result.icon className="text-muted-3000" />
                     <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
                 </div>
+                {focused && <div className="shrink-0 text-muted-3000">Run command</div>}
             </div>
         </div>
     )

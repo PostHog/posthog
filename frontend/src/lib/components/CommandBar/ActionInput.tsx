@@ -31,7 +31,7 @@ export const ActionInput = (): JSX.Element => {
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
                 suffix={<KeyboardShortcut escape muted />}
-                placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
+                placeholder={activeFlow?.instruction ?? 'Run a command…'}
                 autoFocus
                 value={input}
                 onChange={setInput}
