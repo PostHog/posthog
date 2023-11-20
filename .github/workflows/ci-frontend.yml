@@ -39,13 +39,14 @@ jobs:
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .eslintrc.js
-                        - .prettierrc.js
+                        - .prettier*
                         - babel.config.js
                         - jest.*.ts
+                        - tsconfig.json
                         - tsconfig.*.json
                         - webpack.config.js
                         - postcss.config.js
-                        - stylelintrc.js
+                        - stylelint*
 
     frontend-code-quality:
         name: Code quality checks
@@ -53,8 +54,8 @@ jobs:
         # kea typegen and typescript:check need some more oomph
         runs-on: ubuntu-latest
         steps:
+            # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -125,8 +126,8 @@ jobs:
                 chunk: [1, 2, 3]
 
         steps:
+            # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
-              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
