@@ -101,7 +101,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[str, Cohort] = {}
+            seen_cohorts_cache: Dict[int, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
@@ -111,7 +111,7 @@ class OrganizationFeatureFlagView(
             # create cohorts in the destination project
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
-                    original_cohort = seen_cohorts_cache[str(cohort_id)]
+                    original_cohort = seen_cohorts_cache[cohort_id]
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
@@ -125,9 +125,9 @@ class OrganizationFeatureFlagView(
                         ).property_groups
 
                         for prop in prop_group.flat:
-                            if prop.type == "cohort":
-                                original_child_cohort_id = prop.value
-                                original_child_cohort = seen_cohorts_cache[str(original_child_cohort_id)]
+                            if prop.type == "cohort" and not isinstance(prop.value, list):
+                                original_child_cohort_id = int(prop.value)
+                                original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
                                 prop.value = name_to_dest_cohort_id[original_child_cohort.name]
 
                         destination_cohort_serializer = CohortSerializer(
@@ -155,8 +155,8 @@ class OrganizationFeatureFlagView(
                 props = group.get("properties", [])
                 for prop in props:
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
-                        original_cohort_id = prop["value"]
-                        cohort_name = (seen_cohorts_cache[str(original_cohort_id)]).name
+                        original_cohort_id = int(prop["value"])
+                        cohort_name = (seen_cohorts_cache[original_cohort_id]).name
                         prop["value"] = name_to_dest_cohort_id[cohort_name]
 
             flag_data = {

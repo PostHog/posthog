@@ -503,11 +503,11 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[str, Cohort] = {}
+        seen_cohorts_cache: Dict[int, Cohort] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {
-                str(cohort.pk): cohort
+                cohort.pk: cohort
                 for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     team_id=self.team_id, deleted=False
                 )
@@ -547,12 +547,11 @@ class FeatureFlagViewSet(
                 ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
-                        parsed_cohort_id = str(id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if id in seen_cohorts_cache:
+                            cohort = seen_cohorts_cache[id]
                         else:
                             cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            seen_cohorts_cache[id] = cohort
 
                         if not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
