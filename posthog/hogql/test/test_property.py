@@ -163,7 +163,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a = 'b' or properties.a = 'c'"),
+            self._parse_expr("properties.a IN ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -183,7 +183,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b' and properties.a != 'c'"),
+            self._parse_expr("properties.a NOT IN ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
