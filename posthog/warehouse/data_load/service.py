@@ -12,6 +12,7 @@ from temporalio.client import (
 from dataclasses import asdict
 from posthog.warehouse.models import ExternalDataSource
 
+
 from posthog.temporal.client import sync_connect
 from posthog.temporal.workflows.external_data_job import ExternalDataJobWorkflow, ExternalDataJobInputs
 from posthog.temporal.schedule import (

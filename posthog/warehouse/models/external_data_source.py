@@ -20,8 +20,8 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
 
     @property
     def folder_path(self) -> str:
-        return f"{self.team_id}/{self.source_type}/{str(self.pk)}"
+        return f"team_{self.team_id}_{self.source_type}_{str(self.pk)}".lower().replace("-", "_")
 
     @property
     def draft_folder_path(self) -> str:
-        return f"team-{self.team_id}/{self.source_type}/{str(self.pk)}-draft"
+        return f"team_{self.team_id}_{self.source_type}_{str(self.pk)}_draft".lower().replace("-", "_")

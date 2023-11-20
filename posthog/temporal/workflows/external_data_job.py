@@ -2,7 +2,12 @@ import json
 import dataclasses
 import uuid
 import datetime as dt
-from posthog.warehouse.data_load.pipeline import PIPELINE_TYPE_INPUTS_MAPPING, PIPELINE_TYPE_MAPPING
+from posthog.warehouse.data_load.pipeline import (
+    PIPELINE_TYPE_INPUTS_MAPPING,
+    PIPELINE_TYPE_MAPPING,
+    move_draft_to_production,
+)
+
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
@@ -46,6 +51,20 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         status=inputs.status,
         latest_error=inputs.latest_error,
     )  # type: ignore
+
+
+@dataclasses.dataclass
+class MoveDraftToProductionExternalDataJobInputs:
+    team_id: int
+    external_data_source_id: str
+
+
+@activity.defn
+async def move_draft_to_production_activity(inputs: MoveDraftToProductionExternalDataJobInputs) -> None:
+    await sync_to_async(move_draft_to_production)(
+        team_id=inputs.team_id,
+        external_data_source_id=inputs.external_data_source_id,
+    )
 
 
 @dataclasses.dataclass
@@ -114,6 +133,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             update_inputs.latest_error = "An unexpected error has ocurred"
             raise
+        else:
+            move_inputs = MoveDraftToProductionExternalDataJobInputs(
+                team_id=inputs.team_id,
+                external_data_source_id=inputs.external_data_source_id,
+            )
+
+            await workflow.execute_activity(
+                move_draft_to_production_activity,
+                move_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+            )
         finally:
             await workflow.execute_activity(
                 update_external_data_job_model,
