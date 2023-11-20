@@ -92,7 +92,7 @@ async def should_resume_from_activity_heartbeat(
     except NotEnoughHeartbeatValuesError:
         heartbeat_details = None
         received = False
-        logger.warning("Did not receive details from previous activity execution")
+        logger.warning("Details from previous activity execution did not contain the expected amount of values")
 
     except HeartbeatParseError:
         heartbeat_details = None
