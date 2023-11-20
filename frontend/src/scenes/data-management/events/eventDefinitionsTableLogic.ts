@@ -103,7 +103,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     }),
     reducers({
         filters: [
-            cleanFilters({}) as Filters,
+            cleanFilters({}),
             {
                 setFilters: (state, { filters }) => ({
                     ...state,

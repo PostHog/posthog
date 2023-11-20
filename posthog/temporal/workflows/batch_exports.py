@@ -11,7 +11,7 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from prometheus_client import Counter
+from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -22,20 +22,17 @@ from posthog.batch_exports.service import (
     update_batch_export_run_status,
 )
 from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_export_finished_metric, get_export_started_metric
 
 SELECT_QUERY_TEMPLATE = Template(
     """
     SELECT $fields
     FROM events
     WHERE
-        -- These 'timestamp' checks are a heuristic to exploit the sort key.
-        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
-        -- As a side-effect, this heuristic will discard historical loads older than 2 days.
-        timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-        AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-        AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
+        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
+        $timestamp
         $exclude_events
         $include_events
     $order_by
@@ -43,14 +40,13 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-ROWS_EXPORTED = Counter("batch_export_rows_exported", "Number of rows exported.", labelnames=("destination",))
-BYTES_EXPORTED = Counter("batch_export_bytes_exported", "Number of bytes exported.", labelnames=("destination",))
-EXPORT_STARTED = Counter("batch_export_started", "Number of batch exports started.", labelnames=("destination",))
-EXPORT_FINISHED = Counter(
-    "batch_export_finished",
-    "Number of batch exports finished, for any reason (including failure).",
-    labelnames=("destination", "status"),
-)
+TIMESTAMP_PREDICATES = """
+-- These 'timestamp' checks are a heuristic to exploit the sort key.
+-- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
+-- As a side-effect, this heuristic will discard historical loads older than a day.
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
+"""
 
 
 async def get_rows_count(
@@ -78,10 +74,15 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
+    timestamp_predicates = TIMESTAMP_PREDICATES
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        timestamp_predicates = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
+        timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
@@ -163,10 +164,15 @@ def get_results_iterator(
         include_events_statement = ""
         events_to_include_tuple = ()
 
+    timestamp_predicates = TIMESTAMP_PREDICATES
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        timestamp_predicates = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=S3_FIELDS if include_person_properties else FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
+        timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
@@ -495,6 +501,12 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger.info(
+        "Creating batch export for range %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -514,17 +526,33 @@ class UpdateBatchExportRunStatusInputs:
 
     id: str
     status: str
+    team_id: int
     latest_error: str | None = None
 
 
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_run_status)(
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+
+    batch_export_run = await sync_to_async(update_batch_export_run_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
     )  # type: ignore
+
+    if batch_export_run.status == "Failed":
+        logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
+
+    elif batch_export_run.status == "Cancelled":
+        logger.warning("BatchExport was cancelled.")
+
+    else:
+        logger.info(
+            "Successfully finished exporting batch %s - %s",
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+        )
 
 
 @dataclasses.dataclass
@@ -543,6 +571,12 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
     model instance to represent them in our database.
     """
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger.info(
+        "Creating historical export for batches in range %s - %s",
+        inputs.start_at,
+        inputs.end_at,
+    )
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -568,7 +602,23 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore
+    backfill = await sync_to_async(update_batch_export_backfill_status)(
+        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+    )  # type: ignore
+    logger = await bind_batch_exports_logger(team_id=backfill.team_id)
+
+    if backfill.status == "Failed":
+        logger.error("Historical export failed")
+
+    elif backfill.status == "Cancelled":
+        logger.warning("Historical export was cancelled.")
+
+    else:
+        logger.info(
+            "Successfully finished exporting historical batches in %s - %s",
+            backfill.start_at,
+            backfill.end_at,
+        )
 
 
 async def execute_batch_export_insert_activity(
@@ -599,9 +649,7 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    destination = workflow.info().workflow_type.lower()
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
-
+    get_export_started_metric().add(1)
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
         maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
@@ -609,7 +657,6 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
     try:
-        EXPORT_STARTED.labels(destination=destination).inc()
         await workflow.execute_activity(
             activity,
             inputs,
@@ -617,30 +664,23 @@ async def execute_batch_export_insert_activity(
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
+
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
-            logger.error("BatchExport was cancelled.")
             update_inputs.status = "Cancelled"
         else:
-            logger.exception("BatchExport failed.", exc_info=e.cause)
             update_inputs.status = "Failed"
 
         update_inputs.latest_error = str(e.cause)
         raise
 
-    except Exception as e:
-        logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
+    except Exception:
         update_inputs.status = "Failed"
         update_inputs.latest_error = "An unexpected error has ocurred"
         raise
 
-    else:
-        logger.info(
-            "Successfully finished exporting batch %s - %s", inputs.data_interval_start, inputs.data_interval_end
-        )
-
     finally:
-        EXPORT_FINISHED.labels(destination=destination, status=update_inputs.status.lower()).inc()
+        get_export_finished_metric(status=update_inputs.status.lower()).add(1)
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

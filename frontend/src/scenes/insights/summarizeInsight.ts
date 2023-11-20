@@ -1,5 +1,5 @@
 import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
-import { BreakdownFilter, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
+import { BreakdownFilter, InsightQueryNode, Node } from '~/queries/schema'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
@@ -272,7 +272,7 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
         return summary
     } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
-            (query as StickinessQuery).series
+            query.series
                 .map((s) => {
                     const actor = context.aggregationLabel(s.math_group_type_index, true).singular
                     return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`

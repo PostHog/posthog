@@ -23,7 +23,7 @@ const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
-    beforeEach(async () => {
+    beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
@@ -66,7 +66,7 @@ describe('sessionRecordingDataLogic', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([eventUsageLogic, teamLogic, userLogic])
         })
-        it('has default values', async () => {
+        it('has default values', () => {
             expect(logic.values).toMatchObject({
                 bufferedToTime: null,
                 durationMs: 0,

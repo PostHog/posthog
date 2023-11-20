@@ -66,12 +66,13 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/prop
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { QuerySchema } from '~/queries/schema'
+import { QuerySchema, QueryStatus } from '~/queries/schema'
 import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
+const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -541,6 +542,10 @@ class ApiRequest {
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
+    }
+
+    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(queryId)
     }
 
     // Notebooks
@@ -1259,7 +1264,7 @@ const api = {
             const params = toParams(
                 {
                     limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
+                    level_filter: typeFilters,
                     search: searchTerm || undefined,
                     before: trailingEntry?.timestamp,
                     after: leadingEntry?.timestamp,
@@ -1448,7 +1453,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -1736,6 +1741,12 @@ const api = {
         },
     },
 
+    queryStatus: {
+        async get(queryId: string): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -1744,7 +1755,8 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean
+        refresh?: boolean,
+        async?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1754,7 +1766,7 @@ const api = {
     > {
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
@@ -1865,6 +1877,23 @@ const api = {
             throw { status: response.status, ...data }
         }
         return response
+    },
+
+    async loadPaginatedResults(
+        url: string | null,
+        maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
+    ): Promise<any[]> {
+        let results: any[] = []
+        for (let i = 0; i <= maxIterations; ++i) {
+            if (!url) {
+                break
+            }
+
+            const { results: partialResults, next } = await api.get(url)
+            results = results.concat(partialResults)
+            url = next
+        }
+        return results
     },
 }
 

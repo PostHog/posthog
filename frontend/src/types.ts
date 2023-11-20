@@ -116,6 +116,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
 }
 
 export enum LicensePlan {
@@ -523,6 +524,12 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+}
+
+export enum PipelineAppTabs {
+    Configuration = 'configuration',
+    Logs = 'logs',
+    Metrics = 'metrics',
 }
 
 export enum ProgressStatus {
@@ -1141,6 +1148,7 @@ export interface PerformanceEvent {
     response_headers?: Record<string, string>
     request_body?: Body
     response_body?: Body
+    method?: string
 }
 
 export interface CurrentBillCycleType {
@@ -1174,6 +1182,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description?: string | null
+    icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
     free_allocation?: number
@@ -1210,6 +1219,7 @@ export interface BillingProductV2AddonType {
     description: string
     price_description: string | null
     image_url: string | null
+    icon_key?: string
     docs_url: string | null
     type: string
     tiers: BillingV2TierType[] | null
@@ -1268,6 +1278,7 @@ export interface BillingV2PlanType {
     current_plan?: any
     tiers?: BillingV2TierType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
+    initial_billing_limit?: number
 }
 
 export interface PlanInterface {
@@ -1337,7 +1348,7 @@ export interface InsightModel extends Cacheable {
     description?: string
     favorited?: boolean
     order: number | null
-    result: any | null
+    result: any
     deleted: boolean
     saved: boolean
     created_at: string
@@ -1469,6 +1480,8 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
+export type AppType = PluginType
+
 /** Config passed to app component and logic as props. Sent in Django's app context */
 export interface FrontendAppConfig {
     pluginId: number
@@ -1513,6 +1526,19 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+}
+
+// TODO: Rename to PluginConfigType once the are removed from the frontend
+export interface PluginConfigTypeNew {
+    id: number
+    plugin: number
+    team_id: number
+    enabled: boolean
+    order: number
+    error?: PluginErrorType
+    name: string
+    description?: string
+    updated_at: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -2167,6 +2193,7 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
+    // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
@@ -2176,6 +2203,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    autoDisappear?: boolean
     position?: string
 }
 
@@ -2183,6 +2211,7 @@ export interface SurveyQuestionBase {
     question: string
     description?: string | null
     optional?: boolean
+    buttonText?: string
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2724,16 +2753,30 @@ export interface DateMappingOption {
     defaultInterval?: IntervalType
 }
 
-export interface Breadcrumb {
+interface BreadcrumbBase {
+    /** E.g. scene identifier or item ID. Particularly important if `onRename` is used. */
+    key: string | number
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
-    /** Path to link to. */
-    path?: string
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
+interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Path to link to. */
+    path?: string
+    onRename?: never
+}
+interface RenamableBreadcrumb extends BreadcrumbBase {
+    path?: never
+    /** When this is set, an "Edit" button shows up next to the title */
+    onRename?: (newName: string) => Promise<void>
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+export type FinalizedBreadcrumb =
+    | (LinkBreadcrumb & { globalKey: string })
+    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',
@@ -3138,6 +3181,7 @@ export enum NotebookNodeType {
     PersonFeed = 'ph-person-feed',
     Properties = 'ph-properties',
     Map = 'ph-map',
+    Embed = 'ph-embed',
 }
 
 export type NotebookNodeResource = {

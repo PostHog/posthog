@@ -1,6 +1,6 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '
-  /* user_id:126 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:132 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events

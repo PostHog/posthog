@@ -48,8 +48,8 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             lemonToast.error('Export failed!')
         }
     } else {
-        // eslint-disable-next-line no-async-promise-executor
-        const poller = new Promise(async (resolve, reject) => {
+        // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
+        const poller = new Promise<string>(async (resolve, reject) => {
             const trackingProperties = {
                 export_format: asset.export_format,
                 dashboard: asset.dashboard,

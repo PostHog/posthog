@@ -5,20 +5,24 @@
     padding: 0.75rem 1rem 1rem;
     min-width: 0;
     height: fit-content;
+
     .main-app-content > & {
         margin: 1.5rem 0;
     }
+
     h2 {
         margin-bottom: 0.75rem;
         color: var(--danger);
         font-weight: 600;
     }
+
     pre {
         margin-bottom: 0.75rem;
         background: var(--border-light);
         border-radius: var(--radius);
         padding: 0.75rem 1rem;
     }
+
     .help-button {
         margin-top: 0.75rem;
     }

@@ -174,7 +174,9 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns")
     @patch("posthog.tasks.warehouse.retrieve_sync")
     @patch("posthog.tasks.warehouse.get_active_connection_streams_by_id")
-    def test_sync_resource(self, get_connection_streams_mock, send_request_mock, get_columns_mock):
+    def test_sync_resource(
+        self, get_connection_streams_mock: MagicMock, send_request_mock: MagicMock, get_columns_mock: MagicMock
+    ) -> None:
         send_request_mock.return_value = {
             "jobId": 5827835,
             "status": "succeeded",
@@ -212,7 +214,9 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns")
     @patch("posthog.tasks.warehouse.retrieve_sync")
     @patch("posthog.tasks.warehouse.get_active_connection_streams_by_id")
-    def test_sync_resource_table_changed(self, get_connection_streams_mock, send_request_mock, get_columns_mock):
+    def test_sync_resource_table_changed(
+        self, get_connection_streams_mock: MagicMock, send_request_mock: MagicMock, get_columns_mock: MagicMock
+    ) -> None:
         send_request_mock.return_value = {
             "jobId": 5827835,
             "status": "succeeded",

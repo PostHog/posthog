@@ -28,7 +28,6 @@ def sync_resources() -> None:
         sync_resource.delay(resource.pk)
 
 
-# TODO: this only runs on the first successful sync, but we should run it periodically
 @app.task(ignore_result=True)
 def sync_resource(resource_id: str) -> None:
     resource = ExternalDataSource.objects.get(pk=resource_id)

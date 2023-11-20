@@ -87,7 +87,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
                     location.href = res.redirect_url || '/'

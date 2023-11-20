@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict, List
+from typing import Optional, List
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -14,9 +14,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team, Action
+from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -31,26 +30,30 @@ class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     query_type = LifecycleQuery
 
-    def __init__(
-        self,
-        query: LifecycleQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
-
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self.query.samplingFactor == 0:
+            counts_with_sampling = ast.Constant(value=0)
+        elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
+            counts_with_sampling = parse_expr(
+                "round(counts * (1 / {sampling_factor}))",
+                {
+                    "sampling_factor": ast.Constant(value=self.query.samplingFactor),
+                },
+            )
+        else:
+            counts_with_sampling = parse_expr("counts")
+
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
             "periods_query": self.periods_query,
+            "counts_with_sampling": counts_with_sampling,
         }
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
                 """
                     SELECT groupArray(start_of_period) AS date,
-                           groupArray(counts) AS total,
+                           groupArray({counts_with_sampling}) AS total,
                            status
                     FROM (
                         SELECT
@@ -126,6 +129,7 @@ class LifecycleQueryRunner(QueryRunner):
             query=query,
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
@@ -161,10 +165,11 @@ class LifecycleQueryRunner(QueryRunner):
                     "math": "total",
                 }
             elif isinstance(self.query.series[0], EventsNode):
-                label = "{} - {}".format(self.query.series[0].event, val[2])
+                event = self.query.series[0].event
+                label = "{} - {}".format("All events" if event is None else event, val[2])
                 action_object = {
-                    "id": self.query.series[0].event,
-                    "name": self.query.series[0].event,
+                    "id": event,
+                    "name": "All events" if event is None else event,
                     "type": "events",
                     "order": 0,
                     "math": "total",

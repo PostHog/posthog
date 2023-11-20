@@ -110,7 +110,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
-                            let lastResult: any | null = null
+                            let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (

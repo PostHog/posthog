@@ -62,7 +62,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                                 created_at: '2022-06-28T12:30:51.459746Z',
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                                ...(req.body as any),
+                                ...req.body,
                             },
                         ]
                     },

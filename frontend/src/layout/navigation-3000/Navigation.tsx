@@ -1,4 +1,4 @@
-import { CommandPalette } from 'lib/components/CommandPalette'
+import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from './components/Breadcrumbs'
@@ -8,7 +8,7 @@ import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { navigation3000Logic } from './navigationLogic'
 import clsx from 'clsx'
-import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -18,7 +18,6 @@ export function Navigation({
     sceneConfig,
 }: {
     children: ReactNode
-    scene: Scene | null
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)

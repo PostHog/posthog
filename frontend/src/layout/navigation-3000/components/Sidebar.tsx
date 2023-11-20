@@ -6,7 +6,7 @@ import React, { useRef, useState } from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { SidebarAccordion, pluralizeCategory } from './SidebarAccordion'
-import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
+import { SidebarLogic, SidebarNavbarItem } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useDebouncedCallback } from 'use-debounce'
 import { SidebarList } from './SidebarList'
@@ -177,7 +177,7 @@ function SidebarContent({
 
     return contents.length !== 1 ? (
         <>
-            {(contents as SidebarCategory[]).map((accordion) => (
+            {contents.map((accordion) => (
                 <SidebarAccordion key={accordion.key} category={accordion} />
             ))}
         </>

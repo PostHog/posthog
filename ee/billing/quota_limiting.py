@@ -74,6 +74,8 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
         return None
 
     summary = organization.usage.get(resource.value, {})
+    if not summary:
+        return None
     usage = summary.get("usage", 0)
     todays_usage = summary.get("todays_usage", 0)
     limit = summary.get("limit")
@@ -146,6 +148,8 @@ def set_org_usage_summary(
 
     for field in ["events", "recordings", "rows_synced"]:
         resource_usage = new_usage[field]  # type: ignore
+        if not resource_usage:
+            continue
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage[field]  # type: ignore

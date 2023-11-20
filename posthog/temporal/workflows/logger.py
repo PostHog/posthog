@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import ssl
 
 import aiokafka
 import structlog
@@ -165,14 +166,12 @@ def get_temporal_context() -> dict[str, str | int]:
     * workflow_run_id: The ID of the Temporal Workflow Execution running the batch export.
     * workflow_type: The name of the Temporal Workflow.
 
-    We attempt to fetch the context from the activity information, and then from the workflow
-    information. If both are undefined, an empty dict is returned. When running this in
-    an activity or a workflow, at least one context will be defined.
+    We attempt to fetch the context from the activity information. If undefined, an empty dict
+    is returned. When running this in an activity the context will be defined.
     """
     activity_info = attempt_to_fetch_activity_info()
-    workflow_info = attempt_to_fetch_workflow_info()
 
-    info = activity_info or workflow_info
+    info = activity_info
 
     if info is None:
         return {}
@@ -222,25 +221,6 @@ def attempt_to_fetch_activity_info() -> Info | None:
     return (workflow_id, workflow_type, workflow_run_id, attempt)
 
 
-def attempt_to_fetch_workflow_info() -> Info | None:
-    """Fetch Workflow information from Temporal.
-
-    Returns:
-        None if calling outside a Workflow, else the relevant Info.
-    """
-    try:
-        workflow_info = temporalio.workflow.info()
-    except RuntimeError:
-        return None
-    else:
-        workflow_id = workflow_info.workflow_id
-        workflow_type = workflow_info.workflow_type
-        workflow_run_id = workflow_info.run_id
-        attempt = workflow_info.attempt
-
-    return (workflow_id, workflow_type, workflow_run_id, attempt)
-
-
 class KafkaLogProducerFromQueue:
     """Produce log messages to Kafka by getting them from a queue.
 
@@ -275,6 +255,7 @@ class KafkaLogProducerFromQueue:
                 security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
                 api_version="2.5.0",
+                ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
             )
         )
         self.logger = structlog.get_logger()
@@ -318,3 +299,13 @@ class KafkaLogProducerFromQueue:
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
+
+
+def configure_default_ssl_context():
+    """Setup a default SSL context for Kafka."""
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.options |= ssl.OP_NO_SSLv3
+    context.verify_mode = ssl.CERT_OPTIONAL
+    context.load_default_certs()
+    return context
