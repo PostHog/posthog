@@ -244,13 +244,13 @@ export function Experiment(): JSX.Element {
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <div className="variants">
-                                                {experiment.parameters.feature_flag_variants?.map((variant, index) => (
+                                                {experiment.parameters.feature_flag_variants?.map((_, index) => (
                                                     <Group
                                                         key={index}
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
                                                         <div
-                                                            key={`${variant.key}-${index}`}
+                                                            key={`variant-${index}`}
                                                             className={clsx(
                                                                 'feature-flag-variant',
                                                                 index === 0
