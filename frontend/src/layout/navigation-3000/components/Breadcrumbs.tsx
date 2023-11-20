@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react'
+import React, { useLayoutEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import './Breadcrumbs.scss'
-import { Breadcrumb as IBreadcrumb } from '~/types'
+import { FinalizedBreadcrumb } from '~/types'
 import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 
 const COMPACTION_DISTANCE = 44
 
@@ -17,27 +18,47 @@ const COMPACTION_DISTANCE = 44
  * - The "Quick scene actions" buttons (zero or more buttons on the right)
  */
 export function Breadcrumbs(): JSX.Element | null {
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
 
     const [compactionRate, setCompactionRate] = useState(0)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         function handleScroll(): void {
             const scrollTop = document.getElementsByTagName('main')[0].scrollTop
-            setCompactionRate(Math.min(scrollTop / COMPACTION_DISTANCE, 1))
+            const newCompactionRate = Math.min(scrollTop / COMPACTION_DISTANCE, 1)
+            setCompactionRate(newCompactionRate)
+            if (
+                renameState &&
+                ((newCompactionRate > 0.5 && compactionRate <= 0.5) ||
+                    (newCompactionRate <= 0.5 && compactionRate > 0.5))
+            ) {
+                // Transfer selection from the outgoing input to the incoming one
+                const [source, target] = newCompactionRate > 0.5 ? ['large', 'small'] : ['small', 'large']
+                const sourceEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${source}"]`)
+                const targetEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${target}"]`)
+                if (sourceEl && targetEl) {
+                    targetEl.focus()
+                    targetEl.setSelectionRange(sourceEl.selectionStart || 0, sourceEl.selectionEnd || 0)
+                }
+            }
         }
         const main = document.getElementsByTagName('main')[0]
         main.addEventListener('scroll', handleScroll)
         return () => main.removeEventListener('scroll', handleScroll)
-    }, [])
+    }, [compactionRate])
 
     return breadcrumbs.length ? (
         <div
             className="Breadcrumbs3000"
+            // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     '--breadcrumbs-compaction-rate': compactionRate,
+                    // It wouldn't be necessary to set visibility, but for some reason without this positioning
+                    // of breadcrumbs becomes borked when entering title editing mode
+                    '--breadcrumbs-title-large-visibility': compactionRate === 1 ? 'hidden' : 'visible',
+                    '--breadcrumbs-title-small-visibility': compactionRate === 0 ? 'hidden' : 'visible',
                 } as React.CSSProperties
             }
         >
@@ -65,13 +86,42 @@ export function Breadcrumbs(): JSX.Element | null {
 }
 
 interface BreadcrumbProps {
-    breadcrumb: IBreadcrumb
+    breadcrumb: FinalizedBreadcrumb
     index: number
     here?: boolean
 }
 
 function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
+    const { renameState } = useValues(breadcrumbsLogic)
+    const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
+
+    let nameElement: JSX.Element
+    if (breadcrumb.name != null && breadcrumb.onRename) {
+        nameElement = (
+            <EditableField
+                name="item-name-small"
+                value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
+                onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                onSave={(newName) => {
+                    void breadcrumb.onRename?.(newName)
+                }}
+                mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
+                onModeToggle={(newMode) => {
+                    if (newMode === 'edit') {
+                        tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                    } else {
+                        finishRenaming()
+                    }
+                    setPopoverShown(false)
+                }}
+                compactButtons="xsmall"
+                editingIndication="underlined"
+            />
+        )
+    } else {
+        nameElement = <span>{breadcrumb.name}</span>
+    }
 
     const Component = breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
@@ -88,7 +138,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             data-attr={`breadcrumb-${index}`}
             to={breadcrumb.path}
         >
-            <span>{breadcrumb.name}</span>
+            {nameElement}
             {breadcrumb.popover && <IconArrowDropDown />}
         </Component>
     )
@@ -118,13 +168,39 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
 }
 
 interface HereProps {
-    breadcrumb: IBreadcrumb
+    breadcrumb: FinalizedBreadcrumb
 }
 
 function Here({ breadcrumb }: HereProps): JSX.Element {
+    const { renameState } = useValues(breadcrumbsLogic)
+    const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+
     return (
         <h1 className="Breadcrumbs3000__here">
-            <span>{breadcrumb.name || <LemonSkeleton className="w-40 h-4" />}</span>
+            {breadcrumb.name == null ? (
+                <LemonSkeleton className="w-40 h-4" />
+            ) : breadcrumb.onRename ? (
+                <EditableField
+                    name="item-name-large"
+                    value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
+                    onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                    onSave={(newName) => {
+                        void breadcrumb.onRename?.(newName)
+                    }}
+                    mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
+                    onModeToggle={(newMode) => {
+                        if (newMode === 'edit') {
+                            tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                        } else {
+                            finishRenaming()
+                        }
+                    }}
+                    compactButtons="xsmall"
+                    editingIndication="underlined"
+                />
+            ) : (
+                <span>{breadcrumb.name}</span>
+            )}
         </h1>
     )
 }

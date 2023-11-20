@@ -1,6 +1,5 @@
 .posthog-3000 {
-    --transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-        transform 200ms ease;
+    --transition: opacity 200ms ease, transform 200ms ease;
 
     .LemonButton {
         border-width: 0;

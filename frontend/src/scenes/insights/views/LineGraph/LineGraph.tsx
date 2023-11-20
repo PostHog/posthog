@@ -698,11 +698,19 @@ export function LineGraph_({
                         precision,
                         autoSkip: true,
                         callback: function _renderYLabel(_, i) {
-                            const labelDescriptors = [
-                                datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
-                                datasets?.[0]?.breakdownValues?.[i], // breakdown value
-                                datasets?.[0]?.compareLabels?.[i], // compare value
-                            ].filter((l) => !!l)
+                            const labelDescriptors = (
+                                datasets?.[0]?.labels?.[i]
+                                    ? [
+                                          // prefer to use the label over the action name if it exists
+                                          datasets?.[0]?.labels?.[i],
+                                          datasets?.[0]?.compareLabels?.[i],
+                                      ]
+                                    : [
+                                          datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
+                                          datasets?.[0]?.breakdownValues?.[i], // breakdown value
+                                          datasets?.[0]?.compareLabels?.[i], // compare value
+                                      ]
+                            ).filter((l) => !!l)
                             return labelDescriptors.join(' - ')
                         },
                     },

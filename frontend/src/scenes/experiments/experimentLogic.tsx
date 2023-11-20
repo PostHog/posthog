@@ -41,6 +41,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode } from '~/queries/schema'
 import { groupsModel } from '~/models/groupsModel'
+import { Scene } from 'scenes/sceneTypes'
 
 export const DEFAULT_DURATION = 14 // days
 
@@ -634,10 +635,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
                 {
+                    key: Scene.Experiments,
                     name: 'Experiments',
                     path: urls.experiments(),
                 },
                 {
+                    key: experimentId,
                     name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },

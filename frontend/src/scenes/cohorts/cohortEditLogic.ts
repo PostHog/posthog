@@ -316,6 +316,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
+        submitCohort: () => {
+            if (values.cohortHasErrors) {
+                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
+            }
+        },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(

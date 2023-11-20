@@ -1,5 +1,5 @@
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
+import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 
@@ -14,6 +14,7 @@ import { eventWithTime } from '@rrweb/types'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import { dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
 
 export type ExportedSessionRecordingFileV1 = {
     version: '2022-12-02'
@@ -196,10 +197,12 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Recordings`,
+                    key: Scene.Replay,
+                    name: `Session replay`,
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.FilePlayback,
                     name: 'Import',
                 },
             ],
