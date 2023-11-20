@@ -251,11 +251,6 @@ export const personsLogic = kea<personsLogicType>([
                         name: 'People',
                         path: urls.persons(),
                     },
-                    {
-                        key: 'persons',
-                        name: 'Persons',
-                        path: urls.persons(),
-                    },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
