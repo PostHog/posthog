@@ -33,7 +33,7 @@
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/**/*", "cypress/**/*", ".storybook/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*"],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
