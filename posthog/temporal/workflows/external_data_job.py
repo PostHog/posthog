@@ -65,7 +65,6 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
 
 
 # TODO: add retry policies
-# TODO: add schedule
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
@@ -91,15 +90,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None
         )
 
-        run_job_inputs = ExternalDataJobInputs(
-            team_id=inputs.team_id,
-            external_data_source_id=inputs.external_data_source_id,
-        )
-
+        # TODO: can make this a child workflow for separate worker pool
         try:
             await workflow.execute_activity(
                 run_external_data_job,
-                run_job_inputs,
+                inputs,
                 start_to_close_timeout=dt.timedelta(minutes=5),
             )
         except exceptions.ActivityError as e:

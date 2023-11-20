@@ -8,12 +8,11 @@ from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
 from posthog.warehouse.external_data_source.source import delete_source
 from posthog.warehouse.external_data_source.destination import delete_destination
-from posthog.warehouse.data_load.service import start_external_data_job_workflow, ExternalDataJobInputs
+from posthog.warehouse.data_load.service import sync_external_data_job_workflow, trigger_external_data_workflow
 from posthog.api.routing import StructuredViewSetMixin
 from rest_framework.decorators import action
 import uuid
 
-from posthog.temporal.client import sync_connect
 
 from posthog.models import User
 from typing import Any
@@ -78,13 +77,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             },
         )
 
-        inputs = ExternalDataJobInputs(
-            team_id=self.team_id,
-            external_data_source_id=new_source_model.pk,
-        )
-
-        temporal = sync_connect()
-        start_external_data_job_workflow(temporal, inputs)
+        sync_external_data_job_workflow(new_source_model, create=True)
 
         return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source_model.source_id})
 
@@ -112,5 +105,5 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance = self.get_object()
-        # TODO: trigger external data job workflow
+        trigger_external_data_workflow(instance)
         return Response(status=status.HTTP_200_OK)
