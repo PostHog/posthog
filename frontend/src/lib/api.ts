@@ -71,6 +71,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
+const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -1862,6 +1863,23 @@ const api = {
             throw { status: response.status, ...data }
         }
         return response
+    },
+
+    async loadPaginatedResults(
+        url: string | null,
+        maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
+    ): Promise<any[]> {
+        let results: any[] = []
+        for (let i = 0; i <= maxIterations; ++i) {
+            if (!url) {
+                break
+            }
+
+            const { results: partialResults, next } = await api.get(url)
+            results = results.concat(partialResults)
+            url = next
+        }
+        return results
     },
 }
 
