@@ -60,7 +60,8 @@ jobs:
 
                   export COMMIT_SHA=${{ github.sha }}
                   export PR_NUM=${{ github.event.number }}
-                  export BRANCH_NAME=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
+                  export BRANCH_NAME=${{ github.head_ref }}
+                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
                   export RELEASE_NAME=posthog
                   export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME//\//-}
                   export HOSTNAME=${HOSTNAME:0:38}
