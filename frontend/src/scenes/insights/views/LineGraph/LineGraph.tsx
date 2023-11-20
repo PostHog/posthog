@@ -386,7 +386,9 @@ export function LineGraph_({
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
-            borderColor: colors.axisLine as string,
+            color: colors.axisLine as Color,
+            borderColor: colors.axisLine as Color,
+            tickColor: colors.axisLine as Color,
             borderDash: [4, 2],
         }
 

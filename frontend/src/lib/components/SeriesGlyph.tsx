@@ -1,5 +1,7 @@
+import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA } from 'lib/utils'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface SeriesGlyphProps {
     className?: string
@@ -26,6 +28,7 @@ interface SeriesLetterProps {
 
 export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
     const color = seriesColor || getSeriesColor(seriesIndex)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     return (
         <SeriesGlyph
@@ -35,7 +38,7 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                     ? {
                           borderColor: color,
                           color: color,
-                          backgroundColor: hexToRGBA(color, 0),
+                          backgroundColor: hexToRGBA(color, isDarkModeOn ? 0.3 : 0.2),
                       }
                     : {
                           color: 'var(--default)',
