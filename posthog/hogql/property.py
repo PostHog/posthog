@@ -126,33 +126,17 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
+                exprs = [ast.Constant(value=v) for v in value]
                 if operator in [PropertyOperator.exact]:
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", property.key]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
-                    )
+                    op = ast.CompareOperationOp.In
                 else:
-                    exprs = [
-                        property_to_expr(
-                            Property(
-                                type=property.type,
-                                key=property.key,
-                                operator=property.operator,
-                                value=v,
-                            ),
-                            team,
-                            scope,
-                        )
-                        for v in value
-                    ]
-                    if (
-                        operator == PropertyOperator.is_not
-                        or operator == PropertyOperator.not_icontains
-                        or operator == PropertyOperator.not_regex
-                    ):
-                        return ast.And(exprs=exprs)
-                    return ast.Or(exprs=exprs)
+                    op = ast.CompareOperationOp.NotIn
+
+                return ast.CompareOperation(
+                    op=op,
+                    left=ast.Field(chain=["properties", property.key]),
+                    right=ast.Tuple(exprs=exprs),
+                )
 
         chain = ["person", "properties"] if property.type == "person" and scope != "person" else ["properties"]
         field = ast.Field(chain=chain + [property.key])
