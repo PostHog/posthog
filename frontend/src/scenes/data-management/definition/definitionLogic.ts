@@ -10,6 +10,8 @@ import { getPropertyLabel } from 'lib/taxonomy'
 import { userLogic } from 'scenes/userLogic'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { DataManagementTab } from '../DataManagementScene'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -119,14 +121,17 @@ export const definitionLogic = kea<definitionLogicType>([
             (definition, isEvent): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
+                        key: isEvent ? DataManagementTab.EventDefinitions : DataManagementTab.PropertyDefinitions,
                         name: isEvent ? 'Events' : 'Properties',
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
+                        key: definition?.id || 'new',
                         name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
                     },
                 ]

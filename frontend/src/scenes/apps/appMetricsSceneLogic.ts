@@ -12,6 +12,7 @@ import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-job
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
 import { router } from 'kea-router'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -197,10 +198,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             (s, p) => [s.pluginConfig, p.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
+                    key: Scene.Apps,
                     name: 'Apps',
                     path: urls.projectApps(),
                 },
                 {
+                    key: pluginConfigId,
                     name: pluginConfig?.plugin_info?.name,
                     path: urls.appMetrics(pluginConfigId),
                 },

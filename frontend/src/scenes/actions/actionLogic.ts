@@ -4,6 +4,8 @@ import api from 'lib/api'
 import type { actionLogicType } from './actionLogicType'
 import { ActionType, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
+import { Scene } from 'scenes/sceneTypes'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
@@ -50,14 +52,17 @@ export const actionLogic = kea<actionLogicType>([
             (s) => [s.action],
             (action): Breadcrumb[] => [
                 {
+                    key: Scene.DataManagement,
                     name: `Data Management`,
                     path: urls.eventDefinitions(),
                 },
                 {
+                    key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
                 },
                 {
+                    key: action?.id || 'new',
                     name: action?.name || 'Unnamed',
                     path: action ? urls.action(action.id) : undefined,
                 },
