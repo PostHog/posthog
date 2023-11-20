@@ -45,6 +45,7 @@ import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { Scene } from 'scenes/sceneTypes'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -638,7 +639,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
-            deleteWithUndo({
+            await deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
@@ -779,7 +780,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
             } else {
-                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
+                lemonToast.error(
+                    `Error while saving feature flag: ${JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy}`
+                )
             }
 
             actions.loadProjectsWithCurrentFlag()
@@ -834,10 +837,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
                 {
+                    key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
-                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+                { key: featureFlag.id || 'unknown', name: featureFlag.key || 'Unnamed' },
             ],
         ],
         propertySelectErrors: [

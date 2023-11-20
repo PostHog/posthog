@@ -5,6 +5,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { CohortLogicProps } from './cohortEditLogic'
 
 import type { cohortSceneLogicType } from './cohortSceneLogicType'
+import { Scene } from 'scenes/sceneTypes'
 
 export const cohortSceneLogic = kea<cohortSceneLogicType>([
     props({} as CohortLogicProps),
@@ -13,15 +14,22 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
 
     selectors({
         breadcrumbs: [
-            () => [cohortsModel.selectors.cohortsById, (_, props) => props.id],
+            () => [cohortsModel.selectors.cohortsById, (_, props) => props.id as CohortLogicProps['id']],
             (cohortsById, cohortId): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.PersonsManagement,
+                        name: 'People',
+                        path: urls.persons(),
+                    },
+                    {
+                        key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
                     },
                     {
-                        name: cohortId !== 'new' ? cohortsById[cohortId]?.name || 'Untitled' : 'Untitled',
+                        key: cohortId || 'loading',
+                        name: cohortId && cohortId !== 'new' ? cohortsById[cohortId]?.name || 'Untitled' : 'Untitled',
                     },
                 ]
             },

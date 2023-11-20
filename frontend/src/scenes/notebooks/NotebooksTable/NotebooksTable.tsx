@@ -115,7 +115,7 @@ export function NotebooksTable(): JSX.Element {
                         <span>Created by:</span>
                         <LemonSelect
                             options={[
-                                { value: DEFAULT_FILTERS.createdBy as string, label: DEFAULT_FILTERS.createdBy },
+                                { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
                                 ...meFirstMembers.map((x) => ({
                                     value: x.user.uuid,
                                     label: x.user.first_name,

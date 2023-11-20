@@ -103,8 +103,8 @@ export const cohortsModel = kea<cohortsModelType>([
             }
             await triggerExport(exportCommand)
         },
-        deleteCohort: ({ cohort }) => {
-            deleteWithUndo({
+        deleteCohort: async ({ cohort }) => {
+            await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
                 callback: actions.loadCohorts,

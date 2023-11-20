@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import React from 'react'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
@@ -96,7 +96,7 @@ const tabs: Record<
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion Warnings',
+        label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
     },
     [DataManagementTab.Database]: {
@@ -135,10 +135,12 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: tabs.events.url,
                     },
                     {
+                        key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
                     },

@@ -5,11 +5,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
         case ReplayTabs.Recent:
-            return 'Recent Recordings'
+            return 'Recent recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
         case ReplayTabs.FilePlayback:
@@ -48,11 +49,13 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
                 const breadcrumbs: Breadcrumb[] = []
                 if (tab !== ReplayTabs.Recent) {
                     breadcrumbs.push({
+                        key: Scene.Replay,
                         name: 'Replay',
                         path: urls.replay(),
                     })
                 }
                 breadcrumbs.push({
+                    key: tab,
                     name: humanFriendlyTabName(tab),
                 })
 

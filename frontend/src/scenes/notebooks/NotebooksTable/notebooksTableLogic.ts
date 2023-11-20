@@ -32,7 +32,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
     }),
     reducers({
         filters: [
-            DEFAULT_FILTERS as NotebooksListFilters,
+            DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) =>
                     objectClean({

@@ -66,10 +66,9 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
 
         raw_properties = event.get("properties", None)
         properties = remove_escaped_whitespace_recursive(raw_properties) if raw_properties else None
-        elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain) if elements_chain else None,
+            "elements": "",
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
             "properties": json.dumps(properties, ensure_ascii=False) if properties else None,

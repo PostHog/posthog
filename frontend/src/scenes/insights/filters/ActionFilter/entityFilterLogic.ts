@@ -113,7 +113,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             },
         ],
         localFilters: [
-            toLocalFilters(props.filters ?? {}) as LocalFilter[],
+            toLocalFilters(props.filters ?? {}),
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -176,9 +176,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         },
         updateFilterProperty: async ({ properties, index }) => {
             actions.setFilters(
-                values.localFilters.map(
-                    (filter, i) => (i === index ? { ...filter, properties } : filter) as LocalFilter
-                )
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
         updateFilterMath: async ({ index, ...mathProperties }) => {
