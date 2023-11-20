@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 

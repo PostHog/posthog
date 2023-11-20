@@ -23,14 +23,14 @@
     width: fit-content;
     padding: 0 0.25rem;
     border-radius: var(--radius);
-    background: var(--primary);
+    background: var(--primary-3000);
     color: var(--bg-light);
     line-height: 1.25rem;
     font-size: 0.75rem;
     font-weight: 500;
 
     &::selection {
-        background: var(--primary-light); // Default selection background is invisible on primary
+        background: var(--primary-3000-hover); // Default selection background is invisible on primary
     }
 
     .Spinner {
@@ -77,7 +77,7 @@
     left: 0;
     height: var(--timeline-seekbar-thickness);
     width: calc(100% - var(--timeline-seekbar-arrow-width));
-    background: var(--primary);
+    background: var(--primary-3000);
 }
 
 .TimelineSeekbar__line-start,
@@ -91,7 +91,7 @@
         display: block;
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         height: var(--timeline-seekbar-arrow-height);
-        background: var(--primary);
+        background: var(--primary-3000);
     }
 }
 

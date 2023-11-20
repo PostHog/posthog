@@ -2,7 +2,8 @@ import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
+import { genericOperatorMap } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getKeyMapping } from 'lib/taxonomy'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -11,6 +12,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {

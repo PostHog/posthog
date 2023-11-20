@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { actionsModel } from '~/models/actionsModel'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionStepType, ActionType } from '~/types'

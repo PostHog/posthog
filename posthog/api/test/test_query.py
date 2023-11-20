@@ -1,11 +1,11 @@
 import json
+from unittest import mock
 from unittest.mock import patch
-from urllib.parse import quote
 
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.query import process_query
+from posthog.api.services.query import process_query
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
@@ -336,51 +336,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_json_undefined_constant_error(self):
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3AInfinity%7D"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Unsupported constant found in JSON: Infinity",
-                "attr": None,
-            },
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3ANaN%7D"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Unsupported constant found in JSON: NaN",
-                "attr": None,
-            },
-        )
-
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        # Safe errors are passed through in GET requests
-        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
-        self.assertEqual(response_get.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_get.json(),
-            self.validation_error_response(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
-                "illegal_type_of_argument",
-            ),
-        )
-
-        # Safe errors are passed through in POST requests too
         response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -396,11 +354,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
-        # Unsafe errors are swallowed in GET requests (in this case we should not expose malformed SQL)
-        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
-        self.assertEqual(response_get.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Unsafe errors are swallowed in POST requests too
         response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -832,3 +785,87 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.get("results", [])[0][0], 20)
+
+
+class TestQueryRetrieve(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team_id = self.team.pk
+        self.valid_query_id = "12345"
+        self.invalid_query_id = "invalid-query-id"
+        self.redis_client_mock = mock.Mock()
+        self.redis_get_patch = mock.patch("posthog.redis.get_client", return_value=self.redis_client_mock)
+        self.redis_get_patch.start()
+
+    def tearDown(self):
+        self.redis_get_patch.stop()
+
+    def test_with_valid_query_id(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": False,
+                "complete": True,
+                "results": ["result1", "result2"],
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["complete"], True, response.content)
+
+    def test_with_invalid_query_id(self):
+        self.redis_client_mock.get.return_value = None
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.invalid_query_id}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_completed_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "results": ["result1", "result2"],
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["complete"])
+
+    def test_running_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": False,
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["complete"])
+
+    def test_failed_query(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": "Query failed",
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["error"])
+
+    def test_destroy(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": "Query failed",
+            }
+        ).encode()
+        response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 204)
+        self.redis_client_mock.delete.assert_called_once()

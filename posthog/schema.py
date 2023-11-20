@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -437,6 +438,23 @@ class PropertyOperator(str, Enum):
     not_between = "not_between"
     min = "min"
     max = "max"
+
+
+class QueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    complete: Optional[bool] = False
+    end_time: Optional[datetime] = None
+    error: Optional[bool] = False
+    error_message: Optional[str] = ""
+    expiration_time: Optional[datetime] = None
+    id: str
+    query_async: Optional[bool] = True
+    results: Optional[Any] = None
+    start_time: Optional[datetime] = None
+    task_id: Optional[str] = None
+    team_id: int
 
 
 class QueryTiming(BaseModel):

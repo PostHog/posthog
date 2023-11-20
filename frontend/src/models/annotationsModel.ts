@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import type { annotationsModelType } from './annotationsModelType'
 import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'

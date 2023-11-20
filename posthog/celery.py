@@ -395,24 +395,19 @@ def redis_heartbeat():
 
 
 @app.task(ignore_result=True, bind=True)
-def enqueue_clickhouse_execute_with_progress(
-    self, team_id, query_id, query, args=None, settings=None, with_column_types=False
-):
+def process_query_task(self, team_id, query_id, query_json, in_export_context=False, refresh_requested=False):
     """
-    Kick off query with progress reporting
-    Iterate over the progress status
-    Save status to redis
+    Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_with_progress
+    from posthog.client import execute_process_query
 
-    execute_with_progress(
-        team_id,
-        query_id,
-        query,
-        args,
-        settings,
-        with_column_types,
+    execute_process_query(
+        team_id=team_id,
+        query_id=query_id,
+        query_json=query_json,
+        in_export_context=in_export_context,
+        refresh_requested=refresh_requested,
         task_id=self.request.id,
     )
 
