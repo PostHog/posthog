@@ -39,7 +39,9 @@ export function CommandBar(): JSX.Element | null {
     return (
         <CommandBarOverlay>
             <div
-                className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col border shadow"
+                className={`w-full ${
+                    barStatus === BarStatus.SHOW_SEARCH && 'h-160'
+                } max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col border shadow`}
                 ref={containerRef}
             >
                 {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
