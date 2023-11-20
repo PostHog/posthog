@@ -9,12 +9,6 @@
     overflow: hidden;
     height: 100vh;
 
-    .posthog-3000 & {
-        background-color: transparent;
-        height: auto;
-        overflow: visible;
-    }
-
     &::-webkit-scrollbar {
         width: 0 !important;
     }

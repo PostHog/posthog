@@ -29,15 +29,11 @@ export function Navigation({
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
-    if (mode === 'none') {
-        return <>{children}</>
-    }
-
-    if (mode === 'minimal') {
+    if (mode !== 'full') {
         return (
-            <div className="flex flex-col h-screen w-screen">
-                <MinimalNavigation />
-                <main className="flex flex-1 overflow-y-auto">{children}</main>
+            <div className="Navigation3000 flex-col">
+                {mode === 'minimal' ? <MinimalNavigation /> : null}
+                <main>{children}</main>
             </div>
         )
     }
