@@ -12,6 +12,7 @@ from posthog.hogql_queries.query_runner import (
     RunnableQueryNode,
 )
 from posthog.models.team.team import Team
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, HogQLQuery
 from posthog.test.base import BaseTest
 
 
@@ -92,7 +93,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_33c9ea3098895d5a363a75feefafef06")
+        self.assertEqual(cache_key, "cache_b8a6b70478ec6139c8f7f379c808d5b9")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -106,7 +107,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_d626615de8ad0df73c1d8610ca586597")
+        self.assertEqual(cache_key, "cache_cfab9e42d088def74792922de5b513ac")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -117,7 +118,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_aeb23ec9e8de56dd8499f99f2e976d5a")
+        self.assertEqual(cache_key, "cache_9f12fefe07c0ab79e93935aed6b0bfa6")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -143,3 +144,28 @@ class TestQueryRunner(BaseTest):
             # returns fresh response if stale
             response = runner.run(refresh_requested=False)
             self.assertEqual(response.is_cached, False)
+
+    def test_modifier_passthrough(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+            from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+            materialize("events", "$browser")
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="select properties.$browser from events"),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+        )
+        assert "events.`mat_$browser" in runner.calculate().clickhouse
+
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="select properties.$browser from events"),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+        )
+        assert "events.`mat_$browser" not in runner.calculate().clickhouse

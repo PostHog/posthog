@@ -120,9 +120,10 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     />
                     <LemonButton
                         type="primary"
-                        onClick={async () => {
-                            await submitEarlyAccessFeatureFeedback(feedback)
-                            setFeedback('')
+                        onClick={() => {
+                            void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+                                setFeedback('')
+                            })
                         }}
                         loading={activeFeedbackFlagKeyLoading}
                         fullWidth

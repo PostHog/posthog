@@ -103,7 +103,7 @@ $colors: (
     'border-bold': rgb(0 0 0 / 24%),
     'border-active': rgb(0 0 0 / 36%),
     'transparent': transparent,
-    'link': var(--link),
+    'link': var(--primary-3000),
     // Colors of the PostHog logo
     'brand-blue': #1d4aff,
     'brand-red': #f54e00,
@@ -113,10 +113,14 @@ $colors: (
     // This becomes white in dark mode
     // PostHog 3000
     'text-3000-light': #111,
+    'text-secondary-3000-light': rgba(#111, 0.7),
     'muted-3000-light': rgba(#111, 0.5),
     'trace-3000-light': rgba(#111, 0.25),
-    'primary-3000-light': rgba(#000, 0.75),
-    'primary-3000-hover-light': #000,
+    'primary-3000-light': #f54e01,
+    'primary-3000-highlight-light': rgba(#f54e01, 0.1),
+    'primary-3000-hover-light': #f54e01,
+    'primary-3000-active-light': #f54e01,
+
     'secondary-3000-light': rgba(#cfd1c2, 0.6),
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
@@ -125,23 +129,58 @@ $colors: (
     'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
-    'link-3000-light': var(--primary),
+
+    'link-3000-light': #f54e00,
+    'primary-3000-frame-bg-light': #eb9d2a,
+    'primary-3000-frame-border-light': #c28926,
+    'primary-3000-button-bg-light': #fff,
+    'primary-3000-button-border-light': #b17816,
+    'primary-3000-button-border-hover-light': #8e5b03,
+
+    'secondary-3000-frame-bg-light': #e1dddd,
+    'secondary-3000-frame-border-light': #d7d7d7,
+    'secondary-3000-button-bg-light': #f3f4ef,
+    'secondary-3000-button-border-light': #ccc,
+    'secondary-3000-button-border-hover-light': #aaa,
+
+    'shadow-elevation-3000-light': 0 2px 0 var(--border-3000-light),
+    'shadow-elevation-3000-dark': 0 2px 0 var(--border-3000-dark),
     'text-3000-dark': #fff,
+    'text-secondary-3000-dark': rgba(#fff, 0.7),
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
-    'primary-3000-dark': var(--primary),
-    'primary-3000-hover-dark': var(--primary-light),
-    'secondary-3000-dark': #3b4159,
+    'primary-3000-dark': #f7a503,
+    'primary-3000-highlight-dark': rgba(#f7a503, 0.1),
+    'primary-3000-hover-dark': #f7a503,
+    'primary-3000-active-dark': #f7a503,
+    'primary-alt-highlight-3000-light': #e5e7e0,
+
+    'secondary-3000-dark': #1d1f27,
     'secondary-3000-hover-dark': #575d77,
-    'accent-3000-dark': #1d1f27,
-    'bg-3000-dark': #151619,
+    'accent-3000-dark': #232429,
+    'bg-3000-dark': #1d1f27,
     'border-3000-dark': #2b2c32,
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
-    'link-3000-dark': rgb(47 129 247),
+    'link-3000-dark': #f1a82c,
+
+    'primary-3000-frame-bg-dark': #926826,
+    'primary-3000-frame-border-dark': #a97a2f,
+    'primary-3000-button-bg-dark': #e0a045,
+    'primary-3000-button-border-dark': #b17816,
+    'primary-3000-button-border-hover-dark': #8e5b03,
+    'primary-alt-highlight-3000-dark': #232429,
+
+    'secondary-3000-frame-bg-dark': #323232,
+    'secondary-3000-frame-border-dark': #383838,
+    'secondary-3000-button-bg-dark': #1d1f27,
+    'secondary-3000-button-border-dark': #4a4c52,
+    'secondary-3000-button-border-hover-dark': #5e6064,
+
     // The derived colors
     'text-3000': var(--text-3000),
+    'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
     'trace-3000': var(--trace-3000),
     'primary-3000': var(--primary-3000),
@@ -156,6 +195,16 @@ $colors: (
     'glass-border-3000': var(--glass-border-3000),
     'link-3000': var(--link-3000),
     // 'bg-light': var(--accent-3000),
+    'primary-3000-frame-bg': var(--primary-3000-frame-bg),
+    'primary-3000-frame-border': var(--primary-3000-frame-border),
+    'primary-3000-button-bg': var(--primary-3000-button-bg),
+    'primary-3000-button-border': var(--primary-3000-button-border),
+    'primary-3000-button-border-hover': var(--primary-3000-button-border-hover),
+    'secondary-3000-frame-bg': var(--secondary-3000-frame-bg),
+    'secondary-3000-frame-border': var(--secondary-3000-frame-border),
+    'secondary-3000-button-bg': var(--secondary-3000-button-bg),
+    'secondary-3000-button-border': var(--secondary-3000-button-border),
+    'secondary-3000-button-border-hover': var(--secondary-3000-button-border-hover),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -230,7 +279,6 @@ $_lifecycle_dormant: $_danger;
 
     // Funnels
     // TODO: unify with lib/colors.ts, getGraphColors()
-    --funnel-default: var(--primary);
     --funnel-background: var(--border-light);
     --funnel-axis: var(--border);
     --funnel-grid: #ddd;
@@ -243,7 +291,7 @@ $_lifecycle_dormant: $_danger;
     --recording-seekbar-red: var(--brand-red);
     --recording-hover-event: var(--primary-bg-hover);
     --recording-hover-event-mid: var(--primary-bg-active);
-    --recording-hover-event-dark: var(--primary);
+    --recording-hover-event-dark: var(--primary-3000);
     --recording-current-event: #eef2ff;
     --recording-current-event-dark: var(--primary-alt);
     --recording-failure-event: #fee9e2;
@@ -281,7 +329,7 @@ $_lifecycle_dormant: $_danger;
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary);
+    --toastify-color-info: var(--primary-3000);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);

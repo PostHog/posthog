@@ -32,6 +32,61 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 
 
+def remove_escaped_whitespace_recursive(value):
+    """Remove all escaped whitespace characters from given value.
+
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongst other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
+    """
+    match value:
+        case str(s):
+            return " ".join(s.replace("\b", " ").split())
+
+        case bytes(b):
+            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
+
+        case [*sequence]:
+            # mypy could be bugged as it's raising a Statement unreachable error.
+            # But we are definitely reaching this statement in tests; hence the ignore comment.
+            # Maybe: https://github.com/python/mypy/issues/16272.
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+
+        case set(elements):
+            return set(remove_escaped_whitespace_recursive(element) for element in elements)
+
+        case {**mapping}:
+            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case value:
+            return value
+
+
+@contextlib.asynccontextmanager
+async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
+    """Manage a Redshift connection.
+
+    This just yields a Postgres connection but we adjust a couple of things required for
+    psycopg to work with Redshift:
+    1. Set UNICODE encoding to utf-8 as Redshift reports back UNICODE.
+    2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
+        which is not supported on Redshift.
+    """
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
+
+    async with postgres_connection(inputs) as connection:
+        connection.prepare_threshold = None
+        yield connection
+
+
 async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
     redshift_connection: psycopg.AsyncConnection,
@@ -74,27 +129,28 @@ async def insert_records_to_redshift(
     rows_exported = get_rows_exported_metric()
 
     async with async_client_cursor_from_connection(redshift_connection) as cursor:
-        batch = [pre_query.as_string(cursor).encode("utf-8")]
+        batch = []
+        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
         async def flush_to_redshift(batch):
-            await cursor.execute(b"".join(batch))
-            rows_exported.add(len(batch) - 1)
+            values = b",".join(batch).replace(b" E'", b" '")
+
+            await cursor.execute(pre_query_str + values)
+            rows_exported.add(len(batch))
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
 
         for record in itertools.chain([first_record], records):
             batch.append(cursor.mogrify(template, record).encode("utf-8"))
-
             if len(batch) < batch_size:
-                batch.append(b",")
                 continue
 
             await flush_to_redshift(batch)
-            batch = [pre_query.as_string(cursor).encode("utf-8")]
+            batch = []
 
         if len(batch) > 0:
-            await flush_to_redshift(batch[:-1])
+            await flush_to_redshift(batch)
 
 
 @contextlib.asynccontextmanager
@@ -186,7 +242,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
-        async with postgres_connection(inputs) as connection:
+        async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
@@ -223,10 +279,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
-            return {
-                key: json.dumps(row[key]) if key in json_columns and row[key] is not None else row[key]
+            record = {
+                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
+                if key in json_columns and row[key] is not None
+                else row[key]
                 for key in schema_columns
             }
+            record["elements"] = ""
+            return record
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(

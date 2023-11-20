@@ -623,13 +623,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.repository, s.plugins],
             (repository, plugins) => {
                 const allPossiblePlugins: PluginSelectionType[] = []
-                for (const plugin of Object.values(plugins) as PluginType[]) {
+                for (const plugin of Object.values(plugins)) {
                     allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                 }
 
                 const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
 
-                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                for (const plugin of Object.values(repository)) {
                     if (!installedUrls.has(plugin.url)) {
                         allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                     }

@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.models import Team
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -21,5 +21,8 @@ def create_default_modifiers_for_team(
 
     if modifiers.inCohortVia is None:
         modifiers.inCohortVia = "subquery"
+
+    if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
+        modifiers.materializationMode = MaterializationMode.legacy_null_as_null
 
     return modifiers

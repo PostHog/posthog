@@ -32,7 +32,6 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
 
 export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
     return (
-        // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()}>
             <LemonMarkdown>{text}</LemonMarkdown>
         </div>

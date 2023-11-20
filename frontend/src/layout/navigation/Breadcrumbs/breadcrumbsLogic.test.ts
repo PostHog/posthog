@@ -25,8 +25,8 @@ describe('breadcrumbsLogic', () => {
 
         // test with .delay because subscriptions happen async
         router.actions.push(urls.savedInsights())
-        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Insights • PostHog' })
-        expect(global.document.title).toEqual('Insights • PostHog')
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Product analytics • PostHog' })
+        expect(global.document.title).toEqual('Product analytics • PostHog')
 
         router.actions.push(urls.dashboards())
         await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })

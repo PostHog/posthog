@@ -25,7 +25,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     order: string
     search: string
     createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
+    dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     pinned: boolean
@@ -227,7 +227,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.replay(ReplayTabs.Playlists)]: async (_, searchParams) => {
+        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {

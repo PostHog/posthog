@@ -1,5 +1,4 @@
 import { Link } from 'lib/lemon-ui/Link'
-import { Radio } from 'antd'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -17,7 +16,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -28,9 +27,9 @@ export function ActionsTable(): JSX.Element {
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
 
-    const { filterByMe, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
+    const { filterType, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
         useValues(actionsLogic)
-    const { setFilterByMe, setSearchTerm } = useActions(actionsLogic)
+    const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
@@ -202,7 +201,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        deleteWithUndo({
+                                        void deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
                                             object: action,
                                             callback: loadActions,
@@ -237,7 +236,7 @@ export function ActionsTable(): JSX.Element {
                     }
                 />
             )}
-            {(shouldShowEmptyState && filterByMe) || !shouldShowEmptyState ? (
+            {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
                 <div className="flex items-center justify-between gap-2 mb-4">
                     <LemonInput
                         type="search"
@@ -245,13 +244,17 @@ export function ActionsTable(): JSX.Element {
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />
-                    <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                        <Radio.Button value={false}>All actions</Radio.Button>
-                        <Radio.Button value={true}>My actions</Radio.Button>
-                    </Radio.Group>
+                    <LemonSegmentedButton
+                        value={filterType}
+                        onChange={setFilterType}
+                        options={[
+                            { value: 'all', label: 'All actions' },
+                            { value: 'me', label: 'My actions' },
+                        ]}
+                    />
                 </div>
             ) : null}
-            {(!shouldShowEmptyState || filterByMe) && (
+            {(!shouldShowEmptyState || filterType === 'me') && (
                 <>
                     <LemonTable
                         columns={columns}

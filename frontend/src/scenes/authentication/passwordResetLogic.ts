@@ -63,7 +63,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 email: !email ? 'Please enter your email to continue' : undefined,
             }),
             submit: async ({ email }, breakpoint) => {
-                await breakpoint()
+                breakpoint()
 
                 try {
                     await api.create('api/reset/', { email })

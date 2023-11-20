@@ -3,9 +3,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BillingProductV2Type, ProductKey } from '~/types'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { useEffect } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -131,17 +128,10 @@ export function ProductCard({
 }
 
 export function Products(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
-            location.href = urls.ingestion()
-        }
-    }, [])
 
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">

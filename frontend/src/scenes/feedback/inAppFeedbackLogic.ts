@@ -61,7 +61,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
             },
         ],
         dataTableQuery: [
-            DEFAULT_DATATABLE_QUERY as DataTableNode,
+            DEFAULT_DATATABLE_QUERY,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
@@ -74,7 +74,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
             },
         ],
         trendQuery: [
-            DEFAULT_TREND_INSIGHT_VIZ_NODE as InsightVizNode,
+            DEFAULT_TREND_INSIGHT_VIZ_NODE,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
@@ -114,7 +114,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
                         event: eventName,
                         orderBy: ['-timestamp'],
                     })
-                    return response.results as EventType[]
+                    return response.results
                 },
             },
         ],

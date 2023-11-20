@@ -12,7 +12,6 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
-import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -77,9 +76,7 @@ export const billingLogic = kea<billingLogicType>([
             '' as string,
             {
                 setRedirectPath: () => {
-                    return window.location.pathname.includes('/ingestion')
-                        ? urls.ingestion() + '/billing'
-                        : window.location.pathname.includes('/onboarding')
+                    return window.location.pathname.includes('/onboarding')
                         ? window.location.pathname + window.location.search
                         : ''
                 },
@@ -88,7 +85,7 @@ export const billingLogic = kea<billingLogicType>([
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
+                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
     }),

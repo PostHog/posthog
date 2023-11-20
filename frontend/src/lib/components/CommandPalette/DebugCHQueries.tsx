@@ -10,7 +10,7 @@ import { loaders } from 'kea-loaders'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 
-export async function debugCHQueries(): Promise<void> {
+export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
         title: 'ClickHouse queries recently executed for this user',
         content: <DebugCHQueries />,

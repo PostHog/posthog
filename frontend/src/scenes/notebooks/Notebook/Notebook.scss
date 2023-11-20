@@ -262,7 +262,7 @@
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {
-        color: var(--primary);
+        color: var(--primary-3000);
     }
 
     // Overrides for insight controls

@@ -16,7 +16,6 @@ import {
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
-    InsightVizNode,
     Node,
     NodeKind,
     TrendsFilter,
@@ -169,6 +168,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
+        vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -343,7 +343,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (props.setQuery) {
-                    props.setQuery(query as InsightVizNode)
+                    props.setQuery(query)
                 }
 
                 const querySource = query.source

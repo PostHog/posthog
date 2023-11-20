@@ -201,7 +201,9 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                           </p>
                                       </th>
                                       {plans?.map((plan) => (
-                                          <td key={`${plan.key}-${product}`}>{getProductTiers(plan, product.type)}</td>
+                                          <td key={`${plan.key}-${product.type}`}>
+                                              {getProductTiers(plan, product.type)}
+                                          </td>
                                       ))}
                                   </tr>
                               ))

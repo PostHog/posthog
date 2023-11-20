@@ -1,4 +1,4 @@
-import { Row, Col, InputNumber, Select } from 'antd'
+import { InputNumber, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -75,7 +75,7 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <div className="flex items-center justify-between">
@@ -244,7 +244,7 @@ export function FeatureFlagReleaseConditions({
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
@@ -314,7 +314,7 @@ export function FeatureFlagReleaseConditions({
                         </>
                     )}
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -327,7 +327,7 @@ export function FeatureFlagReleaseConditions({
         const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
 
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <div className="flex items-center justify-between">
@@ -386,7 +386,7 @@ export function FeatureFlagReleaseConditions({
                         </LemonButton>
                     </div>
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -456,11 +456,11 @@ export function FeatureFlagReleaseConditions({
                     </div>
                 )}
             </div>
-            <Row className="FeatureConditionCard" gutter={16}>
+            <div className="FeatureConditionCard">
                 {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
-            </Row>
+            </div>
             {!readOnly && (
                 <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
