@@ -273,7 +273,9 @@ module.exports = {
             files: ['*Type.ts', '*Type.tsx'],
             rules: {
                 'no-restricted-imports': 'off',
-                '@typescript-eslint/ban-types': ['off'],
+                '@typescript-eslint/ban-types': 'off',
+                'simple-import-sort/imports': 'off',
+                'simple-import-sort/exports': 'off',
             },
         },
         {
