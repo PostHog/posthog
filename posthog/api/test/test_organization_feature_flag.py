@@ -53,7 +53,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                     "email": self.user.email,
                     "is_email_verified": self.user.is_email_verified,
                 },
-                "filters": flag.filters,
+                "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
             }

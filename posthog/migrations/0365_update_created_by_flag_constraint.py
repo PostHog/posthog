@@ -50,12 +50,14 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
+                # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
+                # This should be safe, because we are making the constraint NOT VALID, so doesn't lock things up for long.
                 migrations.RunSQL(
                     """
-                    SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE;
-                    ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";
+                    SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id"; -- existing-table-constraint-ignore
                     ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" DROP NOT NULL;
-                    ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+                    ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID; -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE;
@@ -65,16 +67,17 @@ class Migration(migrations.Migration):
                     """,
                 ),
                 migrations.RunSQL(
-                    """SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
-                    ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";
+                    """SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id"; -- existing-table-constraint-ignore
                     ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" DROP NOT NULL;
-                    ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+                    ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID; -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;
                         ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";
                         ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" SET NOT NULL;
                         ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;
+                        -- existing-table-constraint-ignore
                     """,
                 ),
             ],
