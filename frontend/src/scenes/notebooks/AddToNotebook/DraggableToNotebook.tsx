@@ -6,8 +6,8 @@ import clsx from 'clsx'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useNotebookNode } from '../Nodes/notebookNodeLogic'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+import { useNotebookNode } from '../Nodes/NotebookNodeContext'
 
 export type DraggableToNotebookBaseProps = {
     href?: string

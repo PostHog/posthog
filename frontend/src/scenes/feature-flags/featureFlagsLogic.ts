@@ -8,6 +8,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router, actionToUrl, urlToAction } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { Scene } from 'scenes/sceneTypes'
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
@@ -154,6 +155,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.FeatureFlags,
                     name: 'Feature flags',
                     path: urls.featureFlags(),
                 },

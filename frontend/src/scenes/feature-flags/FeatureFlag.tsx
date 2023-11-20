@@ -332,7 +332,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     tagsAvailable={tags.filter(
                                                         (tag) => !featureFlag.tags?.includes(tag)
                                                     )}
-                                                    className="insight-metadata-tags"
+                                                    className="mt-2"
                                                 />
                                             )
                                         }}
@@ -510,14 +510,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             tagsAvailable={tags.filter(
                                                                 (tag) => !featureFlag.tags?.includes(tag)
                                                             )}
-                                                            className="insight-metadata-tags"
+                                                            className="mt-2"
                                                         />
                                                     ) : featureFlag.tags.length ? (
                                                         <ObjectTags
                                                             tags={featureFlag.tags}
                                                             saving={featureFlagLoading}
                                                             staticOnly
-                                                            className="insight-metadata-tags"
+                                                            className="mt-2"
                                                         />
                                                     ) : null}
                                                 </>

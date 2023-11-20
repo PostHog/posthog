@@ -13,6 +13,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
 import { Groups } from 'scenes/groups/Groups'
+import { Scene } from 'scenes/sceneTypes'
 
 export type PersonsManagementTab = {
     key: string
@@ -116,15 +117,18 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             (tabs, activeTab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.PersonsManagement,
                         name: `People`,
                         path: tabs[0].url,
                     },
                     activeTab
                         ? {
+                              key: activeTab.key,
                               name: activeTab.label,
                               path: activeTab.url,
                           }
                         : {
+                              key: 'loading',
                               name: 'Loading...',
                           },
                 ]
