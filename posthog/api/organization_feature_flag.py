@@ -12,6 +12,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -44,15 +45,10 @@ class OrganizationFeatureFlagView(
             {
                 "flag_id": flag.id,
                 "team_id": flag.team_id,
-                "created_by": {
-                    "id": flag.created_by.id,
-                    "uuid": flag.created_by.uuid,
-                    "distinct_id": flag.created_by.distinct_id,
-                    "first_name": flag.created_by.first_name,
-                    "email": flag.created_by.email,
-                    "is_email_verified": flag.created_by.is_email_verified,
-                },
-                "filters": flag.filters,
+                "created_by": UserBasicSerializer(flag.created_by).data
+                if hasattr(flag, "created_by") and flag.created_by
+                else None,
+                "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
             }
@@ -162,7 +158,7 @@ class OrganizationFeatureFlagView(
             flag_data = {
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
-                "filters": flag_to_copy.filters,
+                "filters": flag_to_copy.get_filters(),
                 "active": flag_to_copy.active,
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,

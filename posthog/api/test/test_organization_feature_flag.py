@@ -243,6 +243,29 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             set(flag_response.keys()),
         )
 
+    def test_copy_feature_flag_with_old_legacy_flags(self):
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-to-copy-here",
+            filters={},
+            rollout_percentage=self.rollout_percentage_to_copy,
+        )
+
+        data = {
+            "feature_flag_key": flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(len(response.json()["failed"]), 0)
+
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
         target_project_2 = Team.objects.create(organization=self.organization)
