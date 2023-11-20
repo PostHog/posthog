@@ -112,11 +112,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         dragPosition: [
             (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight],
             (element, lastDragPosition, windowWidth, windowHeight) => {
-                if (!element || !lastDragPosition) {
-                    return { x: 0, y: 0 }
-                }
-                const elWidth = element.offsetWidth + 2 // account for border
-                const elHeight = element.offsetHeight + 2 // account for border
+                lastDragPosition ??= { x: windowWidth * 0.5, y: windowHeight * 0.5 }
+
+                // If the element isn't set yet we can just guess the size
+                const elWidth = (element?.offsetWidth ?? 40) + 2 // account for border
+                const elHeight = (element?.offsetHeight ?? 40) + 2 // account for border
 
                 return {
                     x: inBounds(MARGIN, lastDragPosition.x, windowWidth - elWidth - MARGIN),
