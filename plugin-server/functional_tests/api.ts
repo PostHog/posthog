@@ -331,10 +331,13 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
 }
 
 export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
-    // TODO: clean up, better type handling
-    const { data: appMetrics } = await clickHouseClient.querying(
-        `SELECT * FROM app_metrics WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp`
-    )
+    // TODO: Improve type handling here: the structure of ``AppMetric`` is
+    // inconsistent with that of the ClickHouse schema (seemingly for stylistic
+    // reasons), so that will need to be bridged somehow.
+    const { data: appMetrics } = await clickHouseClient.querying(`
+        SELECT * FROM app_metrics
+        WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp
+    `)
     return appMetrics.map((row) => {
         if (row.error_type) {
             row.error_details = JSON.parse(row.error_details)
