@@ -67,7 +67,7 @@ jobs:
                   export HOSTNAME=${HOSTNAME:0:38}
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
-                  export TAILNET_NAME=${HOSTNAME}-hedgehog-kitefin
+                  export TAILNET_NAME=hedgehog-kitefin
                   export TS_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }}
 
                   export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
