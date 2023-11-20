@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
-import { AvailableFeature, SessionRecordingPlayerTab, SidePanelTab } from '~/types'
+import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
@@ -15,7 +15,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 function isLocalhost(url: string | null | undefined): boolean {
     return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
@@ -30,7 +30,7 @@ function EmptyNetworkTab({
     captureNetworkFeatureAvailable: boolean
     recordingURL: string | null | undefined
 }): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     return !captureNetworkFeatureAvailable ? (
         <div className="p-4">
             <PayGatePage
@@ -53,7 +53,11 @@ function EmptyNetworkTab({
                     Capture performance events like network requests during the browser recording to understand things
                     like response times, page load times, and more.
                 </p>
-                <LemonButton type="primary" onClick={() => openSidePanel(SidePanelTab.Settings)} targetBlank>
+                <LemonButton
+                    type="primary"
+                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                    targetBlank
+                >
                     Configure in settings
                 </LemonButton>
             </div>
@@ -77,7 +81,7 @@ function EmptyNetworkTab({
 }
 
 function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: boolean }): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     return captureConsoleLogOptIn ? (
         <>No results found in this recording.</>
@@ -89,7 +93,11 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
                     Capture all console logs during the browser recording to get technical information on what was
                     occurring.
                 </p>
-                <LemonButton type="primary" onClick={() => openSidePanel(SidePanelTab.Settings)} targetBlank>
+                <LemonButton
+                    type="primary"
+                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                    targetBlank
+                >
                     Configure in settings
                 </LemonButton>
             </div>
