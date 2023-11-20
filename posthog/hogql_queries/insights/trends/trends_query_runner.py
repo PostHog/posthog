@@ -136,7 +136,7 @@ class TrendsQueryRunner(QueryRunner):
 
             timings.extend(response.timings)
 
-            res.extend(self.build_series_response(response, series_with_extra))
+            res.extend(self.build_series_response(response, series_with_extra, len(queries)))
 
         if (
             self.query.trendsFilter is not None
@@ -147,7 +147,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsQueryResponse(results=res, timings=timings)
 
-    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
+    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
             return []
 
@@ -246,7 +246,13 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
                     series_object["breakdown_value"] = get_value("breakdown_value", val)
                 else:
-                    series_object["label"] = "{} - {}".format(series_object["label"], get_value("breakdown_value", val))
+                    # If there's multiple series, include the object label in the series label
+                    if series_count > 1:
+                        series_object["label"] = "{} - {}".format(
+                            series_object["label"], get_value("breakdown_value", val)
+                        )
+                    else:
+                        series_object["label"] = get_value("breakdown_value", val)
                     series_object["breakdown_value"] = get_value("breakdown_value", val)
 
             res.append(series_object)

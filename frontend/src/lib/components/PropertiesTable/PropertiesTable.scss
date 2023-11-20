@@ -5,21 +5,31 @@
 }
 
 .property-value-type {
-    display: flex;
     align-items: center;
-    width: fit-content;
-    height: 1.25rem;
-    padding: 0.125rem 0.25rem;
-    letter-spacing: 0.25px;
+    background: var(--mid);
     border-radius: var(--radius);
     border: 1px solid var(--border-light);
-    background: var(--mid);
     color: var(--muted-alt);
+    cursor: default;
+    display: flex;
     font-size: 0.625rem;
     font-weight: 500;
+    height: 1.25rem;
+    letter-spacing: 0.25px;
+    padding: 0.125rem 0.25rem;
     text-transform: uppercase;
     white-space: nowrap;
-    cursor: default;
+    width: fit-content;
+
+    .posthog-3000 & {
+        background: none;
+        border-radius: calc(var(--radius) * 0.75);
+        border-style: solid;
+        border-width: 1px;
+        font-family: var(--font-mono);
+        font-size: 0.688rem;
+        padding: 0.075rem 0.25rem;
+    }
 
     &:not(:first-child) {
         margin-left: 0.25rem;
@@ -27,10 +37,10 @@
 }
 
 .properties-table-value {
-    min-width: 12rem;
-    max-width: fit-content;
-    display: flex;
     align-items: center;
+    display: flex;
+    max-width: fit-content;
+    min-width: 12rem;
 
     .value-link {
         > * {
@@ -45,7 +55,20 @@
 
     .editable {
         text-decoration: underline dotted;
-        text-decoration-color: var(--primary);
+        text-decoration-color: var(--primary-3000);
         cursor: pointer;
+
+        .posthog-3000 & {
+            border: 1px solid transparent;
+            border-radius: calc(var(--radius) * 0.75);
+            margin-left: -0.25rem;
+            padding: 0.125rem 0.25rem;
+            text-decoration: none;
+
+            &:hover {
+                background: var(--bg-light);
+                border: 1px solid var(--border-light);
+            }
+        }
     }
 }

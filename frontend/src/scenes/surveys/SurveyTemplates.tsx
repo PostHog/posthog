@@ -28,7 +28,7 @@ export function SurveyTemplates(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <div className="flex flex-row flex-wrap gap-8 justify-center mt-8">
+            <div className="flex flex-row flex-wrap gap-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
                         <div

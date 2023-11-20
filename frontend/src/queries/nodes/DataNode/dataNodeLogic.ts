@@ -477,7 +477,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

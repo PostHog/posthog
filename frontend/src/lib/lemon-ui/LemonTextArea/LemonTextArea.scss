@@ -15,7 +15,7 @@
     display: block;
 
     &:not(:disabled):hover {
-        border: 1px solid var(--primary-light);
+        border: 1px solid var(--primary-3000-hover);
     }
 
     width: 100%;
@@ -27,7 +27,7 @@
     }
 
     &:focus:not(:disabled) {
-        border: 1px solid var(--primary);
+        border: 1px solid var(--primary-3000);
     }
 
     .Field--error & {
