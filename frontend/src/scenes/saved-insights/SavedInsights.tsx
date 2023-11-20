@@ -304,7 +304,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon style={{ display: 'block', fontSize: '1rem' }} />
+        return <insightMetadata.icon />
     }
     return null
 }
