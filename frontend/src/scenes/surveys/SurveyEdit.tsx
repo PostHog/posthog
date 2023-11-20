@@ -50,7 +50,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { surveysLogic } from './surveysLogic'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import clsx from 'clsx'
-import { SortableContext } from '@dnd-kit/sortable'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DndContext } from '@dnd-kit/core'
 import { SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 
@@ -115,17 +115,12 @@ export default function SurveyEdit(): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
-        debugger
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
-        // setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
-        // if (oldIndex !== newIndex) {
-        //     reportFunnelStepReordered()
-        // }
     }
 
     return (
@@ -157,12 +152,11 @@ export default function SurveyEdit(): JSX.Element {
                                                 })
                                             }
                                         }}
-
                                     >
                                         <SortableContext
                                             disabled={survey.questions.length <= 1}
                                             items={sortedItemIds}
-                                        // strategy={verticalListSortingStrategy}
+                                            strategy={verticalListSortingStrategy}
                                         >
                                             <LemonCollapse
                                                 activeKey={selectedQuestion === null ? undefined : selectedQuestion}
@@ -181,7 +175,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             key: index,
                                                             header: (
                                                                 <SurveyEditQuestionHeader
-                                                                    index={index.toString()}
+                                                                    index={index}
                                                                     survey={survey}
                                                                     setSelectedQuestion={setSelectedQuestion}
                                                                     setSurveyValue={setSurveyValue}
@@ -199,18 +193,22 @@ export default function SurveyEdit(): JSX.Element {
                                                                                 data-attr={`survey-question-type-${index}`}
                                                                                 onSelect={(newType) => {
                                                                                     const isEditingQuestion =
-                                                                                        defaultSurveyFieldValues[question.type]
-                                                                                            .questions[0].question !==
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].questions[0].question !==
                                                                                         question.question
                                                                                     const isEditingDescription =
-                                                                                        defaultSurveyFieldValues[question.type]
-                                                                                            .questions[0].description !==
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].questions[0].description !==
                                                                                         question.description
                                                                                     const isEditingThankYouMessage =
-                                                                                        defaultSurveyFieldValues[question.type]
-                                                                                            .appearance
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].appearance
                                                                                             .thankYouMessageHeader !==
-                                                                                        survey.appearance.thankYouMessageHeader
+                                                                                        survey.appearance
+                                                                                            .thankYouMessageHeader
                                                                                     setDefaultForQuestionType(
                                                                                         index,
                                                                                         newType,
@@ -228,7 +226,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         tooltip: () => (
                                                                                             <BaseAppearance
                                                                                                 preview
-                                                                                                onSubmit={() => undefined}
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
                                                                                                 appearance={{
                                                                                                     ...survey.appearance,
                                                                                                     whiteLabel: true,
@@ -249,7 +249,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         tooltip: () => (
                                                                                             <BaseAppearance
                                                                                                 preview
-                                                                                                onSubmit={() => undefined}
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
                                                                                                 appearance={{
                                                                                                     ...survey.appearance,
                                                                                                     whiteLabel: true,
@@ -258,7 +260,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                     type: SurveyQuestionType.Link,
                                                                                                     question:
                                                                                                         'Do you want to join our upcoming webinar?',
-                                                                                                    buttonText: 'Register',
+                                                                                                    buttonText:
+                                                                                                        'Register',
                                                                                                     link: '',
                                                                                                 }}
                                                                                             />
@@ -270,7 +273,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         tooltip: () => (
                                                                                             <SurveyRatingAppearance
                                                                                                 preview
-                                                                                                onSubmit={() => undefined}
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
                                                                                                 appearance={{
                                                                                                     ...survey.appearance,
                                                                                                     whiteLabel: true,
@@ -299,14 +304,20 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                 <SurveyMultipleChoiceAppearance
                                                                                                     initialChecked={[0]}
                                                                                                     preview
-                                                                                                    onSubmit={() => undefined}
+                                                                                                    onSubmit={() =>
+                                                                                                        undefined
+                                                                                                    }
                                                                                                     appearance={{
                                                                                                         ...survey.appearance,
-                                                                                                        whiteLabel: true,
+                                                                                                        whiteLabel:
+                                                                                                            true,
                                                                                                     }}
                                                                                                     multipleChoiceQuestion={{
                                                                                                         type: SurveyQuestionType.SingleChoice,
-                                                                                                        choices: ['Yes', 'No'],
+                                                                                                        choices: [
+                                                                                                            'Yes',
+                                                                                                            'No',
+                                                                                                        ],
                                                                                                         question:
                                                                                                             'Have you found this tutorial useful?',
                                                                                                     }}
@@ -318,12 +329,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                                             value: SurveyQuestionType.MultipleChoice,
                                                                                             tooltip: () => (
                                                                                                 <SurveyMultipleChoiceAppearance
-                                                                                                    initialChecked={[0, 1]}
+                                                                                                    initialChecked={[
+                                                                                                        0, 1,
+                                                                                                    ]}
                                                                                                     preview
-                                                                                                    onSubmit={() => undefined}
+                                                                                                    onSubmit={() =>
+                                                                                                        undefined
+                                                                                                    }
                                                                                                     appearance={{
                                                                                                         ...survey.appearance,
-                                                                                                        whiteLabel: true,
+                                                                                                        whiteLabel:
+                                                                                                            true,
                                                                                                     }}
                                                                                                     multipleChoiceQuestion={{
                                                                                                         type: SurveyQuestionType.MultipleChoice,
@@ -383,7 +399,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                                 />
                                                                             </Field>
                                                                         )}
-                                                                        {question.type === SurveyQuestionType.Rating && (
+                                                                        {question.type ===
+                                                                            SurveyQuestionType.Rating && (
                                                                             <div className="flex flex-col gap-2">
                                                                                 <div className="flex flex-row gap-4">
                                                                                     <Field
@@ -411,26 +428,27 @@ export default function SurveyEdit(): JSX.Element {
                                                                                     >
                                                                                         <LemonSelect
                                                                                             options={[
-                                                                                                ...(question.display === 'emoji'
+                                                                                                ...(question.display ===
+                                                                                                'emoji'
                                                                                                     ? [
-                                                                                                        {
-                                                                                                            label: '1 - 3',
-                                                                                                            value: 3,
-                                                                                                        },
-                                                                                                    ]
+                                                                                                          {
+                                                                                                              label: '1 - 3',
+                                                                                                              value: 3,
+                                                                                                          },
+                                                                                                      ]
                                                                                                     : []),
                                                                                                 {
                                                                                                     label: '1 - 5',
                                                                                                     value: 5,
                                                                                                 },
                                                                                                 ...(question.display ===
-                                                                                                    'number'
+                                                                                                'number'
                                                                                                     ? [
-                                                                                                        {
-                                                                                                            label: '0 - 10',
-                                                                                                            value: 10,
-                                                                                                        },
-                                                                                                    ]
+                                                                                                          {
+                                                                                                              label: '0 - 10',
+                                                                                                              value: 10,
+                                                                                                          },
+                                                                                                      ]
                                                                                                     : []),
                                                                                             ]}
                                                                                         />
@@ -444,7 +462,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                                     >
                                                                                         <LemonInput
                                                                                             value={
-                                                                                                question.lowerBoundLabel || ''
+                                                                                                question.lowerBoundLabel ||
+                                                                                                ''
                                                                                             }
                                                                                         />
                                                                                     </Field>
@@ -455,96 +474,118 @@ export default function SurveyEdit(): JSX.Element {
                                                                                     >
                                                                                         <LemonInput
                                                                                             value={
-                                                                                                question.upperBoundLabel || ''
+                                                                                                question.upperBoundLabel ||
+                                                                                                ''
                                                                                             }
                                                                                         />
                                                                                     </Field>
                                                                                 </div>
                                                                             </div>
                                                                         )}
-                                                                        {(question.type === SurveyQuestionType.SingleChoice ||
+                                                                        {(question.type ===
+                                                                            SurveyQuestionType.SingleChoice ||
                                                                             question.type ===
-                                                                            SurveyQuestionType.MultipleChoice) && (
-                                                                                <div className="flex flex-col gap-2">
-                                                                                    <Field name="choices" label="Choices">
-                                                                                        {({ value, onChange }) => (
-                                                                                            <div className="flex flex-col gap-2">
-                                                                                                {(value || []).map(
-                                                                                                    (
-                                                                                                        choice: string,
-                                                                                                        index: number
-                                                                                                    ) => (
-                                                                                                        <div
-                                                                                                            className="flex flex-row gap-2"
-                                                                                                            key={index}
-                                                                                                        >
-                                                                                                            <LemonInput
-                                                                                                                value={choice}
-                                                                                                                fullWidth
-                                                                                                                onChange={(val) => {
-                                                                                                                    const newChoices =
-                                                                                                                        [...value]
-                                                                                                                    newChoices[
-                                                                                                                        index
-                                                                                                                    ] = val
-                                                                                                                    onChange(
-                                                                                                                        newChoices
-                                                                                                                    )
-                                                                                                                }}
-                                                                                                            />
-                                                                                                            <LemonButton
-                                                                                                                icon={
-                                                                                                                    <IconDelete />
-                                                                                                                }
-                                                                                                                size="small"
-                                                                                                                status="muted"
-                                                                                                                noPadding
-                                                                                                                onClick={() => {
-                                                                                                                    const newChoices =
-                                                                                                                        [...value]
-                                                                                                                    newChoices.splice(
-                                                                                                                        index,
-                                                                                                                        1
-                                                                                                                    )
-                                                                                                                    onChange(
-                                                                                                                        newChoices
-                                                                                                                    )
-                                                                                                                }}
-                                                                                                            />
-                                                                                                        </div>
-                                                                                                    )
-                                                                                                )}
-                                                                                                <div className="w-fit">
-                                                                                                    {(value || []).length < 6 && (
+                                                                                SurveyQuestionType.MultipleChoice) && (
+                                                                            <div className="flex flex-col gap-2">
+                                                                                <Field name="choices" label="Choices">
+                                                                                    {({ value, onChange }) => (
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            {(value || []).map(
+                                                                                                (
+                                                                                                    choice: string,
+                                                                                                    index: number
+                                                                                                ) => (
+                                                                                                    <div
+                                                                                                        className="flex flex-row gap-2"
+                                                                                                        key={index}
+                                                                                                    >
+                                                                                                        <LemonInput
+                                                                                                            value={
+                                                                                                                choice
+                                                                                                            }
+                                                                                                            fullWidth
+                                                                                                            onChange={(
+                                                                                                                val
+                                                                                                            ) => {
+                                                                                                                const newChoices =
+                                                                                                                    [
+                                                                                                                        ...value,
+                                                                                                                    ]
+                                                                                                                newChoices[
+                                                                                                                    index
+                                                                                                                ] = val
+                                                                                                                onChange(
+                                                                                                                    newChoices
+                                                                                                                )
+                                                                                                            }}
+                                                                                                        />
                                                                                                         <LemonButton
-                                                                                                            icon={<IconPlusMini />}
-                                                                                                            type="secondary"
-                                                                                                            fullWidth={false}
+                                                                                                            icon={
+                                                                                                                <IconDelete />
+                                                                                                            }
+                                                                                                            size="small"
+                                                                                                            status="muted"
+                                                                                                            noPadding
                                                                                                             onClick={() => {
-                                                                                                                if (!value) {
-                                                                                                                    onChange([''])
-                                                                                                                } else {
-                                                                                                                    onChange([
+                                                                                                                const newChoices =
+                                                                                                                    [
+                                                                                                                        ...value,
+                                                                                                                    ]
+                                                                                                                newChoices.splice(
+                                                                                                                    index,
+                                                                                                                    1
+                                                                                                                )
+                                                                                                                onChange(
+                                                                                                                    newChoices
+                                                                                                                )
+                                                                                                            }}
+                                                                                                        />
+                                                                                                    </div>
+                                                                                                )
+                                                                                            )}
+                                                                                            <div className="w-fit">
+                                                                                                {(value || []).length <
+                                                                                                    6 && (
+                                                                                                    <LemonButton
+                                                                                                        icon={
+                                                                                                            <IconPlusMini />
+                                                                                                        }
+                                                                                                        type="secondary"
+                                                                                                        fullWidth={
+                                                                                                            false
+                                                                                                        }
+                                                                                                        onClick={() => {
+                                                                                                            if (
+                                                                                                                !value
+                                                                                                            ) {
+                                                                                                                onChange(
+                                                                                                                    ['']
+                                                                                                                )
+                                                                                                            } else {
+                                                                                                                onChange(
+                                                                                                                    [
                                                                                                                         ...value,
                                                                                                                         '',
-                                                                                                                    ])
-                                                                                                                }
-                                                                                                            }}
-                                                                                                        >
-                                                                                                            Add choice
-                                                                                                        </LemonButton>
-                                                                                                    )}
-                                                                                                </div>
+                                                                                                                    ]
+                                                                                                                )
+                                                                                                            }
+                                                                                                        }}
+                                                                                                    >
+                                                                                                        Add choice
+                                                                                                    </LemonButton>
+                                                                                                )}
                                                                                             </div>
-                                                                                        )}
-                                                                                    </Field>
-                                                                                </div>
-                                                                            )}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </Field>
+                                                                            </div>
+                                                                        )}
                                                                         <Field name="buttonText" label="Button text">
                                                                             <LemonInput
                                                                                 value={
                                                                                     question.buttonText === undefined
-                                                                                        ? survey.appearance.submitButtonText
+                                                                                        ? survey.appearance
+                                                                                              .submitButtonText
                                                                                         : question.buttonText
                                                                                 }
                                                                             />
@@ -556,73 +597,75 @@ export default function SurveyEdit(): JSX.Element {
                                                     ),
                                                     ...(survey.appearance.displayThankYouMessage
                                                         ? [
-                                                            {
-                                                                key: survey.questions.length,
-                                                                header: (
-                                                                    <div className="flex flex-row w-full items-center justify-between">
-                                                                        <b>Confirmation message</b>
-                                                                        <LemonButton
-                                                                            icon={<IconDelete />}
-                                                                            status="primary-alt"
-                                                                            data-attr={`delete-survey-confirmation`}
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation()
-                                                                                setSelectedQuestion(
-                                                                                    survey.questions.length - 1
-                                                                                )
-                                                                                setSurveyValue('appearance', {
-                                                                                    ...survey.appearance,
-                                                                                    displayThankYouMessage: false,
-                                                                                })
-                                                                            }}
-                                                                            tooltipPlacement="topRight"
-                                                                        />
-                                                                    </div>
-                                                                ),
-                                                                content: (
-                                                                    <>
-                                                                        <PureField label="Thank you header">
-                                                                            <LemonInput
-                                                                                value={
-                                                                                    survey.appearance.thankYouMessageHeader
-                                                                                }
-                                                                                onChange={(val) =>
-                                                                                    setSurveyValue('appearance', {
-                                                                                        ...survey.appearance,
-                                                                                        thankYouMessageHeader: val,
-                                                                                    })
-                                                                                }
-                                                                                placeholder="ex: Thank you for your feedback!"
-                                                                            />
-                                                                        </PureField>
-                                                                        <PureField
-                                                                            label="Thank you description"
-                                                                            className="mt-1"
-                                                                        >
-                                                                            <HTMLEditor
-                                                                                value={
-                                                                                    survey.appearance
-                                                                                        .thankYouMessageDescription
-                                                                                }
-                                                                                onChange={(val) =>
-                                                                                    setSurveyValue('appearance', {
-                                                                                        ...survey.appearance,
-                                                                                        thankYouMessageDescription: val,
-                                                                                    })
-                                                                                }
-                                                                                writingHTMLDescription={
-                                                                                    writingHTMLDescription
-                                                                                }
-                                                                                setWritingHTMLDescription={
-                                                                                    setWritingHTMLDescription
-                                                                                }
-                                                                                textPlaceholder="ex: We really appreciate it."
-                                                                            />
-                                                                        </PureField>
-                                                                    </>
-                                                                ),
-                                                            },
-                                                        ]
+                                                              {
+                                                                  key: survey.questions.length,
+                                                                  header: (
+                                                                      <div className="flex flex-row w-full items-center justify-between">
+                                                                          <b>Confirmation message</b>
+                                                                          <LemonButton
+                                                                              icon={<IconDelete />}
+                                                                              status="primary-alt"
+                                                                              data-attr={`delete-survey-confirmation`}
+                                                                              onClick={(e) => {
+                                                                                  e.stopPropagation()
+                                                                                  setSelectedQuestion(
+                                                                                      survey.questions.length - 1
+                                                                                  )
+                                                                                  setSurveyValue('appearance', {
+                                                                                      ...survey.appearance,
+                                                                                      displayThankYouMessage: false,
+                                                                                  })
+                                                                              }}
+                                                                              tooltipPlacement="topRight"
+                                                                          />
+                                                                      </div>
+                                                                  ),
+                                                                  content: (
+                                                                      <>
+                                                                          <PureField label="Thank you header">
+                                                                              <LemonInput
+                                                                                  value={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageHeader
+                                                                                  }
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageHeader: val,
+                                                                                      })
+                                                                                  }
+                                                                                  placeholder="ex: Thank you for your feedback!"
+                                                                              />
+                                                                          </PureField>
+                                                                          <PureField
+                                                                              label="Thank you description"
+                                                                              className="mt-1"
+                                                                          >
+                                                                              <HTMLEditor
+                                                                                  value={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageDescription
+                                                                                  }
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescription:
+                                                                                              val,
+                                                                                      })
+                                                                                  }
+                                                                                  writingHTMLDescription={
+                                                                                      writingHTMLDescription
+                                                                                  }
+                                                                                  setWritingHTMLDescription={
+                                                                                      setWritingHTMLDescription
+                                                                                  }
+                                                                                  textPlaceholder="ex: We really appreciate it."
+                                                                              />
+                                                                          </PureField>
+                                                                      </>
+                                                                  ),
+                                                              },
+                                                          ]
                                                         : []),
                                                 ]}
                                             />
@@ -737,24 +780,24 @@ export default function SurveyEdit(): JSX.Element {
                         },
                         ...(survey.type !== SurveyType.API
                             ? [
-                                {
-                                    key: SurveyEditSection.Customization,
-                                    header: 'Customization',
-                                    content: (
-                                        <Field name="appearance" label="">
-                                            {({ value, onChange }) => (
-                                                <Customization
-                                                    appearance={value || defaultSurveyAppearance}
-                                                    surveyQuestionItem={survey.questions[0]}
-                                                    onAppearanceChange={(appearance) => {
-                                                        onChange(appearance)
-                                                    }}
-                                                />
-                                            )}
-                                        </Field>
-                                    ),
-                                },
-                            ]
+                                  {
+                                      key: SurveyEditSection.Customization,
+                                      header: 'Customization',
+                                      content: (
+                                          <Field name="appearance" label="">
+                                              {({ value, onChange }) => (
+                                                  <Customization
+                                                      appearance={value || defaultSurveyAppearance}
+                                                      surveyQuestionItem={survey.questions[0]}
+                                                      onAppearanceChange={(appearance) => {
+                                                          onChange(appearance)
+                                                      }}
+                                                  />
+                                              )}
+                                          </Field>
+                                      ),
+                                  },
+                              ]
                             : []),
                         {
                             key: SurveyEditSection.Targeting,
