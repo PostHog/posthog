@@ -330,7 +330,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -402,7 +402,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             start_at=batch_export.start_at,

@@ -123,7 +123,7 @@ async def test_external_data_job_workflow(team):
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_EXTERNAL_DATA_JOB_TASK_QUEUE,
         workflows=[ExternalDataJobWorkflow],
         activities=[
             create_external_data_job_model,
@@ -141,7 +141,7 @@ async def test_external_data_job_workflow(team):
                 ExternalDataJobWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=settings.TEMPORAL_EXTERNAL_DATA_JOB_TASK_QUEUE,
             )
             mock_create_pipeline.assert_called_once_with(
                 StripeJobInputs(

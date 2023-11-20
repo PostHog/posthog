@@ -63,7 +63,7 @@ async def test_payloads_are_encrypted():
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=[NoOpWorkflow],
         activities=[noop_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),

@@ -191,7 +191,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -235,7 +235,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(seconds=20),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -279,7 +279,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(seconds=20),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )

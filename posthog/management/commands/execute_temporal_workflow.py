@@ -48,7 +48,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--task-queue",
-            default=settings.TEMPORAL_TASK_QUEUE,
+            default=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             help="Task queue to service",
         )
         parser.add_argument(

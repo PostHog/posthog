@@ -91,7 +91,7 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
 def start_test_worker(temporal: TemporalClient):
     with ThreadedWorker(
         client=temporal,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
         workflow_runner=UnsandboxedWorkflowRunner(),

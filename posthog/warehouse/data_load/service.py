@@ -18,7 +18,7 @@ async def start_external_data_job_workflow(temporal: Client, inputs: ExternalDat
         "external-data-job",
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_EXTERNAL_DATA_JOB_TASK_QUEUE,
     )
 
     return workflow_id
