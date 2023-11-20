@@ -73,6 +73,7 @@ def print_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
+    timeout: Optional[int] = None,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     return print_prepared_ast(
@@ -82,6 +83,7 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
+        timeout=timeout,
     )
 
 
@@ -125,6 +127,7 @@ def print_prepared_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
+    timeout: Optional[int] = None,
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
@@ -134,6 +137,7 @@ def print_prepared_ast(
             stack=stack or [],
             settings=settings,
             pretty=pretty,
+            timeout=timeout,
         ).visit(node)
 
 
@@ -153,6 +157,7 @@ class _Printer(Visitor):
         stack: Optional[List[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
+        timeout: Optional[int] = None,
     ):
         self.context = context
         self.dialect = dialect
@@ -161,6 +166,7 @@ class _Printer(Visitor):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
+        self.timeout = timeout
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -1102,6 +1108,9 @@ class _Printer(Visitor):
         return True
 
     def _print_settings(self, settings):
+        if self.timeout:
+            settings["max_execution_time"] = self.timeout
+
         pairs = []
         for key, value in settings:
             if value is None:

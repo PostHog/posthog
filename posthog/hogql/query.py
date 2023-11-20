@@ -132,6 +132,7 @@ def execute_hogql_query(
             context=clickhouse_context,
             dialect="clickhouse",
             settings=settings or HogQLGlobalSettings(),
+            timeout=600 if in_export_context else None,
         )
 
     timings_dict = timings.to_dict()
