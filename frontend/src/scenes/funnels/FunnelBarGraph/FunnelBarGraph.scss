@@ -120,7 +120,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: var(--funnel-default);
+            background: var(--primary-3000);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
@@ -148,7 +148,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: var(--funnel-default);
+                    color: var(--primary-3000);
                 }
             }
         }

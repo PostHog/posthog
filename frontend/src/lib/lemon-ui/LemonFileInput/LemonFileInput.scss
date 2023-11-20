@@ -11,6 +11,6 @@
     left: calc(-1 * var(--file-drop-target-padding));
     height: calc(100% + var(--file-drop-target-padding) * 2);
     width: calc(100% + var(--file-drop-target-padding) * 2);
-    border: 3px dashed var(--primary);
+    border: 3px dashed var(--primary-3000);
     border-radius: var(--radius);
 }

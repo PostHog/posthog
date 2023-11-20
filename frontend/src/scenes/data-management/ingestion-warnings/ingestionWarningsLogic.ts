@@ -47,11 +47,11 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        name: `Data Management`,
+                        name: `Data management`,
                         path: urls.eventDefinitions(),
                     },
                     {
-                        name: 'Ingestion Warnings',
+                        name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
                     },
                 ]

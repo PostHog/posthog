@@ -1,15 +1,15 @@
 .LemonTableLoader {
-    transition: height 200ms ease, top 200ms ease;
-    z-index: 10;
-    position: absolute;
-    left: 0;
-    padding: 0;
-    bottom: -1px;
-    width: 100%;
-    height: 0;
     background: var(--primary-bg-active);
     border: none !important;
+    bottom: -1px;
+    height: 0;
+    left: 0;
     overflow: hidden;
+    padding: 0.05rem !important;
+    position: absolute;
+    transition: height 200ms ease, top 200ms ease;
+    width: 100%;
+    z-index: 10;
 
     &::after {
         content: '';
@@ -20,11 +20,16 @@
         height: 100%;
         animation: LemonTableLoader__swooping 1.5s linear infinite;
         background: var(--primary);
+
+        .posthog-3000 & {
+            animation: loading-bar 1.5s linear infinite;
+            background: var(--primary-3000);
+        }
     }
 
     &.LemonTableLoader--enter-active,
     &.LemonTableLoader--enter-done {
-        height: 0.25rem;
+        height: 0.125rem;
     }
 }
 

@@ -96,7 +96,7 @@ const tabs: Record<
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion Warnings',
+        label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
     },
     [DataManagementTab.Database]: {
