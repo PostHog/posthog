@@ -1,4 +1,4 @@
-import { LemonBadge, Lettermark } from '@posthog/lemon-ui'
+import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -14,16 +14,12 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { isSitePopoverOpen, isProjectSwitcherShown } = useValues(navigationLogic)
-    const { closeSitePopover, toggleSitePopover, toggleProjectSwitcher, hideProjectSwitcher } =
-        useActions(navigationLogic)
-    const { isSidebarShown, activeNavbarItemId, navbarItems, mode } = useValues(navigation3000Logic)
+    const { isSitePopoverOpen } = useValues(navigationLogic)
+    const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
+    const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed } = useActions(navigation3000Logic)
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
@@ -38,98 +34,69 @@ export function Navbar(): JSX.Element {
         <nav className="Navbar3000" ref={containerRef}>
             <div className="Navbar3000__content">
                 <div className="Navbar3000__top">
-                    {mode === 'full' ? (
-                        navbarItems.map((section, index) => (
-                            <ul key={index}>
-                                {section.map((item) =>
-                                    item.featureFlag && !featureFlags[item.featureFlag] ? null : (
-                                        <NavbarButton
-                                            key={item.identifier}
-                                            title={item.label}
-                                            identifier={item.identifier}
-                                            icon={item.icon}
-                                            tag={item.tag}
-                                            to={'to' in item ? item.to : undefined}
-                                            onClick={
-                                                'logic' in item
-                                                    ? () => {
-                                                          if (
-                                                              activeNavbarItemId === item.identifier &&
-                                                              isSidebarShown
-                                                          ) {
-                                                              hideSidebar()
-                                                          } else {
-                                                              showSidebar(item.identifier)
-                                                          }
+                    {navbarItems.map((section, index) => (
+                        <ul key={index}>
+                            {section.map((item) =>
+                                item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                    <NavbarButton
+                                        key={item.identifier}
+                                        title={item.label}
+                                        identifier={item.identifier}
+                                        icon={item.icon}
+                                        tag={item.tag}
+                                        to={'to' in item ? item.to : undefined}
+                                        onClick={
+                                            'logic' in item
+                                                ? () => {
+                                                      if (activeNavbarItemId === item.identifier && isSidebarShown) {
+                                                          hideSidebar()
+                                                      } else {
+                                                          showSidebar(item.identifier)
                                                       }
-                                                    : undefined
-                                            }
-                                            active={activeNavbarItemId === item.identifier && isSidebarShown}
-                                        />
-                                    )
-                                )}
-                            </ul>
-                        ))
-                    ) : (
-                        <ul>
-                            <Popover
-                                overlay={<ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />}
-                                visible={isProjectSwitcherShown}
-                                onClickOutside={hideProjectSwitcher}
-                                placement="right-start"
-                            >
-                                <NavbarButton
-                                    icon={<Lettermark name={currentTeam?.name} />}
-                                    identifier="me"
-                                    title={currentTeam?.name ?? 'Current project'}
-                                    // shortTitle={user?.first_name || user?.email}
-                                    onClick={toggleProjectSwitcher}
-                                />
-                            </Popover>
+                                                  }
+                                                : undefined
+                                        }
+                                        active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                    />
+                                )
+                            )}
                         </ul>
-                    )}
+                    ))}
                 </div>
                 <div className="Navbar3000__bottom">
                     <ul>
-                        {mode === 'full' ? (
-                            <>
-                                <NavbarButton
-                                    icon={
-                                        isThemeSyncedWithSystem ? (
-                                            <div className="relative">
-                                                {activeThemeIcon}
-                                                <LemonBadge
-                                                    size="small"
-                                                    position="top-right"
-                                                    content={<IconAsterisk />}
-                                                />
-                                            </div>
-                                        ) : (
-                                            activeThemeIcon
-                                        )
-                                    }
-                                    identifier="theme-button"
-                                    title={
-                                        darkModeSavedPreference === false
-                                            ? `Sync theme with system preference (${
-                                                  darkModeSystemPreference ? 'dark' : 'light'
-                                              } mode)`
-                                            : darkModeSavedPreference
-                                            ? 'Switch to light mode'
-                                            : 'Switch to dark mode'
-                                    }
-                                    shortTitle="Toggle theme"
-                                    onClick={() => toggleTheme()}
-                                    persistentTooltip
-                                />
-                                <NavbarButton
-                                    icon={<IconGear />}
-                                    identifier={Scene.Settings}
-                                    title="Project settings"
-                                    to={urls.settings('project')}
-                                />
-                            </>
-                        ) : null}
+                        <NavbarButton
+                            icon={
+                                isThemeSyncedWithSystem ? (
+                                    <div className="relative">
+                                        {activeThemeIcon}
+                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
+                                    </div>
+                                ) : (
+                                    activeThemeIcon
+                                )
+                            }
+                            identifier="theme-button"
+                            title={
+                                darkModeSavedPreference === false
+                                    ? `Sync theme with system preference (${
+                                          darkModeSystemPreference ? 'dark' : 'light'
+                                      } mode)`
+                                    : darkModeSavedPreference
+                                    ? 'Switch to light mode'
+                                    : 'Switch to dark mode'
+                            }
+                            shortTitle="Toggle theme"
+                            onClick={() => toggleTheme()}
+                            persistentTooltip
+                        />
+                        <NavbarButton
+                            icon={<IconGear />}
+                            identifier={Scene.Settings}
+                            title="Project settings"
+                            to={urls.settings('project')}
+                        />
+
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}

@@ -11,6 +11,8 @@
 
     .posthog-3000 & {
         background-color: transparent;
+        height: auto;
+        overflow: visible;
     }
 
     &::-webkit-scrollbar {

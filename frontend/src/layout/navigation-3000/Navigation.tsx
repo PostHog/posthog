@@ -12,6 +12,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanel } from './sidepanel/SidePanel'
+import { MinimalNavigation } from './components/MinimalNavigation'
 
 export function Navigation({
     children,
@@ -28,22 +29,32 @@ export function Navigation({
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
+    if (mode === 'none') {
+        return <>{children}</>
+    }
+
+    if (mode === 'minimal') {
+        return (
+            <div className="flex flex-col h-screen w-screen">
+                <MinimalNavigation />
+                <main className="flex flex-1 overflow-y-auto">{children}</main>
+            </div>
+        )
+    }
+
     return (
         <div className="Navigation3000">
             <Navbar />
-
-            {mode === 'full' && (
-                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
-                    {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
-                </FlaggedFeature>
-            )}
+            <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
+                {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+            </FlaggedFeature>
             <main>
-                {mode === 'full' && <Breadcrumbs />}
+                <Breadcrumbs />
                 <div
                     className={clsx(
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                        (sceneConfig?.layout === 'app-raw' || mode === 'minimal') && 'Navigation3000__scene--raw'
+                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >
                     {children}

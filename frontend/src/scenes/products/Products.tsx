@@ -136,7 +136,7 @@ export function Products(): JSX.Element {
     const products = billing?.products || []
 
     return (
-        <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
+        <div className="flex flex-col flex-1 w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
                 <h1 className="text-center text-4xl">Pick your {isFirstProduct ? 'first' : 'next'} product.</h1>
                 <p className="text-center">
