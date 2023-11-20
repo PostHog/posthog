@@ -90,8 +90,7 @@
         }
     }
 
-    &.LemonButton--small,
-    .Breadcrumbs3000 & {
+    &.LemonButton--small {
         gap: 0.25rem;
 
         > span {
