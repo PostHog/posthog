@@ -16,14 +16,15 @@ import {
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { asDisplay } from './person-utils'
 import { hogqlQuery } from '~/queries/query'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -246,12 +247,14 @@ export const personsLogic = kea<personsLogicType>([
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
-                        name: 'Persons',
+                        key: Scene.PersonsManagement,
+                        name: 'People',
                         path: urls.persons(),
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
+                        key: person.id || 'unknown',
                         name: asDisplay(person),
                     })
                 }

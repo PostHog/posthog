@@ -1,6 +1,7 @@
 .events-definition-table {
     .LemonTable__content > table > tbody {
         td.definition-column-icon {
+            padding-right: 0.5rem;
             width: 36px;
 
             .definition-column-name-icon {
@@ -8,7 +9,7 @@
                 align-items: center;
                 justify-content: center;
                 width: 30px;
-                font-size: 1.5rem;
+                font-size: 1.2rem;
 
                 svg.taxonomy-icon {
                     flex-shrink: 0;
@@ -37,16 +38,15 @@
                 justify-content: center;
 
                 .definition-column-name-content-title {
+                    align-items: center;
+                    display: flex;
                     font-weight: 600;
-                    cursor: pointer;
-                    position: relative;
+                    gap: 0.25rem;
                     overflow: visible;
+                    position: relative;
 
-                    &::before {
-                        content: '';
-                        position: absolute;
-                        inset: -5px -50px -5px -10px;
-                        height: 22px;
+                    svg {
+                        color: var(--success);
                     }
                 }
             }

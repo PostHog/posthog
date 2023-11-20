@@ -19,6 +19,7 @@ import { beforeUnload, router } from 'kea-router'
 import type { batchExportsEditLogicType } from './batchExportEditLogicType'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { batchExportLogic } from './batchExportLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export type BatchExportsEditLogicProps = {
     id: string
@@ -267,22 +268,25 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             (s) => [s.batchExportConfig, s.isNew],
             (config, isNew): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 ...(isNew
                     ? [
                           {
+                              key: 'new',
                               name: 'New',
                           },
                       ]
                     : [
                           {
-                              name: config?.name ?? 'Loading',
+                              key: config?.id ?? 'loading',
+                              name: config?.name,
                               path: config?.id ? urls.batchExport(config.id) : undefined,
                           },
-
                           {
+                              key: 'edit',
                               name: 'Edit',
                           },
                       ]),

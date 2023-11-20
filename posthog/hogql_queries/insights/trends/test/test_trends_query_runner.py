@@ -420,10 +420,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 4
         assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[0]["label"] == f"Chrome"
+        assert response.results[1]["label"] == f"Edge"
+        assert response.results[2]["label"] == f"Firefox"
+        assert response.results[3]["label"] == f"Safari"
         assert response.results[0]["count"] == 6
         assert response.results[1]["count"] == 1
         assert response.results[2]["count"] == 2
@@ -479,11 +479,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "[32.5,40.01]",
         ]
 
-        assert response.results[0]["label"] == '$pageview - ["",""]'
-        assert response.results[1]["label"] == "$pageview - [10.0,17.5]"
-        assert response.results[2]["label"] == "$pageview - [17.5,25.0]"
-        assert response.results[3]["label"] == "$pageview - [25.0,32.5]"
-        assert response.results[4]["label"] == "$pageview - [32.5,40.01]"
+        assert response.results[0]["label"] == '["",""]'
+        assert response.results[1]["label"] == "[10.0,17.5]"
+        assert response.results[2]["label"] == "[17.5,25.0]"
+        assert response.results[3]["label"] == "[25.0,32.5]"
+        assert response.results[4]["label"] == "[32.5,40.01]"
 
         assert response.results[0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         assert response.results[1]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
@@ -554,14 +554,47 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 4
         assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[0]["label"] == f"Chrome"
+        assert response.results[1]["label"] == f"Edge"
+        assert response.results[2]["label"] == f"Firefox"
+        assert response.results[3]["label"] == f"Safari"
         assert response.results[0]["count"] == 6
         assert response.results[1]["count"] == 1
         assert response.results[2]["count"] == 2
         assert response.results[3]["count"] == 1
+
+    def test_trends_breakdowns_multiple_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.hogql, breakdown="properties.$browser"),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 8
+        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari", "Chrome", "Edge", "Firefox", "Safari"]
+        assert response.results[0]["label"] == f"$pageview - Chrome"
+        assert response.results[1]["label"] == f"$pageview - Edge"
+        assert response.results[2]["label"] == f"$pageview - Firefox"
+        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[4]["label"] == f"$pageleave - Chrome"
+        assert response.results[5]["label"] == f"$pageleave - Edge"
+        assert response.results[6]["label"] == f"$pageleave - Firefox"
+        assert response.results[7]["label"] == f"$pageleave - Safari"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 1
+        assert response.results[2]["count"] == 2
+        assert response.results[3]["count"] == 1
+        assert response.results[4]["count"] == 3
+        assert response.results[5]["count"] == 1
+        assert response.results[6]["count"] == 1
+        assert response.results[7]["count"] == 1
 
     def test_trends_breakdowns_and_compare(self):
         self._create_test_events()
@@ -626,10 +659,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 4
         assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[0]["label"] == f"Chrome"
+        assert response.results[1]["label"] == f"Edge"
+        assert response.results[2]["label"] == f"Firefox"
+        assert response.results[3]["label"] == f"Safari"
 
         assert response.results[0]["data"] == [
             0,

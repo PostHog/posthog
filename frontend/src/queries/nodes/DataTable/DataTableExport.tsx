@@ -17,7 +17,7 @@ import { useValues } from 'kea'
 import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 const EXPORT_MAX_LIMIT = 10000
 

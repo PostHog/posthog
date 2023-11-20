@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 export function Events(): JSX.Element {
     return (
         <>
-            <PageHeader title={'Event Explorer'} />
+            <PageHeader title={'Event explorer'} />
             <div className="pt-4 border-t" />
             <EventsScene />
         </>

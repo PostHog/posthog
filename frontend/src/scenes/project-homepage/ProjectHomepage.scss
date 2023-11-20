@@ -1,11 +1,11 @@
 .project-homepage {
-    .homepage-dashboard-header {
+    .HomepageDashboardHeader {
         margin-top: 1rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
 
-        .dashboard-title-container {
+        .HomepageDashboardHeader__title {
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -15,6 +15,16 @@
 
                 h3 {
                     margin: 0;
+                }
+            }
+
+            .posthog-3000 & {
+                a {
+                    color: var(--default);
+
+                    &:hover {
+                        color: var(--primary-3000);
+                    }
                 }
             }
         }

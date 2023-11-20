@@ -2413,6 +2413,51 @@
                 }
             ]
         },
+        "QueryStatus": {
+            "additionalProperties": false,
+            "properties": {
+                "complete": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "end_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "error": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "error_message": {
+                    "default": "",
+                    "type": "string"
+                },
+                "expiration_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "query_async": {
+                    "default": true,
+                    "type": "boolean"
+                },
+                "results": {},
+                "start_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "integer"
+                }
+            },
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "type": "object"
+        },
         "QueryTiming": {
             "additionalProperties": false,
             "properties": {

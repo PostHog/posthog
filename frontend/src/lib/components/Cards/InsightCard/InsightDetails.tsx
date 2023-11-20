@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { allOperatorsMapping, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
+import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
@@ -26,6 +26,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
 import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import {
+    formatPropertyLabel,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
