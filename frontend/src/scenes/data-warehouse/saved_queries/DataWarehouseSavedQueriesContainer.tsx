@@ -67,7 +67,7 @@ export function DataWarehouseSavedQueriesContainer(): JSX.Element {
                                         <LemonButton
                                             status="danger"
                                             onClick={() => {
-                                                deleteWithUndo({
+                                                void deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/warehouse_saved_queries`,
                                                     object: { name: warehouseView.name, id: warehouseView.id },
                                                     callback: loadDataWarehouseSavedQueries,

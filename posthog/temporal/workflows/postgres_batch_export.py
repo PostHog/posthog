@@ -2,12 +2,12 @@ import collections.abc
 import contextlib
 import datetime as dt
 import json
+import typing
 from dataclasses import dataclass
 
-import psycopg2
-import psycopg2.extensions
+import psycopg
 from django.conf import settings
-from psycopg2 import sql
+from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -19,23 +19,22 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    ROWS_EXPORTED,
-    BYTES_EXPORTED,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
+from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
-@contextlib.contextmanager
-def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.connection]:
+@contextlib.asynccontextmanager
+async def postgres_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
     """Manage a Postgres connection."""
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=inputs.user,
         password=inputs.password,
-        database=inputs.database,
+        dbname=inputs.database,
         host=inputs.host,
         port=inputs.port,
         # The 'hasSelfSignedCert' parameter in the postgres-plugin was provided mainly
@@ -48,17 +47,17 @@ def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.
     try:
         yield connection
     except Exception:
-        connection.rollback()
+        await connection.rollback()
         raise
     else:
-        connection.commit()
+        await connection.commit()
     finally:
-        connection.close()
+        await connection.close()
 
 
-def copy_tsv_to_postgres(
+async def copy_tsv_to_postgres(
     tsv_file,
-    postgres_connection: psycopg2.extensions.connection,
+    postgres_connection: psycopg.AsyncConnection,
     schema: str,
     table_name: str,
     schema_columns: list[str],
@@ -67,35 +66,37 @@ def copy_tsv_to_postgres(
 
     Arguments:
         tsv_file: A file-like object to interpret as TSV to copy its contents.
-        postgres_connection: A connection to Postgres as setup by psycopg2.
+        postgres_connection: A connection to Postgres as setup by psycopg.
         schema: An existing schema where to create the table.
         table_name: The name of the table to create.
         schema_columns: A list of column names.
     """
     tsv_file.seek(0)
 
-    with postgres_connection.cursor() as cursor:
+    async with postgres_connection.cursor() as cursor:
         if schema:
-            cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-        cursor.copy_from(
-            tsv_file,
-            table_name,
-            null="",
-            columns=schema_columns,
-        )
+            await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
+            async with cursor.copy(
+                sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH DELIMITER AS '\t'").format(
+                    table_name=sql.Identifier(table_name),
+                    fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                )
+            ) as copy:
+                while data := tsv_file.read():
+                    await copy.write(data)
 
 
 Field = tuple[str, str]
 Fields = collections.abc.Iterable[Field]
 
 
-def create_table_in_postgres(
-    postgres_connection: psycopg2.extensions.connection, schema: str | None, table_name: str, fields: Fields
+async def create_table_in_postgres(
+    postgres_connection: psycopg.AsyncConnection, schema: str | None, table_name: str, fields: Fields
 ) -> None:
     """Create a table in a Postgres database if it doesn't exist already.
 
     Arguments:
-        postgres_connection: A connection to Postgres as setup by psycopg2.
+        postgres_connection: A connection to Postgres as setup by psycopg.
         schema: An existing schema where to create the table.
         table_name: The name of the table to create.
         fields: An iterable of (name, type) tuples representing the fields of the table.
@@ -105,8 +106,8 @@ def create_table_in_postgres(
     else:
         table_identifier = sql.Identifier(table_name)
 
-    with postgres_connection.cursor() as cursor:
-        cursor.execute(
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(
             sql.SQL(
                 """
                 CREATE TABLE IF NOT EXISTS {table} (
@@ -116,7 +117,13 @@ def create_table_in_postgres(
             ).format(
                 table=table_identifier,
                 fields=sql.SQL(",").join(
-                    sql.SQL("{field} {type}").format(field=sql.Identifier(field), type=sql.SQL(field_type))
+                    # typing.LiteralString is not available in Python 3.10.
+                    # So, we ignore it for now.
+                    # This is safe as we are hardcoding the type values anyways.
+                    sql.SQL("{field} {type}").format(
+                        field=sql.Identifier(field),
+                        type=sql.SQL(field_type),
+                    )
                     for field, field_type in fields
                 ),
             )
@@ -145,9 +152,9 @@ class PostgresInsertInputs:
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
-    logger = get_batch_exports_logger(inputs=inputs)
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
-        "Running Postgres export batch %s - %s",
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -173,7 +180,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -183,8 +190,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
         )
-        with postgres_connection(inputs) as connection:
-            create_table_in_postgres(
+        async with postgres_connection(inputs) as connection:
+            await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
@@ -218,24 +225,32 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         ]
         json_columns = ("properties", "elements", "set", "set_once")
 
-        with BatchExportTemporaryFile() as pg_file:
-            with postgres_connection(inputs) as connection:
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
 
-                def flush_to_postgres():
-                    logger.info(
-                        "Copying %s records of size %s bytes to Postgres",
+        with BatchExportTemporaryFile() as pg_file:
+            async with postgres_connection(inputs) as connection:
+                for result in results_iterator:
+                    row = {
+                        key: json.dumps(result[key]) if key in json_columns else result[key] for key in schema_columns
+                    }
+                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
+
+                async def flush_to_postgres():
+                    logger.debug(
+                        "Copying %s records of size %s bytes",
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )
-                    copy_tsv_to_postgres(
+                    await copy_tsv_to_postgres(
                         pg_file,
                         connection,
                         inputs.schema,
                         inputs.table_name,
                         schema_columns,
                     )
-                    ROWS_EXPORTED.labels(destination="postgres").inc(pg_file.records_since_last_reset)
-                    BYTES_EXPORTED.labels(destination="postgres").inc(pg_file.bytes_since_last_reset)
+                    rows_exported.add(pg_file.records_since_last_reset)
+                    bytes_exported.add(pg_file.bytes_since_last_reset)
 
                 for result in results_iterator:
                     row = {
@@ -245,11 +260,11 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        flush_to_postgres()
+                        await flush_to_postgres()
                         pg_file.reset()
 
                 if pg_file.tell() > 0:
-                    flush_to_postgres()
+                    await flush_to_postgres()
 
 
 @workflow.defn(name="postgres-export")
@@ -271,13 +286,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
-        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting Postgres export batch %s - %s",
-            data_interval_start,
-            data_interval_end,
-        )
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -297,7 +306,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id,
+            status="Completed",
+            team_id=inputs.team_id,
+        )
 
         insert_inputs = PostgresInsertInputs(
             team_id=inputs.team_id,

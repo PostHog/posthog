@@ -3,8 +3,6 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding-top: 2rem;
-    padding-bottom: 2rem;
     color: var(--muted);
     padding: 1rem;
     font-size: 1.1em;
@@ -58,8 +56,10 @@
             .ant-empty {
                 height: 6rem;
                 margin: 0;
+
                 .ant-empty-image {
                     height: 100%;
+
                     svg {
                         width: 4rem;
                     }

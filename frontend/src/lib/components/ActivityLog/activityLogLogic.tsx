@@ -105,7 +105,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     })),
     listeners(({ actions }) => ({
         setPage: async (_, breakpoint) => {
-            await breakpoint()
+            breakpoint()
             actions.fetchActivity()
         },
     })),

@@ -159,8 +159,8 @@ export function OverViewTab({
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={async () => {
-                                        await copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={() => {
+                                        void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
@@ -211,7 +211,7 @@ export function OverViewTab({
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
+                                            void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,

@@ -131,7 +131,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        return props.cachedResults
+                        if (
+                            props.cachedResults['result'] ||
+                            props.cachedResults['results'] ||
+                            !isInsightQueryNode(props.query)
+                        ) {
+                            return props.cachedResults
+                        }
                     }
 
                     if (!values.currentTeamId) {
@@ -471,7 +477,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

@@ -86,7 +86,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                             },
                                             {
                                                 onClick: () => {
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: actions.loadInsights,
@@ -116,7 +116,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                             for (let i = startIndex; i < startIndex + INSIGHTS_PER_PAGE; i++) {
                                 cache.requestedInsights[i] = true
                             }
-                            await savedInsightsLogic.actions.setSavedInsightsFilters(
+                            await savedInsightsLogic.asyncActions.setSavedInsightsFilters(
                                 { page: Math.floor(startIndex / INSIGHTS_PER_PAGE) + 1 },
                                 true,
                                 false

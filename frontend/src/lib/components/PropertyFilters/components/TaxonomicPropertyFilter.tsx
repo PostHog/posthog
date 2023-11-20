@@ -24,6 +24,7 @@ import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, Prope
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { OperandTag } from './OperandTag'
 
 let uniqueMemoizedIndex = 0
 
@@ -109,7 +110,7 @@ export function TaxonomicPropertyFilter({
 
     const { ref: wrapperRef, size } = useResizeBreakpoints({
         0: 'tiny',
-        400: 'small',
+        300: 'small',
         550: 'medium',
     })
 
@@ -148,7 +149,7 @@ export function TaxonomicPropertyFilter({
                                             <span>where</span>
                                         </>
                                     ) : (
-                                        <span className="stateful-badge and text-xs">AND</span>
+                                        <OperandTag operand="and" />
                                     )}
                                 </div>
                             )}

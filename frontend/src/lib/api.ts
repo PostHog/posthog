@@ -67,9 +67,9 @@ import {
 } from './constants'
 import { toParams } from 'lib/utils'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import type { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import type { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import type { QuerySchema } from '~/queries/schema'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { QuerySchema, QueryStatus } from '~/queries/schema'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 /**
@@ -574,6 +574,10 @@ class ApiRequest {
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
+    }
+
+    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(queryId)
     }
 
     // Notebooks
@@ -1292,7 +1296,7 @@ const api = {
             const params = toParams(
                 {
                     limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
+                    level_filter: typeFilters,
                     search: searchTerm || undefined,
                     before: trailingEntry?.timestamp,
                     after: leadingEntry?.timestamp,
@@ -1481,7 +1485,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -1756,6 +1760,12 @@ const api = {
         },
     },
 
+    queryStatus: {
+        async get(queryId: string): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -1764,7 +1774,8 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean
+        refresh?: boolean,
+        async?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1774,7 +1785,7 @@ const api = {
     > {
         return await new ApiRequest()
             .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh, async } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

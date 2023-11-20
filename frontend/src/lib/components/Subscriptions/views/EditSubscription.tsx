@@ -119,11 +119,11 @@ export function EditSubscription({
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="space-y-4">
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
                         </div>
                     ) : (

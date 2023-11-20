@@ -27,3 +27,10 @@ export function canViewPlugins(organization: OrganizationType | null | undefined
     }
     return organization.plugins_access_level > PluginsAccessLevel.None
 }
+
+export function canConfigurePlugins(organization: OrganizationType | null | undefined): boolean {
+    if (!organization) {
+        return false
+    }
+    return organization.plugins_access_level >= PluginsAccessLevel.Config
+}

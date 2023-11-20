@@ -6,16 +6,17 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FunnelExclusion, EntityTypes, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 import { ExclusionRow } from './ExclusionRow'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { exclusionFilters, exclusionDefaultStepRange, isFunnelWithEnoughSteps } = useValues(
-        funnelDataLogic(insightProps)
+        insightVizDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const ref = useRef(null)
     const [width] = useSize(ref)
@@ -35,7 +36,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
             ref={ref}
             setFilters={setFilters}
             filters={exclusionFilters}
-            typeKey="funnel-exclusions-filter"
+            typeKey={`${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`}
             addFilterDefaultOptions={{
                 id: '$pageview',
                 name: '$pageview',

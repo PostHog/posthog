@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
-import { debugCHQueries } from './DebugCHQueries'
+import { openCHQueriesDebugModal } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -47,6 +47,8 @@ import {
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -117,7 +119,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
         actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
     actions({
@@ -199,6 +201,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         ],
     }),
     selectors({
+        isUsingCmdKSearch: [
+            (selectors) => [selectors.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.CMD_K_SEARCH],
+        ],
         isSqueak: [
             (selectors) => [selectors.input],
             (input: string) => {
@@ -214,25 +220,37 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
+                selectors.isUsingCmdKSearch,
                 dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
-            (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
-                ...rawCommandRegistrations,
-                custom_dashboards: {
-                    key: 'custom_dashboards',
-                    resolver: dashboards.map((dashboard: DashboardType) => ({
-                        key: `dashboard_${dashboard.id}`,
-                        icon: IconTableChart,
-                        display: `Go to dashboard: ${dashboard.name}`,
-                        executor: () => {
-                            const { push } = router.actions
-                            push(urls.dashboard(dashboard.id))
-                        },
-                    })),
-                    scope: GLOBAL_COMMAND_SCOPE,
-                },
-            }),
+            (
+                rawCommandRegistrations: CommandRegistrations,
+                isUsingCmdKSearch,
+                dashboards: DashboardType[]
+            ): CommandRegistrations => {
+                if (isUsingCmdKSearch) {
+                    // do not add dashboards to commands, as they can be navigated to via search
+                    return rawCommandRegistrations
+                }
+
+                return {
+                    ...rawCommandRegistrations,
+                    custom_dashboards: {
+                        key: 'custom_dashboards',
+                        resolver: dashboards.map((dashboard: DashboardType) => ({
+                            key: `dashboard_${dashboard.id}`,
+                            icon: IconTableChart,
+                            display: `Go to dashboard: ${dashboard.name}`,
+                            executor: () => {
+                                const { push } = router.actions
+                                push(urls.dashboard(dashboard.id))
+                            },
+                        })),
+                        scope: GLOBAL_COMMAND_SCOPE,
+                    },
+                }
+            },
         ],
         regexpCommandPairs: [
             (selectors) => [selectors.commandRegistrations],
@@ -559,9 +577,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         ? {
                               icon: IconTools,
                               display: 'Debug ClickHouse Queries',
-                              executor: () => {
-                                  debugCHQueries()
-                              },
+                              executor: () => openCHQueriesDebugModal(),
                           }
                         : [],
             }

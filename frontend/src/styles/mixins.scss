@@ -28,7 +28,7 @@
 }
 
 @mixin screen($breakpoint) {
-    @if $breakpoint == null {
+    @if not $breakpoint {
         @content;
     } @else {
         @media screen and (min-width: $breakpoint) {

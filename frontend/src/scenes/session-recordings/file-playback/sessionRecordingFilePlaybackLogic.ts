@@ -1,5 +1,5 @@
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
+import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 
@@ -14,6 +14,7 @@ import { eventWithTime } from '@rrweb/types'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import { dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
 
 export type ExportedSessionRecordingFileV1 = {
     version: '2022-12-02'
@@ -77,6 +78,40 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
     }
 }
 
+/**
+ * There's a race between loading the file causing the React component to be rendered that mounts the dataLogic
+ * and this logic loading the file and wanting to tell the logic about it
+ *
+ * This method waits for the dataLogic to be mounted and returns it
+ *
+ * in practice, it will only wait for 1-2 retries
+ * but a timeout is provided to avoid waiting forever when something breaks
+ */
+const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<any>> => {
+    const maxRetries = 20 // 2 seconds / 100 ms per retry
+    let retries = 0
+    let dataLogic = null
+
+    while (retries < maxRetries) {
+        dataLogic = sessionRecordingDataLogic.findMounted({
+            sessionRecordingId: '',
+            playerKey: playerKey,
+        })
+
+        if (dataLogic !== null) {
+            // eslint-disable-next-line no-console
+            console.log('found after retries', retries)
+            return dataLogic
+        }
+
+        // Wait for a short period before trying again
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        retries++
+    }
+
+    throw new Error('Timeout reached: dataLogic is still null after 2 seconds')
+}
+
 export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
     connect({
@@ -125,12 +160,8 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
     }),
 
     listeners(({ values }) => ({
-        loadFromFileSuccess: () => {
-            // Once we loaded the file we set the logic
-            const dataLogic = sessionRecordingDataLogic.findMounted({
-                sessionRecordingId: '',
-                playerKey: values.playerKey,
-            })
+        loadFromFileSuccess: async () => {
+            const dataLogic = await waitForDataLogic(values.playerKey)
 
             if (!dataLogic || !values.sessionRecording) {
                 return
@@ -166,10 +197,12 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Recordings`,
+                    key: Scene.Replay,
+                    name: `Session replay`,
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.FilePlayback,
                     name: 'Import',
                 },
             ],

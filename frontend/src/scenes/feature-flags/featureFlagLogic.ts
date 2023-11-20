@@ -21,6 +21,7 @@ import {
     EarlyAccessFeatureType,
     Survey,
     SurveyQuestionType,
+    OrganizationFeatureFlag,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -46,6 +47,7 @@ import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { Scene } from 'scenes/sceneTypes'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -111,12 +113,6 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
-
-export type ProjectsWithCurrentFlagResponse = {
-    flag_id: number
-    team_id: number
-    active: boolean
-}[]
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
@@ -526,10 +522,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: [
+        relatedInsights: [
             [] as InsightModel[],
             {
-                loadRecentInsights: async () => {
+                loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
@@ -585,7 +581,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         projectsWithCurrentFlag: {
-            __default: [] as Record<string, string>[],
+            __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
@@ -645,7 +641,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
-            deleteWithUndo({
+            await deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
@@ -663,7 +659,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async () => {
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
@@ -786,7 +782,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
             } else {
-                lemonToast.error(`Error while saving feature flag: ${featureFlagCopy?.failed || featureFlagCopy}`)
+                lemonToast.error(
+                    `Error while saving feature flag: ${JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy}`
+                )
             }
 
             actions.loadProjectsWithCurrentFlag()
@@ -841,10 +839,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
                 {
+                    key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
-                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+                { key: featureFlag.id || 'unknown', name: featureFlag.key || 'Unnamed' },
             ],
         ],
         propertySelectErrors: [
@@ -1012,7 +1011,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloads = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloads)
-            actions.loadRecentInsights()
+            actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()

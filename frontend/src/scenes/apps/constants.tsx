@@ -47,6 +47,26 @@ export const DescriptionColumns: Record<string, Description> = {
             </>
         ),
     },
+    [AppMetricsTab.ComposeWebhook]: {
+        successes: 'Events processed',
+        successes_tooltip: (
+            <>
+                These events were successfully processed by the <i>composeWebhook</i> app method on the first try.
+            </>
+        ),
+        successes_on_retry: 'Events processed on retry',
+        successes_on_retry_tooltip: (
+            <>
+                These events were successfully processed by the <i>composeWebhook</i> app method after being retried.
+            </>
+        ),
+        failures: 'Failed events',
+        failures_tooltip: (
+            <>
+                These events had errors when being processed by the <i>composeWebhook</i> app method.
+            </>
+        ),
+    },
     [AppMetricsTab.ExportEvents]: {
         successes: 'Events delivered',
         successes_tooltip: (

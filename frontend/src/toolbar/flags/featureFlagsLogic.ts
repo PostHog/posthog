@@ -111,7 +111,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
             }
         },
-        deleteOverriddenUserFlag: async ({ flagKey }) => {
+        deleteOverriddenUserFlag: ({ flagKey }) => {
             const { posthog: clientPostHog } = toolbarLogic.values
             if (clientPostHog) {
                 const updatedFlags = { ...values.localOverrides }
@@ -128,8 +128,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         },
     })),
     events(({ actions }) => ({
-        afterMount: async () => {
-            await actions.getUserFlags()
+        afterMount: () => {
+            actions.getUserFlags()
             actions.checkLocalOverrides()
         },
     })),

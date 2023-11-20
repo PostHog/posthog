@@ -40,7 +40,7 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
 
                 <LemonSelect
                     value={dateFrom}
-                    onChange={(newValue) => setDateFrom(newValue as string)}
+                    onChange={(newValue) => setDateFrom(newValue)}
                     options={[
                         { label: 'Last 30 days', value: '-30d' },
                         { label: 'Last 7 days', value: '-7d' },
@@ -79,7 +79,7 @@ export function MetricsOverview({
     exportFailureReason,
 }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
-        return <LemonSkeleton className="w-20 mb-2" repeat={4} />
+        return <LemonSkeleton className="w-20 h-4 mb-2" repeat={4} />
     }
 
     return (

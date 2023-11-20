@@ -39,7 +39,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         rangeDateFrom: [
-            (props.dateFrom && (dayjs.isDayjs(props.dateFrom) || isDate.test(props.dateFrom as string))
+            (props.dateFrom && (dayjs.isDayjs(props.dateFrom) || isDate.test(props.dateFrom))
                 ? dayjs(props.dateFrom)
                 : null) as Dayjs | null,
             {
@@ -48,7 +48,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         rangeDateTo: [
-            (props.dateTo && (dayjs.isDayjs(props.dateTo) || isDate.test(props.dateTo as string))
+            (props.dateTo && (dayjs.isDayjs(props.dateTo) || isDate.test(props.dateTo))
                 ? dayjs(props.dateTo)
                 : dayjs()) as Dayjs | null,
             {

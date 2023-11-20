@@ -97,7 +97,7 @@ export function NotebooksTable(): JSX.Element {
                 dismissKey="notebooks-preview-banner"
             >
                 <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
-                PostHog prodcuts together into one place.
+                PostHog products together into one place.
             </LemonBanner>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
@@ -115,7 +115,7 @@ export function NotebooksTable(): JSX.Element {
                         <span>Created by:</span>
                         <LemonSelect
                             options={[
-                                { value: DEFAULT_FILTERS.createdBy as string, label: DEFAULT_FILTERS.createdBy },
+                                { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
                                 ...meFirstMembers.map((x) => ({
                                     value: x.user.uuid,
                                     label: x.user.first_name,

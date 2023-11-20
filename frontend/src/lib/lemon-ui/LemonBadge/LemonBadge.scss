@@ -1,5 +1,5 @@
 .LemonBadge {
-    --lemon-badge-color: var(--primary);
+    --lemon-badge-color: var(--primary-3000);
     --lemon-badge-size: 1.5rem;
     --lemon-badge-font-size: 0.75rem;
     --lemon-badge-position-offset: 0.5rem;
@@ -17,6 +17,7 @@
     height: var(--lemon-badge-size);
     font-size: var(--lemon-badge-font-size);
     line-height: var(--lemon-badge-size);
+
     // Just enough so the overall size is unaffected with a single digit (i.e. badge stays round)
     padding: calc(var(--lemon-badge-size) / 8);
     border-radius: calc(var(--lemon-badge-size) / 2);

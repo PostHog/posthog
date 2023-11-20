@@ -123,7 +123,7 @@ export function parseProperties(
         return input || []
     }
     if (input && !Array.isArray(input) && isPropertyGroup(input)) {
-        return flattenPropertyGroup([], input as PropertyGroupFilter)
+        return flattenPropertyGroup([], input)
     }
     // Old style dict properties
     return Object.entries(input).map(([inputKey, value]) => {

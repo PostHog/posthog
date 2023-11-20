@@ -10,6 +10,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
+    IconBrackets,
+    IconFunnels,
+    IconHogQL,
+    IconLifecycle,
+    IconRetention,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
+} from '@posthog/icons'
+import {
     IconAction,
     IconBarChart,
     IconCoffee,
@@ -22,13 +32,6 @@ import {
     IconStarFilled,
     IconStarOutline,
     IconTableChart,
-    InsightsFunnelsIcon,
-    InsightsLifecycleIcon,
-    InsightsPathsIcon,
-    InsightSQLIcon,
-    InsightsRetentionIcon,
-    InsightsStickinessIcon,
-    InsightsTrendsIcon,
 } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -74,49 +77,49 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.TRENDS]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
-        icon: InsightsFunnelsIcon,
+        icon: IconFunnels,
         inMenu: true,
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an intial action.',
-        icon: InsightsRetentionIcon,
+        icon: IconRetention,
         inMenu: true,
     },
     [InsightType.PATHS]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
-        icon: InsightsPathsIcon,
+        icon: IconUserPaths,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
-        icon: InsightsStickinessIcon,
+        icon: IconStickiness,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
-        icon: InsightsLifecycleIcon,
+        icon: IconLifecycle,
         inMenu: true,
     },
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use HogQL to query your data.',
-        icon: InsightSQLIcon,
+        icon: IconHogQL,
         inMenu: true,
     },
     [InsightType.JSON]: {
         name: 'Custom',
         description: 'Save components powered by our JSON query language.',
-        icon: InsightSQLIcon,
+        icon: IconBrackets,
         inMenu: true,
     },
 }
@@ -125,37 +128,37 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions',
-        icon: InsightsFunnelsIcon,
+        icon: IconFunnels,
         inMenu: true,
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an intial action',
-        icon: InsightsRetentionIcon,
+        icon: IconRetention,
         inMenu: true,
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off',
-        icon: InsightsPathsIcon,
+        icon: IconUserPaths,
         inMenu: true,
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions',
-        icon: InsightsStickinessIcon,
+        icon: IconStickiness,
         inMenu: true,
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
-        icon: InsightsLifecycleIcon,
+        icon: IconLifecycle,
         inMenu: true,
     },
     [NodeKind.EventsNode]: {
@@ -239,43 +242,43 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.SessionsTimelineQuery]: {
         name: 'Sessions',
         description: 'Sessions timeline query',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: InsightSQLIcon,
+        icon: IconHogQL,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'HogQL Metadata',
         description: 'Metadata for a HogQL query',
-        icon: InsightSQLIcon,
+        icon: IconHogQL,
         inMenu: true,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
-        icon: InsightSQLIcon,
+        icon: IconHogQL,
         inMenu: true,
     },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.WebStatsTableQuery]: {
         name: 'Web Table',
         description: 'A table of results from web analytics, with a breakdown',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.WebTopClicksQuery]: {
         name: 'Top Clicks',
         description: 'View top clicks for a website',
-        icon: InsightsTrendsIcon,
+        icon: IconTrends,
         inMenu: true,
     },
 }
@@ -301,7 +304,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
+        return <insightMetadata.icon style={{ display: 'block', fontSize: '1rem' }} />
     }
     return null
 }
@@ -353,8 +356,8 @@ function SavedInsightsGrid(): JSX.Element {
                         insight={{ ...insight }}
                         rename={() => renameInsight(insight)}
                         duplicate={() => duplicateInsight(insight)}
-                        deleteWithUndo={() =>
-                            deleteWithUndo({
+                        deleteWithUndo={async () =>
+                            await deleteWithUndo({
                                 object: insight,
                                 endpoint: `projects/${currentTeamId}/insights`,
                                 callback: loadInsights,
@@ -501,7 +504,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        deleteWithUndo({
+                                        void deleteWithUndo({
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
@@ -522,7 +525,10 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+            <PageHeader
+                title="Product analytics"
+                buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
+            />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

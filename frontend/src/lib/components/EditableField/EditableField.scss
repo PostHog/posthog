@@ -2,30 +2,34 @@
     display: flex;
     align-items: center;
     max-width: 100%;
+
     &:not(.EditableField--multiline) {
-        line-height: 2rem;
+        line-height: 1.15em;
     }
+
     i {
         color: var(--muted);
     }
+
     .EditableField__notice {
         font-size: 1.5rem;
         color: var(--muted);
         margin-left: 0.5rem;
     }
+
     .EditableField__highlight {
         display: flex;
         flex-direction: row;
         align-items: center;
         width: fit-content;
         max-width: calc(100% + 0.5rem);
-        min-height: 2rem;
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
         white-space: pre-wrap;
         overflow: auto;
     }
-    &--editing .EditableField__highlight {
+
+    &.EditableField--editing .EditableField__highlight {
         flex-grow: 1;
         align-items: flex-end;
         width: auto;
@@ -33,10 +37,29 @@
         outline: 1px solid var(--border);
         border-radius: var(--radius);
     }
+
+    &.EditableField--underlined {
+        .EditableField__highlight {
+            padding: 0;
+            margin: 0;
+        }
+
+        &.EditableField--editing .EditableField__highlight {
+            outline: none;
+
+            input {
+                text-decoration: underline;
+                text-decoration-color: var(--muted);
+                text-underline-offset: 0.5em;
+            }
+        }
+    }
+
     .EditableField__autosize {
         align-self: center;
         min-width: 0;
     }
+
     .EditableField__autosize__sizer {
         position: absolute;
         top: 0;
@@ -46,6 +69,7 @@
         overflow: scroll;
         white-space: pre;
     }
+
     .EditableField__actions {
         flex-shrink: 0;
         display: flex;
@@ -53,6 +77,7 @@
         gap: 0.5rem;
         margin-left: 0.5rem;
     }
+
     input,
     textarea {
         max-width: 100%;
@@ -63,6 +88,7 @@
         outline: none;
         padding: 0;
     }
+
     textarea {
         align-self: center;
         width: 100%;

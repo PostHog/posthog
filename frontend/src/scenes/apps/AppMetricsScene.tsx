@@ -81,6 +81,11 @@ export function AppMetrics(): JSX.Element {
                             label: <>onEvent metrics</>,
                             content: <MetricsTab tab={AppMetricsTab.OnEvent} />,
                         },
+                        showTab(AppMetricsTab.ComposeWebhook) && {
+                            key: AppMetricsTab.ComposeWebhook,
+                            label: <>composeWebhook metrics</>,
+                            content: <MetricsTab tab={AppMetricsTab.ComposeWebhook} />,
+                        },
                         showTab(AppMetricsTab.ExportEvents) && {
                             key: AppMetricsTab.ExportEvents,
                             label: <>exportEvents metrics</>,

@@ -6,7 +6,7 @@ import { AvailableFeature, SessionRecordingPlayerTab, SidePanelTab } from '~/typ
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,12 +17,18 @@ import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
+function isLocalhost(url: string | null | undefined): boolean {
+    return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
+}
+
 function EmptyNetworkTab({
     captureNetworkLogOptIn,
     captureNetworkFeatureAvailable,
+    recordingURL,
 }: {
     captureNetworkLogOptIn: boolean
     captureNetworkFeatureAvailable: boolean
+    recordingURL: string | null | undefined
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     return !captureNetworkFeatureAvailable ? (
@@ -52,6 +58,19 @@ function EmptyNetworkTab({
                 </LemonButton>
             </div>
         </>
+    ) : isLocalhost(recordingURL) ? (
+        <>
+            <div className="flex flex-col items-center">
+                <h4 className="text-xl font-medium">Network recording</h4>
+                <p className="text-muted text-center">
+                    Network capture is not supported when replay is running on localhost.{' '}
+                    <Link to={'https://posthog.com/docs/session-replay/network-recording'}>
+                        Learn more in our docs{' '}
+                    </Link>
+                    .
+                </p>
+            </div>
+        </>
     ) : (
         <>No results found in this recording.</>
     )
@@ -79,7 +98,7 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, snapshotsLoaded, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
@@ -210,6 +229,7 @@ export function PlayerInspectorList(): JSX.Element {
                         <EmptyNetworkTab
                             captureNetworkFeatureAvailable={performanceAvailable}
                             captureNetworkLogOptIn={performanceEnabled}
+                            recordingURL={sessionPlayerMetaData?.start_url}
                         />
                     ) : (
                         'No results found in this recording.'

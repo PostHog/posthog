@@ -10,7 +10,7 @@ from posthog.warehouse.external_data_source.workspace import get_or_create_works
 from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
 from posthog.warehouse.external_data_source.connection import create_connection, start_sync
 from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
-from posthog.warehouse.sync_resource import sync_resource
+from posthog.tasks.warehouse import sync_resource
 from posthog.api.routing import StructuredViewSetMixin
 from rest_framework.decorators import action
 
