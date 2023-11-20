@@ -13,12 +13,30 @@ import {
 } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import clsx from 'clsx'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 
 const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasPosthog3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+
     return (
-        <div className="sticky top-0 z-20 pt-2">
+        <div
+            className={clsx('sticky z-20 pt-2', !hasPosthog3000 && 'top-0 bg-white')}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={
+                hasPosthog3000
+                    ? {
+                          backgroundColor: 'var(--bg-3000)',
+                          top: 'var(--breadcrumbs-height)',
+                      }
+                    : undefined
+            }
+        >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <PropertyFilters
@@ -72,18 +90,20 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
 
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-10">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
                     const { query, title, layout } = tile
                     return (
                         <div
                             key={i}
-                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                layout.rowSpan ?? 1
-                            }  flex flex-col`}
+                            className={clsx(
+                                'col-span-1 row-span-1 flex flex-col',
+                                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                                layout.className
+                            )}
                         >
-                            {title && <h2 className="m-0  mb-1">{title}</h2>}
+                            {title && <h2 className="m-0 mb-3">{title}</h2>}
                             <WebQuery query={query} />
                         </div>
                     )
@@ -102,7 +122,11 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 
     return (
         <WebTabs
-            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`}
+            className={clsx(
+                'col-span-1 row-span-1',
+                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                layout.className
+            )}
             activeTabId={tile.activeTabId}
             setActiveTabId={tile.setTabId}
             tabs={tile.tabs.map((tab) => ({
@@ -131,6 +155,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <div className="w-full flex flex-col pt-2">
             <WebAnalyticsNotice />
             <Filters />
+            <WebAnalyticsHealthCheck />
             <Tiles />
         </div>
     )

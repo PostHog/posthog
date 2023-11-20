@@ -3,7 +3,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
-import { Col, Row } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
@@ -208,46 +207,44 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     </Field>
                     <Field name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <Row gutter={[24, 24]}>
-                                <>
-                                    {stepsValue.map((step: ActionStepType, index: number) => {
-                                        const identifier = String(JSON.stringify(step))
-                                        return (
-                                            <ActionStep
-                                                key={index}
-                                                identifier={identifier}
-                                                index={index}
-                                                step={step}
-                                                actionId={action.id || 0}
-                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                onDelete={() => {
-                                                    const identifier = step.id ? 'id' : 'isNew'
-                                                    onChange(
-                                                        stepsValue?.filter(
-                                                            (s: ActionStepType) => s[identifier] !== step[identifier]
-                                                        ) ?? []
-                                                    )
-                                                }}
-                                                onChange={(newStep) => {
-                                                    onChange(
-                                                        stepsValue?.map((s: ActionStepType) =>
-                                                            (step.id && s.id == step.id) ||
-                                                            (step.isNew && s.isNew === step.isNew)
-                                                                ? {
-                                                                      id: step.id,
-                                                                      isNew: step.isNew,
-                                                                      ...newStep,
-                                                                  }
-                                                                : s
-                                                        ) ?? []
-                                                    )
-                                                }}
-                                            />
-                                        )
-                                    })}
-                                </>
+                            <div className="grid grid-cols-2 gap-3">
+                                {stepsValue.map((step: ActionStepType, index: number) => {
+                                    const identifier = String(JSON.stringify(step))
+                                    return (
+                                        <ActionStep
+                                            key={index}
+                                            identifier={identifier}
+                                            index={index}
+                                            step={step}
+                                            actionId={action.id || 0}
+                                            isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                            onDelete={() => {
+                                                const identifier = step.id ? 'id' : 'isNew'
+                                                onChange(
+                                                    stepsValue?.filter(
+                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                    ) ?? []
+                                                )
+                                            }}
+                                            onChange={(newStep) => {
+                                                onChange(
+                                                    stepsValue?.map((s: ActionStepType) =>
+                                                        (step.id && s.id == step.id) ||
+                                                        (step.isNew && s.isNew === step.isNew)
+                                                            ? {
+                                                                  id: step.id,
+                                                                  isNew: step.isNew,
+                                                                  ...newStep,
+                                                              }
+                                                            : s
+                                                    ) ?? []
+                                                )
+                                            }}
+                                        />
+                                    )
+                                })}
 
-                                <Col span={24} md={12}>
+                                <div>
                                     <div
                                         className="match-group-add-skeleton"
                                         onClick={() => {
@@ -256,8 +253,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     >
                                         <IconPlus style={{ fontSize: 28, color: '#666666' }} />
                                     </div>
-                                </Col>
-                            </Row>
+                                </div>
+                            </div>
                         )}
                     </Field>
                 </div>

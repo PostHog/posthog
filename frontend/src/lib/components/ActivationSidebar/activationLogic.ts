@@ -8,7 +8,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { EventDefinitionType, TeamBasicType } from '~/types'
+import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
 import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -137,7 +137,7 @@ export const activationLogic = kea<activationLogicType>([
             0,
             {
                 loadCustomEvents: async (_, breakpoint) => {
-                    breakpoint(200)
+                    await breakpoint(200)
                     const url = api.eventDefinitions.determineListEndpoint({
                         event_type: EventDefinitionType.EventCustom,
                     })
@@ -327,7 +327,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: async ({ id }) => {
             switch (id) {
                 case ActivationTasks.IngestFirstEvent:
-                    router.actions.push(urls.ingestion())
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
                     break
                 case ActivationTasks.InviteTeamMember:
                     actions.showInviteModal()

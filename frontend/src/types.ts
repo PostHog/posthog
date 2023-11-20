@@ -116,6 +116,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
 }
 
 export enum LicensePlan {
@@ -350,6 +351,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
+    session_recording_network_payload_capture_config:
+        | { recordHeaders?: boolean; recordBody?: boolean }
+        | undefined
+        | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -519,6 +524,12 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+}
+
+export enum PipelineAppTabs {
+    Configuration = 'configuration',
+    Logs = 'logs',
+    Metrics = 'metrics',
 }
 
 export enum ProgressStatus {
@@ -1058,6 +1069,18 @@ export interface RecentPerformancePageView extends PerformancePageView {
     duration: number
 }
 
+// copied from rrweb/network@1
+export type Body =
+    | string
+    | Document
+    | Blob
+    | ArrayBufferView
+    | ArrayBuffer
+    | FormData
+    | URLSearchParams
+    | ReadableStream<Uint8Array>
+    | null
+
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1119,6 +1142,13 @@ export interface PerformanceEvent {
     first_contentful_paint?: number // https://web.dev/fcp/
     time_to_interactive?: number // https://web.dev/tti/
     total_blocking_time?: number // https://web.dev/tbt/
+
+    // request/response capture - merged in from rrweb/network@1 payloads
+    request_headers?: Record<string, string>
+    response_headers?: Record<string, string>
+    request_body?: Body
+    response_body?: Body
+    method?: string
 }
 
 export interface CurrentBillCycleType {
@@ -1152,6 +1182,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description?: string | null
+    icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
     free_allocation?: number
@@ -1188,6 +1219,7 @@ export interface BillingProductV2AddonType {
     description: string
     price_description: string | null
     image_url: string | null
+    icon_key?: string
     docs_url: string | null
     type: string
     tiers: BillingV2TierType[] | null
@@ -1246,6 +1278,7 @@ export interface BillingV2PlanType {
     current_plan?: any
     tiers?: BillingV2TierType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
+    initial_billing_limit?: number
 }
 
 export interface PlanInterface {
@@ -1315,7 +1348,7 @@ export interface InsightModel extends Cacheable {
     description?: string
     favorited?: boolean
     order: number | null
-    result: any | null
+    result: any
     deleted: boolean
     saved: boolean
     created_at: string
@@ -1447,6 +1480,8 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
+export type AppType = PluginType
+
 /** Config passed to app component and logic as props. Sent in Django's app context */
 export interface FrontendAppConfig {
     pluginId: number
@@ -1491,6 +1526,19 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+}
+
+// TODO: Rename to PluginConfigType once the are removed from the frontend
+export interface PluginConfigTypeNew {
+    id: number
+    plugin: number
+    team_id: number
+    enabled: boolean
+    order: number
+    error?: PluginErrorType
+    name: string
+    description?: string
+    updated_at: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -2145,6 +2193,7 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
+    // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
@@ -2154,6 +2203,7 @@ export interface SurveyAppearance {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    autoDisappear?: boolean
     position?: string
 }
 
@@ -2161,6 +2211,7 @@ export interface SurveyQuestionBase {
     question: string
     description?: string | null
     optional?: boolean
+    buttonText?: string
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2249,6 +2300,17 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
+}
+
+export interface OrganizationFeatureFlag {
+    flag_id: number | null
+    team_id: number | null
+    created_by: UserBasicType | null
+    created_at: string | null
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+    filters: FeatureFlagFilters
+    active: boolean
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -3105,6 +3167,7 @@ export enum NotebookNodeType {
     PersonFeed = 'ph-person-feed',
     Properties = 'ph-properties',
     Map = 'ph-map',
+    Embed = 'ph-embed',
 }
 
 export type NotebookNodeResource = {
@@ -3335,7 +3398,7 @@ export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
-    Feedback = 'feedback',
+    Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',

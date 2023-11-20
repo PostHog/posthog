@@ -52,7 +52,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadAllNotebooks: async (_, breakpoint) => {
-                    breakpoint(100)
+                    await breakpoint(100)
                     const response = await api.notebooks.list(undefined, undefined, values.searchQuery ?? undefined)
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
@@ -63,7 +63,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadNotebooksContainingResource: async (_, breakpoint) => {
-                    breakpoint(100)
+                    await breakpoint(100)
                     if (!props.resource) {
                         return []
                     }

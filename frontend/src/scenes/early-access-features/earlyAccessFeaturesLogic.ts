@@ -22,13 +22,13 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Early Access Management',
+                    name: 'Early access features',
                     path: urls.earlyAccessFeatures(),
                 },
             ],
         ],
     }),
-    afterMount(async ({ actions }) => {
-        await actions.loadEarlyAccessFeatures()
+    afterMount(({ actions }) => {
+        actions.loadEarlyAccessFeatures()
     }),
 ])

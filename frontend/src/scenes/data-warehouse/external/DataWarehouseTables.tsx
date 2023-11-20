@@ -45,7 +45,7 @@ export function DataWarehouseTablesContainer(): JSX.Element {
                                         <LemonButton
                                             status="danger"
                                             onClick={() => {
-                                                deleteWithUndo({
+                                                void deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/warehouse_tables`,
                                                     object: { name: warehouseTable.name, id: warehouseTable.id },
                                                     callback: loadDataWarehouse,

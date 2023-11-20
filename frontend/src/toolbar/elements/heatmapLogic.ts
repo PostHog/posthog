@@ -184,7 +184,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             if (domElements === undefined) {
                                 domElements = Array.from(
                                     querySelectorAllDeep(combinedSelector, document, cache.pageElements)
-                                ) as HTMLElement[]
+                                )
                                 cache.selectorToElements[combinedSelector] = domElements
                             }
 

@@ -17,7 +17,7 @@ const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; chil
         return <>{children}</>
     }
 
-    return <div className="trends-insights-container">{children}</div>
+    return <div className="TrendsInsight">{children}</div>
 }
 
 export function FunnelLineGraph({

@@ -265,7 +265,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportViewed: async (_, breakpoint) => {
             const durations = generateRecordingReportDurations(cache, values)
 
-            await breakpoint()
+            breakpoint()
             // Triggered on first paint
             eventUsageLogic.actions.reportRecording(
                 values.sessionPlayerData,
@@ -311,7 +311,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
-                breakpoint(100)
+                await breakpoint(100)
                 await api.recordings.persist(props.sessionRecordingId)
 
                 return {

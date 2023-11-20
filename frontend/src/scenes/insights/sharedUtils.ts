@@ -45,7 +45,7 @@ export function filterTrendsClientSideParams(
     return newFilters
 }
 
-export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
+export function isTrendsInsight(insight?: InsightType): boolean {
     return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
 }
 

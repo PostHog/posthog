@@ -12,7 +12,8 @@ import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 
 export interface TableLogicProps {
-    id: string | 'new'
+    /** A UUID or 'new'. */
+    id: string
 }
 
 const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
@@ -99,7 +100,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Warehouse`,
+                    name: `Data warehouse`,
                     path: urls.dataWarehouseExternal(),
                 },
                 {

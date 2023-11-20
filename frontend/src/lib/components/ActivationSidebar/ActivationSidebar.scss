@@ -28,13 +28,13 @@
     right: 0;
     width: 100%;
     height: calc(100vh - 3.5rem);
-
     display: flex;
     flex-direction: column;
     overflow: scroll;
 
     > div > ul {
         overflow: auto;
+
         li {
             margin-top: 0.5rem;
         }

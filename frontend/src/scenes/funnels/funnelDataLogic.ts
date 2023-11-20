@@ -1,10 +1,7 @@
 import { kea, path, props, key, connect, selectors, actions, reducers } from 'kea'
 import {
-    FilterType,
     FunnelResultType,
     FunnelVizType,
-    FunnelStep,
-    FunnelExclusion,
     FunnelStepReference,
     FunnelStepWithNestedBreakdown,
     InsightLogicProps,
@@ -19,7 +16,7 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelConversionWindow,
 } from '~/types'
-import { FunnelsQuery, NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
@@ -154,12 +151,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
             },
         ],
-        isFunnelWithEnoughSteps: [
-            (s) => [s.series],
-            (series) => {
-                return (series?.length || 0) > 1
-            },
-        ],
         steps: [
             (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
             (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
@@ -172,7 +163,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             : breakdown?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
-                    return (results as FunnelStep[]).sort((a, b) => a.order - b.order)
+                    return results.sort((a, b) => a.order - b.order)
                 } else {
                     return []
                 }
@@ -375,27 +366,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     count = count + 1
                 }
                 return count
-            },
-        ],
-
-        // Exclusion filters
-        exclusionDefaultStepRange: [
-            (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
-                funnel_from_step: 0,
-                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
-            }),
-        ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions,
-            }),
-        ],
-        areExclusionFiltersValid: [
-            (s) => [s.insightDataError],
-            (insightDataError): boolean => {
-                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
             },
         ],
 

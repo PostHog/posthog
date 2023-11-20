@@ -9,7 +9,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
         case ReplayTabs.Recent:
-            return 'Recent Recordings'
+            return 'Recent recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
         case ReplayTabs.FilePlayback:

@@ -33,7 +33,8 @@ export enum SurveyEditSection {
     Targeting = 'targeting',
 }
 export interface SurveyLogicProps {
-    id: string | 'new'
+    /** Either a UUID or 'new'. */
+    id: string
 }
 
 export interface SurveyMetricsQueries {
@@ -134,7 +135,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         actions.reportSurveyViewed(survey)
                         return survey
                     } catch (error: any) {
-                        actions.setSurveyMissing()
+                        if (error.status === 404) {
+                            actions.setSurveyMissing()
+                            return { ...NEW_SURVEY }
+                        }
                         throw error
                     }
                 }
@@ -415,7 +419,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             actions.reportSurveyResumed(survey)
         },
-        archiveSurvey: async () => {
+        archiveSurvey: () => {
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: () => {
@@ -679,7 +683,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // controlled using a PureField in the form
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
-            submit: async (surveyPayload) => {
+            submit: (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
                 if (values.hasTargetingFlag) {
@@ -718,12 +722,12 @@ export const surveyLogic = kea<surveyLogicType>([
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
-    afterMount(async ({ props, actions }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
-            await actions.loadSurvey()
+            actions.loadSurvey()
         }
         if (props.id === 'new') {
-            await actions.resetSurvey()
+            actions.resetSurvey()
         }
     }),
 ])
