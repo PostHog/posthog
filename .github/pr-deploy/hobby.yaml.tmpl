@@ -32,7 +32,7 @@ metadata:
   name: hobby-service-$HOSTNAME
   annotations:
     tailscale.com/expose: "true"
-    tailscale.com/hostname: pr-test
+    tailscale.com/hostname: hobby-$HOSTNAME
     tailscale.com/tags: tag:service
   finalizers:
     - tailscale.com/finalizer
