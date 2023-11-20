@@ -107,6 +107,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 "async",
                 OpenApiTypes.BOOL,
                 description=(
+                    "(Experimental) "
                     "Whether to run the query asynchronously. Defaults to False."
                     " If True, the `id` of the query can be used to check the status and to cancel it."
                 ),
@@ -145,6 +146,13 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise e
 
     @extend_schema(
+        description="(Experimental)",
+        responses={
+            200: OpenApiResponse(description="Query status"),
+        },
+    )
+    @extend_schema(
+        description="(Experimental)",
         responses={
             200: OpenApiResponse(description="Query status"),
         },
@@ -153,6 +161,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         status = get_query_status(team_id=self.team.pk, query_id=pk)
         return JsonResponse(status.__dict__, safe=False)
 
+    @extend_schema(
+        description="(Experimental)",
+    )
     def destroy(self, request, pk=None, *args, **kwargs):
         cancel_query(self.team.pk, pk)
         return Response(status=204)
