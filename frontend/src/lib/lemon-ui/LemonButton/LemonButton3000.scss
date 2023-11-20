@@ -5,7 +5,7 @@
         border-width: 0;
         border-style: solid;
         border-color: transparent;
-        min-height: 2em;
+        min-height: 2.125rem;
         padding: 0;
         position: relative;
         outline: none;
@@ -22,13 +22,12 @@
             align-items: center;
             justify-content: flex-start;
             background: none;
-            border-width: 1px;
             border-style: solid;
             border-color: transparent;
             font-weight: 500;
             gap: 0.5rem;
             line-height: 1.5rem;
-            min-height: 2em;
+            min-height: 2.125rem;
             position: relative;
             text-align: left;
             transition: var(--transition);
@@ -40,6 +39,11 @@
                 color: var(--default);
                 opacity: 0.5;
             }
+        }
+
+        &.LemonButton--full-width > span {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
         }
 
         &.LemonButton--xsmall {
@@ -67,10 +71,10 @@
         }
 
         &.LemonButton--small {
-            min-height: 1.8rem;
+            min-height: 1.75rem;
 
             > span {
-                min-height: 1.8rem;
+                min-height: 1.75rem;
                 padding: 0.25rem 0.5rem;
             }
 
@@ -132,6 +136,7 @@
             padding-bottom: 1px;
 
             > span {
+                border-width: 1px;
                 margin: 0 -1px;
                 top: -1px;
             }
