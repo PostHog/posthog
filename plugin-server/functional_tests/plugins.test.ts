@@ -91,7 +91,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
     })
 })
 
-test.concurrent(`plugin method tests: creates error on unhandled throw`, async () => {
+test.concurrent(`plugin method tests: records error in app metrics on unhandled throw`, async () => {
     const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'test plugin',
@@ -122,19 +122,19 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
         return events
     })
 
-    const { error_details } = await waitForExpect(async () => {
+    const errorDetails = await waitForExpect(async () => {
         const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
         expect(errors.length).toEqual(1)
         return errors[0]
-    })
+    }).error_details
 
-    expect(error_details).toMatchObject({
+    expect(errorDetails).toMatchObject({
         error: { message: 'error thrown in plugin' },
         event: { properties: event.properties },
     })
 })
 
-test.concurrent(`plugin method tests: creates error on unhandled promise rejection`, async () => {
+test.concurrent(`plugin method tests: creates log entry on unhandled promise rejection`, async () => {
     const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'test plugin',
