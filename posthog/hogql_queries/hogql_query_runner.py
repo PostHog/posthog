@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import Dict, Optional, Any
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -9,7 +8,6 @@ from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryResponse,
@@ -22,19 +20,6 @@ from posthog.schema import (
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
     query_type = HogQLQuery
-
-    def __init__(
-        self,
-        query: HogQLQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
-        if isinstance(query, HogQLQuery):
-            self.query = query
-        else:
-            self.query = HogQLQuery.model_validate(query)
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
@@ -60,7 +45,7 @@ class HogQLQueryRunner(QueryRunner):
             query_type="HogQLQuery",
             query=self.to_query(),
             filters=self.query.filters,
-            modifiers=self.query.modifiers,
+            modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
             workload=Workload.ONLINE,
             timings=self.timings,

@@ -39,7 +39,7 @@ const SkeletonLog = (): JSX.Element => {
         <div className="activity-log-row items-start">
             <LemonSkeleton.Circle />
             <div className="details space-y-4 mt-2">
-                <LemonSkeleton className="w-1/2" />
+                <LemonSkeleton className="w-1/2 h-4" />
                 <LemonSkeleton />
             </div>
         </div>

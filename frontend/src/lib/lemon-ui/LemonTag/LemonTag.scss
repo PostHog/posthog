@@ -1,48 +1,99 @@
 .LemonTag {
+    align-items: center;
+    background: var(--border);
+    border-radius: var(--radius);
+    color: var(--default);
+    display: inline-flex;
     font-size: 0.75rem;
     font-weight: var(--font-medium);
-    background: var(--border);
-    padding: 0.125rem 0.25rem;
-    border-radius: var(--radius);
-    display: inline-flex;
-    align-items: center;
-    color: var(--default);
     line-height: 1rem;
+    padding: 0.125rem 0.25rem;
     white-space: nowrap;
 
+    .posthog-3000 & {
+        background: none;
+        border-radius: calc(var(--radius) * 0.75);
+        border-style: solid;
+        border-width: 1px;
+        font-size: 0.688rem;
+        padding: 0.075rem 0.25rem;
+    }
+
     &.primary {
-        background-color: var(--primary);
+        background-color: var(--primary-3000);
         color: #fff;
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--primary-3000);
+            color: var(--primary-3000);
+        }
     }
 
     &.highlight {
         background-color: var(--mark);
         color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--mark);
+            color: var(--mark);
+        }
     }
 
     &.warning {
         background-color: var(--warning);
         color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--warning);
+            color: var(--warning);
+        }
     }
 
     &.danger {
         background-color: var(--danger);
         color: #fff;
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--danger);
+            color: var(--danger);
+        }
     }
 
     &.success {
         background-color: var(--success);
         color: #fff;
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--success);
+            color: var(--success);
+        }
     }
 
     &.completion {
         background-color: var(--purple-light);
         color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--purple-light);
+            color: var(--purple-light);
+        }
     }
 
     &.caution {
         background-color: var(--danger-lighter);
         color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            background: none;
+            border-color: var(--danger-lighter);
+            color: var(--danger-lighter);
+        }
     }
 
     &.none {
@@ -62,7 +113,7 @@
 
     .LemonTag__right-button {
         margin-left: 0.25rem;
-        min-height: 1.5rem;
+        min-height: 1.5rem !important;
         padding: 0.125rem !important;
     }
 }

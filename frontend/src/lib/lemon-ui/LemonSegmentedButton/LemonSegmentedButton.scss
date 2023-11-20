@@ -2,9 +2,7 @@
     position: relative;
     flex-shrink: 0;
     width: fit-content;
-    background: var(--bg-light);
     border-radius: var(--radius);
-    border: 1px solid var(--border);
 
     > ul {
         z-index: 1; // Place above slider
@@ -16,83 +14,154 @@
     &.LemonSegmentedButton--full-width {
         width: 100%;
     }
+
+    .LemonSegmentedButton__option {
+        display: flex;
+        flex: 1;
+
+        .LemonButton__content {
+            text-wrap: nowrap;
+        }
+    }
 }
 
-.LemonSegmentedButton__slider {
-    // This is a real element and not ::after to avoid initial transition from 0 width
-    position: absolute;
-    top: -1px; // 1px of border
-    left: -1px; // 1px of border
-    height: calc(100% + 2px); // 1px of border (top + bottom)
-    width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
-    transform: translateX(var(--lemon-segmented-button-slider-offset));
-    background: var(--primary);
-
-    &.LemonSegmentedButton__slider--first {
-        border-top-left-radius: var(--radius);
-        border-bottom-left-radius: var(--radius);
+body:not(.posthog-3000) {
+    .LemonSegmentedButton {
+        background: var(--bg-light);
+        border: 1px solid var(--border);
     }
 
-    &.LemonSegmentedButton__slider--last {
-        border-top-right-radius: var(--radius);
-        border-bottom-right-radius: var(--radius);
-    }
-
-    .LemonSegmentedButton--transitioning & {
+    .LemonSegmentedButton__slider {
+        // This is a real element and not ::after to avoid initial transition from 0 width
         transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
         will-change: width, transform, border-radius;
+        position: absolute;
+        top: -1px; // 1px of border
+        left: -1px; // 1px of border
+        height: calc(100% + 2px); // 1px of border (top + bottom)
+        width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
+        transform: translateX(var(--lemon-segmented-button-slider-offset));
+        background: var(--primary);
+
+        &.LemonSegmentedButton__slider--first {
+            border-top-left-radius: var(--radius);
+            border-bottom-left-radius: var(--radius);
+        }
+
+        &.LemonSegmentedButton__slider--last {
+            border-top-right-radius: var(--radius);
+            border-bottom-right-radius: var(--radius);
+        }
+    }
+
+    .LemonSegmentedButton__option {
+        .LemonButton {
+            // Original transition with outline added
+            transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+                outline 200ms ease;
+            outline: 1px solid transparent;
+            border-radius: 0;
+            min-height: calc(var(--lemon-button-height) - 2px);
+
+            &:hover {
+                > span {
+                    border-color: none !important;
+                }
+            }
+        }
+
+        &:first-child,
+        &:first-child .LemonButton {
+            border-top-left-radius: var(--radius);
+            border-bottom-left-radius: var(--radius);
+        }
+
+        &:last-child,
+        &:last-child .LemonButton {
+            border-top-right-radius: var(--radius);
+            border-bottom-right-radius: var(--radius);
+        }
+
+        &:not(:last-child) {
+            border-right: 1px solid var(--border);
+        }
+
+        &:not(.LemonSegmentedButton__option--disabled, .LemonSegmentedButton__option--selected) {
+            &:hover .LemonButton {
+                outline-color: var(--primary);
+            }
+
+            &:active .LemonButton {
+                outline-color: var(--primary-dark);
+            }
+        }
+
+        &.LemonSegmentedButton__option--selected {
+            .LemonButton,
+            .LemonButton__icon {
+                color: #fff;
+            }
+
+            .LemonButton {
+                &:hover,
+                &:active {
+                    background: none; // Disable LemonButton's hover styles for the selected option
+                }
+            }
+        }
     }
 }
 
-.LemonSegmentedButton__option {
-    display: flex;
-    flex: 1;
-
-    .LemonButton {
-        // Original transition with outline added
-        transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-            outline 200ms ease;
-        outline: 1px solid transparent;
-        border-radius: 0;
-        min-height: calc(var(--lemon-button-height) - 2px);
-    }
-
-    &:first-child,
-    &:first-child .LemonButton {
-        border-top-left-radius: var(--radius);
-        border-bottom-left-radius: var(--radius);
-    }
-
-    &:last-child,
-    &:last-child .LemonButton {
-        border-top-right-radius: var(--radius);
-        border-bottom-right-radius: var(--radius);
-    }
-
-    &:not(:last-child) {
-        border-right: 1px solid var(--border);
-    }
-
-    &:not(.LemonSegmentedButton__option--disabled, .LemonSegmentedButton__option--selected) {
-        &:hover .LemonButton {
-            outline-color: var(--primary);
+.posthog-3000 {
+    .LemonSegmentedButton__option {
+        & .LemonButton,
+        & .LemonButton > span {
+            border-radius: 0;
         }
 
-        &:active .LemonButton {
-            outline-color: var(--primary-dark);
-        }
-    }
+        .LemonButton > span {
+            background: var(--bg-3000);
 
-    &.LemonSegmentedButton__option--selected {
-        .LemonButton,
-        .LemonButton__icon {
-            color: #fff;
+            .LemonButton__icon,
+            .LemonButton__content {
+                opacity: 0.4;
+            }
         }
 
-        .LemonButton {
-            &:hover,
-            &:active {
-                background: none; // Disable LemonButton's hover styles for the selected option
+        .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
+            > span {
+                border-color: var(--secondary-3000-button-border);
+            }
+        }
+
+        &:first-child,
+        &:first-child .LemonButton,
+        &:first-child .LemonButton > span {
+            border-top-left-radius: var(--radius);
+            border-bottom-left-radius: var(--radius);
+        }
+
+        &:last-child,
+        &:last-child .LemonButton,
+        &:last-child .LemonButton > span {
+            border-top-right-radius: var(--radius);
+            border-bottom-right-radius: var(--radius);
+        }
+
+        &:not(:last-child) {
+            .LemonButton {
+                border-right: none;
+            }
+        }
+
+        &.LemonSegmentedButton__option--selected {
+            .LemonButton > span {
+                background-color: var(--bg-light);
+
+                .LemonButton__icon,
+                .LemonButton__content {
+                    opacity: 1;
+                }
             }
         }
     }

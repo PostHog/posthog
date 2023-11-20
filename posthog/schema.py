@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -255,6 +256,13 @@ class InCohortVia(str, Enum):
     subquery = "subquery"
 
 
+class MaterializationMode(str, Enum):
+    auto = "auto"
+    legacy_null_as_string = "legacy_null_as_string"
+    legacy_null_as_null = "legacy_null_as_null"
+    disabled = "disabled"
+
+
 class PersonsArgMaxVersion(str, Enum):
     auto = "auto"
     v1 = "v1"
@@ -273,6 +281,7 @@ class HogQLQueryModifiers(BaseModel):
         extra="forbid",
     )
     inCohortVia: Optional[InCohortVia] = None
+    materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
@@ -431,6 +440,23 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
+class QueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    complete: Optional[bool] = False
+    end_time: Optional[datetime] = None
+    error: Optional[bool] = False
+    error_message: Optional[str] = ""
+    expiration_time: Optional[datetime] = None
+    id: str
+    query_async: Optional[bool] = True
+    results: Optional[Any] = None
+    start_time: Optional[datetime] = None
+    task_id: Optional[str] = None
+    team_id: int
+
+
 class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -465,57 +491,6 @@ class RetentionPeriod(str, Enum):
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
-
-
-class SavedInsightNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    allowSorting: Optional[bool] = Field(
-        default=None, description="Can the user click on column headers to sort the table? (default: true)"
-    )
-    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
-    expandable: Optional[bool] = Field(
-        default=None, description="Can expand row to show raw event data (default: true)"
-    )
-    full: Optional[bool] = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
-    )
-    hidePersonsModal: Optional[bool] = None
-    kind: Literal["SavedInsightNode"] = "SavedInsightNode"
-    propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
-    shortId: str
-    showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
-    showColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure the table's columns if possible"
-    )
-    showCorrelationTable: Optional[bool] = None
-    showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
-    showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
-    showEventFilter: Optional[bool] = Field(
-        default=None, description="Include an event filter above the table (EventsNode only)"
-    )
-    showExport: Optional[bool] = Field(default=None, description="Show the export button")
-    showFilters: Optional[bool] = None
-    showHeader: Optional[bool] = None
-    showHogQLEditor: Optional[bool] = Field(default=None, description="Include a HogQL query editor above HogQL tables")
-    showLastComputation: Optional[bool] = None
-    showLastComputationRefresh: Optional[bool] = None
-    showOpenEditorButton: Optional[bool] = Field(
-        default=None, description="Show a button to open the current query as a new insight. (default: true)"
-    )
-    showPersistentColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure and persist the table's default columns if possible"
-    )
-    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
-    showReload: Optional[bool] = Field(default=None, description="Show a reload button")
-    showResults: Optional[bool] = None
-    showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
-    showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
-    showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
-    showTable: Optional[bool] = None
-    showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
-    suppressSessionAnalysisWarning: Optional[bool] = None
 
 
 class SessionPropertyFilter(BaseModel):
@@ -612,6 +587,22 @@ class TrendsQueryResponse(BaseModel):
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
+
+
+class RETENTION(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hideLineGraph: Optional[bool] = None
+    hideSizeColumn: Optional[bool] = None
+    useSmallLayout: Optional[bool] = None
+
+
+class VizSpecificOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    RETENTION: Optional[RETENTION] = None
 
 
 class Kind(str, Enum):
@@ -920,6 +911,58 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class SavedInsightNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allowSorting: Optional[bool] = Field(
+        default=None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    expandable: Optional[bool] = Field(
+        default=None, description="Can expand row to show raw event data (default: true)"
+    )
+    full: Optional[bool] = Field(
+        default=None, description="Show with most visual options enabled. Used in insight scene."
+    )
+    hidePersonsModal: Optional[bool] = None
+    kind: Literal["SavedInsightNode"] = "SavedInsightNode"
+    propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
+    shortId: str
+    showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure the table's columns if possible"
+    )
+    showCorrelationTable: Optional[bool] = None
+    showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(default=None, description="Show the export button")
+    showFilters: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showHogQLEditor: Optional[bool] = Field(default=None, description="Include a HogQL query editor above HogQL tables")
+    showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showOpenEditorButton: Optional[bool] = Field(
+        default=None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure and persist the table's default columns if possible"
+    )
+    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(default=None, description="Show a reload button")
+    showResults: Optional[bool] = None
+    showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showTable: Optional[bool] = None
+    showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
+    suppressSessionAnalysisWarning: Optional[bool] = None
+    vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
 class SessionsTimelineQueryResponse(BaseModel):
@@ -1439,7 +1482,6 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1637,7 +1679,6 @@ class LifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1732,6 +1773,7 @@ class InsightVizNode(BaseModel):
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     suppressSessionAnalysisWarning: Optional[bool] = None
+    vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
 class InsightPersonsQuery(BaseModel):

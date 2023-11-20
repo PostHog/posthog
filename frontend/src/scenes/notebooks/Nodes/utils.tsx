@@ -28,14 +28,13 @@ export function posthogNodePasteRule(options: {
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 chain().deleteRange(range).run()
-                Promise.resolve(options.getAttributes(match)).then((attributes) => {
-                    if (attributes) {
-                        options.editor.commands.insertContent({
-                            type: options.type.name,
-                            attrs: attributes,
-                        })
-                    }
-                })
+                const attributes = options.getAttributes(match)
+                if (attributes) {
+                    options.editor.commands.insertContent({
+                        type: options.type.name,
+                        attrs: attributes,
+                    })
+                }
             }
         },
     })

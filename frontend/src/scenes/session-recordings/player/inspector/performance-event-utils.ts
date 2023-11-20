@@ -122,6 +122,7 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                         matchedStartTime[0].request_body = capturedRequest.requestBody
                         matchedStartTime[0].response_headers = capturedRequest.responseHeaders
                         matchedStartTime[0].response_body = capturedRequest.responseBody
+                        matchedStartTime[0].method = capturedRequest.method
                     } else if (matchedStartTime && matchedStartTime.length > 1) {
                         // find in eventsMapping[capturedRequest.url][capturedRequest.startTime] by matching capturedRequest.endTime and element.response_end
                         const matchedEndTime = matchedStartTime.find(
@@ -135,6 +136,7 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                             matchedEndTime.request_body = capturedRequest.requestBody
                             matchedEndTime.response_headers = capturedRequest.responseHeaders
                             matchedEndTime.response_body = capturedRequest.responseBody
+                            matchedEndTime.method = capturedRequest.method
                         } else {
                             const capturedURL = new URL(capturedRequest.url)
                             const capturedPath = capturedURL.pathname

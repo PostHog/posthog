@@ -17,10 +17,11 @@ import { useValues } from 'kea'
 import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
+import { copyToClipboard } from 'lib/utils'
 
 const EXPORT_MAX_LIMIT = 10000
 
-function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
+async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -45,7 +46,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
             )
         }
     }
-    triggerExport({
+    await triggerExport({
         export_format: ExporterFormat.CSV,
         export_context: exportContext,
     })
@@ -156,9 +157,7 @@ function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query:
 
         const csv = Papa.unparse(tableData)
 
-        navigator.clipboard.writeText(csv).then(() => {
-            lemonToast.success('Table copied to clipboard!')
-        })
+        void copyToClipboard(csv, 'table')
     } catch {
         lemonToast.error('Copy failed!')
     }
@@ -170,9 +169,7 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
 
         const json = JSON.stringify(tableData, null, 4)
 
-        navigator.clipboard.writeText(json).then(() => {
-            lemonToast.success('Table copied to clipboard!')
-        })
+        void copyToClipboard(json, 'table')
     } catch {
         lemonToast.error('Copy failed!')
     }
@@ -204,7 +201,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         key={1}
                         placement={'topRight'}
                         onConfirm={() => {
-                            startDownload(query, true)
+                            void startDownload(query, true)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
@@ -220,7 +217,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement={'topRight'}
-                                      onConfirm={() => startDownload(query, false)}
+                                      onConfirm={() => void startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >

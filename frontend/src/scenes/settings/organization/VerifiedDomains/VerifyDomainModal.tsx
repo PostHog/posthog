@@ -51,9 +51,11 @@ export function VerifyDomainModal(): JSX.Element {
                                     <div className="border rounded p-2 h-10 flex-1">
                                         {domainBeingVerified?.verification_challenge}
                                     </div>
-                                    <CopyToClipboardInline
-                                        explicitValue={domainBeingVerified?.verification_challenge}
-                                    />
+                                    {domainBeingVerified && (
+                                        <CopyToClipboardInline
+                                            explicitValue={domainBeingVerified.verification_challenge}
+                                        />
+                                    )}
                                 </div>
                             </PureField>
                             <PureField label="TTL">

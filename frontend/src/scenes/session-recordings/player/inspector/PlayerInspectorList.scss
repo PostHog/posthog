@@ -11,4 +11,8 @@
     border-radius: var(--radius) 0 0 var(--radius);
     transition: transform 200ms linear;
     will-change: transform;
+
+    .posthog-3000 & {
+        background-color: var(--primary-3000);
+    }
 }

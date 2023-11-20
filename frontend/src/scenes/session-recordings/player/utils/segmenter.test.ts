@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { RecordingSnapshot } from '~/types'
 
 describe('segmenter', () => {
-    it('matches snapshots', async () => {
+    it('matches snapshots', () => {
         const snapshots = convertSnapshotsResponse(sortedRecordingSnapshots().snapshot_data_by_window_id)
         const segments = createSegments(
             snapshots,

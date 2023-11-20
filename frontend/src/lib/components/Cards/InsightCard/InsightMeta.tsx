@@ -107,7 +107,7 @@ export function InsightMeta({
             samplingNotice={
                 insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
                     <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
+                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-3000-hover)' }} />
                     </Tooltip>
                 ) : null
             }

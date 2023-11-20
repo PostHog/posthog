@@ -1,20 +1,20 @@
 .Link {
-    transition: color 200ms ease, opacity 200ms ease;
     background: none;
-    color: var(--link);
     border: none;
+    color: var(--link);
+    cursor: pointer;
+    line-height: inherit;
     outline: none;
     padding: 0;
-    line-height: inherit;
-    cursor: pointer;
+    transition: none;
 
     &:not(:disabled) {
         &:hover {
-            color: var(--primary-light);
+            color: var(--primary-3000-hover);
         }
 
         &:active {
-            color: var(--primary-dark);
+            color: var(--primary-3000-active);
         }
     }
 

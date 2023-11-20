@@ -1,172 +1,94 @@
-import hashlib
+import datetime
 import json
-import time
-from dataclasses import asdict as dataclass_asdict
-from dataclasses import dataclass
-from time import perf_counter
-from typing import Any, Optional
+import uuid
 
-from posthog import celery
-from clickhouse_driver import Client as SyncClient
-from django.conf import settings as app_settings
-from statshog.defaults.django import statsd
+import structlog
+from rest_framework.exceptions import NotFound
 
-from posthog import redis
-from posthog.celery import enqueue_clickhouse_execute_with_progress
-from posthog.clickhouse.client.execute import _prepare_query
-from posthog.errors import wrap_query_error
-from posthog.settings import (
-    CLICKHOUSE_CA,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HOST,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_SECURE,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
-)
+from posthog import celery, redis
+from posthog.celery import process_query_task
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.schema import QueryStatus
 
-REDIS_STATUS_TTL = 600  # 10 minutes
+logger = structlog.get_logger(__name__)
+
+REDIS_STATUS_TTL_SECONDS = 600  # 10 minutes
+REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_async"
 
 
-@dataclass
-class QueryStatus:
-    team_id: int
-    num_rows: float = 0
-    total_rows: float = 0
-    error: bool = False
-    complete: bool = False
-    error_message: str = ""
-    results: Any = None
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
-    task_id: Optional[str] = None
+class QueryNotFoundError(NotFound):
+    pass
 
 
-def generate_redis_results_key(query_id):
-    REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_with_progress"
-    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_id}"
-    return key
+class QueryRetrievalError(Exception):
+    pass
 
 
-def execute_with_progress(
+def generate_redis_results_key(query_id: str, team_id: int) -> str:
+    return f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{team_id}:{query_id}"
+
+
+def execute_process_query(
     team_id,
     query_id,
-    query,
-    args=None,
-    settings=None,
-    with_column_types=False,
-    update_freq=0.2,
+    query_json,
+    in_export_context,
+    refresh_requested,
     task_id=None,
 ):
-    """
-    Kick off query with progress reporting
-    Iterate over the progress status
-    Save status to redis
-    Once complete save results to redis
-    """
-
-    key = generate_redis_results_key(query_id)
-    ch_client = SyncClient(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        settings={"max_result_rows": "10000"},
-    )
+    key = generate_redis_results_key(query_id, team_id)
     redis_client = redis.get_client()
 
-    start_time = perf_counter()
+    from posthog.models import Team
+    from posthog.api.services.query import process_query
 
-    prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
+    team = Team.objects.get(pk=team_id)
 
-    query_status = QueryStatus(team_id, task_id=task_id)
-
-    start_time = time.time()
+    query_status = QueryStatus(
+        id=query_id,
+        team_id=team_id,
+        task_id=task_id,
+        complete=False,
+        error=True,  # Assume error in case nothing below ends up working
+        start_time=datetime.datetime.utcnow(),
+    )
+    value = query_status.model_dump_json()
 
     try:
-        progress = ch_client.execute_with_progress(
-            prepared_sql,
-            params=prepared_args,
-            settings=settings,
-            with_column_types=with_column_types,
+        tag_queries(client_query_id=query_id, team_id=team_id)
+        results = process_query(
+            team=team, query_json=query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
         )
-        for num_rows, total_rows in progress:
-            query_status = QueryStatus(
-                team_id=team_id,
-                num_rows=num_rows,
-                total_rows=total_rows,
-                complete=False,
-                error=False,
-                error_message="",
-                results=None,
-                start_time=start_time,
-                task_id=task_id,
-            )
-            redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)
-            time.sleep(update_freq)
-        else:
-            rv = progress.get_result()
-            query_status = QueryStatus(
-                team_id=team_id,
-                num_rows=query_status.num_rows,
-                total_rows=query_status.total_rows,
-                complete=True,
-                error=False,
-                start_time=query_status.start_time,
-                end_time=time.time(),
-                error_message="",
-                results=rv,
-                task_id=task_id,
-            )
-            redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)
-
+        logger.info("Got results for team %s query %s", team_id, query_id)
+        query_status.complete = True
+        query_status.error = False
+        query_status.results = results
+        query_status.expiration_time = datetime.datetime.utcnow() + datetime.timedelta(seconds=REDIS_STATUS_TTL_SECONDS)
+        query_status.end_time = datetime.datetime.utcnow()
+        value = query_status.model_dump_json()
     except Exception as err:
-        err = wrap_query_error(err)
-        tags["failed"] = True
-        tags["reason"] = type(err).__name__
-        statsd.incr("clickhouse_sync_execution_failure")
-        query_status = QueryStatus(
-            team_id=team_id,
-            num_rows=query_status.num_rows,
-            total_rows=query_status.total_rows,
-            complete=False,
-            error=True,
-            start_time=query_status.start_time,
-            end_time=time.time(),
-            error_message=str(err),
-            results=None,
-            task_id=task_id,
-        )
-        redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)
-
+        query_status.results = None  # Clear results in case they are faulty
+        query_status.error_message = str(err)
+        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        value = query_status.model_dump_json()
         raise err
     finally:
-        ch_client.disconnect()
-
-        execution_time = perf_counter() - start_time
-
-        statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
-
-        if app_settings.SHELL_PLUS_PRINT_SQL:
-            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
+        redis_client.set(key, value, ex=REDIS_STATUS_TTL_SECONDS)
 
 
-def enqueue_execute_with_progress(
+def enqueue_process_query_task(
     team_id,
-    query,
-    args=None,
-    settings=None,
-    with_column_types=False,
-    bypass_celery=False,
+    query_json,
     query_id=None,
+    refresh_requested=False,
+    in_export_context=False,
+    bypass_celery=False,
     force=False,
 ):
     if not query_id:
-        query_id = _query_hash(query, team_id, args)
-    key = generate_redis_results_key(query_id)
+        query_id = uuid.uuid4().hex
+
+    key = generate_redis_results_key(query_id, team_id)
     redis_client = redis.get_client()
 
     if force:
@@ -187,49 +109,55 @@ def enqueue_execute_with_progress(
         # If we've seen this query before return the query_id and don't resubmit it.
         return query_id
 
-    # Immediately set status so we don't have race with celery
-    query_status = QueryStatus(team_id=team_id, start_time=time.time())
-    redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)
+    # Immediately set status, so we don't have race with celery
+    query_status = QueryStatus(id=query_id, team_id=team_id)
+    redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)
 
     if bypass_celery:
         # Call directly ( for testing )
-        enqueue_clickhouse_execute_with_progress(team_id, query_id, query, args, settings, with_column_types)
+        process_query_task(
+            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+        )
     else:
-        enqueue_clickhouse_execute_with_progress.delay(team_id, query_id, query, args, settings, with_column_types)
+        task = process_query_task.delay(
+            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+        )
+        query_status.task_id = task.id
+        redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)
 
     return query_id
 
 
-def get_status_or_results(team_id, query_id):
-    """
-    Returns QueryStatus data class
-    QueryStatus data class contains either:
-    Current status of running query
-    Results of completed query
-    Error payload of failed query
-    """
+def get_query_status(team_id, query_id):
     redis_client = redis.get_client()
-    key = generate_redis_results_key(query_id)
+    key = generate_redis_results_key(query_id, team_id)
+
     try:
         byte_results = redis_client.get(key)
-        if byte_results:
-            str_results = byte_results.decode("utf-8")
-        else:
-            return QueryStatus(team_id, error=True, error_message="Query is unknown to backend")
-        query_status = QueryStatus(**json.loads(str_results))
-        if query_status.team_id != team_id:
-            raise Exception("Requesting team is not executing team")
     except Exception as e:
-        query_status = QueryStatus(team_id, error=True, error_message=str(e))
-    return query_status
+        raise QueryRetrievalError(f"Error retrieving query {query_id} for team {team_id}") from e
+
+    if not byte_results:
+        raise QueryNotFoundError(f"Query {query_id} not found for team {team_id}")
+
+    return QueryStatus(**json.loads(byte_results))
 
 
-def _query_hash(query: str, team_id: int, args: Any) -> str:
-    """
-    Takes a query and returns a hex encoded hash of the query and args
-    """
-    if args:
-        key = hashlib.md5((str(team_id) + query + json.dumps(args)).encode("utf-8")).hexdigest()
-    else:
-        key = hashlib.md5((str(team_id) + query).encode("utf-8")).hexdigest()
-    return key
+def cancel_query(team_id, query_id):
+    query_status = get_query_status(team_id, query_id)
+
+    if query_status.task_id:
+        logger.info("Got task id %s, attempting to revoke", query_status.task_id)
+        celery.app.control.revoke(query_status.task_id, terminate=True)
+
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        logger.info("Revoked task id %s, attempting to cancel on cluster", query_status.task_id)
+        cancel_query_on_cluster(team_id, query_id)
+
+    redis_client = redis.get_client()
+    key = generate_redis_results_key(query_id, team_id)
+    logger.info("Deleting redis query key %s", key)
+    redis_client.delete(key)
+
+    return True

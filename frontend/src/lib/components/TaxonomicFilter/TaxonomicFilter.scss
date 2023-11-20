@@ -5,10 +5,6 @@
     display: flex;
     flex-direction: column;
 
-    .posthog-3000 & {
-        background: var(--bg-3000);
-    }
-
     &.force-minimum-width {
         min-width: 300px;
     }
@@ -49,6 +45,19 @@
             color: var(--link);
             background: var(--side);
             border-color: var(--side);
+
+            .posthog-3000 & {
+                color: var(--default);
+                font-weight: 500;
+
+                &:not(.taxonomic-pill-active) {
+                    opacity: 0.7;
+                }
+
+                &:hover {
+                    opacity: 1;
+                }
+            }
 
             &.taxonomic-count-zero {
                 color: var(--muted);

@@ -4,7 +4,7 @@
     max-width: 100%;
 
     &:not(.EditableField--multiline) {
-        line-height: 2rem;
+        line-height: 1.15em;
     }
 
     i {
@@ -23,20 +23,36 @@
         align-items: center;
         width: fit-content;
         max-width: calc(100% + 0.5rem);
-        min-height: 2rem;
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
         white-space: pre-wrap;
         overflow: auto;
     }
 
-    &--editing .EditableField__highlight {
+    &.EditableField--editing .EditableField__highlight {
         flex-grow: 1;
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
         outline: 1px solid var(--border);
         border-radius: var(--radius);
+    }
+
+    &.EditableField--underlined {
+        .EditableField__highlight {
+            padding: 0;
+            margin: 0;
+        }
+
+        &.EditableField--editing .EditableField__highlight {
+            outline: none;
+
+            input {
+                text-decoration: underline;
+                text-decoration-color: var(--muted);
+                text-underline-offset: 0.5em;
+            }
+        }
     }
 
     .EditableField__autosize {

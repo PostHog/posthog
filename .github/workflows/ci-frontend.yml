@@ -89,10 +89,6 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm prettier:check
 
-            - name: Lint with ESLint
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm lint:js
-
             - name: Lint with Stylelint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm lint:css
@@ -100,6 +96,10 @@ jobs:
             - name: Generate logic types and run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm typegen:write && pnpm typescript:check
+
+            - name: Lint with ESLint
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm lint:js
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
