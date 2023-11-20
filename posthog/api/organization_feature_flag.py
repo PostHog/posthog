@@ -126,9 +126,12 @@ class OrganizationFeatureFlagView(
 
                         for prop in prop_group.flat:
                             if prop.type == "cohort" and not isinstance(prop.value, list):
-                                original_child_cohort_id = int(prop.value)
-                                original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
-                                prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+                                try:
+                                    original_child_cohort_id = int(prop.value)
+                                    original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                    prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+                                except (ValueError, TypeError):
+                                    continue
 
                         destination_cohort_serializer = CohortSerializer(
                             data={
@@ -155,9 +158,12 @@ class OrganizationFeatureFlagView(
                 props = group.get("properties", [])
                 for prop in props:
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
-                        original_cohort_id = int(prop["value"])
-                        cohort_name = (seen_cohorts_cache[original_cohort_id]).name
-                        prop["value"] = name_to_dest_cohort_id[cohort_name]
+                        try:
+                            original_cohort_id = int(prop["value"])
+                            cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                            prop["value"] = name_to_dest_cohort_id[cohort_name]
+                        except (ValueError, TypeError):
+                            continue
 
             flag_data = {
                 "key": flag_to_copy.key,
