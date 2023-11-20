@@ -501,6 +501,4 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ForbiddenError",
             ],
             update_inputs=update_inputs,
-            # Disable heartbeat timeout until we add heartbeat support.
-            heartbeat_timeout_seconds=None,
         )
