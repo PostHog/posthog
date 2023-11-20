@@ -1451,7 +1451,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
