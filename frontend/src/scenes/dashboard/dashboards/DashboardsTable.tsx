@@ -13,7 +13,8 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconCottage, IconLock, IconPinOutline, IconPinFilled, IconShare } from 'lib/lemon-ui/icons'
+import { IconCottage, IconLock } from 'lib/lemon-ui/icons'
+import { IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -70,7 +71,7 @@ export function DashboardsTable({
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
-                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
                 )
             },
@@ -215,28 +216,31 @@ export function DashboardsTable({
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            active={filters.pinned}
-                            type="secondary"
-                            status="stealth"
-                            size="small"
-                            onClick={() => setFilters({ pinned: !filters.pinned })}
-                            icon={<IconPinOutline />}
-                        >
-                            Pinned
-                        </LemonButton>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            active={filters.shared}
-                            type="secondary"
-                            status="stealth"
-                            size="small"
-                            onClick={() => setFilters({ shared: !filters.shared })}
-                            icon={<IconShare />}
-                        >
-                            Shared
-                        </LemonButton>
+                        <span>Filter to:</span>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                active={filters.pinned}
+                                type="secondary"
+                                status="stealth"
+                                size="small"
+                                onClick={() => setFilters({ pinned: !filters.pinned })}
+                                icon={<IconPin />}
+                            >
+                                Pinned
+                            </LemonButton>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                active={filters.shared}
+                                type="secondary"
+                                status="stealth"
+                                size="small"
+                                onClick={() => setFilters({ shared: !filters.shared })}
+                                icon={<IconShare />}
+                            >
+                                Shared
+                            </LemonButton>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
