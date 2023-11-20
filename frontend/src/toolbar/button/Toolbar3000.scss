@@ -64,7 +64,7 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        filter: drop-shadow(2px 10px 10px var(--trace-3000));
+        filter: drop-shadow(0px 5px 10px var(--trace-3000));
         bottom: 0;
         width: 30rem;
         margin-left: -15rem;
@@ -93,9 +93,9 @@
     background-color: var(--bg-3000);
     color: var(--text-3000);
     transition-property: filter, width, transform;
-    transition-duration: 0.3s;
+    transition-duration: 150ms;
     transition-timing-function: ease;
-    filter: drop-shadow(2px 10px 10px var(--trace-3000));
+    filter: drop-shadow(0px 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);
     overflow: hidden;
@@ -125,7 +125,7 @@
     }
 
     &--minimized {
-        width: 2.5rem;
+        width: calc(2.5rem + 1px); // Account for border
 
         &.Toolbar3000--hedgehog-mode {
             transform: var(--toolbar-translate) scale(0);
