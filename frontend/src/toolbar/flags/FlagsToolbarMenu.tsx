@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { HTMLAttributes } from 'react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -24,7 +24,7 @@ const MenuHeader = (): JSX.Element => {
             fullWidth
             type={'search'}
             value={searchTerm}
-            className={'Toolbar3000__top_input'}
+            className={'Toolbar__top_input'}
             onChange={(s) => setSearchTerm(s)}
         />
     )

@@ -12,7 +12,7 @@ import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { toolbarButtonLogic } from '~/toolbar/bar/toolbarButtonLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -20,9 +20,9 @@ import clsx from 'clsx'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
-import { Toolbar3000Button } from './Toolbar3000Button'
+import { ToolbarButton } from './ToolbarButton'
 
-import './Toolbar3000.scss'
+import './Toolbar.scss'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -64,12 +64,12 @@ function MoreMenu(): JSX.Element {
             ]}
             maxContentWidth={true}
         >
-            <Toolbar3000Button icon={<IconMenu />} title="More options" />
+            <ToolbarButton icon={<IconMenu />} title="More options" />
         </LemonMenu>
     )
 }
 
-function ToolbarInfoMenu(): JSX.Element {
+export function ToolbarInfoMenu(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarButtonLogic)
     const { setMenu } = useActions(toolbarButtonLogic)
@@ -90,10 +90,10 @@ function ToolbarInfoMenu(): JSX.Element {
     return (
         <div
             className={clsx(
-                'Toolbar3000Menu',
-                !!content && 'Toolbar3000Menu--visible',
-                isDragging && 'Toolbar3000Menu--dragging',
-                menuProperties.isBelow && 'Toolbar3000Menu--below'
+                'ToolbarMenu',
+                !!content && 'ToolbarMenu--visible',
+                isDragging && 'ToolbarMenu--dragging',
+                menuProperties.isBelow && 'ToolbarMenu--below'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -102,7 +102,7 @@ function ToolbarInfoMenu(): JSX.Element {
         >
             <div
                 ref={ref}
-                className="Toolbar3000Menu__content"
+                className="ToolbarMenu__content"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     maxHeight: menuProperties.maxHeight,
@@ -114,7 +114,7 @@ function ToolbarInfoMenu(): JSX.Element {
     )
 }
 
-export function Toolbar3000(): JSX.Element {
+export function Toolbar(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarButtonLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarButtonLogic)
@@ -138,10 +138,10 @@ export function Toolbar3000(): JSX.Element {
             <div
                 ref={ref}
                 className={clsx(
-                    'Toolbar3000',
-                    minimized && 'Toolbar3000--minimized',
-                    hedgehogMode && 'Toolbar3000--hedgehog-mode',
-                    isDragging && 'Toolbar3000--dragging'
+                    'Toolbar',
+                    minimized && 'Toolbar--minimized',
+                    hedgehogMode && 'Toolbar--hedgehog-mode',
+                    isDragging && 'Toolbar--dragging'
                 )}
                 onMouseDown={(e) => onMouseDown(e as any)}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -152,7 +152,7 @@ export function Toolbar3000(): JSX.Element {
                     } as any
                 }
             >
-                <Toolbar3000Button
+                <ToolbarButton
                     icon={<IconLogomark />}
                     onClick={toggleMinimized}
                     title="Minimize"
@@ -160,10 +160,10 @@ export function Toolbar3000(): JSX.Element {
                 />
                 {isAuthenticated ? (
                     <>
-                        <Toolbar3000Button icon={<IconSearch />} menuId="inspect" />
-                        <Toolbar3000Button icon={<IconCursorClick />} menuId="heatmap" />
-                        <Toolbar3000Button icon={<IconTarget />} menuId="actions" />
-                        <Toolbar3000Button icon={<IconToggle />} menuId="flags" title="Feature flags" />
+                        <ToolbarButton icon={<IconSearch />} menuId="inspect" />
+                        <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
+                        <ToolbarButton icon={<IconTarget />} menuId="actions" />
+                        <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
                         <MoreMenu />
                     </>
                 ) : null}

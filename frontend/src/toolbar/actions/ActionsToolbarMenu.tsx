@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -26,7 +26,7 @@ const ListMenuHeader = (): JSX.Element => {
                 type={'search'}
                 value={searchTerm}
                 onChange={(s) => setSearchTerm(s)}
-                className={'Toolbar3000__top_input'}
+                className={'Toolbar__top_input'}
             />
         </>
     )

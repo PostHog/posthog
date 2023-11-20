@@ -46,13 +46,13 @@
     --mark: var(--secondary-3000-hover-dark);
 }
 
-.Toolbar3000Menu {
+.ToolbarMenu {
     position: fixed;
     max-width: calc(100% - 2rem);
     height: 0;
     z-index: 2;
 
-    .Toolbar3000Menu__content {
+    .ToolbarMenu__content {
         position: absolute;
         background-color: var(--bg-3000);
         color: var(--text-3000);
@@ -72,20 +72,20 @@
     }
 
     &--visible {
-        .Toolbar3000Menu__content {
+        .ToolbarMenu__content {
             border: 1px solid var(--border-bold-3000);
         }
     }
 
-    &.Toolbar3000Menu--below {
-        .Toolbar3000Menu__content {
+    &.ToolbarMenu--below {
+        .ToolbarMenu__content {
             top: 0;
             bottom: auto;
         }
     }
 }
 
-.Toolbar3000 {
+.Toolbar {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -112,8 +112,8 @@
         border-left: 1px solid var(--border-bold-3000);
     }
 
-    --toolbar-button-x: 50vh;
-    --toolbar-button-y: 50vw;
+    --toolbar-button-x: 0;
+    --toolbar-button-y: 0;
     --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
 
     transform: var(--toolbar-translate);
@@ -127,7 +127,7 @@
     &--minimized {
         width: calc(2.5rem + 1px); // Account for border
 
-        &.Toolbar3000--hedgehog-mode {
+        &.Toolbar--hedgehog-mode {
             transform: var(--toolbar-translate) scale(0);
         }
     }
@@ -179,7 +179,7 @@
     }
 }
 
-.Toolbar3000__top_input {
+.Toolbar__top_input {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }

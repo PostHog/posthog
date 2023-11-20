@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
 import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'

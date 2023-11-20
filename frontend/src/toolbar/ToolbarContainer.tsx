@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 import { toolbarLogic } from './toolbarLogic'
 import { Elements } from './elements/Elements'
 import { Fade } from 'lib/components/Fade/Fade'
-import { toolbarButtonLogic } from './button/toolbarButtonLogic'
-import { HedgehogButton } from './button/HedgehogButton'
-import { Toolbar3000 } from './button/Toolbar3000'
+import { toolbarButtonLogic } from './bar/toolbarButtonLogic'
+import { HedgehogButton } from './bar/HedgehogButton'
+import { Toolbar } from './bar/Toolbar'
 
 export function ToolbarContainer(): JSX.Element {
     const { buttonVisible } = useValues(toolbarLogic)
@@ -20,7 +20,7 @@ export function ToolbarContainer(): JSX.Element {
         <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture posthog-3000">
             <Elements />
             <div id="button-toolbar" className="ph-no-capture posthog-3000" {...themeProps}>
-                <Toolbar3000 />
+                <Toolbar />
             </div>
             <HedgehogButton />
         </Fade>

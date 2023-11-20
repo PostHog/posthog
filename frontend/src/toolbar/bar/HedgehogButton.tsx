@@ -1,4 +1,4 @@
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { toolbarButtonLogic } from '~/toolbar/bar/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { useEffect, useRef } from 'react'

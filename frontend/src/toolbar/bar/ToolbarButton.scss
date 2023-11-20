@@ -1,4 +1,4 @@
-.Toolbar3000Button {
+.ToolbarButton {
     height: 2.5rem;
     width: 2.5rem;
     display: flex;
@@ -36,7 +36,7 @@
             background: var(--border);
             color: var(--default);
         }
-        .Toolbar3000--dragging & {
+        .Toolbar--dragging & {
             button {
                 background: none;
                 color: var(--muted-alt);

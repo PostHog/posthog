@@ -1,4 +1,4 @@
-import { ToolbarMenu } from '~/toolbar/button/ToolbarMenu'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -18,7 +18,7 @@ const MenuHeader = (): JSX.Element => {
 
     return (
         <div>
-            <LemonInput value={wildcardHref} onChange={setWildcardHref} className={'Toolbar3000__top_input'} />
+            <LemonInput value={wildcardHref} onChange={setWildcardHref} className="Toolbar__top_input" />
             <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
         </div>
     )

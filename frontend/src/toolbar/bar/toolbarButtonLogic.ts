@@ -27,7 +27,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     })),
     actions(() => ({
         toggleTheme: true,
-        toggleMinimized: true,
+        toggleMinimized: (minimized?: boolean) => ({ minimized }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
@@ -68,7 +68,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             false,
             { persist: true },
             {
-                toggleMinimized: (state) => !state,
+                toggleMinimized: (state, { minimized }) => minimized ?? !state,
             },
         ],
         theme: [
