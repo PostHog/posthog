@@ -118,7 +118,7 @@ export function Toolbar(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarLogic)
-    const { isAuthenticated } = useValues(toolbarConfigLogic)
+    const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -131,6 +131,12 @@ export function Toolbar(): JSX.Element {
         },
         []
     )
+
+    useEffect(() => {
+        if (userIntent === 'add-action' || userIntent === 'edit-action') {
+            setVisibleMenu('actions')
+        }
+    }, [userIntent])
 
     return (
         <>

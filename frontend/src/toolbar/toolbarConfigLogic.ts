@@ -1,5 +1,4 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
-import type { toolbarLogicType } from './toolbarLogicType'
 import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
@@ -15,7 +14,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         authenticate: true,
         logout: true,
         tokenExpired: true,
-        processUserIntent: true,
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
@@ -43,7 +41,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ values }) => ({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
@@ -62,24 +60,15 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
             clearSessionToolbarToken()
         },
-        processUserIntent: () => {
-            if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
-                // toolbarButtonLogic.actions.setVisibleMenu('actions')
-                // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
-            }
-        },
     })),
 
-    afterMount(({ props, actions, values }) => {
+    afterMount(({ props, values }) => {
         if (props.instrument) {
             const distinctId = props.distinctId
             if (distinctId) {
                 posthog.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
             }
             posthog.optIn()
-        }
-        if (props.userIntent) {
-            actions.processUserIntent()
         }
         posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
