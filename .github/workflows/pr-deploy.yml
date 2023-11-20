@@ -58,17 +58,17 @@ jobs:
                   aws eks update-kubeconfig --name "posthog-dev"
                   kubectl config set-cluster arn:aws:eks:us-east-1:169684386827:cluster/posthog-dev --server=https://eks-posthog-dev --tls-server-name 8BD6E1D2FEBDE47C8177E29CAC9E6C61.gr7.us-east-1.eks.amazonaws.com
 
-                  export COMMIT_SHA=${{ github.sha }}
+                  #export COMMIT_SHA=${{ github.sha }}
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
                   export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
-                  export RELEASE_NAME=posthog
+                  #export RELEASE_NAME=posthog
                   export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH//\//-}
                   export HOSTNAME=${HOSTNAME:0:38}
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
                   export TAILNET_NAME=hedgehog-kitefin
-                  export TS_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }}
+                  #export TS_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }}
 
                   export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
                   export POSTHOG_WEB_SERVICE_PORT=8000
@@ -82,7 +82,6 @@ jobs:
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
                   echo "url=$NAMESPACE.${HOSTNAME}.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
-
 
             - name: update deployment status
               uses: bobheadxi/deployments@v1
