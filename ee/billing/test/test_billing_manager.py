@@ -55,4 +55,4 @@ class TestBillingManager(BaseTest):
         assert len(organization.members.values_list("distinct_id", flat=True)) == 2  # one exists in the test base
         BillingManager(license).update_billing_customer_email(organization)
         assert billing_patch_request_mock.call_count == 1
-        assert billing_patch_request_mock.call_args[1]["json"]["org_owner_email"] == "y@x.com"
+        assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y@x.com"

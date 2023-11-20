@@ -119,7 +119,7 @@ class BillingManager:
         try:
             owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
             user = owner_membership.user
-            self.update_billing(organization, {"org_owner_email": user.email})
+            self.update_billing(organization, {"org_customer_email": user.email})
         except Exception as e:
             capture_exception(e)
 
