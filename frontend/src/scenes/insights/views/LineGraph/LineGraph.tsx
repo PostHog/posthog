@@ -182,7 +182,7 @@ export const filterNestedDataset = (
     })
 }
 
-function createPinstripePattern(color: string): CanvasPattern {
+function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8 // 0.5rem
     const stripeAngle = -22.5
 
@@ -197,8 +197,8 @@ function createPinstripePattern(color: string): CanvasPattern {
     ctx.fillStyle = color
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // overlay half-transparent white stripe
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    // overlay half-transparent black / white stripes
+    ctx.fillStyle = isDarkMode ? 'rgba(35, 36, 41, 0.5)' : 'rgba(255, 255, 255, 0.5)'
     ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
 
     // create a canvas pattern and rotate it
@@ -311,7 +311,7 @@ export function LineGraph_({
             : getSeriesColor(dataset.id, compare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor

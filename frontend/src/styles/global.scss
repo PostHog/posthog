@@ -614,6 +614,12 @@ body {
         --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
         --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
         --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
+        --data-color-2: #7f26d9;
+        --data-color-3: #3e7a76;
+        --data-color-4: #bf0d6c;
+        --data-color-5: #f0474f;
+        --data-color-6: #b36114;
+        --data-color-10: #6576b3;
     }
 
     &.posthog-3000 {
@@ -627,20 +633,8 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         --primary-alt-highlight: var(--primary-alt-highlight-3000);
-        --data-color-1: #2ca2d2;
-        --data-color-2: #ff6f61;
-        --data-color-3: #2ecc71;
-        --data-color-4: #ffc107;
-        --data-color-5: #e97451;
-        --data-color-6: #967bb6;
-        --data-color-7: #008080;
-        --data-color-8: #ffb6c1;
-        --data-color-9: #32cd32;
-        --data-color-10: #96c;
-        --data-color-11: #4f97a3;
-        --data-color-12: #4f97a3;
-        --data-color-13: #ffa500;
-        --data-color-14: #4f9;
+        --data-color-1: #1d4aff;
+        --data-color-10: #35416b;
 
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)

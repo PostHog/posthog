@@ -35,7 +35,7 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                     ? {
                           borderColor: color,
                           color: color,
-                          backgroundColor: hexToRGBA(color, 0.15),
+                          backgroundColor: hexToRGBA(color, 0),
                       }
                     : {
                           color: 'var(--default)',
