@@ -62,21 +62,23 @@ class TestSearch(APIBaseTest):
         self.assertEqual(
             response.json()["results"][0],
             {
-                "name": "second dashboard",
                 "rank": response.json()["results"][0]["rank"],
                 "type": "dashboard",
                 "result_id": str(self.dashboard_1.id),
-                "extra_fields": {},
+                "extra_fields": {"description": "", "name": "second dashboard"},
             },
         )
         self.assertEqual(
             response.json()["results"][1],
             {
-                "name": "second insight",
                 "rank": response.json()["results"][1]["rank"],
                 "type": "insight",
                 "result_id": self.insight_1.short_id,
-                "extra_fields": {"derived_name": None},
+                "extra_fields": {
+                    "derived_name": None,
+                    "name": "second insight",
+                    "description": None,
+                },
             },
         )
 
@@ -84,7 +86,10 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?entities=insight")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["results"][0]["extra_fields"], {"derived_name": "derived name"})
+        self.assertEqual(
+            response.json()["results"][0]["extra_fields"],
+            {"derived_name": "derived name", "description": None, "name": None},
+        )
 
     def test_search_with_fully_invalid_query(self):
         response = self.client.get("/api/projects/@current/search?q=%3E")
