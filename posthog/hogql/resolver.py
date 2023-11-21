@@ -118,7 +118,6 @@ class Resolver(CloningVisitor):
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
-        hidden_aliases = {}
         for expr in node.select or []:
             new_expr = self.visit(expr)
 
@@ -138,22 +137,17 @@ class Resolver(CloningVisitor):
                 alias = None
 
             if alias:
+                # Remember the first visible or last hidden expr for each alias
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
-                    hidden_aliases[alias] = new_expr
+                    if alias not in node_type.columns or not node_type.columns_with_explicit_alias.get(alias, False):
+                        node_type.columns[alias] = new_expr.type
+                        node_type.columns_with_explicit_alias[alias] = False
                 else:
                     node_type.columns[alias] = new_expr.type
+                    node_type.columns_with_explicit_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
-
-        # this dict will contain the last used hidden alias with this name
-        for key, hidden_alias in hidden_aliases.items():
-            # if no column took this alias, unhide it
-            if key not in node_type.columns:
-                node_type.columns[key] = hidden_alias.type
-                hidden_alias.hidden = False
-                if isinstance(hidden_alias.type, ast.FieldAliasType):
-                    hidden_alias.type.hidden = False
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -483,11 +477,12 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
+            property_alias = "__".join(node.type.chain)
             return ast.Alias(
-                alias=node.type.chain[-1],
+                alias=property_alias,
                 expr=node,
                 hidden=True,
-                type=ast.FieldAliasType(alias=node.type.chain[-1], type=node.type),
+                type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
         return node
@@ -495,40 +490,48 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        array = node.array
+        while isinstance(array, ast.Alias):
+            array = array.expr
+
         if (
-            isinstance(node.array, ast.Field)
+            isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(node.array.type, ast.PropertyType))
+                (isinstance(array.type, ast.PropertyType))
                 or (
-                    isinstance(node.array.type, ast.FieldType)
+                    isinstance(array.type, ast.FieldType)
                     and isinstance(
-                        node.array.type.resolve_database_field(),
+                        array.type.resolve_database_field(),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
-            node.array.chain.append(node.property.value)
-            node.array.type = node.array.type.get_child(node.property.value)
-            return node.array
+            array.chain.append(node.property.value)
+            array.type = array.type.get_child(node.property.value)
+            return array
 
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
-        if isinstance(node.tuple, ast.Field) and (
-            (isinstance(node.tuple.type, ast.PropertyType))
+        tuple = node.tuple
+        while isinstance(tuple, ast.Alias):
+            tuple = tuple.expr
+
+        if isinstance(tuple, ast.Field) and (
+            (isinstance(tuple.type, ast.PropertyType))
             or (
-                isinstance(node.tuple.type, ast.FieldType)
-                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                isinstance(tuple.type, ast.FieldType)
+                and isinstance(tuple.type.resolve_database_field(), StringJSONDatabaseField)
             )
         ):
-            node.tuple.chain.append(node.index)
-            node.tuple.type = node.tuple.type.get_child(node.index)
-            return node.tuple
+            tuple.chain.append(node.index)
+            tuple.type = tuple.type.get_child(node.index)
+            return tuple
 
         return node
 

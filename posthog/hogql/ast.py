@@ -123,6 +123,8 @@ class SelectQueryType(Type):
     aliases: Dict[str, FieldAliasType] = field(default_factory=dict)
     # all types a select query exports
     columns: Dict[str, Type] = field(default_factory=dict)
+    # these column have an explicit alias and can't be overridden
+    columns_with_explicit_alias: Dict[str, bool] = field(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: Dict[str, CTE] = field(default_factory=dict)
@@ -346,9 +348,11 @@ class LambdaArgumentType(Type):
 class Alias(Expr):
     alias: str
     expr: Expr
-    # Hidden aliases are created when HogQL invisibly renames fields, e.g "events.timestamp" gets turned into a
-    # "toDateTime(...) as timestamp". Unlike normal aliases, hidden aliases can be overriden. Visible aliases will throw
-    # if overridden, hidden ones will noop. Hidden aliases are shown if used as select columns in a subquery.
+    """
+    Aliases are "hidden" if they're automatically created by HogQL when abstracting fields.
+    E.g. "events.timestamp" gets turned into a "toTimeZone(events.timestamp, 'UTC') AS timestamp".
+    Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
+    """
     hidden: bool = False
 
 
