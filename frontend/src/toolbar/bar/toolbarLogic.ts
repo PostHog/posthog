@@ -65,7 +65,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
                 setHedgehogMode: (state, { hedgehogMode }) =>
-                    state === 'hedgehog' && hedgehogMode === false ? 'none' : state,
+                    hedgehogMode ? 'hedgehog' : state === 'hedgehog' ? 'none' : state,
             },
         ],
         minimized: [

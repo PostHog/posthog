@@ -2,7 +2,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { accessoryGroups, standardAccessories } from './sprites/sprites'
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 
-export function HedgehogAccessories(): JSX.Element {
+export function HedgehogAccessories({ isDarkModeOn }: { isDarkModeOn: boolean }): JSX.Element {
     return (
         <>
             <h3>Hi, I'm Max!</h3>
@@ -24,6 +24,7 @@ export function HedgehogAccessories(): JSX.Element {
                                     key={acc}
                                     accessoryKey={acc}
                                     accessory={standardAccessories[acc]}
+                                    isDarkModeOn={isDarkModeOn}
                                 />
                             ))}
                     </div>

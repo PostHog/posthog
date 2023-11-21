@@ -3,7 +3,7 @@ import { MutableRefObject, useEffect, useRef, useState } from 'react'
 import { range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
@@ -17,7 +17,6 @@ import {
     baseSpriteAccessoriesPath,
 } from './sprites/sprites'
 import './HedgehogBuddy.scss'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HedgehogAccessories } from './HedgehogAccessories'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
@@ -476,7 +475,7 @@ export function HedgehogBuddy({
             overlay={
                 popoverOverlay || (
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <HedgehogAccessories />
+                        <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
 
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
@@ -493,17 +492,5 @@ export function HedgehogBuddy({
         >
             {actor.render({ onClick })}
         </Popover>
-    )
-}
-
-export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    return hedgehogModeEnabled ? (
-        <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} isDarkModeOn={isDarkModeOn} />
-    ) : (
-        <></>
     )
 }

@@ -4,17 +4,20 @@ import { useActions, useValues } from 'kea'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
 import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
     accessoryKey: string
+    isDarkModeOn: boolean
 }
 
-export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBuddyAccessoryProps): JSX.Element {
+export function HedgehogBuddyAccessory({
+    accessoryKey,
+    accessory,
+    isDarkModeOn,
+}: HedgehogBuddyAccessoryProps): JSX.Element {
     const { accessories, availableAccessories } = useValues(hedgehogbuddyLogic)
     const { addAccessory, removeAccessory } = useActions(hedgehogbuddyLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
 
     const isUnlocked = availableAccessories.includes(accessoryKey)
 
