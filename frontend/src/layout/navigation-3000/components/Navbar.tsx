@@ -15,18 +15,30 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 
+export function ThemeIcon(): JSX.Element {
+    const { isDarkModeOn, isThemeSyncedWithSystem } = useValues(themeLogic)
+
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
+
+    return isThemeSyncedWithSystem ? (
+        <div className="relative">
+            {activeThemeIcon}
+            <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
+        </div>
+    ) : (
+        activeThemeIcon
+    )
+}
+
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed } = useActions(navigation3000Logic)
-    const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
-        useValues(themeLogic)
+    const { darkModeSavedPreference, darkModeSystemPreference } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -66,16 +78,7 @@ export function Navbar(): JSX.Element {
                 <div className="Navbar3000__bottom">
                     <ul>
                         <NavbarButton
-                            icon={
-                                isThemeSyncedWithSystem ? (
-                                    <div className="relative">
-                                        {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
-                                    </div>
-                                ) : (
-                                    activeThemeIcon
-                                )
-                            }
+                            icon={<ThemeIcon />}
                             identifier="theme-button"
                             title={
                                 darkModeSavedPreference === false
