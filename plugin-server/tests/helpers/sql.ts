@@ -296,7 +296,7 @@ export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'
 
 export const createPluginConfig = async (
     pg: PostgresRouter,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
 ) => {
     return await insertRow(pg, 'posthog_pluginconfig', {
         ...pluginConfig,

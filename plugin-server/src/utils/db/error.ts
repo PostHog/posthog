@@ -64,13 +64,6 @@ export async function processError(
     await setError(server, errorJson, pluginConfig)
 }
 
-export async function clearError(server: Hub, pluginConfig: PluginConfig): Promise<void> {
-    // running this may causes weird deadlocks with piscina and vms, so avoiding if possible
-    if (pluginConfig.has_error) {
-        await setError(server, null, pluginConfig)
-    }
-}
-
 export function cleanErrorStackTrace(stack: string | undefined): string | undefined {
     if (!stack) {
         return stack

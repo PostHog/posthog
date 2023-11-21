@@ -133,7 +133,7 @@ test.concurrent(
         expect(appMetric.successes).toEqual(0)
         expect(appMetric.failures).toEqual(1)
         expect(appMetric.error_type).toEqual('Error')
-        expect(JSON.parse(appMetric.error_details as string)).toMatchObject({
+        expect(JSON.parse(appMetric.error_details!)).toMatchObject({
             error: { message: 'error thrown in plugin' },
             event: { properties: event.properties },
         })

@@ -22,8 +22,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
         posthog_pluginconfig.order,
         posthog_pluginconfig.config,
         posthog_pluginconfig.updated_at,
-        posthog_pluginconfig.created_at,
-        posthog_pluginconfig.error IS NOT NULL AS has_error
+        posthog_pluginconfig.created_at
     `
 
     return `SELECT ${fields}
@@ -117,6 +116,7 @@ export async function setPluginCapabilities(
 }
 
 export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
+    // TODO: pluginError can likely be required now, but need to check call sites more thoroughly to ensure that's the case.
     if (pluginError) {
         await hub.db.queuePluginLogEntry({
             pluginConfig,
