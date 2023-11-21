@@ -6,7 +6,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
-import { isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
@@ -317,7 +317,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                    : fusableResults.slice(0, RESULTS_MAX)
                 return guaranteedResults.concat(fusedResults)
             },
         ],
