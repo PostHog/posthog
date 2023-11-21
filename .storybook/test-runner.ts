@@ -2,12 +2,11 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
-import { StoryContext } from '@storybook/types'
+import { StoryContext } from '@storybook/csf'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
-
-type SupportedTheme = 'legacy' | 'light' | 'dark'
+type SnapshotTheme = 'legacy' | 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
@@ -50,6 +49,10 @@ declare module '@storybook/types' {
         }
         [name: string]: any
     }
+
+    interface Globals {
+        theme: SnapshotTheme
+    }
 }
 
 const RETRY_TIMES = 3
@@ -77,7 +80,7 @@ module.exports = {
     },
     async postRender(page, context) {
         const browserContext = page.context()
-        const storyContext = (await getStoryContext(page, context)) as StoryContext
+        const storyContext = await getStoryContext(page, context)
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
@@ -107,7 +110,7 @@ async function expectStoryToMatchSnapshot(
         page: Page,
         context: TestContext,
         browser: SupportedBrowserName,
-        theme: SupportedTheme,
+        theme: SnapshotTheme,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -162,7 +165,7 @@ async function expectStoryToMatchFullPageSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SupportedTheme
+    theme: SnapshotTheme
 ): Promise<void> {
     await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
 }
@@ -171,7 +174,7 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SupportedTheme
+    theme: SnapshotTheme
 ): Promise<void> {
     await page.evaluate(() => {
         // The screenshot gets clipped by the overflow hidden of the sidebar
@@ -185,7 +188,7 @@ async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SupportedTheme,
+    theme: SnapshotTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -212,12 +215,8 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
-        // Make the body transparent to take the screenshot without background
-        if (theme === 'legacy') {
-            document.body.style.background = 'transparent'
-        } else {
-            document.body.style.background = 'inherit'
-        }
+        // For legacy style, make the body transparent to take the screenshot without background
+        document.body.style.background = theme === 'legacy' ? 'transparent' : 'inherit'
     })
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
@@ -229,7 +228,7 @@ async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SupportedTheme,
+    theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
