@@ -47,12 +47,12 @@ const ActionsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
-                        New action
-                    </LemonButton>
                     <Link to={`${apiURL}${urls.actions()}`} target="_blank">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>
+                    <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
+                        New action
+                    </LemonButton>
                 </div>
             </ToolbarMenu.Footer>
         </ToolbarMenu>
