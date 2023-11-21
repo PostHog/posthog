@@ -1,24 +1,34 @@
 .LemonButton {
-    position: relative;
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-        transform 100ms ease;
-    display: flex;
-    flex-direction: row;
-    flex-shrink: 0;
     align-items: center;
-    justify-content: flex-start;
-    padding: 0.25rem 0.75rem;
-    gap: 0.5rem;
+    appearance: none !important; // Important as this gets overridden by Ant styles...
     background: none;
     border-radius: var(--radius);
     border: none;
-    font-size: 0.875rem;
-    text-align: left;
-    line-height: 1.5rem;
-    font-weight: 500;
     cursor: pointer;
+    display: flex;
+    flex-direction: row;
+    flex-shrink: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    gap: 0.5rem;
+    justify-content: flex-start;
+    line-height: 1.5rem;
+    padding: 0.25rem 0.75rem;
+    position: relative;
+    text-align: left;
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 100ms ease;
     user-select: none;
-    appearance: none !important; // Important as this gets overridden by Ant styles...
+
+    &:not(.Link) {
+        .posthog-3000 & {
+            font-family: var(--font-title);
+        }
+    }
+
+    .font-normal {
+        font-family: var(--font-sans);
+    }
 
     > span {
         display: flex;
