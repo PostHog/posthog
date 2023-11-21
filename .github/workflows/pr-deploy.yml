@@ -44,6 +44,20 @@ jobs:
                   authkey: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
                   args: --advertise-tags tag:github-runner
 
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@v1
+              with:
+                buildx-fallback: false # the fallback is so slow it's better to just fail
+                push: true
+                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
+                platforms: linux/arm64,linux/amd64
+                build-args: COMMIT_HASH=${{ github.sha }}
+
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
               id: deployment
