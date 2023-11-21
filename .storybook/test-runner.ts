@@ -84,6 +84,9 @@ module.exports = {
             }
         }
     },
+    tags: {
+        skip: ['skip'],
+    },
 } as TestRunnerConfig
 
 async function expectStoryToMatchSnapshot(

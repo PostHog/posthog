@@ -197,7 +197,7 @@
         "@storybook/csf": "^0.1.1",
         "@storybook/react": "^7.5.1",
         "@storybook/react-webpack5": "^7.5.1",
-        "@storybook/test-runner": "^0.13.0",
+        "@storybook/test-runner": "^0.15.2",
         "@storybook/theming": "^7.5.1",
         "@storybook/types": "^7.5.1",
         "@sucrase/jest-plugin": "^3.0.0",
