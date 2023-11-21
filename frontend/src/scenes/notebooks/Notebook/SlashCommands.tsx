@@ -1,14 +1,14 @@
 import { Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
-
 import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { IconBold, IconCohort, IconItalic } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import {
     IconCursor,
     IconFunnels,
     IconHogQL,
     IconLifecycle,
+    IconPeople,
     IconRetention,
     IconRewindPlay,
     IconStickiness,
@@ -97,7 +97,7 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
 const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Trend',
-        search: 'trend insight',
+        search: 'graph trend insight',
         icon: <IconTrends color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
@@ -176,7 +176,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     },
     {
         title: 'Paths',
-        search: 'paths insight',
+        search: 'user paths insight',
         icon: <IconUserPaths color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
@@ -282,9 +282,9 @@ order by count() desc
             ),
     },
     {
-        title: 'Persons',
-        search: 'people users',
-        icon: <IconCohort />,
+        title: 'People',
+        search: 'persons users',
+        icon: <IconPeople />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -299,14 +299,14 @@ order by count() desc
             ),
     },
     {
-        title: 'Session Replays',
-        search: 'recordings video',
+        title: 'Session recordings',
+        search: 'video replay',
         icon: <IconRewindPlay />,
         command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
-        search: 'picture',
+        search: 'picture gif',
         icon: <IconUpload />,
         command: async (chain, pos) => {
             // Trigger upload followed by insert
