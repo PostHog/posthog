@@ -254,7 +254,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.updateAttributes(attributes)
         },
         toggleEditing: ({ visible }) => {
-            const shouldShowThis = typeof visible === 'boolean' ? visible : !values.notebookLogic.values.editingNodeId
+            const shouldShowThis =
+                typeof visible === 'boolean' ? visible : values.notebookLogic.values.editingNodeId !== values.nodeId
+
             props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
         },
         initializeNode: () => {
