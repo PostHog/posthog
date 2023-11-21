@@ -258,6 +258,7 @@ export function OverViewTab({
                     <div>
                         <div className="flex justify-between mb-4">
                             <LemonInput
+                                className="w-60"
                                 type="search"
                                 placeholder={searchPlaceholder || ''}
                                 onChange={setSearchTerm}
