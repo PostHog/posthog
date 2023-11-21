@@ -485,7 +485,7 @@ export function OpenTextViz({
 
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
+                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
                                         {JSON.stringify(event.properties[surveyResponseField])}
                                     </div>
                                     <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">

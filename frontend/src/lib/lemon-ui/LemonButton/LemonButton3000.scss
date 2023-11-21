@@ -35,9 +35,7 @@
             padding: 0.25rem 0.75rem;
             width: 100%;
 
-            .LemonButton__icon:first-child {
-                transition: var(--transition);
-                color: var(--default);
+            .LemonButton__icon {
                 opacity: 0.5;
             }
         }

@@ -7,10 +7,13 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { login2FALogic } from './login2FALogic'
+import { useButtonStyle } from './useButtonStyles'
 
 export function Login2FA(): JSX.Element {
     const { isTwofactortokenSubmitting, generalError } = useValues(login2FALogic)
     const { preflight } = useValues(preflightLogic)
+    const buttonStyles = useButtonStyle()
+
     return (
         <BridgePage
             view="login"
@@ -45,6 +48,7 @@ export function Login2FA(): JSX.Element {
                         type="primary"
                         center
                         loading={isTwofactortokenSubmitting}
+                        {...buttonStyles}
                     >
                         Login
                     </LemonButton>

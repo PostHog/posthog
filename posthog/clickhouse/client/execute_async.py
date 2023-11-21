@@ -81,7 +81,6 @@ def enqueue_process_query_task(
     query_json,
     query_id=None,
     refresh_requested=False,
-    in_export_context=False,
     bypass_celery=False,
     force=False,
 ):
@@ -115,12 +114,10 @@ def enqueue_process_query_task(
 
     if bypass_celery:
         # Call directly ( for testing )
-        process_query_task(
-            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
-        )
+        process_query_task(team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested)
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+            team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)

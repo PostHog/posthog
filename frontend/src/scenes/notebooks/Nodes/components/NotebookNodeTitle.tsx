@@ -1,5 +1,6 @@
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { KeyboardEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -22,6 +23,10 @@ export function NotebookNodeTitle(): JSX.Element {
             title: newValue ?? undefined,
         })
 
+        if (title != newValue) {
+            posthog.capture('notebook node title updated')
+        }
+
         setEditing(false)
     }
 
@@ -43,7 +48,10 @@ export function NotebookNodeTitle(): JSX.Element {
             <span
                 title={title}
                 className="NotebookNodeTitle NotebookNodeTitle--editable"
-                onDoubleClick={() => setEditing(true)}
+                onDoubleClick={() => {
+                    setEditing(true)
+                    posthog.capture('notebook editing node title')
+                }}
             >
                 {title}
             </span>

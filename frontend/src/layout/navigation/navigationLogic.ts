@@ -7,7 +7,6 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,7 +22,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
@@ -122,10 +121,9 @@ export const navigationLogic = kea<navigationLogicType>([
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
         minimalTopBar: [
-            (s) => [s.activeScene],
-            (activeScene) => {
-                const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
-                return activeScene && minimalTopBarScenes.includes(activeScene)
+            (s) => [s.sceneConfig],
+            (sceneConfig) => {
+                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
             },
         ],
         isSideBarShown: [
