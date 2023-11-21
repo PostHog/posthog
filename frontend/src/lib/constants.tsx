@@ -175,6 +175,7 @@ export const FEATURE_FLAGS = {
     SIDE_PANEL_DOCS: 'side-panel-docs', // owner: #noteforce-3000
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

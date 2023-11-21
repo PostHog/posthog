@@ -583,7 +583,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 createStaticCohort: async () => {
                     if (props.id && props.id !== 'new' && props.id !== 'link') {
-                        return await api.featureFlags.createStaticCohort(props.id)
+                        return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
                 },
@@ -796,6 +796,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
+        },
+        createStaticCohortSuccess: ({ newCohort }) => {
+            if (newCohort) {
+                lemonToast.success('Static cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(newCohort.id)),
+                    },
+                })
+            }
         },
     })),
     selectors({

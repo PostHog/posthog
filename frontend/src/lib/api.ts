@@ -449,7 +449,7 @@ class ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
-        return this.featureFlags(teamId).addPathComponent(id).addPathComponent('create_static_cohort_for_flag')
+        return this.featureFlag(id, teamId).addPathComponent('create_static_cohort_for_flag')
     }
 
     public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
@@ -695,7 +695,7 @@ const api = {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
         },
-        async createStaticCohort(id: FeatureFlagType['id']): Promise<CohortType> {
+        async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
     },

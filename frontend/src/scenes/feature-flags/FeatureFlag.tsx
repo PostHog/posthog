@@ -67,6 +67,7 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import FeatureFlagProjects from './FeatureFlagProjects'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -84,8 +85,15 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
-        useValues(featureFlagLogic)
+    const {
+        props,
+        featureFlag,
+        featureFlagLoading,
+        featureFlagMissing,
+        isEditingFlag,
+        recordingFilterForFlag,
+        newCohortLoading,
+    } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
         useActions(featureFlagLogic)
@@ -526,6 +534,58 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                <More
+                                                    loading={newCohortLoading}
+                                                    overlay={
+                                                        <>
+                                                            <LemonButton
+                                                                to={urls.replay(
+                                                                    ReplayTabs.Recent,
+                                                                    recordingFilterForFlag
+                                                                )}
+                                                                fullWidth
+                                                            >
+                                                                View Recordings
+                                                            </LemonButton>
+                                                            {featureFlags[
+                                                                FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION
+                                                            ] && (
+                                                                <LemonButton
+                                                                    loading={newCohortLoading}
+                                                                    onClick={() => {
+                                                                        createStaticCohort()
+                                                                    }}
+                                                                    fullWidth
+                                                                >
+                                                                    Create Cohort
+                                                                </LemonButton>
+                                                            )}
+                                                            <LemonDivider />
+                                                            <LemonButton
+                                                                data-attr="delete-feature-flag"
+                                                                status="danger"
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    deleteFeatureFlag(featureFlag)
+                                                                }}
+                                                                disabledReason={
+                                                                    featureFlagLoading
+                                                                        ? 'Loading...'
+                                                                        : !featureFlag.can_edit
+                                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                                        : (featureFlag.features?.length || 0) > 0
+                                                                        ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                        : (featureFlag.experiment_set?.length || 0) > 0
+                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                        : null
+                                                                }
+                                                            >
+                                                                Delete feature flag
+                                                            </LemonButton>
+                                                        </>
+                                                    }
+                                                />
+                                                <LemonDivider vertical />
                                                 <NotebookSelectButton
                                                     resource={{
                                                         type: NotebookNodeType.FeatureFlag,
@@ -533,42 +593,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     }}
                                                     type="secondary"
                                                 />
-                                                <LemonButton
-                                                    to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
-                                                    type="secondary"
-                                                >
-                                                    View Recordings
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        createStaticCohort()
-                                                    }}
-                                                    type="secondary"
-                                                >
-                                                    Create Cohort
-                                                </LemonButton>
-                                                <LemonDivider vertical />
-                                                <LemonButton
-                                                    data-attr="delete-feature-flag"
-                                                    status="danger"
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        deleteFeatureFlag(featureFlag)
-                                                    }}
-                                                    disabledReason={
-                                                        featureFlagLoading
-                                                            ? 'Loading...'
-                                                            : !featureFlag.can_edit
-                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                            : (featureFlag.features?.length || 0) > 0
-                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                            : (featureFlag.experiment_set?.length || 0) > 0
-                                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                            : null
-                                                    }
-                                                >
-                                                    Delete feature flag
-                                                </LemonButton>
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"
