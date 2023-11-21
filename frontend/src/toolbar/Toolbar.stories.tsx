@@ -12,7 +12,7 @@ import { useActions, useMountedLogic } from 'kea'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
-import { listHetmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
+import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 
 function useToolbarStyles(): void {
     useEffect(() => {
@@ -78,7 +78,7 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
                     endpoint: '/s/',
                 },
             },
-            '/api/element/stats/': listHetmapStatsAPIResponse,
+            '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
         },

@@ -1,4 +1,4 @@
-export const listHetmapStatsAPIResponse = {
+export const listHeatmapStatsAPIResponse = {
     results: [
         {
             count: 780,
