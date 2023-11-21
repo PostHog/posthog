@@ -68,7 +68,7 @@ describe('runAppsOnEventPipeline()', () => {
     afterEach(() => {
         jest.clearAllTimers()
         jest.useRealTimers()
-        jest.clearAllMocks()
+        jest.restoreAllMocks()
     })
 
     afterAll(async () => {
