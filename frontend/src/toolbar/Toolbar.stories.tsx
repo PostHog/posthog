@@ -33,6 +33,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            snapshotBrowsers: ['chromium'],
+        },
     },
 }
 export default meta
