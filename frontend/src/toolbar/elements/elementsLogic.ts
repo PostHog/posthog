@@ -29,7 +29,7 @@ function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
     connect(() => ({
-        values: [actionsTabLogic, ['actionForm']],
+        values: [actionsTabLogic, ['actionForm'], currentPageLogic, ['href']],
         actions: [actionsTabLogic, ['selectAction']],
     })),
     actions({
@@ -137,7 +137,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         allInspectElements: [
-            (s) => [s.inspectEnabled, currentPageLogic.selectors.href],
+            (s) => [s.inspectEnabled, s.href],
             (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
         ],
 
