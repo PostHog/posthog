@@ -1,4 +1,5 @@
 import { useMountedLogic } from 'kea'
+import { useRef } from 'react'
 
 import { searchBarLogic } from './searchBarLogic'
 
@@ -9,11 +10,13 @@ import { SearchTabs } from './SearchTabs'
 export const SearchBar = (): JSX.Element => {
     useMountedLogic(searchBarLogic) // load initial results
 
+    const inputRef = useRef<HTMLInputElement>(null)
+
     return (
         <div className="flex flex-col h-full">
-            <SearchInput />
+            <SearchInput ref={inputRef} />
             <SearchResults />
-            <SearchTabs />
+            <SearchTabs inputRef={inputRef} />
         </div>
     )
 }

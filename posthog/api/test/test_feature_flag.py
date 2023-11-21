@@ -1171,6 +1171,34 @@ class TestFeatureFlag(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_getting_flags_with_no_creator(self) -> None:
+        FeatureFlag.objects.all().delete()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": f"flag",
+                "key": f"flag_0",
+                "filters": {"groups": [{"rollout_percentage": 5}]},
+            },
+            format="json",
+        ).json()
+
+        FeatureFlag.objects.create(
+            created_by=None,
+            team=self.team,
+            key="flag_role_access",
+            name="Flag role access",
+        )
+
+        with self.assertNumQueries(FuzzyInt(11, 12)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 2)
+            sorted_results = sorted(response.json()["results"], key=lambda x: x["key"])
+            self.assertEqual(sorted_results[1]["created_by"], None)
+            self.assertEqual(sorted_results[1]["key"], "flag_role_access")
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
         self.client.post(

@@ -50,6 +50,7 @@ import {
     getFormula,
     getInterval,
     getSeries,
+    getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
     getShowValueOnSeries,
@@ -167,9 +168,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
-
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],

@@ -26,6 +26,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'interval',
                 'breakdown',
                 'showValueOnSeries',
+                'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
                 'trendsFilter',
@@ -36,6 +37,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'vizSpecificOptions',
             ],
         ],
         actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
@@ -55,7 +57,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
@@ -129,7 +131,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
             },
         ],
-    }),
+
+        pieChartVizOptions: [
+            () => [() => values.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],
+        ],
+    })),
 
     listeners(({ actions, values }) => ({
         loadMoreBreakdownValues: async () => {

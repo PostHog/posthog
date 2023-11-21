@@ -22,6 +22,8 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
 
+EXPORT_CONTEXT_MAX_EXECUTION_TIME = 600
+
 
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
@@ -119,6 +121,10 @@ def execute_hogql_query(
                         )
                     )
 
+    settings = settings or HogQLGlobalSettings()
+    if in_export_context:
+        settings.max_execution_time = EXPORT_CONTEXT_MAX_EXECUTION_TIME
+
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
         clickhouse_context = HogQLContext(
@@ -131,7 +137,7 @@ def execute_hogql_query(
             select_query,
             context=clickhouse_context,
             dialect="clickhouse",
-            settings=settings or HogQLGlobalSettings(),
+            settings=settings,
         )
 
     timings_dict = timings.to_dict()
