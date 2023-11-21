@@ -63,6 +63,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        setRef: (ref: HTMLElement | null) => ({ ref }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -71,6 +72,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     })),
 
     reducers(({ props }) => ({
+        ref: [
+            null as HTMLElement | null,
+            {
+                setRef: (_, { ref }) => ref,
+                unregisterNodeLogic: () => null,
+            },
+        ],
         expanded: [
             props.startExpanded ?? true,
             {
