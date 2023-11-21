@@ -34,7 +34,7 @@ const MenuBody = (): JSX.Element => {
     const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarConfigLogic)
     return (
-        <div className="p-2 space-y-2">
+        <div className="space-y-px">
             {filteredFlags.length > 0 ? (
                 filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                     <div

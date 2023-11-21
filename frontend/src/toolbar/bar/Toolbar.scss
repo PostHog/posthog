@@ -83,6 +83,21 @@
             bottom: auto;
         }
     }
+
+    form {
+        .form-error {
+            color: var(--danger);
+        }
+    }
+
+    .FeatureFlagRow {
+        padding: 0.25rem;
+        border-radius: var(--radius);
+
+        &.FeatureFlagRow__overridden {
+            background-color: var(--mark);
+        }
+    }
 }
 
 .Toolbar {
@@ -134,51 +149,5 @@
 
     &--unauthenticated {
         width: calc(5rem + 1px); // Account for border
-    }
-
-    form {
-        .form-error {
-            color: var(--danger);
-        }
-    }
-
-    .FeatureFlagRow {
-        &.FeatureFlagRow__overridden {
-            background-color: var(--mark);
-        }
-    }
-
-    .ActionsBlockBody {
-        background-color: var(--bg-3000);
-        color: var(--text-3000);
-
-        .action-section {
-            background-color: inherit;
-            color: inherit;
-            border-bottom: 1px solid var(--border-bold-3000);
-
-            &.highlight {
-                // TODO remove the highlighting
-                background-color: inherit;
-            }
-        }
-
-        .action-section:last-child {
-            border-bottom: none;
-        }
-    }
-
-    h5 {
-        color: var(--text-3000);
-    }
-
-    .bg-border-bold-3000 {
-        background-color: var(--border-bold-3000);
-        border-color: var(--border-bold-3000);
-    }
-
-    .LemonBadge--primary {
-        // TODO - this is a little hacky, we're always in dark mode
-        background-color: var(--text-3000);
     }
 }
