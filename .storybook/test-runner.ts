@@ -234,11 +234,11 @@ async function expectLocatorToMatchStorySnapshot(
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
     let customSnapshotIdentifier = context.id
+    if (theme !== 'legacy') {
+        customSnapshotIdentifier += `--${theme}`
+    }
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
-    }
-    if (theme !== 'legacy') {
-        customSnapshotIdentifier += `--3000-${theme}`
     }
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
