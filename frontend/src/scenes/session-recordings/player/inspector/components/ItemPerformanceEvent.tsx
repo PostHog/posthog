@@ -396,6 +396,8 @@ export function ItemPerformanceEvent({
                                                   ),
                                               }
                                             : false,
+                                        // raw is only available if the feature flag is enabled
+                                        // TODO before proper release we should put raw behind its own flag
                                         {
                                             key: 'raw',
                                             label: 'Json',
