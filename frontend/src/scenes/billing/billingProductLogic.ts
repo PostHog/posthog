@@ -232,25 +232,28 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 const { currentPlan } = values.currentAndUpgradePlans
 
-                actions.setProductSpecificAlert({
-                    status: 'warning',
-                    title: 'Billing Limit Automatically Applied',
-                    message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
-                    action: {
-                        onClick: () => {
-                            actions.setIsEditingBillingLimit(true)
-                            setTimeout(() => {
-                                if (props.billingLimitInputRef?.current) {
-                                    props.billingLimitInputRef?.current.focus()
-                                    props.billingLimitInputRef?.current.scrollIntoView({
-                                        behavior: 'smooth',
-                                    })
-                                }
-                            }, 0)
+                if (currentPlan.initial_billing_limit) {
+                    actions.setProductSpecificAlert({
+                        status: 'warning',
+                        title: 'Billing Limit Automatically Applied',
+                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
+                        action: {
+                            onClick: () => {
+                                actions.setIsEditingBillingLimit(true)
+                                setTimeout(() => {
+                                    if (props.billingLimitInputRef?.current) {
+                                        props.billingLimitInputRef?.current.focus()
+                                        props.billingLimitInputRef?.current.scrollIntoView({
+                                            behavior: 'smooth',
+                                            block: 'nearest',
+                                        })
+                                    }
+                                }, 0)
+                            },
+                            children: 'Update billing limit',
                         },
-                        children: 'Update billing limit',
-                    },
-                })
+                    })
+                }
             }
         },
     })),
