@@ -530,13 +530,13 @@ const OpenEndedChoice = ({
     label,
     initialChecked,
     inputType,
-    key,
+    index,
 }: {
     label: string
     initialChecked: boolean
     inputType: string
     textColor: string
-    key: number
+    index: number
 }): JSX.Element => {
     const textRef = useRef<HTMLInputElement | null>(null)
     const checkRef = useRef<HTMLInputElement | null>(null)
@@ -551,14 +551,14 @@ const OpenEndedChoice = ({
             }}
         >
             <input
-                id={`${label}-${key}`}
+                id={`${label}-${index}`}
                 ref={checkRef}
                 type={inputType}
                 disabled={!initialChecked || !checkRef.current?.value}
                 defaultChecked={initialChecked}
                 name="choice"
             />
-            <label htmlFor={`${label}-${key}`}>
+            <label htmlFor={`${label}-${index}`}>
                 <span>{label}:</span>
                 <input
                     ref={textRef}
@@ -647,6 +647,7 @@ export function SurveyMultipleChoiceAppearance({
                         idx === multipleChoiceQuestion.choices?.length - 1 ? (
                             <OpenEndedChoice
                                 key={idx}
+                                index={idx}
                                 initialChecked={!!initialChecked?.includes(idx)}
                                 inputType={inputType}
                                 label={choice}
