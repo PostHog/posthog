@@ -336,12 +336,8 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Zero-fill choices that are not open-ended
                 question.choices.forEach((choice, idx) => {
-                    if (
-                        results?.length &&
-                        idx === question.choices.length - 1 &&
-                        question?.has_open_choice &&
-                        !results.some((r) => r[1] === choice)
-                    ) {
+                    const isOpenChoice = idx == question.choices.length - 1 && question?.has_open_choice
+                    if (results?.length && !isOpenChoice && !results.some((r) => r[1] === choice)) {
                         results.push([0, choice])
                     }
                 })
