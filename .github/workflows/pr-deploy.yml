@@ -18,16 +18,13 @@ jobs:
             deployments: write
 
         steps:
-            - name: Checkout chart
-              uses: actions/checkout@v3
-              with:
-                  repository: posthog/charts-clickhouse
-                  path: charts-clickhouse
-
             - name: Checkout
               uses: actions/checkout@v3
               with:
                   path: posthog
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
 
             - uses: aws-actions/configure-aws-credentials@v1
               with:
