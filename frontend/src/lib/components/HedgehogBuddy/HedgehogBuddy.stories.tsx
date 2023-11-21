@@ -4,9 +4,7 @@ import { HedgehogBuddy } from './HedgehogBuddy'
 const meta: Meta<typeof HedgehogBuddy> = {
     title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
-    parameters: {
-        testOptions: { skip: true }, // Hedgehogs aren't particularly snapshotable
-    },
+    tags: ['skip'], // Hedgehogs aren't particularly snapshotable
 }
 export default meta
 

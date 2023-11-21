@@ -14,11 +14,6 @@ declare module '@storybook/types' {
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
-             * Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that).
-             * @default false
-             */
-            skip?: boolean
-            /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              * @default true
              */

@@ -8,7 +8,6 @@ import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
-import { withSnapshotsDisabled } from './decorators/withSnapshotsDisabled'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withTheme } from './decorators/withTheme'
 
@@ -79,7 +78,6 @@ export const parameters: Parameters = {
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
 export const decorators: Meta['decorators'] = [
-    withSnapshotsDisabled,
     // Make sure the msw service worker is started, and reset the handlers to defaults.
     withKea,
     // Allow us to time travel to ensure our stories don't change over time.

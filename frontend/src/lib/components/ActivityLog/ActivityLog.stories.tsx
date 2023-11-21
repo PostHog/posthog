@@ -11,7 +11,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
-    parameters: { testOptions: { skip: true } }, // FIXME: Currently disabled as the Timeout story is flaky
+    tags: ['skip'], // FIXME: Currently disabled as the Timeout story is flaky
     decorators: [
         mswDecorator({
             get: {
