@@ -52,7 +52,8 @@ jobs:
                 tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
                 build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
                 cache-from: type=gha
-                cache-to: type=gha,mode=max                
+                cache-to: type=gha,mode=max    
+                platforms: linux/amd64,linux/arm64            
 
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
