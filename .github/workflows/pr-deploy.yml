@@ -48,6 +48,8 @@ jobs:
                 push: true
                 tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
                 build-args: COMMIT_HASH=${{ github.sha }}
+                cache-from: type=gha
+                cache-to: type=gha,mode=max                
 
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
