@@ -543,10 +543,10 @@ class TestSignupAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_customer_email")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_customer_email")
     @pytest.mark.ee
     def test_social_signup_with_allowed_domain_on_cloud(
         self,
