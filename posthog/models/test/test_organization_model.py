@@ -99,7 +99,6 @@ class TestOrganizationMembership(BaseTest):
             user.distinct_id,
             "membership level changed",
             properties={
-                "organization_id": str(organization.id),
                 "new_level": 15,
                 "previous_level": 1,
             },
