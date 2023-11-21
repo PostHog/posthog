@@ -1,14 +1,4 @@
-import {
-    Hub,
-    Plugin,
-    PluginAttachmentDB,
-    PluginCapabilities,
-    PluginConfig,
-    PluginConfigId,
-    PluginError,
-    PluginLogEntrySource,
-    PluginLogEntryType,
-} from '../../types'
+import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
 import { PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
@@ -113,20 +103,6 @@ export async function setPluginCapabilities(
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
     )
-}
-
-export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
-    // TODO: pluginError can likely be required now, but need to check call sites more thoroughly to ensure that's the case.
-    if (pluginError) {
-        await hub.db.queuePluginLogEntry({
-            pluginConfig,
-            source: PluginLogEntrySource.Plugin,
-            type: PluginLogEntryType.Error,
-            message: pluginError.stack ?? pluginError.message,
-            instanceId: hub.instanceId,
-            timestamp: pluginError.time,
-        })
-    }
 }
 
 export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): Promise<void> {
