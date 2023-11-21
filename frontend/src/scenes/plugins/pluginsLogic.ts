@@ -42,7 +42,7 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
 
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
-    connect(frontendAppsLogic),
+    connect(() => frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
