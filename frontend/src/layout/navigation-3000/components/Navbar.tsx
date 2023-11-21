@@ -96,6 +96,7 @@ export function Navbar(): JSX.Element {
                             title="Project settings"
                             to={urls.settings('project')}
                         />
+
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}
