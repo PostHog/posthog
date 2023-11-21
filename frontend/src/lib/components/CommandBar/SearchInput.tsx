@@ -24,7 +24,6 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
             <LemonInput
                 ref={ref}
                 type="search"
-                size="small"
                 className="CommandBar__input"
                 fullWidth
                 suffix={<KeyboardShortcut escape />}

@@ -27,7 +27,6 @@ export const ActionInput = (): JSX.Element => {
     return (
         <div className="border-b">
             <LemonInput
-                size="small"
                 className="CommandBar__input"
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
