@@ -17,7 +17,7 @@ export const SearchBarTab = ({ type, active, count, inputRef }: SearchBarTabProp
     const { setActiveTab } = useActions(searchBarLogic)
     return (
         <div
-            className={`SearchBarTab flex items-center px-3 py-2 cursor-pointer text-xs whitespace-nowrap border-t-2 ${
+            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-t-2 ${
                 active ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
             }`}
             onClick={() => {
