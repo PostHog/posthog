@@ -25,9 +25,7 @@ import {
     IconComment,
     IconCorporate,
     IconCottage,
-    IconEmojiPeople,
     IconFlag,
-    IconFunnelHorizontal,
     IconGithub,
     IconKeyboard,
     IconLive,
@@ -41,14 +39,19 @@ import {
     IconSettings,
     IconTableChart,
     IconTools,
-    IconTrendingFlat,
-    IconTrendingUp,
 } from 'lib/lemon-ui/icons'
 import {
-    // IconApps,
     IconDashboard,
-    // IconDatabase,
     IconGraph,
+    IconTrends,
+    IconFunnels,
+    IconRetention,
+    IconUserPaths,
+    IconStickiness,
+    IconLifecycle,
+    IconHogQL,
+    // IconApps,
+    // IconDatabase,
     // IconHome,
     // IconLive,
     // IconPeople,
@@ -65,6 +68,7 @@ import {
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightTypeURL } from 'scenes/insights/utils'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -449,35 +453,60 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconTrendingUp,
-                        display: 'Go to Trends',
+                        icon: IconTrends,
+                        display: 'Create a new trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
-                        icon: IconFunnelHorizontal,
-                        display: 'Go to Funnels',
+                        icon: IconFunnels,
+                        display: 'Create a new funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
-                        icon: IconTrendingFlat,
-                        display: 'Go to Retention',
+                        icon: IconRetention,
+                        display: 'Create a new retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
-                        icon: IconEmojiPeople,
-                        display: 'Go to Paths',
+                        icon: IconUserPaths,
+                        display: 'Create a new paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.PATHS }))
+                        },
+                    },
+                    {
+                        icon: IconStickiness,
+                        display: 'Create a new stickiness insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.STICKINESS }))
+                        },
+                    },
+                    {
+                        icon: IconLifecycle,
+                        display: 'Create a new lifecycle insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
+                        },
+                    },
+                    {
+                        icon: IconHogQL,
+                        display: 'Create a new HogQL insight',
+                        synonyms: ['hogql', 'sql'],
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(insightTypeURL[InsightType.SQL])
                         },
                     },
                     {
