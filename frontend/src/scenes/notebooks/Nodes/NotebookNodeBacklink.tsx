@@ -1,20 +1,19 @@
-import { Link } from '@posthog/lemon-ui'
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import clsx from 'clsx'
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
+import { Link } from '@posthog/lemon-ui'
+import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconBarChart, IconCohort, IconExperiment, IconFlag, IconGauge, IconLive, IconPerson } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import clsx from 'clsx'
+import { router } from 'kea-router'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
-import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
-
 import { IconNotebook } from '../IconNotebook'
-import { notebookLogic } from '../Notebook/notebookLogic'
-import { posthogNodePasteRule } from './utils'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,

@@ -1,20 +1,18 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { GroupCaption } from 'scenes/groups/Group'
-import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { urls } from 'scenes/urls'
-
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema'
 import { NotebookNodeType, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { NotebookNodeProps } from '../Notebook/utils'
+import { useActions, useValues } from 'kea'
+import { urls } from 'scenes/urls'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeProps } from '../Notebook/utils'
+import { useEffect } from 'react'
+import clsx from 'clsx'
+import { NotFound } from 'lib/components/NotFound'
+import { groupLogic } from 'scenes/groups/groupLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { GroupCaption } from 'scenes/groups/Group'
+import { NodeKind } from '~/queries/schema'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex } = attributes

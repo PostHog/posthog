@@ -1,6 +1,5 @@
 import { BuiltLogic } from 'kea'
 import { createContext, useContext } from 'react'
-
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)

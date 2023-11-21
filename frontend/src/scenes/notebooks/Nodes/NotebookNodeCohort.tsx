@@ -1,20 +1,18 @@
-import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect, useMemo } from 'react'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { urls } from 'scenes/urls'
-
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { NotebookNodeType, PropertyFilterType } from '~/types'
-
-import { NotebookNodeProps } from '../Notebook/utils'
+import { useActions, useValues } from 'kea'
+import { urls } from 'scenes/urls'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeProps } from '../Notebook/utils'
+import { useEffect, useMemo } from 'react'
+import clsx from 'clsx'
+import { NotFound } from 'lib/components/NotFound'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
+import { Query } from '~/queries/Query/Query'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes

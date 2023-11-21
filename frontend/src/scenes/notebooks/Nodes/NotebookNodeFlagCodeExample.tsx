@@ -1,15 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { useEffect } from 'react'
-import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { urls } from 'scenes/urls'
-
 import { NotebookNodeType } from '~/types'
-
+import { useActions, useValues } from 'kea'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
+import { urls } from 'scenes/urls'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
     const { id } = attributes

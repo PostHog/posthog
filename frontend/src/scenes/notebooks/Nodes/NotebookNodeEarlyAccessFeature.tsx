@@ -1,22 +1,20 @@
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
-import {
-    earlyAccessFeatureLogic,
-    EarlyAccessFeatureLogicProps,
-} from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { urls } from 'scenes/urls'
-
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
-
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
-import { buildFlagContent } from './NotebookNodeFlag'
+import { BindLogic, useActions, useValues } from 'kea'
+import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import {
+    EarlyAccessFeatureLogicProps,
+    earlyAccessFeatureLogic,
+} from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
+import { buildFlagContent } from './NotebookNodeFlag'
+import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes

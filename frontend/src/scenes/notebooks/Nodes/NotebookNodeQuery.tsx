@@ -1,20 +1,19 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { JSONContent } from '@tiptap/core'
-import clsx from 'clsx'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { urls } from 'scenes/urls'
-
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
-import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
-
-import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { urls } from 'scenes/urls'
+
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { JSONContent } from '@tiptap/core'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,

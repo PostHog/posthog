@@ -12,10 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import posthog from 'posthog-js'
-
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
-
+import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
@@ -26,8 +23,9 @@ import {
     NotebookNodeAttributes,
     NotebookNodeSettings,
 } from '../Notebook/utils'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
+import posthog from 'posthog-js'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
-import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
