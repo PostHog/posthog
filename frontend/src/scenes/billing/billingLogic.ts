@@ -1,7 +1,7 @@
 import { kea, path, actions, connect, afterMount, selectors, listeners, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { BillingProductV2Type, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
 import { router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
@@ -13,6 +13,7 @@ import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -24,7 +25,7 @@ export interface BillingAlertConfig {
     contactSupport?: boolean
     buttonCTA?: string
     dismissKey?: string
-    action?: any
+    action?: LemonBannerAction
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -54,6 +55,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
+        setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => ({ productSpecificAlert }),
+        setScrollToProductKey: (scrollToProductKey: ProductKey | null) => ({ scrollToProductKey }),
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
@@ -67,6 +70,18 @@ export const billingLogic = kea<billingLogicType>([
         actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
     }),
     reducers({
+        scrollToProductKey: [
+            null as ProductKey | null,
+            {
+                setScrollToProductKey: (_, { scrollToProductKey }) => scrollToProductKey,
+            },
+        ],
+        productSpecificAlert: [
+            null as BillingAlertConfig | null,
+            {
+                setProductSpecificAlert: (_, { productSpecificAlert }) => productSpecificAlert,
+            },
+        ],
         showLicenseDirectInput: [
             false,
             {
@@ -145,47 +160,12 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         billingAlert: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
-            (billing, preflight, projectedTotalAmountUsd): BillingAlertConfig | undefined => {
-                if (router.values.searchParams['products']) {
-                    let upgradedProducts = router.values.searchParams['products'].split(',')
-                    upgradedProducts = billing?.products.filter((product) => upgradedProducts.includes(product.type))
-                    const alerts: BillingAlertConfig[] = []
-                    upgradedProducts?.forEach((product: BillingProductV2Type) => {
-                        const currentPlan = product.plans.find((plan) => plan.current_plan)
-                        if (currentPlan?.initial_billing_limit) {
-                            alerts.push({
-                                status: 'warning',
-                                title: 'Billing Limit Automatically Applied',
-                                message: `To protect your and our costs, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${product.name}.`,
-                                action: {
-                                    onClick: () => {
-                                        const element: HTMLElement = document.body.querySelector(
-                                            `[data-attr="billing-limit-input-${product.type.replace(
-                                                '_',
-                                                '-'
-                                            )}"] .text-link`
-                                        ) as HTMLElement
-                                        element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-                                        element?.click()
-                                        setTimeout(() => {
-                                            const inputElement: HTMLElement = document.body.querySelector(
-                                                `[data-attr="billing-limit-input-${product.type.replace(
-                                                    '_',
-                                                    '-'
-                                                )}"] input`
-                                            ) as HTMLElement
-                                            inputElement?.focus()
-                                        }, 0)
-                                    },
-                                    children: 'Update billing limit',
-                                },
-                            })
-                        }
-                    })
-                    // There should only be one product being upgraded at a time.
-                    return alerts.length ? alerts[0] : undefined
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd, s.productSpecificAlert],
+            (billing, preflight, projectedTotalAmountUsd, productSpecificAlert): BillingAlertConfig | undefined => {
+                if (productSpecificAlert) {
+                    return productSpecificAlert
                 }
+
                 if (!billing || !preflight?.cloud) {
                     return
                 }
@@ -359,6 +339,10 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            }
+            if (_search.products) {
+                const products = _search.products.split(',')
+                actions.setScrollToProductKey(products[0])
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()
