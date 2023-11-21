@@ -9,10 +9,10 @@ type Story = StoryObj<typeof Query>
 const meta: Meta<typeof Query> = {
     title: 'Queries/DataNode',
     component: Query,
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        testOptions: { skip: true },
     },
     decorators: [
         mswDecorator({

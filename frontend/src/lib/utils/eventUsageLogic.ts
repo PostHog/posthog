@@ -171,9 +171,10 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
-        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+        const entityProperties = Array.isArray(entity.properties) ? entity.properties : []
+        properties_local = properties_local.concat(flattenProperties(entityProperties))
 
-        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        using_groups = using_groups || hasGroupProperties(entityProperties)
         if (entity.math_group_type_index != undefined) {
             aggregating_by_groups = true
         }
