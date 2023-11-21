@@ -88,7 +88,7 @@ pub async fn event(
         .await;
 
     if billing_limited {
-        report_dropped_events("over_quota", 1);
+        report_dropped_events("over_quota", events.len() as u64);
 
         // for v0 we want to just return ok 🙃
         // this is because the clients are pretty dumb and will just retry over and over and
