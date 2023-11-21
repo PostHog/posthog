@@ -7,7 +7,7 @@ type Story = StoryObj<typeof Popover>
 const meta: Meta<typeof Popover> = {
     title: 'Lemon UI/Popover',
     component: Popover,
-    tags: ['autodocs', 'skip'], // FIXME: This story needs a play test for the popup to show up in snapshots
+    tags: ['autodocs', 'test-skip'], // FIXME: This story needs a play test for the popup to show up in snapshots
 }
 export default meta
 

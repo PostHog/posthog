@@ -30,7 +30,7 @@ function useToolbarStyles(): void {
 
 const meta: Meta = {
     title: 'Scenes-Other/Toolbar',
-    tags: ['skip'],
+    tags: ['test-skip-webkit'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

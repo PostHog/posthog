@@ -9,7 +9,7 @@ type Story = StoryObj<typeof Query>
 const meta: Meta<typeof Query> = {
     title: 'Queries/DataTable',
     component: Query,
-    tags: ['skip'],
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

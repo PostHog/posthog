@@ -69,18 +69,16 @@ module.exports = {
     async postRender(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
-        const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
+        const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
-        if (!skip) {
-            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
-            if (snapshotBrowsers.includes(currentBrowser)) {
-                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
-            }
+        const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
+        if (snapshotBrowsers.includes(currentBrowser)) {
+            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
     },
     tags: {
-        skip: ['skip'],
+        skip: ['test-skip'],
     },
 } as TestRunnerConfig
 

@@ -12,7 +12,7 @@ import recording_playlists from './__mocks__/recording_playlists.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Recordings',
-    tags: ['skip'], // TODO: Fix the flakey rendering due to player playback
+    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

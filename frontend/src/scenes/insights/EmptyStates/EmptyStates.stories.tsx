@@ -12,7 +12,7 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Error states',
-    tags: ['skip'],
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

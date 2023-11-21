@@ -24,7 +24,7 @@ const meta: Meta<typeof Animation> = {
             control: { type: 'radio' },
         },
     },
-    tags: ['autodocs', 'skip'], // Animations aren't particularly snapshotable
+    tags: ['autodocs', 'test-skip'], // Animations aren't particularly snapshotable
 }
 export default meta
 

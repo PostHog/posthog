@@ -130,7 +130,7 @@ const meta: Meta<typeof InsightTooltip> = {
         renderSeries: (value) => value,
         groupTypeLabel: 'people',
     },
-    tags: ['skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
+    tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
 }
 export default meta
 

@@ -7,7 +7,7 @@ type Story = StoryObj<typeof PropertyIcon>
 const meta: Meta<typeof PropertyIcon> = {
     title: 'Lemon UI/Icons/Property Icon',
     component: PropertyIcon,
-    tags: ['autodocs', 'skip'], // There are too many icons, the snapshots are huge in table form
+    tags: ['autodocs', 'test-skip'], // There are too many icons, the snapshots are huge in table form
 }
 export default meta
 

@@ -10,7 +10,7 @@ import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Feedback',
-    tags: ['skip'], // FIXME: Use mockdate in this story
+    tags: ['test-skip'], // FIXME: Use mockdate in this story
     parameters: {
         layout: 'fullscreen',
         testOptions: {
