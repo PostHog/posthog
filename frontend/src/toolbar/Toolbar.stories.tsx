@@ -34,6 +34,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
+            // Webkit tests seem flakey so disabled for now
             snapshotBrowsers: ['chromium'],
         },
     },
