@@ -104,6 +104,14 @@ then
 export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
 fi
 
+
+if [ -n "$4" ]
+then
+export REGISTRY_URL=$4
+else
+export REGISTRY_URL="posthog/posthog"
+fi
+
 # rewrite caddyfile
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
@@ -197,7 +205,7 @@ cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
-echo "Starting the stack!"
+echo "Starting the stack!" 
 sudo -E docker-compose -f docker-compose.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"

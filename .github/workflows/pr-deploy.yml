@@ -78,6 +78,8 @@ jobs:
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
                   export TAILNET_NAME=hedgehog-kitefin
+                  export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
+                  export DOCKER_TAG=${{ github.sha }}
                   #export TS_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }}
 
                   export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
