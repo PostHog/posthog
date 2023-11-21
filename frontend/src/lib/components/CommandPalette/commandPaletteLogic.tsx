@@ -17,30 +17,22 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import {
-    IconAction,
-    IconApps,
     IconCalculate,
     IconCheckmark,
     IconCohort,
     IconComment,
-    IconCorporate,
-    IconCottage,
-    IconFlag,
     IconGithub,
     IconKeyboard,
-    IconLive,
     IconLockOpen,
     IconLogout,
     IconOpenInNew,
-    IconPerson,
     IconPersonFilled,
     IconRecording,
-    IconServer,
-    IconSettings,
     IconTableChart,
     IconTools,
 } from 'lib/lemon-ui/icons'
 import {
+    IconHome,
     IconDashboard,
     IconGraph,
     IconTrends,
@@ -50,20 +42,24 @@ import {
     IconStickiness,
     IconLifecycle,
     IconHogQL,
-    // IconApps,
-    // IconDatabase,
-    // IconHome,
-    // IconLive,
-    // IconPeople,
-    // IconPieChart,
-    // IconRewindPlay,
-    // IconTestTube,
-    // IconToggle,
-    // IconToolbar,
-    // IconNotebook,
-    // IconRocket,
-    // IconServer,
-    // IconChat,
+    IconNotebook,
+    IconLive,
+    IconDatabase,
+    IconCursor,
+    IconList,
+    IconThoughtBubble,
+    IconPeople,
+    IconPeopleFilled,
+    IconPieChart,
+    IconServer,
+    IconRewindPlay,
+    IconChat,
+    IconToggle,
+    IconTestTube,
+    IconRocket,
+    IconApps,
+    IconToolbar,
+    IconGear,
 } from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -446,6 +442,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
+                        icon: IconHome,
+                        display: 'Go to Project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
                         icon: IconGraph,
                         display: 'Go to Insights',
                         executor: () => {
@@ -454,7 +457,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconTrends,
-                        display: 'Create a new trend insight',
+                        display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.TRENDS }))
@@ -462,7 +465,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconFunnels,
-                        display: 'Create a new funnel insight',
+                        display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.FUNNELS }))
@@ -470,7 +473,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconRetention,
-                        display: 'Create a new retention insight',
+                        display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.RETENTION }))
@@ -478,7 +481,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconUserPaths,
-                        display: 'Create a new paths insight',
+                        display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.PATHS }))
@@ -486,7 +489,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconStickiness,
-                        display: 'Create a new stickiness insight',
+                        display: 'Create a new Stickiness insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.STICKINESS }))
@@ -494,7 +497,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconLifecycle,
-                        display: 'Create a new lifecycle insight',
+                        display: 'Create a new Lifecycle insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
@@ -510,21 +513,50 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
+                        icon: IconNotebook,
+                        display: 'Go to Notebooks',
+                        executor: () => {
+                            push(urls.notebooks())
+                        },
+                    },
+                    {
                         icon: IconLive,
-                        display: 'Go to Events',
+                        display: 'Go to Events explorer',
                         executor: () => {
                             push(urls.events())
                         },
                     },
                     {
-                        icon: IconAction,
+                        icon: IconDatabase,
+                        display: 'Go to Data management',
+                        synonyms: ['events'],
+                        executor: () => {
+                            push(urls.eventDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconCursor,
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
                         },
                     },
                     {
-                        icon: IconPerson,
+                        icon: IconList,
+                        display: 'Go to Properties',
+                        executor: () => {
+                            push(urls.propertyDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconThoughtBubble,
+                        display: 'Go to Annotations',
+                        executor: () => {
+                            push(urls.annotations())
+                        },
+                    },
+                    {
+                        icon: IconPeople,
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
@@ -538,51 +570,61 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.cohorts())
                         },
                     },
+                    ...(values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
+                        ? [
+                              {
+                                  icon: IconPieChart,
+                                  display: 'Go to Web analytics',
+                                  executor: () => {
+                                      push(urls.webAnalytics())
+                                  },
+                              },
+                          ]
+                        : []),
+                    ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                        ? [
+                              {
+                                  icon: IconServer,
+                                  display: 'Go to Data warehouse',
+                                  executor: () => {
+                                      push(urls.dataWarehouse())
+                                  },
+                              },
+                          ]
+                        : []),
                     {
-                        icon: IconFlag,
-                        display: 'Go to Feature Flags',
-                        synonyms: ['feature flags', 'a/b tests'],
+                        display: 'Go to Session replay',
+                        icon: IconRewindPlay,
+                        executor: () => {
+                            push(urls.replay())
+                        },
+                    },
+                    {
+                        display: 'Go to Surveys',
+                        icon: IconChat,
+                        executor: () => {
+                            push(urls.surveys())
+                        },
+                    },
+                    {
+                        icon: IconToggle,
+                        display: 'Go to Feature flags',
                         executor: () => {
                             push(urls.featureFlags())
                         },
                     },
                     {
-                        icon: IconComment,
-                        display: 'Go to Annotations',
+                        icon: IconTestTube,
+                        display: 'Go to A/B testing',
                         executor: () => {
-                            push(urls.annotations())
+                            push(urls.experiments())
                         },
                     },
                     {
-                        icon: IconCorporate,
-                        display: 'Go to Team members',
-                        synonyms: ['organization', 'members', 'invites', 'teammates'],
+                        icon: IconRocket,
+                        display: 'Go to Early access features',
                         executor: () => {
-                            push(urls.settings('organization'))
-                        },
-                    },
-                    {
-                        icon: IconCottage,
-                        display: 'Go to project homepage',
-                        executor: () => {
-                            push(urls.projectHomepage())
-                        },
-                    },
-                    {
-                        icon: IconSettings,
-                        display: 'Go to Project settings',
-                        executor: () => {
-                            push(urls.settings('project'))
-                        },
-                    },
-                    {
-                        icon: () => (
-                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
-                        ),
-                        display: 'Go to My settings',
-                        synonyms: ['account'],
-                        executor: () => {
-                            push(urls.settings('user'))
+                            push(urls.earlyAccessFeatures())
                         },
                     },
                     {
@@ -594,11 +636,34 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconServer,
-                        display: 'Go to Instance status & settings',
-                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        icon: IconToolbar,
+                        display: 'Go to Toolbar',
                         executor: () => {
-                            push(urls.instanceStatus())
+                            push(urls.toolbarLaunch())
+                        },
+                    },
+                    {
+                        icon: IconGear,
+                        display: 'Go to Project settings',
+                        executor: () => {
+                            push(urls.settings('project'))
+                        },
+                    },
+                    {
+                        icon: IconGear,
+                        display: 'Go to Organization settings',
+                        executor: () => {
+                            push(urls.settings('organization'))
+                        },
+                    },
+                    {
+                        icon: () => (
+                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
+                        ),
+                        display: 'Go to User settings',
+                        synonyms: ['account', 'profile'],
+                        executor: () => {
+                            push(urls.settings('user'))
                         },
                     },
                     {
