@@ -23,7 +23,7 @@ export function ProjectHomePageCompactListItem({
 
                 <div className="truncate space-y-1 flex-1">
                     <div className="text-link font-semibold truncate">{title}</div>
-                    <div className="truncate text-default font-normal">{subtitle}</div>
+                    <div className="truncate text-default font-normal secondary-text">{subtitle}</div>
                 </div>
 
                 {suffix ? <span className="shrink-0">{suffix}</span> : null}

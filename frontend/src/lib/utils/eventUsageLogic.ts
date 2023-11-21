@@ -1101,6 +1101,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
             })
@@ -1109,6 +1110,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey launched', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 question_types: survey.questions.map((question) => question.type),
                 created_at: survey.created_at,
                 start_date: survey.start_date,

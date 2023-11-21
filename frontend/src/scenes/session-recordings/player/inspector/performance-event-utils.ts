@@ -1,10 +1,10 @@
 import { eventWithTime } from '@rrweb/types'
-import posthog from 'posthog-js'
+// import posthog from 'posthog-js'
 import { PerformanceEvent } from '~/types'
 
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
-const RRWEB_NETWORK_PLUGIN_NAME = 'rrweb/network@1'
-const IGNORED_POSTHOG_PATHS = ['/s/', '/e/', '/i/v0/e/']
+// const RRWEB_NETWORK_PLUGIN_NAME = 'rrweb/network@1'
+// const IGNORED_POSTHOG_PATHS = ['/s/', '/e/', '/i/v0/e/']
 
 export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceEvent } = {
     // BASE_PERFORMANCE_EVENT_COLUMNS
@@ -98,72 +98,72 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
         })
     })
 
-    // now we have all the posthog/network@1 events we can try to match any rrweb/network@1 events
-    Object.entries(snapshotsByWindowId).forEach((snapshotsByWindowId) => {
-        const snapshots = snapshotsByWindowId[1]
-        snapshots.forEach((snapshot: eventWithTime) => {
-            if (
-                snapshot.type === 6 && // RRWeb plugin event type
-                snapshot.data.plugin === RRWEB_NETWORK_PLUGIN_NAME
-            ) {
-                const payload = snapshot.data.payload as any
-                if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
-                    return
-                }
-
-                payload.requests.forEach((capturedRequest: any) => {
-                    const matchedURL = eventsMapping[capturedRequest.url]
-
-                    const matchedStartTime = matchedURL ? matchedURL[capturedRequest.startTime] : null
-
-                    if (matchedStartTime && matchedStartTime.length === 1) {
-                        matchedStartTime[0].response_status = capturedRequest.status
-                        matchedStartTime[0].request_headers = capturedRequest.requestHeaders
-                        matchedStartTime[0].request_body = capturedRequest.requestBody
-                        matchedStartTime[0].response_headers = capturedRequest.responseHeaders
-                        matchedStartTime[0].response_body = capturedRequest.responseBody
-                        matchedStartTime[0].method = capturedRequest.method
-                    } else if (matchedStartTime && matchedStartTime.length > 1) {
-                        // find in eventsMapping[capturedRequest.url][capturedRequest.startTime] by matching capturedRequest.endTime and element.response_end
-                        const matchedEndTime = matchedStartTime.find(
-                            (x) =>
-                                typeof x.response_end === 'number' &&
-                                Math.round(x.response_end) === capturedRequest.endTime
-                        )
-                        if (matchedEndTime) {
-                            matchedEndTime.response_status = capturedRequest.status
-                            matchedEndTime.request_headers = capturedRequest.requestHeaders
-                            matchedEndTime.request_body = capturedRequest.requestBody
-                            matchedEndTime.response_headers = capturedRequest.responseHeaders
-                            matchedEndTime.response_body = capturedRequest.responseBody
-                            matchedEndTime.method = capturedRequest.method
-                        } else {
-                            const capturedURL = new URL(capturedRequest.url)
-                            const capturedPath = capturedURL.pathname
-
-                            if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
-                                posthog.capture('Had matches but still could not match rrweb/network@1 event', {
-                                    rrwebNetworkEvent: payload,
-                                    possibleMatches: matchedStartTime,
-                                    totalMatchedURLs: Object.keys(eventsMapping).length,
-                                })
-                            }
-                        }
-                    } else {
-                        const capturedURL = new URL(capturedRequest.url)
-                        const capturedPath = capturedURL.pathname
-                        if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
-                            posthog.capture('Could not match rrweb/network@1 event', {
-                                rrwebNetworkEvent: payload,
-                                possibleMatches: eventsMapping[capturedRequest.url],
-                                totalMatchedURLs: Object.keys(eventsMapping).length,
-                            })
-                        }
-                    }
-                })
-            }
-        })
-    })
+    // // now we have all the posthog/network@1 events we can try to match any rrweb/network@1 events
+    // Object.entries(snapshotsByWindowId).forEach((snapshotsByWindowId) => {
+    //     const snapshots = snapshotsByWindowId[1]
+    //     snapshots.forEach((snapshot: eventWithTime) => {
+    //         if (
+    //             snapshot.type === 6 && // RRWeb plugin event type
+    //             snapshot.data.plugin === RRWEB_NETWORK_PLUGIN_NAME
+    //         ) {
+    //             const payload = snapshot.data.payload as any
+    //             if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+    //                 return
+    //             }
+    //
+    //             payload.requests.forEach((capturedRequest: any) => {
+    //                 const matchedURL = eventsMapping[capturedRequest.url]
+    //
+    //                 const matchedStartTime = matchedURL ? matchedURL[capturedRequest.startTime] : null
+    //
+    //                 if (matchedStartTime && matchedStartTime.length === 1) {
+    //                     matchedStartTime[0].response_status = capturedRequest.status
+    //                     matchedStartTime[0].request_headers = capturedRequest.requestHeaders
+    //                     matchedStartTime[0].request_body = capturedRequest.requestBody
+    //                     matchedStartTime[0].response_headers = capturedRequest.responseHeaders
+    //                     matchedStartTime[0].response_body = capturedRequest.responseBody
+    //                     matchedStartTime[0].method = capturedRequest.method
+    //                 } else if (matchedStartTime && matchedStartTime.length > 1) {
+    //                     // find in eventsMapping[capturedRequest.url][capturedRequest.startTime] by matching capturedRequest.endTime and element.response_end
+    //                     const matchedEndTime = matchedStartTime.find(
+    //                         (x) =>
+    //                             typeof x.response_end === 'number' &&
+    //                             Math.round(x.response_end) === capturedRequest.endTime
+    //                     )
+    //                     if (matchedEndTime) {
+    //                         matchedEndTime.response_status = capturedRequest.status
+    //                         matchedEndTime.request_headers = capturedRequest.requestHeaders
+    //                         matchedEndTime.request_body = capturedRequest.requestBody
+    //                         matchedEndTime.response_headers = capturedRequest.responseHeaders
+    //                         matchedEndTime.response_body = capturedRequest.responseBody
+    //                         matchedEndTime.method = capturedRequest.method
+    //                     } else {
+    //                         const capturedURL = new URL(capturedRequest.url)
+    //                         const capturedPath = capturedURL.pathname
+    //
+    //                         if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
+    //                             posthog.capture('Had matches but still could not match rrweb/network@1 event', {
+    //                                 rrwebNetworkEvent: payload,
+    //                                 possibleMatches: matchedStartTime,
+    //                                 totalMatchedURLs: Object.keys(eventsMapping).length,
+    //                             })
+    //                         }
+    //                     }
+    //                 } else {
+    //                     const capturedURL = new URL(capturedRequest.url)
+    //                     const capturedPath = capturedURL.pathname
+    //                     if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
+    //                         posthog.capture('Could not match rrweb/network@1 event', {
+    //                             rrwebNetworkEvent: payload,
+    //                             possibleMatches: eventsMapping[capturedRequest.url],
+    //                             totalMatchedURLs: Object.keys(eventsMapping).length,
+    //                         })
+    //                     }
+    //                 }
+    //             })
+    //         }
+    //     })
+    // })
 
     // now flatten the eventsMapping into a single array
     return Object.values(eventsMapping).reduce((acc: PerformanceEvent[], eventsByURL) => {
