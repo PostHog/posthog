@@ -46,9 +46,9 @@ const TypesTemplate = ({ darkMode }: { darkMode: boolean }) => {
 export const LightMode = () => <TypesTemplate darkMode={false} />
 export const DarkMode = () => <TypesTemplate darkMode />
 
-// export const Hover: Story = TypesTemplate.bind({})
-// Hover.args = Default.args
-// Hover.parameters = { pseudo: { hover: ['.LemonButton'] } }
+export const Hover: Story = BasicButton
+Hover.args = { children: 'Click me', type: 'primary' }
+Hover.parameters = { pseudo: { hover: ['.LemonButton'] } }
 
 // export const Active: Story = TypesTemplate.bind({})
 // Active.args = Default.args

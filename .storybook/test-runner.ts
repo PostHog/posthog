@@ -7,6 +7,8 @@ import { StoryContext } from '@storybook/types'
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 
+type SupportedTheme = 'legacy' | 'light' | 'dark'
+
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
     interface Parameters {
@@ -40,6 +42,8 @@ declare module '@storybook/types' {
             snapshotBrowsers?: SupportedBrowserName[]
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
+            /** Include snapshots of buttons in 3000. */
+            include3000?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -96,12 +100,14 @@ async function expectStoryToMatchSnapshot(
         waitForLoadersToDisappear = true,
         waitForSelector,
         excludeNavigationFromSnapshot = false,
+        include3000 = false,
     } = storyContext.parameters?.testOptions ?? {}
 
     let check: (
         page: Page,
         context: TestContext,
         browser: SupportedBrowserName,
+        theme: SupportedTheme,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -134,34 +140,52 @@ async function expectStoryToMatchSnapshot(
         Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
     )
 
-    await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    await check(page, context, browser, 'legacy', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+
+    if (include3000) {
+        await page.evaluate(() => {
+            document.body.classList.add('posthog-3000')
+            document.body.setAttribute('theme', 'light')
+        })
+
+        await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+
+        await page.evaluate(() => {
+            document.body.setAttribute('theme', 'dark')
+        })
+
+        await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    }
 }
 
 async function expectStoryToMatchFullPageSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    theme: SupportedTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    theme: SupportedTheme
 ): Promise<void> {
     await page.evaluate(() => {
         // The screenshot gets clipped by the overflow hidden of the sidebar
         document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
+    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
+    theme: SupportedTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -192,19 +216,25 @@ async function expectStoryToMatchComponentSnapshot(
         document.body.style.background = 'transparent'
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, { omitBackground: true })
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+        omitBackground: true,
+    })
 }
 
 async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
     browser: SupportedBrowserName,
+    theme: SupportedTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
     let customSnapshotIdentifier = context.id
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
+    }
+    if (theme !== 'legacy') {
+        customSnapshotIdentifier += `--3000-${theme}`
     }
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
