@@ -30,7 +30,7 @@ export const ActionInput = (): JSX.Element => {
                 className="CommandBar__input"
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
-                suffix={<KeyboardShortcut escape muted />}
+                suffix={<KeyboardShortcut escape />}
                 placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
                 autoFocus
                 value={input}
