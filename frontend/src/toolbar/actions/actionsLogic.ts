@@ -1,10 +1,9 @@
 import { loaders } from 'kea-loaders'
 import { kea, path, actions, reducers, selectors } from 'kea'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import type { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
-import { toolbarFetch } from '~/toolbar/utils'
 
 export const actionsLogic = kea<actionsLogicType>([
     path(['toolbar', 'actions', 'actionsLogic']),

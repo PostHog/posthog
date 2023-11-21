@@ -2,8 +2,6 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, StringMatching } from '~/types'
 import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { finder } from '@medv/finder'
 import wildcardMatch from 'wildcard-match'
@@ -415,52 +413,4 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
-}
-
-export async function toolbarFetch(
-    url: string,
-    method: string = 'GET',
-    payload?: Record<string, any>,
-    /*
-     allows caller to control how the provided URL is altered before use
-     if "full" then the payload and URL are taken apart and reconstructed
-     if "only-add-token" the URL is unchanged, the payload is not used
-     but the temporary token is added to the URL
-     if "use-as-provided" then the URL is used as-is, and the payload is not used
-     this is because the heatmapLogic needs more control over how the query parameters are constructed
-    */
-    urlConstruction: 'full' | 'only-add-token' | 'use-as-provided' = 'full'
-): Promise<Response> {
-    let fullUrl: string
-    if (urlConstruction === 'use-as-provided') {
-        fullUrl = url
-    } else if (urlConstruction === 'only-add-token') {
-        fullUrl = `${url}&temporary_token=${toolbarConfigLogic.values.temporaryToken}`
-    } else {
-        const { pathname, searchParams } = combineUrl(url)
-        const params = { ...searchParams, temporary_token: toolbarConfigLogic.values.temporaryToken }
-        fullUrl = `${toolbarConfigLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
-    }
-
-    const payloadData = payload
-        ? {
-              body: JSON.stringify(payload),
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-          }
-        : {}
-
-    const response = await fetch(fullUrl, {
-        method,
-        ...payloadData,
-    })
-    if (response.status === 403) {
-        const responseData = await response.json()
-        // Do not try to authenticate if the user has no project access altogether
-        if (responseData.detail !== "You don't have access to the project.") {
-            toolbarConfigLogic.actions.authenticate()
-        }
-    }
-    return response
 }

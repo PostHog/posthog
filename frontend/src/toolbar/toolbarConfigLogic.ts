@@ -1,10 +1,11 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { ToolbarProps } from '~/types'
-import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
+import { combineUrl, encodeParams } from 'kea-router'
+import { clearSessionToolbarToken } from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -73,3 +74,54 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
 ])
+
+export async function toolbarFetch(
+    url: string,
+    method: string = 'GET',
+    payload?: Record<string, any>,
+    /*
+     allows caller to control how the provided URL is altered before use
+     if "full" then the payload and URL are taken apart and reconstructed
+     if "only-add-token" the URL is unchanged, the payload is not used
+     but the temporary token is added to the URL
+     if "use-as-provided" then the URL is used as-is, and the payload is not used
+     this is because the heatmapLogic needs more control over how the query parameters are constructed
+    */
+    urlConstruction: 'full' | 'only-add-token' | 'use-as-provided' = 'full'
+): Promise<Response> {
+    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
+    const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
+
+    let fullUrl: string
+    if (urlConstruction === 'use-as-provided') {
+        fullUrl = url
+    } else if (urlConstruction === 'only-add-token') {
+        fullUrl = `${url}&temporary_token=${temporaryToken}`
+    } else {
+        const { pathname, searchParams } = combineUrl(url)
+        const params = { ...searchParams, temporary_token: temporaryToken }
+        fullUrl = `${apiURL}${pathname}${encodeParams(params, '?')}`
+    }
+
+    const payloadData = payload
+        ? {
+              body: JSON.stringify(payload),
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+          }
+        : {}
+
+    const response = await fetch(fullUrl, {
+        method,
+        ...payloadData,
+    })
+    if (response.status === 403) {
+        const responseData = await response.json()
+        // Do not try to authenticate if the user has no project access altogether
+        if (responseData.detail !== "You don't have access to the project.") {
+            toolbarConfigLogic.actions.authenticate()
+        }
+    }
+    return response
+}
