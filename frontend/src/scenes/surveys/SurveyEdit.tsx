@@ -583,42 +583,46 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                         >
                                                                                                             Add choice
                                                                                                         </LemonButton>
-                                                                                                        {!hasOpenChoice && (
-                                                                                                            <LemonButton
-                                                                                                                icon={
-                                                                                                                    <IconPlusMini />
-                                                                                                                }
-                                                                                                                type="secondary"
-                                                                                                                fullWidth={
-                                                                                                                    false
-                                                                                                                }
-                                                                                                                onClick={() => {
-                                                                                                                    if (
-                                                                                                                        !value
-                                                                                                                    ) {
-                                                                                                                        onChange(
-                                                                                                                            [
-                                                                                                                                'Other',
-                                                                                                                            ]
-                                                                                                                        )
-                                                                                                                    } else {
-                                                                                                                        onChange(
-                                                                                                                            [
-                                                                                                                                ...value,
-                                                                                                                                'Other',
-                                                                                                                            ]
-                                                                                                                        )
+                                                                                                        {featureFlags[
+                                                                                                            FEATURE_FLAGS
+                                                                                                                .SURVEYS_OPEN_CHOICE
+                                                                                                        ] &&
+                                                                                                            !hasOpenChoice && (
+                                                                                                                <LemonButton
+                                                                                                                    icon={
+                                                                                                                        <IconPlusMini />
                                                                                                                     }
-                                                                                                                    toggleHasOpenChoice(
-                                                                                                                        true
-                                                                                                                    )
-                                                                                                                }}
-                                                                                                            >
-                                                                                                                Add
-                                                                                                                open-ended
-                                                                                                                choice
-                                                                                                            </LemonButton>
-                                                                                                        )}
+                                                                                                                    type="secondary"
+                                                                                                                    fullWidth={
+                                                                                                                        false
+                                                                                                                    }
+                                                                                                                    onClick={() => {
+                                                                                                                        if (
+                                                                                                                            !value
+                                                                                                                        ) {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        } else {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    ...value,
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        }
+                                                                                                                        toggleHasOpenChoice(
+                                                                                                                            true
+                                                                                                                        )
+                                                                                                                    }}
+                                                                                                                >
+                                                                                                                    Add
+                                                                                                                    open-ended
+                                                                                                                    choice
+                                                                                                                </LemonButton>
+                                                                                                            )}
                                                                                                     </>
                                                                                                 )}
                                                                                             </div>
