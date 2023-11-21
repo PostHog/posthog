@@ -12,11 +12,11 @@ import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/lemon-ui/Link'
-import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { IconInfo } from '@posthog/icons'
+import { urls } from 'scenes/urls'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -140,11 +140,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
                 if (!isSSOEnforcementAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
                             enforcement
                         </Link>
@@ -170,11 +166,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SAML(_, { is_verified, saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }, index) {
                 if (!isSAMLAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
                         </Link>
                     ) : (

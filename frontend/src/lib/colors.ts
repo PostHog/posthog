@@ -5,20 +5,21 @@ export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
 
 /* Insight series colors. */
 const dataColorVars = [
-    'brand-blue',
-    'purple',
-    'viridian',
-    'magenta',
-    'vermilion',
-    'brown',
-    'green',
-    'blue',
-    'pink',
-    'navy',
-    'turquoise',
-    'brick',
-    'yellow',
-    'lilac',
+    'color-1',
+    'color-2',
+    'color-3',
+    'color-4',
+    'color-5',
+    'color-6',
+    'color-7',
+    'color-8',
+    'color-9',
+    'color-10',
+    'color-11',
+    'color-12',
+    'color-13',
+    'color-14',
+    'color-15',
 ]
 
 export const tagColors = [
@@ -80,8 +81,8 @@ export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean):
 export function getGraphColors(isDarkModeOn: boolean): Record<string, string | null> {
     return {
         axisLabel: isDarkModeOn ? '#fff' : '#2d2d2d', // --text-3000
-        axisLine: isDarkModeOn ? '#888' : '#ddd', // --funnel-grid
-        axis: isDarkModeOn ? '#aaa' : '#999',
+        axisLine: isDarkModeOn ? '#4b4d58' : '#ddd', // --funnel-grid
+        axis: isDarkModeOn ? '#4b4d58' : '#999',
         crosshair: isDarkModeOn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',

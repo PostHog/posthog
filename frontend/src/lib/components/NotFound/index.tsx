@@ -4,7 +4,7 @@ import './NotFound.scss'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from '../Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { LemonButton } from '@posthog/lemon-ui'
 
 interface NotFoundProps {
