@@ -7,7 +7,7 @@ from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
 from posthog.hogql.errors import HogQLException
 from posthog.models import Organization, Team
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 
 
 def build_query(sql):
@@ -23,6 +23,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.team = Team.objects.create(organization=self.organization)
         self.team_id = self.team.pk
 
+    @snapshot_clickhouse_queries
     def test_async_query_client(self):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
