@@ -34,6 +34,8 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
      * This is true by default if `children` is a string.
      */
     targetBlankIcon?: boolean
+    /** If true, the default color will be as normal text with only a link color on hover */
+    subtle?: boolean
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -66,6 +68,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         {
             to,
             target,
+            subtle,
             disableClientSideRouting,
             preventClick = false,
             onClick: onClickRaw,
@@ -122,7 +125,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
-                className={clsx('Link', className)}
+                className={clsx('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? to : '#'}
                 target={target}
@@ -138,7 +141,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <span>
                     <button
                         ref={ref as any}
-                        className={clsx('Link', className)}
+                        className={clsx('Link', subtle && 'Link--subtle', className)}
                         onClick={onClick}
                         type="button"
                         disabled={disabled || !!disabledReason}

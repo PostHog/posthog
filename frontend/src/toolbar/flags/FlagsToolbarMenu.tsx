@@ -44,10 +44,11 @@ const MenuBody = (): JSX.Element => {
                         <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header')}>
                             <div className="flex-1 truncate">
                                 <Link
-                                    className="text-text-3000 flex flex-row items-center font-medium"
+                                    className="font-medium"
                                     to={`${apiURL}${
                                         feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
                                     }`}
+                                    subtle
                                     target="_blank"
                                 >
                                     {feature_flag.key}

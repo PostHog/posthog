@@ -76,7 +76,7 @@
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--primary-highlight);
+        background-color: var(--primary-3000-highlight);
     }
 }
 
@@ -96,8 +96,8 @@
     justify-content: center;
 
     .LemonSwitch--checked & {
-        background-color: var(--primary);
-        border-color: var(--primary);
+        background-color: var(--primary-3000);
+        border-color: var(--primary-3000);
         transform: translateX(1rem);
     }
 
