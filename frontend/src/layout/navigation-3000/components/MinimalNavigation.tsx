@@ -7,34 +7,40 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { IconLogomark } from '@posthog/icons'
 import { urls } from 'scenes/urls'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
     const { isSitePopoverOpen, isProjectSwitcherShown } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover, toggleProjectSwitcher, hideProjectSwitcher } =
         useActions(navigationLogic)
 
     return (
-        <nav className="flex items-center justify-between gap-2 p-2">
+        <nav className="flex items-center justify-between gap-2 p-2 border-b">
             <span className="flex-1">
-                <LemonButton icon={<IconLogomark />} to={urls.projectHomepage()} />
+                <LemonButton icon={<IconLogomark className="text-2xl" />} to={urls.projectHomepage()} />
             </span>
-            <Popover
-                overlay={<ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />}
-                visible={isProjectSwitcherShown}
-                onClickOutside={hideProjectSwitcher}
-                placement="right-start"
-            >
-                <LemonButton
-                    type="secondary"
-                    icon={<Lettermark name={currentTeam?.name} />}
-                    onClick={toggleProjectSwitcher}
+            {currentOrganization?.teams?.length ?? 0 > 1 ? (
+                <Popover
+                    overlay={<ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />}
+                    visible={isProjectSwitcherShown}
+                    onClickOutside={hideProjectSwitcher}
+                    placement="right-start"
                 >
-                    {currentTeam?.name ?? 'Current project'}
-                </LemonButton>
-            </Popover>
+                    <LemonButton
+                        type="tertiary"
+                        status="muted"
+                        icon={<Lettermark name={currentTeam?.name} />}
+                        onClick={toggleProjectSwitcher}
+                    >
+                        {currentTeam?.name ?? 'Current project'}
+                    </LemonButton>
+                </Popover>
+            ) : null}
             <Popover
                 overlay={<SitePopoverOverlay />}
                 visible={isSitePopoverOpen}
@@ -42,7 +48,8 @@ export function MinimalNavigation(): JSX.Element {
                 placement="right-end"
             >
                 <LemonButton
-                    type="secondary"
+                    type="tertiary"
+                    status="muted"
                     icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
                     onClick={toggleSitePopover}
                 >
