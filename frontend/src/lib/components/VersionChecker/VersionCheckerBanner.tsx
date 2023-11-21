@@ -7,7 +7,7 @@ export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepte
     // We don't want to show a message if the diff is too small (we might be still deploying the changes out)
     if (
         !versionWarning ||
-        (minVersionAccepted
+        (minVersionAccepted && versionWarning.currentVersion
             ? versionWarning.currentVersion.localeCompare(minVersionAccepted) >= 0
             : versionWarning.diff < 5)
     ) {
