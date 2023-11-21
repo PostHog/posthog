@@ -143,7 +143,11 @@ pub async fn event(
 
     tracing::debug!(context=?context, events=?events, "decoded request");
 
-    process_events(state.sink.clone(), &events, &context).await?;
+    if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
+        report_dropped_events("process_events_error", events.len() as u64);
+        tracing::log::warn!("rejected invalid payload: {}", err);
+        return Err(err);
+    }
 
     Ok(Json(CaptureResponse {
         status: CaptureResponseCode::Ok,
