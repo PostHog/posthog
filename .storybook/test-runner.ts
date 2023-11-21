@@ -66,7 +66,7 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
-    async postRender(page, context) {
+    async postVisit(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
