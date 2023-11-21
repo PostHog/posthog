@@ -84,8 +84,9 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
     })
 
     useMountedLogic(toolbarConfigLogic(toolbarParams))
+    const theToolbarLogic = toolbarLogic()
 
-    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(toolbarLogic)
+    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
 
     useEffect(() => {
         setDragPosition(50, 50)
