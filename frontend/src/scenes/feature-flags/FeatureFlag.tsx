@@ -56,7 +56,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from '../organizationLogic'
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
@@ -96,8 +95,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
-
-    const { currentOrganization } = useValues(organizationLogic)
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -155,8 +152,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS]) {
         tabs.push({
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
