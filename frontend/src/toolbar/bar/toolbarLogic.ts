@@ -9,6 +9,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
 import type { toolbarLogicType } from './toolbarLogicType'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 const MARGIN = 2
 
@@ -258,4 +259,5 @@ export const toolbarLogic = kea<toolbarLogicType>([
             toolbarElement?.setAttribute('theme', theme)
         },
     }),
+    permanentlyMount(),
 ])

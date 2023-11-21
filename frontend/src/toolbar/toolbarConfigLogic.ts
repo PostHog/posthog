@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { combineUrl, encodeParams } from 'kea-router'
 import { clearSessionToolbarToken } from './utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -73,6 +74,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
         posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
+    permanentlyMount(),
 ])
 
 export async function toolbarFetch(
