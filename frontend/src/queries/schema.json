@@ -3020,6 +3020,9 @@
                     },
                     "type": "array"
                 },
+                "show_labels_on_series": {
+                    "type": "boolean"
+                },
                 "show_legend": {
                     "type": "boolean"
                 },
@@ -3140,6 +3143,18 @@
             "additionalProperties": false,
             "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
             "properties": {
+                "ActionsPie": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "disableHoverOffset": {
+                            "type": "boolean"
+                        },
+                        "hideAggregation": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                },
                 "RETENTION": {
                     "additionalProperties": false,
                     "properties": {

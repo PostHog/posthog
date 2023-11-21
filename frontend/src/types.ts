@@ -1754,6 +1754,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     show_values_on_series?: boolean
+    show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
 }
 
