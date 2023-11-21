@@ -188,6 +188,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                 size="small"
                                 type="primary"
                                 onClick={() => setActionFormValue('steps', [...(actionForm.steps || []), {}])}
+                                className="my-2"
                             >
                                 Add An Element
                             </LemonButton>
