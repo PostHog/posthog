@@ -1,12 +1,12 @@
 import {
-    IconX,
-    IconLogomark,
-    IconSearch,
-    IconNight,
-    IconDay,
-    IconToggle,
+    IconBolt,
     IconCursorClick,
+    IconDay,
+    IconLogomark,
+    IconNight,
     IconQuestion,
+    IconToggle,
+    IconX,
 } from '@posthog/icons'
 import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -168,9 +168,9 @@ export function Toolbar(): JSX.Element {
                 />
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton icon={<IconSearch />} menuId="inspect" />
+                        <ToolbarButton icon={<IconTarget />} menuId="inspect" />
                         <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
-                        <ToolbarButton icon={<IconTarget />} menuId="actions" />
+                        <ToolbarButton icon={<IconBolt />} menuId="actions" />
                         <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
                     </>
                 ) : null}
