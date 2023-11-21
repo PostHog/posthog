@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import HogQLException
@@ -20,6 +21,8 @@ from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
+
+EXPORT_CONTEXT_MAX_EXECUTION_TIME = 600
 
 
 def execute_hogql_query(
@@ -118,6 +121,10 @@ def execute_hogql_query(
                         )
                     )
 
+    settings = settings or HogQLGlobalSettings()
+    if in_export_context:
+        settings.max_execution_time = EXPORT_CONTEXT_MAX_EXECUTION_TIME
+
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
         clickhouse_context = HogQLContext(
@@ -130,7 +137,7 @@ def execute_hogql_query(
             select_query,
             context=clickhouse_context,
             dialect="clickhouse",
-            settings=settings or HogQLGlobalSettings(),
+            settings=settings,
         )
 
     timings_dict = timings.to_dict()
@@ -143,16 +150,27 @@ def execute_hogql_query(
             timings=timings_dict,
         )
 
-        results, types = sync_execute(
-            clickhouse_sql,
-            clickhouse_context.values,
-            with_column_types=True,
-            workload=workload,
-            team_id=team.pk,
-            readonly=True,
-        )
+        error = None
+        try:
+            results, types = sync_execute(
+                clickhouse_sql,
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=workload,
+                team_id=team.pk,
+                readonly=True,
+            )
+        except Exception as e:
+            if explain:
+                results, types = None, None
+                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                    error = str(e)
+                else:
+                    error = "Unknown error"
+            else:
+                raise e
 
-    if explain:
+    if explain and error is None:  # If the query errored, explain will fail as well.
         with timings.measure("explain"):
             explain_results = sync_execute(
                 f"EXPLAIN {clickhouse_sql}",
@@ -170,6 +188,7 @@ def execute_hogql_query(
         query=query,
         hogql=hogql,
         clickhouse=clickhouse_sql,
+        error=error,
         timings=timings.to_list(),
         results=results,
         columns=print_columns,

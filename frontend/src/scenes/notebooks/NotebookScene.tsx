@@ -7,26 +7,15 @@ import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogi
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import {
-    IconArrowRight,
-    IconDelete,
-    IconEllipsis,
-    IconExport,
-    IconHelpOutline,
-    IconNotification,
-    IconShare,
-} from 'lib/lemon-ui/icons'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { notebooksModel } from '~/models/notebooksModel'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { IconOpenSidebar, IconInfo } from '@posthog/icons'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import './NotebookScene.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
-import { openNotebookShareDialog } from './Notebook/NotebookShare'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
+import { NotebookMenu } from './NotebookMenu'
+import { NotebookTarget } from '~/types'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -42,8 +31,9 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
-    const { notebook, conflictWarningVisible, showHistory } = useValues(notebookLogic({ shortId: notebookId }))
-    const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId: notebookId }))
+    const { notebook, conflictWarningVisible } = useValues(
+        notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
+    )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
@@ -58,7 +48,7 @@ export function NotebookScene(): JSX.Element {
         return (
             <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10 flex-1">
                 <h2 className="text-muted-alt">
-                    This Notebook is open in the side panel <IconArrowRight />
+                    This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
                 <p>
@@ -90,45 +80,11 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookSyncInfo shortId={notebookId} />
 
-                    <LemonMenu
-                        items={[
-                            {
-                                items: [
-                                    {
-                                        label: 'Export JSON',
-                                        icon: <IconExport />,
-                                        onClick: () => exportJSON(),
-                                    },
-                                    {
-                                        label: 'History',
-                                        icon: <IconNotification />,
-                                        onClick: () => setShowHistory(!showHistory),
-                                    },
-                                    {
-                                        label: 'Share',
-                                        icon: <IconShare />,
-                                        onClick: () => openNotebookShareDialog({ shortId: notebookId }),
-                                    },
-                                    !isTemplate && {
-                                        label: 'Delete',
-                                        icon: <IconDelete />,
-                                        status: 'danger',
+                    <NotebookMenu shortId={notebookId} />
 
-                                        onClick: () => {
-                                            notebooksModel.actions.deleteNotebook(notebookId, notebook?.title)
-                                            router.actions.push(urls.notebooks())
-                                        },
-                                    },
-                                ],
-                            },
-                        ]}
-                        actionable
-                    >
-                        <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
-                    </LemonMenu>
                     <LemonButton
                         type="secondary"
-                        icon={<IconHelpOutline />}
+                        icon={<IconInfo />}
                         size={buttonSize}
                         onClick={() => {
                             if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
@@ -153,11 +109,11 @@ export function NotebookScene(): JSX.Element {
                         tooltip={
                             <>
                                 Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
-                                app. This is great for dragging and dropping elements like Insights, Recordings or even
-                                Feature Flags into your active Notebook.
+                                app. This is great for dragging and dropping elements like insights, recordings or even
+                                feature flags into your active notebook.
                             </>
                         }
-                        sideIcon={<IconArrowRight />}
+                        sideIcon={<IconOpenSidebar />}
                     >
                         Open in side panel
                     </LemonButton>

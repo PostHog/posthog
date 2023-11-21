@@ -1,4 +1,5 @@
 import concurrent.futures
+from datetime import datetime
 from typing import cast
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
+from freezegun import freeze_time
 import pytest
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -4138,6 +4140,903 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
+
+    def test_numeric_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24"},
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100b2c",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "3.1x00b2c",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5 = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.15",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.1200",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+
+        feature_flag6 = self.create_feature_flag(
+            key="random6",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.206.0",
+                                "operator": "lt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag4, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # even though we can parse as a number, only do string comparison
+        self.assertEqual(
+            self.match_flag(feature_flag5, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag6, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+    def test_numeric_operator_with_groups_and_person_flags(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24"},
+        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+
+        Group.objects.create(
+            team=self.team,
+            group_type_index=0,
+            group_key="foo",
+            group_properties={"name": "foo.inc", "number": 50, "string_number": "50"},
+            version=1,
+        )
+        Group.objects.create(
+            team=self.team,
+            group_type_index=1,
+            group_key="foo-project",
+            group_properties={"name": "foo-project", "number": 20, "string_number": "20"},
+            version=1,
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100",
+                                "operator": "gt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100b2c",
+                                "operator": "gt",
+                                "group_type_index": 1,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "3.1x00b2c",
+                                "operator": "gte",
+                                "type": "person",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag4_person = self.create_feature_flag(
+            key="random4_person",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gte",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5 = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.15",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.1200",
+                                "operator": "gte",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+
+        feature_flag6 = self.create_feature_flag(
+            key="random6",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.206.0",
+                                "operator": "lt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag4, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # even though we can parse as a number, only do string comparison
+        self.assertEqual(
+            self.match_flag(feature_flag5, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag6, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # Make sure clashes on property name doesn't affect computation
+        with snapshot_postgres_queries_context(self, replace_all_numbers=False):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2, feature_flag4_person],
+                    "307",
+                    groups={"organization": "foo", "project": "foo-project"},
+                ).get_matches()[1],
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random4_person": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                },
+            )
+
+        # handle overrides in group properties
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": 200}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # string '30' > string '100' (lexicographically)
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "30"}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "01323"}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": 0}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "0"}, "project": {"number": 19.999999}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+    def test_numeric_operator_with_cohorts_and_nested_cohorts(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24", "nested_prop": 21},
+        )
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        }
+                    ]
+                }
+            ],
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort1.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "version",
+                            "value": "1.05",
+                            "operator": "gt",
+                            "type": "person",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort2.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        cohort_nest = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "nested_prop",
+                            "value": "20",
+                            "operator": "gt",
+                            "type": "person",
+                        },
+                    ]
+                }
+            ],
+        )
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number",
+                            "value": "31",
+                            "operator": "lt",
+                            "type": "person",
+                        },
+                        {
+                            "key": "id",
+                            "value": str(cohort_nest.pk),
+                            "type": "cohort",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": str(cohort3.pk),
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # Make sure clashes on property name doesn't affect computation
+        with snapshot_postgres_queries_context(self, replace_all_numbers=False):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2, feature_flag3],
+                    "307",
+                ).get_matches()[1],
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random3": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                },
+            )
+
+    @snapshot_postgres_queries
+    def test_with_sql_injection_properties_and_other_aliases(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "number space": 30,
+                ";'\" SELECT 1; DROP TABLE posthog_featureflag;": "30",
+                "version!!!": "1.24",
+                "nested_prop --random #comment //test": 21,
+            },
+        )
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number space",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        },
+                        {
+                            "key": ";'\" SELECT 1; DROP TABLE posthog_featureflag;",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort1.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": ";'\" SELECT 1; DROP TABLE posthog_featureflag;",
+                                "value": "100",
+                                "type": "person",
+                                "operator": "gt",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version!!!",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "nested_prop --random #comment //test",
+                                "value": "21",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
+    @freeze_time("2022-05-01")
+    def test_relative_date_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "date_1": "2022-04-30",
+                "date_2": "2022-03-01",
+                "date_3": "2022-04-30T12:00:00-10:00",
+                "date_invalid": "2022-3443",
+            },
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_1",
+                                "value": "6h",
+                                "operator": "is_relative_date_before",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_3",
+                                "value": "2d",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_3",
+                                "value": "2h",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag4_invalid_prop = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_invalid",
+                                "value": "2h",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5_invalid_flag = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_1",
+                                "value": "bazinga",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # now move current date to 2022-05-02
+        with freeze_time("2022-05-02T08:00:00-10:00"):
+            self.assertEqual(
+                self.match_flag(feature_flag2, "307"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        # :TRICKY: String matching means invalid props can be appropriately targeted
+        self.assertEqual(
+            self.match_flag(feature_flag4_invalid_prop, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # invalid flags never return True
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # try matching all together, invalids don't interfere with regular flags
+        self.assertEqual(
+            FeatureFlagMatcher(
+                [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
+                "307",
+            ).get_matches(),
+            (
+                {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random3": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random4": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random5": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                },
+                {},
+                False,
+            ),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2021-01-04"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2023-01-04"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T08:01:00-10:00"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # test with invalid date
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "bazinga"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": datetime.now()}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
 
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):

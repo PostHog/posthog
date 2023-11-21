@@ -12,6 +12,7 @@ import { IconSettings } from 'lib/lemon-ui/icons'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { urls } from 'scenes/urls'
 
 export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
@@ -104,7 +105,10 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         >
                             Path Cleaning Rules
                         </LemonLabel>
-                        <Link className="flex items-center ml-2" to="/project/settings#path_cleaning_filtering">
+                        <Link
+                            className="flex items-center ml-2"
+                            to={urls.settings('project-product-analytics', 'path-cleaning')}
+                        >
                             <IconSettings fontSize="16" className="mr-0.5" />
                             Configure Project Rules
                         </Link>

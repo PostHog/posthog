@@ -13,7 +13,7 @@ export interface LemonSkeletonProps {
 }
 export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
     const content = (
-        <div className={clsx('LemonSkeleton rounded h-4', !active && 'LemonSkeleton--static', className || 'w-full')}>
+        <div className={clsx('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}>
             {/* The span is for accessibility, but also because @storybook/test-runner smoke tests require content */}
             <span>Loading…</span>
         </div>

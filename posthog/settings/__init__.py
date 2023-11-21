@@ -30,6 +30,7 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
+from posthog.settings.metrics import *
 from posthog.settings.schedules import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
@@ -38,6 +39,7 @@ from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
+from posthog.settings.airbyte import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 

@@ -4,7 +4,7 @@ import { SubscriptionType } from '~/types'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { getInsightId } from 'scenes/insights/utils'
@@ -48,8 +48,8 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        deleteSubscription: ({ id }) => {
-            deleteWithUndo({
+        deleteSubscription: async ({ id }) => {
+            await deleteWithUndo({
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },
                 callback: () => actions.loadSubscriptions(),

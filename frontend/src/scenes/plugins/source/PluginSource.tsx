@@ -14,6 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { Link } from '@posthog/lemon-ui'
 
 interface PluginSourceProps {
     pluginId: number
@@ -56,7 +57,7 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        import('./types/packages.json').then((files) => {
+        void import('./types/packages.json').then((files) => {
             for (const [fileName, fileContents] of Object.entries(files).filter(
                 ([fileName]) => fileName !== 'default'
             )) {
@@ -79,7 +80,7 @@ export function PluginSource({
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
-                <div style={{ textAlign: 'right' }}>
+                <div className="text-right">
                     <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
                         Close
                     </Button>
@@ -94,15 +95,15 @@ export function PluginSource({
                     <>
                         <p>
                             Read our{' '}
-                            <a href="https://posthog.com/docs/apps/build" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build" target="_blank">
                                 app building overview in PostHog Docs
-                            </a>{' '}
+                            </Link>{' '}
                             for a good grasp of possibilities.
                             <br />
                             Once satisfied with your app, feel free to{' '}
-                            <a href="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
                                 submit it to the official App Store
-                            </a>
+                            </Link>
                             .
                         </p>
 
@@ -125,7 +126,7 @@ export function PluginSource({
                                                 }}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
-                                                <div style={{ marginTop: '0.5rem' }}>
+                                                <div className="mt-2">
                                                     <LemonButton
                                                         type="primary"
                                                         onClick={() =>

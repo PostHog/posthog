@@ -4,6 +4,7 @@ from math import ceil
 from typing import Optional, List, Union, Type
 
 from django.utils.timezone import datetime
+
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.caching.utils import is_stale
 from posthog.hogql.parser import parse_expr
@@ -16,14 +17,10 @@ from posthog.schema import (
     WebTopClicksQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    HogQLPropertyFilter,
+    PersonPropertyFilter,
 )
 
-WebQueryNode = Union[
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
-]
+WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
@@ -47,21 +44,25 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         return None
 
     @cached_property
-    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, HogQLPropertyFilter]]:
+    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, PersonPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self, include_previous_period: Optional[bool] = None):
-        properties = [
-            parse_expr(
-                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
-                placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
-                    "date_to": self.query_date_range.date_to_as_hogql(),
-                },
-            )
-        ] + self.property_filters_without_pathname
+        properties = (
+            [
+                parse_expr(
+                    "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                    placeholders={
+                        "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql(),
+                        "date_to": self.query_date_range.date_to_as_hogql(),
+                    },
+                )
+            ]
+            + self.property_filters_without_pathname
+            + self._test_account_filters
+        )
         return property_to_expr(
             properties,
             self.team,
@@ -94,16 +95,28 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def events_where(self):
-        properties = [
-            parse_expr(
-                "events.timestamp >= {date_from}",
-                placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
-            )
-        ] + self.query.properties
+        properties = (
+            [
+                parse_expr(
+                    "events.timestamp >= {date_from}",
+                    placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
+                )
+            ]
+            + self.query.properties
+            + self._test_account_filters
+        )
+
         return property_to_expr(
             properties,
             self.team,
         )
+
+    @cached_property
+    def _test_account_filters(self):
+        if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
+            return self.team.test_account_filters
+        else:
+            return []
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()

@@ -3,7 +3,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { Region, TeamType, UserType } from '~/types'
+import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -12,6 +12,7 @@ import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import * as Sentry from '@sentry/react'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -42,9 +43,9 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
-    bug: 'Report a bug',
+    support: 'Ask a question',
     feedback: 'Give feedback',
-    support: 'Get support',
+    bug: 'Report a bug',
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -110,13 +111,11 @@ export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({
+        openSupportForm: (kind: SupportTicketKind = 'support', target_area: SupportTicketTargetArea | null = null) => ({
             kind,
             target_area,
         }),
@@ -152,10 +151,10 @@ export const supportLogic = kea<supportLogicType>([
     })),
     forms(({ actions }) => ({
         sendSupportRequest: {
-            defaults: {} as unknown as {
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
+            defaults: {
+                kind: 'support' as SupportTicketKind,
+                target_area: null as SupportTicketTargetArea | null,
+                message: '',
             },
             errors: ({ message, kind, target_area }) => {
                 return {
@@ -212,6 +211,8 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
                 message: '',
             })
+
+            actions.openSidePanel(SidePanelTab.Support)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
@@ -254,43 +255,51 @@ export const supportLogic = kea<supportLogicType>([
                     },
                 },
             }
-            await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
-                method: 'POST',
-                body: JSON.stringify(payload, undefined, 4),
-                headers: { 'Content-Type': 'application/json' },
-            })
-                .then((res) => res.json())
-                .then((res) => {
-                    const zendesk_ticket_id = res.request.id
-                    const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
-                    const properties = {
-                        zendesk_ticket_uuid,
-                        kind,
-                        target_area,
-                        message,
-                        zendesk_ticket_id,
-                        zendesk_ticket_link,
-                    }
-                    posthog.capture('support_ticket', properties)
-                    Sentry.captureMessage('User submitted Zendesk ticket', {
-                        tags: {
-                            zendesk_ticket_uuid,
-                            zendesk_ticket_link,
-                            support_request_kind: kind,
-                            support_request_area: target_area,
-                            team_id: teamLogic.values.currentTeamId,
-                        },
-                        extra: properties,
-                        level: 'log',
+
+            try {
+                const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
+                    method: 'POST',
+                    body: JSON.stringify(payload, undefined, 4),
+                    headers: { 'Content-Type': 'application/json' },
+                })
+                if (!response.ok) {
+                    const error = new Error(`There was an error creating the support ticket with zendesk.`)
+                    captureException(error, {
+                        extra: { response, payload },
                     })
-                    lemonToast.success(
-                        "Got the message! If we have follow-up information for you, we'll reply via email."
-                    )
-                })
-                .catch((err) => {
-                    captureException(err)
                     lemonToast.error(`There was an error sending the message.`)
+                    return
+                }
+
+                const json = await response.json()
+
+                const zendesk_ticket_id = json.request.id
+                const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
+                const properties = {
+                    zendesk_ticket_uuid,
+                    kind,
+                    target_area,
+                    message,
+                    zendesk_ticket_id,
+                    zendesk_ticket_link,
+                }
+                posthog.capture('support_ticket', properties)
+                Sentry.captureMessage('User submitted Zendesk ticket', {
+                    tags: {
+                        zendesk_ticket_uuid,
+                        zendesk_ticket_link,
+                        support_request_kind: kind,
+                        support_request_area: target_area,
+                        team_id: teamLogic.values.currentTeamId,
+                    },
+                    extra: properties,
+                    level: 'log',
                 })
+                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+            } catch (e) {
+                captureException(e)
+                lemonToast.error(`There was an error sending the message.`)
+            }
         },
 
         closeSupportForm: () => {
@@ -300,8 +309,20 @@ export const supportLogic = kea<supportLogicType>([
 
     urlToAction(({ actions, values }) => ({
         '*': (_, _search, hashParams) => {
-            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+            if (values.isSupportFormOpen) {
+                return
+            }
+
+            // Legacy supportModal param
+            if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                actions.openSupportForm(
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
+                )
+            } else if ((hashParams['panel'] as string | undefined)?.startsWith('support')) {
+                const [kind, area] = hashParams['panel'].split(':').slice(1)
 
                 actions.openSupportForm(
                     Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
@@ -313,7 +334,8 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values }) => {
         const updateUrl = (): any => {
             const hashParams = router.values.hashParams
-            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
+            delete hashParams['supportModal'] // legacy value
+            hashParams['panel'] = `support:${values.sendSupportRequest.kind || ''}:${
                 values.sendSupportRequest.target_area || ''
             }`
             return [router.values.location.pathname, router.values.searchParams, hashParams]
@@ -323,7 +345,9 @@ export const supportLogic = kea<supportLogicType>([
             setSendSupportRequestValue: () => updateUrl(),
             closeSupportForm: () => {
                 const hashParams = router.values.hashParams
-                delete hashParams['supportModal']
+                delete hashParams['supportModal'] // legacy value
+                delete hashParams['panel']
+
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },
         }

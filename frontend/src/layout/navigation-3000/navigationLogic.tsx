@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
@@ -19,17 +19,17 @@ import {
     IconHome,
     IconLive,
     IconPeople,
-    IconPerson,
     IconPieChart,
-    IconQuestion,
     IconRewindPlay,
     IconTestTube,
     IconToggle,
     IconToolbar,
+    IconNotebook,
+    IconRocket,
+    IconServer,
+    IconChat,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
-import { annotationsSidebarLogic } from './sidebars/annotations'
-import { cohortsSidebarLogic } from './sidebars/cohorts'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
@@ -42,6 +42,8 @@ import { isNotNil } from 'lib/utils'
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
+export type Navigation3000Mode = 'none' | 'minimal' | 'full'
+
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
 const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
@@ -50,9 +52,13 @@ const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
+    connect(() => ({
+        values: [sceneLogic, ['sceneConfig']],
+    })),
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
+        toggleNavCollapsed: (override?: boolean) => ({ override }),
         toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
@@ -84,6 +90,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 hideSidebar: () => false,
                 showSidebar: () => true,
                 toggleSidebar: (isSidebarShown) => !isSidebarShown,
+            },
+        ],
+        isNavCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleNavCollapsed: (state, { override }) => override ?? !state,
             },
         ],
         sidebarWidth: [
@@ -270,6 +283,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
+        mode: [
+            (s) => [s.sceneConfig],
+            (sceneConfig): Navigation3000Mode => {
+                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
+                    ? 'minimal'
+                    : sceneConfig?.layout !== 'plain'
+                    ? 'full'
+                    : 'none'
+            },
+        ],
         navbarItems: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags): NavbarItem[][] => {
@@ -290,6 +313,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.dashboards(),
                         },
                         {
+                            identifier: Scene.Notebooks,
+                            label: 'Notebooks',
+                            icon: <IconNotebook />,
+                            to: urls.notebooks(),
+                            featureFlag: FEATURE_FLAGS.NOTEBOOKS,
+                        },
+                        {
+                            identifier: Scene.Events,
+                            label: 'Event explorer',
+                            icon: <IconLive />,
+                            to: urls.events(),
+                        },
+                        {
                             identifier: Scene.DataManagement,
                             label: 'Data management',
                             icon: <IconDatabase />,
@@ -297,37 +333,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
-                            identifier: Scene.Persons,
-                            label: 'Persons and groups',
-                            icon: <IconPerson />,
+                            identifier: Scene.PersonsManagement,
+                            label: 'People',
+                            icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
-                        },
-                        {
-                            identifier: Scene.Cohorts,
-                            label: 'Cohorts',
-                            icon: <IconPeople />,
-                            logic: isUsingSidebar ? cohortsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.cohorts(),
-                        },
-                        {
-                            identifier: Scene.Annotations,
-                            label: 'Annotations',
-                            icon: <IconQuestion />,
-                            logic: isUsingSidebar ? annotationsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.annotations(),
                         },
                     ],
                     [
                         {
-                            identifier: Scene.Events,
-                            label: 'Events',
-                            icon: <IconLive />,
-                            to: urls.events(),
-                        },
-                        {
                             identifier: Scene.SavedInsights,
-                            label: 'Product Analytics',
+                            label: 'Product analytics',
                             icon: <IconGraph />,
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
@@ -335,37 +351,51 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
                             ? {
                                   identifier: Scene.WebAnalytics,
-                                  label: 'Web Analytics',
+                                  label: 'Web analytics',
                                   icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                         {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: urls.dataWarehouse(),
+                            featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
+                            tag: 'beta' as const,
+                        },
+                        {
                             identifier: Scene.Replay,
-                            label: 'Session Replay',
+                            label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
                         {
+                            identifier: Scene.Surveys,
+                            label: 'Surveys',
+                            icon: <IconChat />,
+                            to: urls.surveys(),
+                        },
+                        {
                             identifier: Scene.FeatureFlags,
-                            label: 'Feature Flags',
+                            label: 'Feature flags',
                             icon: <IconToggle />,
                             logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.featureFlags(),
                         },
                         {
                             identifier: Scene.Experiments,
-                            label: 'A/B Testing',
+                            label: 'A/B testing',
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
                         },
                         {
-                            identifier: Scene.ToolbarLaunch,
-                            label: 'Toolbar',
-                            icon: <IconToolbar />,
-                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
+                            identifier: Scene.EarlyAccessFeatures,
+                            label: 'Early access features',
+                            icon: <IconRocket />,
+                            to: urls.earlyAccessFeatures(),
                         },
                     ].filter(isNotNil),
                     [
@@ -374,6 +404,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Apps',
                             icon: <IconApps />,
                             to: urls.projectApps(),
+                        },
+                        {
+                            identifier: Scene.ToolbarLaunch,
+                            label: 'Toolbar',
+                            icon: <IconToolbar />,
+                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
                     ],
                 ]

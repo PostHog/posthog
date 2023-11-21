@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import {
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
 import { groupsModel } from '../../../models/groupsModel'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 
 export interface Filters {
     property: string
@@ -37,8 +38,6 @@ function removeDefaults(filter: Filters): Partial<Filters> {
         group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
     }
 }
-
-export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
 export interface PropertyDefinitionsTableLogicProps {
     key: string
@@ -82,21 +81,6 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        name: `Data Management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
-                        name: 'Properties',
-                        path: urls.propertyDefinitions(),
-                    },
-                ]
-            },
-        ],
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) => {
@@ -208,7 +192,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setPropertyType: ({ propertyType }) => {
             const [type, index] = propertyType.split('::')
             actions.setFilters({
-                type: type as string,
+                type: type,
                 group_type_index: index ? +index : null,
             })
         },

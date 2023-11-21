@@ -1,10 +1,11 @@
-import { Select } from 'antd'
+// eslint-disable-next-line no-restricted-imports
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 export function SmoothingFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -31,9 +32,8 @@ export function SmoothingFilter(): JSX.Element | null {
     }))
 
     return options.length ? (
-        <Select
+        <LemonSelect
             key={interval}
-            bordered
             value={smoothing_intervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
@@ -43,6 +43,7 @@ export function SmoothingFilter(): JSX.Element | null {
             }}
             data-attr="smoothing-filter"
             options={options}
+            size="small"
         />
     ) : (
         <></>

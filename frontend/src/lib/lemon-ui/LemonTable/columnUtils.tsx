@@ -42,3 +42,21 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
             ),
     }
 }
+
+export function updatedAtColumn<T extends { updated_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'updated_at'> {
+    return {
+        title: 'Updated',
+        dataIndex: 'updated_at',
+        render: function RenderCreatedAt(updated_at) {
+            return updated_at ? (
+                <div className="whitespace-nowrap text-right">
+                    <TZLabel time={updated_at} />
+                </div>
+            ) : (
+                <span className="text-muted">—</span>
+            )
+        },
+        align: 'right',
+        sorter: (a, b) => dayjs(a.updated_at || 0).diff(b.updated_at || 0),
+    }
+}

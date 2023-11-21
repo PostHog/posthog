@@ -18,7 +18,7 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
@@ -132,8 +132,10 @@ export function CodeSnippet({
                 <LemonButton
                     data-attr="copy-code-button"
                     icon={<IconCopy />}
-                    onClick={async () => {
-                        text && (await copyToClipboard(text, thing))
+                    onClick={() => {
+                        if (text) {
+                            void copyToClipboard(text, thing)
+                        }
                     }}
                     size={compact ? 'small' : 'medium'}
                 />

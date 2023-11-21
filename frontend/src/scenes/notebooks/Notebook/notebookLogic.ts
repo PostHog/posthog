@@ -38,6 +38,7 @@ export type NotebookLogicMode = 'notebook' | 'canvas'
 export type NotebookLogicProps = {
     shortId: string
     mode?: NotebookLogicMode
+    target?: NotebookTarget
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
@@ -79,6 +80,7 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        renameNotebook: (title: string) => ({ title }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
@@ -212,12 +214,18 @@ export const notebookLogic = kea<notebookLogicType>([
                     } else if (props.shortId.startsWith('template-')) {
                         response =
                             values.notebookTemplates.find((template) => template.short_id === props.shortId) || null
+                        if (!response) {
+                            return null
+                        }
                     } else {
-                        response = await api.notebooks.get(props.shortId)
-                    }
-
-                    if (!response) {
-                        throw new Error('Notebook not found')
+                        try {
+                            response = await api.notebooks.get(props.shortId)
+                        } catch (e: any) {
+                            if (e.status === 404) {
+                                return null
+                            }
+                            throw e
+                        }
                     }
 
                     const notebook = migrate(response)
@@ -258,6 +266,13 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
                 },
+                renameNotebook: async ({ title }) => {
+                    if (!values.notebook) {
+                        return values.notebook
+                    }
+                    const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    return response
+                },
             },
         ],
 
@@ -293,7 +308,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    await openNotebook(response.short_id, NotebookTarget.Auto)
+                    await openNotebook(response.short_id, props.target ?? NotebookTarget.Scene)
 
                     return response
                 },

@@ -193,7 +193,7 @@ describe('savedInsightsLogic', () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
-        await logic.actions.duplicateInsight(sourceInsight)
+        await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' })
@@ -204,7 +204,7 @@ describe('savedInsightsLogic', () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
-        await logic.actions.duplicateInsight(sourceInsight)
+        await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' })

@@ -39,7 +39,7 @@ export function Animation({
     // Actually fetch the animation. Uses a cache to avoid multiple requests for the same file.
     // Show a fallback spinner if failed to fetch.
     useEffect(() => {
-        let unmounted = false
+        let unmounted = false // Poor person's abort controller
         async function loadAnimation(): Promise<void> {
             try {
                 const source = await getAnimationSource(type)
@@ -48,7 +48,7 @@ export function Animation({
                 !unmounted && setShowFallbackSpinner(true)
             }
         }
-        loadAnimation()
+        void loadAnimation()
         return () => {
             unmounted = true
         }

@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server'],
+    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
     env,
     settings: {
         react: {
@@ -27,12 +27,12 @@ module.exports = {
     },
     extends: [
         'eslint:recommended',
-        'plugin:@typescript-eslint/recommended',
+        'plugin:@typescript-eslint/recommended-type-checked',
         'plugin:react/recommended',
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
-        'prettier',
         'plugin:compat/recommended',
+        'prettier',
     ],
     globals,
     parser: '@typescript-eslint/parser',
@@ -42,6 +42,7 @@ module.exports = {
         },
         ecmaVersion: 2018,
         sourceType: 'module',
+        project: 'tsconfig.json'
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat', 'posthog'],
     rules: {
@@ -72,7 +73,27 @@ module.exports = {
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
         '@typescript-eslint/ban-ts-comment': 'off',
-        '@typescript-eslint/no-non-null-assertion': 'error',
+        '@typescript-eslint/require-await': 'off', // TODO: Enable - this rule is useful, but doesn't have an autofix
+        '@typescript-eslint/no-unsafe-assignment': 'off',
+        '@typescript-eslint/no-unsafe-member-access': 'off',
+        '@typescript-eslint/no-unsafe-enum-comparison': 'off',
+        '@typescript-eslint/no-unsafe-argument': 'off',
+        '@typescript-eslint/no-unsafe-return': 'off',
+        '@typescript-eslint/no-unsafe-call': 'off',
+        '@typescript-eslint/no-explicit-any': 'off',
+        '@typescript-eslint/restrict-template-expressions': 'off',
+        '@typescript-eslint/explicit-function-return-type': [
+            'error',
+            {
+                allowExpressions: true,
+            },
+        ],
+        '@typescript-eslint/explicit-module-boundary-types': [
+            'error',
+            {
+                allowArgumentsExplicitlyTypedAsAny: true,
+            },
+        ],
         curly: 'error',
         'no-restricted-imports': [
             'error',
@@ -82,11 +103,20 @@ module.exports = {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
                     },
+                    {
+                        name: '@ant-design/icons',
+                        message: 'Please use icons from the @posthog/icons package instead',
+                    },
+                    {
+                        name: 'antd',
+                        importNames: ['Tooltip'],
+                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
+                    },
                 ],
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -98,7 +128,7 @@ module.exports = {
             },
         ],
         'posthog/warn-elements': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -109,10 +139,6 @@ module.exports = {
                     {
                         element: 'Col',
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Divider',
@@ -143,14 +169,18 @@ module.exports = {
                         message: 'use <LemonSelect> instead',
                     },
                     {
-                        element: 'a',
-                        message: 'use <Link> instead',
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
+                    {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
                     },
                 ],
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -160,6 +190,10 @@ module.exports = {
                     {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
+                    },
+                    {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Spin',
@@ -172,6 +206,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',
@@ -189,12 +227,17 @@ module.exports = {
                         element: 'ReactMarkdown',
                         message: 'use <LemonMarkdown> instead',
                     },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
-        'no-constant-condition': 0,
-        'no-prototype-builtins': 0,
-        'no-irregular-whitespace': 0,
+        'no-constant-binary-expression': 'error',
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
         {
@@ -208,43 +251,29 @@ module.exports = {
                 ...globals,
                 given: 'readonly',
             },
+            rules: {
+                // The below complains needlessly about expect(api.createInvite).toHaveBeenCalledWith(...)
+                '@typescript-eslint/unbound-method': 'off',
+            }
         },
         {
             // disable these rules for files generated by kea-typegen
             files: ['*Type.ts', '*Type.tsx'],
             rules: {
-                '@typescript-eslint/no-explicit-any': ['off'],
+                'no-restricted-imports': 'off',
                 '@typescript-eslint/ban-types': ['off'],
-            },
-        },
-        {
-            // enable the rule specifically for TypeScript files
-            files: ['*.ts', '*.tsx'],
-            rules: {
-                '@typescript-eslint/no-explicit-any': ['off'],
-                '@typescript-eslint/explicit-function-return-type': [
-                    'error',
-                    {
-                        allowExpressions: true,
-                    },
-                ],
-                '@typescript-eslint/explicit-module-boundary-types': [
-                    'error',
-                    {
-                        allowArgumentsExplicitlyTypedAsAny: true,
-                    },
-                ],
             },
         },
         {
             files: ['*.js'],
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
+                '@typescript-eslint/explicit-function-return-type': 'off',
+                '@typescript-eslint/explicit-module-boundary-types': 'off',
             },
         },
         {
             files: 'eslint-rules/**/*',
-            extends: ['eslint:recommended'],
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
             },

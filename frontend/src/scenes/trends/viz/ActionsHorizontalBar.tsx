@@ -15,7 +15,7 @@ import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -80,7 +80,6 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
             trendsFilter={trendsFilter}
             formula={formula}
             showValueOnSeries={showValueOnSeries}
-            inCardView={inCardView}
             onClick={
                 !showPersonsModal || trendsFilter?.formula
                     ? undefined

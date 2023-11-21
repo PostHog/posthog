@@ -1,6 +1,6 @@
 import { loaders } from 'kea-loaders'
 import { kea, props, key, path, actions, reducers, selectors, listeners, events } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
+import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -19,6 +19,7 @@ import { insightActivityDescriber } from 'scenes/saved-insights/activityDescript
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -104,7 +105,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     })),
     listeners(({ actions }) => ({
         setPage: async (_, breakpoint) => {
-            await breakpoint()
+            breakpoint()
             actions.fetchActivity()
         },
     })),

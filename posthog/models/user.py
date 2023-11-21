@@ -1,14 +1,5 @@
 from functools import cached_property
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypedDict,
-)
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -237,6 +228,8 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
+        if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
+            self.update_billing_customer_email(organization)
         self.update_billing_distinct_ids(organization)
         return membership
 
@@ -267,6 +260,12 @@ class User(AbstractUser, UUIDClassicModel):
 
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
+
+    def update_billing_customer_email(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

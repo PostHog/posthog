@@ -13,12 +13,13 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
     }),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -84,14 +85,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [s.insight],
-            (insight): Breadcrumb[] => [
+            (s) => [s.insight, s.insightLogicRef],
+            (insight, insightLogicRef): Breadcrumb[] => [
                 {
-                    name: 'Insights',
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
                     path: urls.savedInsights(),
                 },
                 {
+                    key: insight?.short_id || 'new',
                     name: insight?.name || insight?.derived_name || 'Unnamed',
+                    onRename: async (name: string) => {
+                        await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                    },
                 },
             ],
         ],
@@ -233,6 +239,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         enabled: () => {
             // safeguard against running this check on other scenes
             if (values.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            if (values.isDev) {
                 return false
             }
 

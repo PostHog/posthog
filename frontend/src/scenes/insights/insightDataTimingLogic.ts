@@ -51,8 +51,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -66,6 +65,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 insight: values.query.kind,
                 is_primary_interaction: true,
             })
+
             actions.removeQuery(payload.queryId)
         },
         loadDataFailure: ({ errorObject }) => {
@@ -75,8 +75,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[errorObject.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: errorObject.queryId,
@@ -90,12 +89,12 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 insight: values.query.kind,
                 is_primary_interaction: true,
             })
+
             actions.removeQuery(errorObject.queryId)
         },
         loadDataCancellation: (payload) => {
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -107,6 +106,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 api_response_bytes: 0,
                 insight: values.query.kind,
             })
+
             actions.removeQuery(payload.queryId)
         },
     })),

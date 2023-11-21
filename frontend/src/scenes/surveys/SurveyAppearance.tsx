@@ -1,5 +1,5 @@
 import './SurveyAppearance.scss'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
@@ -7,6 +7,8 @@ import {
     SurveyQuestionType,
     MultipleSurveyQuestion,
     AvailableFeature,
+    BasicSurveyQuestion,
+    LinkSurveyQuestion,
 } from '~/types'
 import { defaultSurveyAppearance } from './constants'
 import {
@@ -23,16 +25,13 @@ import {
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
-import { sanitize } from 'dompurify'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
-    question: string
     appearance: SurveyAppearanceType
     surveyQuestionItem: SurveyQuestion
-    description?: string | null
-    link?: string | null
     preview?: boolean
 }
 
@@ -87,11 +86,8 @@ const Button = ({
 
 export function SurveyAppearance({
     type,
-    question,
     appearance,
     surveyQuestionItem,
-    description,
-    link,
     preview,
 }: SurveyAppearanceProps): JSX.Element {
     return (
@@ -101,8 +97,6 @@ export function SurveyAppearance({
                     preview={preview}
                     ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
                     appearance={appearance}
-                    question={question}
-                    description={description}
                     onSubmit={() => undefined}
                 />
             )}
@@ -110,10 +104,8 @@ export function SurveyAppearance({
                 surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
                 <SurveyMultipleChoiceAppearance
                     preview={preview}
-                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    multipleChoiceQuestion={surveyQuestionItem}
                     appearance={appearance}
-                    question={question}
-                    description={description}
                     onSubmit={() => undefined}
                 />
             )}
@@ -121,11 +113,8 @@ export function SurveyAppearance({
                 surveyQuestionItem.type === SurveyQuestionType.Link) && (
                 <BaseAppearance
                     preview={preview}
-                    type={type}
-                    question={question}
-                    description={description}
+                    question={surveyQuestionItem}
                     appearance={appearance}
-                    link={link}
                     onSubmit={() => undefined}
                 />
             )}
@@ -143,11 +132,6 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     <></>
                 </PayGateMini>
             )}
-            <div className="mt-2">Button text</div>
-            <LemonInput
-                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-            />
             <div className="mt-2">Background color</div>
             <LemonInput
                 value={appearance?.backgroundColor}
@@ -224,6 +208,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         </div>
                     }
                     onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    checked={appearance?.whiteLabel}
                     disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
                 />
             </div>
@@ -233,20 +218,14 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
 
 // This should be synced to the UI of the surveys app plugin
 export function BaseAppearance({
-    type,
     question,
     appearance,
     onSubmit,
-    description,
-    link,
     preview,
 }: {
-    type: SurveyQuestionType
-    question: string
+    question: BasicSurveyQuestion | LinkSurveyQuestion
     appearance: SurveyAppearanceType
     onSubmit: () => void
-    description?: string | null
-    link?: string | null
     preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
@@ -283,14 +262,20 @@ export function BaseAppearance({
                     </div>
                 )}
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                    <div
+                        className="survey-question"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(question.question) }}
+                    />
                     {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
                     They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
                     you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
-                    {description && (
-                        <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                    {question.description && (
+                        <div
+                            className="description"
+                            dangerouslySetInnerHTML={{ __html: sanitizeHTML(question.description) }}
+                        />
                     )}
-                    {type === SurveyQuestionType.Open && (
+                    {question.type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
                             style={{
@@ -309,18 +294,18 @@ export function BaseAppearance({
                         <Button
                             {...(preview ? { tabIndex: -1 } : null)}
                             appearance={appearance}
-                            link={link}
+                            link={question.type === SurveyQuestionType.Link ? question.link : null}
                             onSubmit={onSubmit}
-                            type={type}
+                            type={question.type}
                         >
-                            {appearance.submitButtonText}
+                            {question.buttonText || appearance.submitButtonText}
                         </Button>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -445,16 +430,12 @@ const EmojiRating = ({
 export function SurveyRatingAppearance({
     ratingSurveyQuestion,
     appearance,
-    question,
     onSubmit,
-    description,
     preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
-    question: string
     onSubmit: () => void
-    description?: string | null
     preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
@@ -490,9 +471,15 @@ export function SurveyRatingAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
-                {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                <div
+                    className="survey-question"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(ratingSurveyQuestion.question) }}
+                />
+                {ratingSurveyQuestion.description && (
+                    <div
+                        className="description"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(ratingSurveyQuestion.description) }}
+                    />
                 )}
                 <div className="rating-section">
                     <div className="rating-options">
@@ -523,14 +510,14 @@ export function SurveyRatingAppearance({
                                 appearance={appearance}
                                 onSubmit={onSubmit}
                             >
-                                {appearance.submitButtonText}
+                                {ratingSurveyQuestion.buttonText || appearance.submitButtonText}
                             </Button>
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
-                            <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            <Link to="https://posthog.com" target="_blank" className="footer-branding">
                                 Survey by {posthogLogoSVG}
-                            </a>
+                            </Link>
                         )}
                     </div>
                 </div>
@@ -542,17 +529,13 @@ export function SurveyRatingAppearance({
 export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
-    question,
     onSubmit,
-    description,
     preview,
     initialChecked,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
-    question: string
     onSubmit: () => void
-    description?: string | null
     preview?: boolean
     initialChecked?: number[]
 }): JSX.Element {
@@ -590,9 +573,15 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
-                {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                <div
+                    className="survey-question"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.question) }}
+                />
+                {multipleChoiceQuestion.description && (
+                    <div
+                        className="description"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.description) }}
+                    />
                 )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
@@ -603,7 +592,7 @@ export function SurveyMultipleChoiceAppearance({
                                 name="choice"
                                 value={choice}
                             />
-                            <label style={{ color: textColor }}>{choice}</label>
+                            <label>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}
@@ -611,14 +600,14 @@ export function SurveyMultipleChoiceAppearance({
                 <div className="bottom-section">
                     <div className="buttons">
                         <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
-                            {appearance.submitButtonText}
+                            {multipleChoiceQuestion.buttonText || appearance.submitButtonText}
                         </Button>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -658,19 +647,21 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                 </div>
                 <h3
                     className="thank-you-message-header"
-                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageHeader || 'Thank you!') }}
+                    dangerouslySetInnerHTML={{
+                        __html: sanitizeHTML(appearance?.thankYouMessageHeader || 'Thank you!'),
+                    }}
                 />
                 <div
                     className="thank-you-message-body"
-                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageDescription || '') }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance?.thankYouMessageDescription || '') }}
                 />
                 <Button appearance={appearance} onSubmit={() => undefined}>
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
-                    <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                    <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
-                    </a>
+                    </Link>
                 )}
             </div>
         </div>

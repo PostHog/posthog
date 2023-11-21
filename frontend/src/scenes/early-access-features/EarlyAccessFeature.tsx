@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
@@ -64,7 +64,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     return (
-        <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
+        <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
                 title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
                 buttons={
@@ -95,6 +95,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
+                                    form="early-access-feature"
                                 >
                                     {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                 </LemonButton>
@@ -146,7 +147,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         type="secondary"
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
                                     >
-                                        Reactivate Beta
+                                        Reactivate beta
                                     </LemonButton>
                                 )}
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
@@ -155,7 +156,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         tooltip={'Make beta feature available'}
                                         type="primary"
                                     >
-                                        Release Beta
+                                        Release beta
                                     </LemonButton>
                                 )}
                                 <LemonDivider vertical />
@@ -326,9 +327,9 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                 emptyState={
                                     <div>
                                         No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                                        <a onClick={toggleImplementOptInInstructionsModal}>
+                                        <Link onClick={toggleImplementOptInInstructionsModal}>
                                             implementing public opt-in
-                                        </a>
+                                        </Link>
                                     </div>
                                 }
                             />
@@ -350,9 +351,9 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                 emptyState={
                                     <div>
                                         No manual opt-outs. Manually opted-out people will appear here. Start by{' '}
-                                        <a onClick={toggleImplementOptInInstructionsModal}>
+                                        <Link onClick={toggleImplementOptInInstructionsModal}>
                                             implementing public opt-out
-                                        </a>
+                                        </Link>
                                     </div>
                                 }
                             />

@@ -1,4 +1,3 @@
-import { Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Form } from 'kea-forms'
@@ -163,11 +162,11 @@ export function SecondaryMetrics({
                 </Form>
             </LemonModal>
             {experimentId == 'new' || editingExistingExperiment ? (
-                <Row>
-                    <Col>
+                <div className="flex">
+                    <div>
                         {metrics.map((metric, idx) => (
-                            <Row key={idx} className="mt-4 border rounded p-4">
-                                <Row align="middle" justify="space-between" className="w-full mb-3 pb-2 border-b">
+                            <div key={idx} className="mt-4 border rounded p-4">
+                                <div className="flex items-center justify-between w-full mb-3 pb-2 border-b">
                                     <div>
                                         <b>{metric.name}</b>
                                     </div>
@@ -185,7 +184,7 @@ export function SecondaryMetrics({
                                             onClick={() => deleteMetric(idx)}
                                         />
                                     </div>
-                                </Row>
+                                </div>
                                 {metric.filters.insight === InsightType.FUNNELS && (
                                     <ActionFilter
                                         bordered
@@ -226,19 +225,17 @@ export function SecondaryMetrics({
                                         readOnly={true}
                                     />
                                 )}
-                            </Row>
+                            </div>
                         ))}
                         {metrics && !(metrics.length > 2) && (
-                            <Col>
-                                <div className="mb-2 mt-4">
-                                    <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
-                                        Add metric
-                                    </LemonButton>
-                                </div>
-                            </Col>
+                            <div className="mb-2 mt-4">
+                                <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
+                                    Add metric
+                                </LemonButton>
+                            </div>
                         )}
-                    </Col>
-                </Row>
+                    </div>
+                </div>
             ) : (
                 <>
                     <div className="card-secondary mt-4 mb-1">Secondary metrics</div>

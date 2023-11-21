@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
-import { copyToClipboard, deleteWithUndo } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -158,8 +159,8 @@ export function OverViewTab({
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={async () => {
-                                        await copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={() => {
+                                        void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
@@ -210,13 +211,21 @@ export function OverViewTab({
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
+                                            void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
-                                        disabled={!featureFlag.can_edit}
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                : (featureFlag.features?.length || 0) > 0
+                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                : null
+                                        }
                                         fullWidth
                                     >
                                         Delete feature flag
@@ -249,6 +258,7 @@ export function OverViewTab({
                     <div>
                         <div className="flex justify-between mb-4">
                             <LemonInput
+                                className="w-60"
                                 type="search"
                                 placeholder={searchPlaceholder || ''}
                                 onChange={setSearchTerm}
@@ -426,10 +436,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties as AnyPropertyFilter[]}
-                        style={{ margin: 0, flexDirection: 'column' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )
         } else if (rollout_percentage !== null) {

@@ -10,6 +10,7 @@ import {
     createPluginAttachment,
     createPluginConfig,
     createTeam,
+    enablePluginConfig,
     fetchEvents,
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
@@ -388,23 +389,31 @@ test.concurrent(
             properties: properties,
         }
 
-        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
         await waitForExpect(async () => {
+            // We might have not completed the setup properly in time, so to avoid flaky tests, we'll
+            // try sending messages and checking the last log message until we get the expected result.
+            await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
             const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
             const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-            expect(onEvent.length).toBeGreaterThan(0)
-
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.elements).toEqual([
+            const lastLogEntry = onEvent.length > 0 ? onEvent[onEvent.length - 1] : null
+            expect(lastLogEntry).toEqual(
                 expect.objectContaining({
-                    attributes: {},
-                    nth_child: 1,
-                    nth_of_type: 2,
-                    tag_name: 'div',
-                    text: '💻',
-                }),
-            ])
+                    message: [
+                        'onEvent',
+                        expect.objectContaining({
+                            elements: [
+                                expect.objectContaining({
+                                    attributes: {},
+                                    nth_child: 1,
+                                    nth_of_type: 2,
+                                    tag_name: 'div',
+                                    text: '💻',
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            )
         })
     },
     20000
@@ -573,7 +582,9 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    // Create the pluginconfig disabled to avoid it being loaded by a concurrent test
+    // before the attachment is available.
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, false)
     await createPluginAttachment({
         teamId,
         pluginConfigId: pluginConfig.id,
@@ -583,6 +594,7 @@ test.concurrent('plugins can use attachements', async () => {
         key: 'testAttachment',
         contents: 'test',
     })
+    await enablePluginConfig(teamId, plugin.id)
 
     await reloadPlugins()
 

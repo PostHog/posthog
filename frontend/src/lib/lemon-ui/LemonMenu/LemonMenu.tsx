@@ -1,7 +1,6 @@
-import React, { FunctionComponent, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
@@ -152,7 +151,7 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
     buttonSize: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
 
@@ -201,7 +200,7 @@ export function LemonMenuSectionList({
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
     buttonSize: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
 }
@@ -234,7 +233,7 @@ export function LemonMenuItemList({
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
     size: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
@@ -256,7 +255,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     size={size}
                     {...buttonProps}
                 >
-                    {label as string | JSX.Element}
+                    {label as ReactNode}
                     {keyboardShortcut && (
                         <div className="-mr-0.5 inline-flex grow justify-end">
                             {/* Show the keyboard shortcut on the right */}

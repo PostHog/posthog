@@ -1,4 +1,4 @@
-import { Row, Col, InputNumber, Select } from 'antd'
+import { InputNumber, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,7 +18,7 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { cohortsModel } from '~/models/cohortsModel'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import clsx from 'clsx'
 
@@ -75,11 +75,11 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
                             <div>
                                 {group.properties?.length ? (
@@ -100,9 +100,9 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {!readOnly && (
-                            <Row>
+                            <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
                                     status="muted"
@@ -117,19 +117,19 @@ export function FeatureFlagReleaseConditions({
                                         onClick={() => removeConditionSet(index)}
                                     />
                                 )}
-                            </Row>
+                            </div>
                         )}
-                    </Row>
+                    </div>
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
                             your product or website.{' '}
-                            <a href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags" target="_blank">
+                            <Link to="https://posthog.com/docs/integrate/client/js#bootstrapping-flags" target="_blank">
                                 {' '}
                                 Learn more about how to make feature flags available instantly.
-                            </a>
+                            </Link>
                         </LemonBanner>
                     )}
 
@@ -159,15 +159,14 @@ export function FeatureFlagReleaseConditions({
                                         ) : null}
 
                                         {property.type === 'cohort' ? (
-                                            <a
-                                                href={urls.cohort(property.value)}
+                                            <Link
+                                                to={urls.cohort(property.value)}
                                                 target="_blank"
-                                                rel="noopener"
                                                 className="simple-tag tag-light-blue text-primary-alt display-value"
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||
                                                     `ID ${property.value}`}
-                                            </a>
+                                            </Link>
                                         ) : (
                                             [
                                                 ...(Array.isArray(property.value) ? property.value : [property.value]),
@@ -245,7 +244,7 @@ export function FeatureFlagReleaseConditions({
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
@@ -315,7 +314,7 @@ export function FeatureFlagReleaseConditions({
                         </>
                     )}
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -324,12 +323,15 @@ export function FeatureFlagReleaseConditions({
             return <></>
         }
 
+        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
+        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
+
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -344,8 +346,8 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
-                    </Row>
+                        </div>
+                    </div>
                     <LemonDivider className="my-3" />
 
                     {(group.properties?.length || 0) > 0 && (
@@ -363,9 +365,13 @@ export function FeatureFlagReleaseConditions({
                             <LemonDivider className="my-3" />
                         </>
                     )}
-                    <Row justify="space-between" align="middle">
+                    <div className="flex items-center justify-between">
                         <div />
                         <LemonButton
+                            disabledReason={
+                                !hasMatchingEarlyAccessFeature &&
+                                'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
+                            }
                             aria-label="more"
                             data-attr={'feature-flag-feature-list-button'}
                             status="primary"
@@ -376,11 +382,11 @@ export function FeatureFlagReleaseConditions({
                                 router.actions.push(urls.earlyAccessFeature(featureFlag.features[0].id))
                             }
                         >
-                            View Early Access Feature
+                            {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
                         </LemonButton>
-                    </Row>
+                    </div>
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -450,11 +456,11 @@ export function FeatureFlagReleaseConditions({
                     </div>
                 )}
             </div>
-            <Row className="FeatureConditionCard" gutter={16}>
+            <div className="FeatureConditionCard">
                 {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
-            </Row>
+            </div>
             {!readOnly && (
                 <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set

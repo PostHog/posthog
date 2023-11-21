@@ -22,9 +22,9 @@ export const WebTabs = ({
 
     return (
         <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch">
-                {<h2 className="flex-1 m-0 mb-1">{activeTab?.title}</h2>}
-                <div className="flex flex-col items-stretch">
+            <div className="flex flex-row items-center self-stretch mb-3">
+                {<h2 className="flex-1 m-0">{activeTab?.title}</h2>}
+                <div className="flex flex-col items-stretch relative">
                     {tabs.length > 1 && (
                         // TODO switch to a select if more than 3
                         <ul className="flex flex-row items-center space-x-2" ref={containerRef}>
@@ -59,7 +59,7 @@ export const WebTabs = ({
                     </div>
                 </div>
             </div>
-            <div>{activeTab?.content}</div>
+            <div className="flex-1 flex flex-col">{activeTab?.content}</div>
         </div>
     )
 }

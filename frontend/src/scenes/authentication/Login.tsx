@@ -14,10 +14,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { captureException } from '@sentry/react'
 import { SupportModalButton } from './SupportModalButton'
+import { useButtonStyle } from './useButtonStyles'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -25,9 +24,9 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_sso_provider: (
         <>
             The SSO provider you specified is invalid. Visit{' '}
-            <a href="https://posthog.com/sso" target="_blank">
+            <Link to="https://posthog.com/sso" target="_blank">
                 https://posthog.com/sso
-            </a>{' '}
+            </Link>{' '}
             for details.
         </>
     ),
@@ -35,9 +34,9 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
         <>
             Cannot login with SSO provider because the provider is not configured, or your instance does not have the
             required license. Please visit{' '}
-            <a href="https://posthog.com/sso" target="_blank">
+            <Link to="https://posthog.com/sso" target="_blank">
                 https://posthog.com/sso
-            </a>{' '}
+            </Link>{' '}
             for details.
         </>
     ),
@@ -54,19 +53,18 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+    const buttonStyles = useButtonStyle()
 
     useEffect(() => {
-        try {
-            // Turn on E2E test when this flag is removed
-            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
+        if (preflight?.cloud) {
+            try {
                 redirectIfLoggedInOtherInstance()
+            } catch (e) {
+                captureException(e)
             }
-        } catch (e) {
-            captureException(e)
         }
     }, [])
 
@@ -150,6 +148,7 @@ export function Login(): JSX.Element {
                             type="primary"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
+                            {...buttonStyles}
                         >
                             Log in
                         </LemonButton>

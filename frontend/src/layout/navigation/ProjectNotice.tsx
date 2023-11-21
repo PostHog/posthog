@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { ProductKey } from '~/types'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -44,11 +45,11 @@ export function ProjectNotice(): JSX.Element | null {
                             When you're ready, head on over to the{' '}
                             <Link
                                 onClick={() => {
-                                    updateCurrentTeam(altTeamForIngestion?.id, urls.ingestion())
+                                    updateCurrentTeam(altTeamForIngestion?.id, urls.products())
                                 }}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
-                                ingestion wizard
+                                onboarding wizard
                             </Link>{' '}
                             to get started with your own data.
                         </>
@@ -60,18 +61,21 @@ export function ProjectNotice(): JSX.Element | null {
             message: (
                 <>
                     This project has no events yet. Go to the{' '}
-                    <Link to="/ingestion" data-attr="real_project_with_no_events-ingestion_link">
-                        ingestion wizard
+                    <Link
+                        to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS)}
+                        data-attr="real_project_with_no_events-ingestion_link"
+                    >
+                        onboarding wizard
                     </Link>{' '}
                     or grab your project API key/HTML snippet from{' '}
-                    <Link to="/project/settings" data-attr="real_project_with_no_events-settings">
+                    <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
                         Project Settings
                     </Link>{' '}
                     to get things moving
                 </>
             ),
             action: {
-                to: '/ingestion',
+                to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconSettings />,
                 children: 'Go to wizard',

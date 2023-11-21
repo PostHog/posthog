@@ -24,6 +24,7 @@ import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, Prope
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { OperandTag } from './OperandTag'
 
 let uniqueMemoizedIndex = 0
 
@@ -39,6 +40,7 @@ export function TaxonomicPropertyFilter({
     addText = 'Add filter',
     hasRowOperator,
     hogQLTable,
+    propertyAllowList,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -71,6 +73,7 @@ export function TaxonomicPropertyFilter({
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
         eventNames,
+        propertyAllowList,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -101,12 +104,13 @@ export function TaxonomicPropertyFilter({
             taxonomicGroupTypes={groupTypes}
             hogQLTable={hogQLTable}
             eventNames={eventNames}
+            propertyAllowList={propertyAllowList}
         />
     )
 
     const { ref: wrapperRef, size } = useResizeBreakpoints({
         0: 'tiny',
-        400: 'small',
+        300: 'small',
         550: 'medium',
     })
 
@@ -145,7 +149,7 @@ export function TaxonomicPropertyFilter({
                                             <span>where</span>
                                         </>
                                     ) : (
-                                        <span className="stateful-badge and text-xs">AND</span>
+                                        <OperandTag operand="and" />
                                     )}
                                 </div>
                             )}

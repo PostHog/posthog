@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
@@ -59,6 +59,18 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         group4_created_at: rawEvent.group4_created_at
             ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
             : null,
+    }
+}
+export function convertToPostHogEvent(event: RawClickHouseEvent): PostHogEvent {
+    const properties = event.properties ? JSON.parse(event.properties) : {}
+    properties['$elements_chain'] = event.elements_chain // TODO: tests
+    return {
+        uuid: event.uuid,
+        event: event.event!,
+        team_id: event.team_id,
+        distinct_id: event.distinct_id,
+        properties,
+        timestamp: new Date(clickHouseTimestampToISO(event.timestamp)),
     }
 }
 

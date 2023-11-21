@@ -1,4 +1,3 @@
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState } from 'react'
 import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
@@ -8,6 +7,7 @@ import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsFilter } from '~/queries/schema'
+import { IconInfo } from '@posthog/icons'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
@@ -50,8 +50,8 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
 
     return (
         <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap">
-                Conversion window limit{' '}
+            <span className="flex whitespace-nowrap">
+                Conversion window limit
                 <Tooltip
                     title={
                         <>
@@ -63,7 +63,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                         </>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </span>
             <div className="flex items-center gap-2">

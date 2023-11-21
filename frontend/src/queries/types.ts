@@ -1,4 +1,4 @@
-import { InsightLogicProps } from '~/types'
+import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
 import { ComponentType, HTMLProps } from 'react'
 import { DataTableNode } from '~/queries/schema'
 
@@ -15,6 +15,18 @@ export interface QueryContext {
     emptyStateHeading?: string
     emptyStateDetail?: string
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
+    /** chart-specific rendering context **/
+    chartRenderingMetadata?: ChartRenderingMetadata
+}
+
+/** Pass custom rendering metadata to specific kinds of charts **/
+export interface ChartRenderingMetadata {
+    [ChartDisplayType.WorldMap]?: {
+        countryProps?: (countryCode: string, countryData: TrendResult | undefined) => Omit<HTMLProps<SVGElement>, 'key'>
+    }
+    [ChartDisplayType.ActionsPie]?: {
+        onSegmentClick?: (payload: GraphPointPayload) => void
+    }
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

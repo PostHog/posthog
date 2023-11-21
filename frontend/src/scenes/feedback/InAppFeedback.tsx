@@ -1,11 +1,8 @@
-import { LemonButton, LemonCollapse, LemonDivider, LemonModal } from '@posthog/lemon-ui'
-
+import { LemonButton, LemonCollapse, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-
-import './Feedback.scss'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
 
@@ -143,13 +140,13 @@ export function InAppFeedback(): JSX.Element {
             {!eventsLoading && events.length === 0 && (
                 <div>
                     No events found.{' '}
-                    <a
+                    <Link
                         onClick={() => {
                             toggleInAppFeedbackInstructions()
                         }}
                     >
                         Send feedback
-                    </a>{' '}
+                    </Link>{' '}
                     to use this feature.
                 </div>
             )}

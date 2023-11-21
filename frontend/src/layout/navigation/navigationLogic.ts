@@ -8,9 +8,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 
 export type ProjectNoticeVariant =
     | 'demo_project'
@@ -21,10 +20,10 @@ export type ProjectNoticeVariant =
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
-    connect({
-        values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
+    connect(() => ({
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
-    }),
+    })),
     actions({
         toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
         toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
@@ -35,10 +34,6 @@ export const navigationLogic = kea<navigationLogicType>([
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
-        showCreateOrganizationModal: true,
-        hideCreateOrganizationModal: true,
-        showCreateProjectModal: true,
-        hideCreateProjectModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
@@ -95,20 +90,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 toggleSitePopover: (state) => !state,
             },
         ],
-        isCreateOrganizationModalShown: [
-            false,
-            {
-                showCreateOrganizationModal: () => true,
-                hideCreateOrganizationModal: () => false,
-            },
-        ],
-        isCreateProjectModalShown: [
-            false,
-            {
-                showCreateProjectModal: () => true,
-                hideCreateProjectModal: () => false,
-            },
-        ],
         isProjectSwitcherShown: [
             false,
             {
@@ -139,10 +120,9 @@ export const navigationLogic = kea<navigationLogicType>([
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
         minimalTopBar: [
-            (s) => [s.activeScene],
-            (activeScene) => {
-                const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
-                return activeScene && minimalTopBarScenes.includes(activeScene)
+            (s) => [s.sceneConfig],
+            (sceneConfig) => {
+                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
             },
         ],
         isSideBarShown: [

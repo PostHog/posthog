@@ -15,13 +15,12 @@ import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
-    ensureTooltipElement,
+    ensureTooltip,
     filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -51,6 +50,11 @@ function getPercentageForDataPoint(context: Context): number {
     return ((context.dataset.data[context.dataIndex] as number) / total) * 100
 }
 
+export interface PieChartProps extends LineGraphProps {
+    showLabelOnSeries?: boolean | null
+    disableHoverOffset?: boolean | null
+}
+
 export function PieChart({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -61,12 +65,14 @@ export function PieChart({
     trendsFilter,
     formula,
     showValueOnSeries,
+    showLabelOnSeries,
     supportsPercentStackView,
     showPercentStackView,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
-}: LineGraphProps): JSX.Element {
+    disableHoverOffset,
+}: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
 
@@ -115,12 +121,14 @@ export function PieChart({
                 layout: {
                     padding: {
                         top: 12, // 12 px so that the label isn't cropped
+                        left: 20,
+                        right: 20,
                         bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
                     },
                 },
                 borderWidth: 0,
                 borderRadius: 0,
-                hoverOffset: onlyOneValue ? 0 : 16, // don't offset hovered segment if it is 100%
+                hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16, // don't offset hovered segment if it is 100%
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
@@ -136,7 +144,8 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            return showValueOnSeries !== false && // show if true or unset
+                            return (showValueOnSeries !== false || // show if true or unset
+                                showLabelOnSeries) &&
                                 context.dataset.data.length > 1 &&
                                 percentage > 5
                                 ? 'auto'
@@ -150,6 +159,10 @@ export function PieChart({
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
                         },
                         formatter: (value: number, context) => {
+                            if (showLabelOnSeries) {
+                                // cast to any as it seems like TypeScript types are wrong
+                                return (context.dataset as any).labels?.[context.dataIndex]
+                            }
                             if (isPercentStackView) {
                                 const percentage = getPercentageForDataPoint(context)
                                 return `${percentage.toFixed(1)}%`
@@ -177,7 +190,7 @@ export function PieChart({
                                 return
                             }
 
-                            const tooltipEl = ensureTooltipElement()
+                            const [tooltipRoot, tooltipEl] = ensureTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
                                 if (trendsFilter?.show_legend) {
@@ -204,7 +217,7 @@ export function PieChart({
 
                                 highlightSeries(seriesData[0].dataIndex)
 
-                                ReactDOM.render(
+                                tooltipRoot.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
@@ -250,8 +263,7 @@ export function PieChart({
                                                 : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
-                                    />,
-                                    tooltipEl
+                                    />
                                 )
                             }
 

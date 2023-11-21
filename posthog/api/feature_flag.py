@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import QuerySet, Q
+from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
 from rest_framework import (
     authentication,
@@ -39,7 +39,6 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
-    FeatureFlagMatcher,
     FeatureFlagDashboards,
     can_user_edit_feature_flag,
     get_all_feature_flags,
@@ -66,6 +65,7 @@ class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
+    rate = "600/minute"
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -257,7 +257,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team_id=self.context["team_id"], deleted=True).delete()
+        try:
+            FeatureFlag.objects.filter(
+                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
+            ).delete()
+        except deletion.RestrictedError:
+            raise exceptions.ValidationError(
+                "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
+            )
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
@@ -460,7 +467,7 @@ class FeatureFlagViewSet(
             raise exceptions.NotAuthenticated()
 
         feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
             .prefetch_related("analytics_dashboards")
@@ -476,7 +483,7 @@ class FeatureFlagViewSet(
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -496,11 +503,11 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[str, Cohort] = {}
+        seen_cohorts_cache: Dict[int, Cohort] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {
-                str(cohort.pk): cohort
+                cohort.pk: cohort
                 for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     team_id=self.team_id, deleted=False
                 )
@@ -540,12 +547,11 @@ class FeatureFlagViewSet(
                 ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
-                        parsed_cohort_id = str(id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if id in seen_cohorts_cache:
+                            cohort = seen_cohorts_cache[id]
                         else:
                             cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            seen_cohorts_cache[id] = cohort
 
                         if not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()

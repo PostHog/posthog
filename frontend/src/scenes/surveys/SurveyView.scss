@@ -15,16 +15,5 @@
     grid-template-rows: 1fr auto;
     margin-bottom: 10px;
     break-inside: avoid;
-    box-sizing: border-box; /* add this */
-    -moz-box-sizing: border-box; /* Firefox */
-    -webkit-box-sizing: border-box; /* Older Webkit browsers */
-}
-
-.masonry-item-text {
-    max-height: 305px;
-    overflow-y: scroll;
-}
-
-.masonry-item-link {
-    background-color: #fafaf9;
+    box-sizing: border-box;
 }

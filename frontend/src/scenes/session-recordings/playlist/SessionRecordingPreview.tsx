@@ -110,7 +110,7 @@ function ActivityIndicators({
                     )
                 })
             ) : (
-                <LemonSkeleton className="w-18 my-1" />
+                <LemonSkeleton className="w-18 h-4 my-1" />
             )}
         </div>
     )
@@ -162,7 +162,7 @@ function PinnedIndicator(): JSX.Element | null {
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
         <Tooltip title={'Indicates the recording has not been watched yet'}>
-            <div className="w-2 h-2 m-1 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+            <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
 }
@@ -236,8 +236,8 @@ export function SessionRecordingPreview({
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
         <div className="p-4 space-y-2">
-            <LemonSkeleton className="w-1/2" />
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton className="w-1/3 h-4" />
         </div>
     )
 }

@@ -10,10 +10,31 @@ import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+
+function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
+    return {
+        title: 'Title',
+        dataIndex: 'title',
+        width: '100%',
+        render: function Render(title, { short_id, is_template }) {
+            return (
+                <Link
+                    data-attr="notebook-title"
+                    to={urls.notebook(short_id)}
+                    className="font-semibold flex items-center gap-2"
+                >
+                    {title || 'Untitled'}
+                    {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                </Link>
+            )
+        },
+        sorter: (a, b) => (a.title ?? 'Untitled').localeCompare(b.title ?? 'Untitled'),
+    }
+}
 
 export function NotebooksTable(): JSX.Element {
     const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates } = useValues(notebooksTableLogic)
@@ -26,24 +47,7 @@ export function NotebooksTable(): JSX.Element {
     }, [])
 
     const columns: LemonTableColumns<NotebookListItemType> = [
-        {
-            title: 'Title',
-            dataIndex: 'title',
-            width: '100%',
-            render: function Render(title, { short_id, is_template }) {
-                return (
-                    <Link
-                        data-attr="notebook-title"
-                        to={urls.notebook(short_id)}
-                        className="font-semibold flex items-center gap-2"
-                    >
-                        {title || 'Untitled'}
-                        {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
-                    </Link>
-                )
-            },
-            sorter: (a, b) => (a.title ?? 'Untitled').localeCompare(b.title ?? 'Untitled'),
-        },
+        titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
         createdByColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined
@@ -92,8 +96,8 @@ export function NotebooksTable(): JSX.Element {
                 }}
                 dismissKey="notebooks-preview-banner"
             >
-                <b>Welcome to the preview of Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and
-                many more PostHog prodcuts together into one place.
+                <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
+                PostHog products together into one place.
             </LemonBanner>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
@@ -111,7 +115,7 @@ export function NotebooksTable(): JSX.Element {
                         <span>Created by:</span>
                         <LemonSelect
                             options={[
-                                { value: DEFAULT_FILTERS.createdBy as string, label: DEFAULT_FILTERS.createdBy },
+                                { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
                                 ...meFirstMembers.map((x) => ({
                                     value: x.user.uuid,
                                     label: x.user.first_name,
