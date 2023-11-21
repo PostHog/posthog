@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { actionBarLogic } from './actionBarLogic'
 import { IconChevronRight, IconEdit } from 'lib/lemon-ui/icons'
@@ -30,7 +29,6 @@ export const ActionInput = (): JSX.Element => {
                 className="CommandBar__input"
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
-                suffix={<KeyboardShortcut escape muted />}
                 placeholder={activeFlow?.instruction ?? 'Run a command…'}
                 autoFocus
                 value={input}

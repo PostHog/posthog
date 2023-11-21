@@ -7,6 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { router, combineUrl } from 'kea-router'
+import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
@@ -113,6 +114,7 @@ interface SSOEnforcedLoginButtonProps {
 }
 
 export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButtonProps): JSX.Element {
+    const buttonStyles = useButtonStyle()
     return (
         <SocialLoginLink provider={provider} extraQueryParams={{ email }}>
             <LemonButton
@@ -123,6 +125,7 @@ export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButt
                 fullWidth
                 center
                 icon={SocialLoginIcon(provider)}
+                {...buttonStyles}
             >
                 Log in with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>

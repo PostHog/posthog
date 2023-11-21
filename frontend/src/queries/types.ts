@@ -1,4 +1,4 @@
-import { ChartDisplayType, InsightLogicProps, TrendResult } from '~/types'
+import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
 import { ComponentType, HTMLProps } from 'react'
 import { DataTableNode } from '~/queries/schema'
 
@@ -23,6 +23,9 @@ export interface QueryContext {
 export interface ChartRenderingMetadata {
     [ChartDisplayType.WorldMap]?: {
         countryProps?: (countryCode: string, countryData: TrendResult | undefined) => Omit<HTMLProps<SVGElement>, 'key'>
+    }
+    [ChartDisplayType.ActionsPie]?: {
+        onSegmentClick?: (payload: GraphPointPayload) => void
     }
 }
 

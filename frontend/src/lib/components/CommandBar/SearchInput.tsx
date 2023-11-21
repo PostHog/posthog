@@ -15,7 +15,9 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
     const { setSearchQuery } = useActions(searchBarLogic)
 
     const modifierKey = isMac() ? '⌘' : '^'
-    const placeholder = `Search or press ${modifierKey}⇧K to go to commands…`
+    const placeholder = currentTeam
+        ? `Search the ${currentTeam.name} project or press ${modifierKey}⇧K to go to commands…`
+        : `Search or press ${modifierKey}⇧K to go to commands…`
 
     return (
         <div className="border-b">
@@ -25,12 +27,11 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
                 size="small"
                 className="CommandBar__input"
                 fullWidth
-                suffix={<KeyboardShortcut escape muted />}
+                suffix={<KeyboardShortcut escape />}
                 placeholder={placeholder}
                 autoFocus
                 value={searchQuery}
                 onChange={setSearchQuery}
-                placeholder={currentTeam ? `Search the ${currentTeam.name} project…` : 'Search…'}
             />
         </div>
     )
