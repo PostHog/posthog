@@ -248,6 +248,13 @@ const meta: Meta<typeof CommandBar> = {
             },
         }),
     ],
+    parameters: {
+        layout: 'fullscreen',
+        testOptions: {
+            snapshotTargetSelector: '[data-attr="command-bar"]',
+        },
+        viewMode: 'story',
+    },
 }
 export default meta
 

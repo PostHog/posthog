@@ -31,6 +31,7 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
             }}
         >
             <div
+                data-attr="command-bar"
                 className={`w-full ${
                     barStatus === BarStatus.SHOW_SEARCH && 'h-160'
                 } max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col border shadow`}
