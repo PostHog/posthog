@@ -16,7 +16,6 @@ import RegionSelect from './RegionSelect'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
 import { captureException } from '@sentry/react'
 import { SupportModalButton } from './SupportModalButton'
-import { useButtonStyle } from './useButtonStyles'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -56,7 +55,6 @@ export function Login(): JSX.Element {
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
-    const buttonStyles = useButtonStyle()
 
     useEffect(() => {
         if (preflight?.cloud) {
@@ -148,7 +146,6 @@ export function Login(): JSX.Element {
                             type="primary"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
-                            {...buttonStyles}
                         >
                             Log in
                         </LemonButton>

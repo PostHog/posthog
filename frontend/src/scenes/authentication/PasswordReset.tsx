@@ -14,7 +14,6 @@ import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { SupportModalButton } from './SupportModalButton'
-import { useButtonStyle } from './useButtonStyles'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -86,7 +85,6 @@ function EmailUnavailable(): JSX.Element {
 
 function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
-    const buttonStyles = useButtonStyle()
 
     return (
         <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
@@ -110,7 +108,6 @@ function ResetForm(): JSX.Element {
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
-                {...buttonStyles}
             >
                 Continue
             </LemonButton>
@@ -121,21 +118,13 @@ function ResetForm(): JSX.Element {
 function ResetSuccess(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    data-attr="back-to-login"
-                    center
-                    fullWidth
-                    onClick={() => push('/login')}
-                    {...buttonStyles}
-                >
+                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
                     Back to login
                 </LemonButton>
             </div>
@@ -146,7 +135,6 @@ function ResetSuccess(): JSX.Element {
 function ResetThrottled(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
@@ -157,14 +145,7 @@ function ResetThrottled(): JSX.Element {
             </Link>{' '}
             if you think this has been a mistake.
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    data-attr="back-to-login"
-                    center
-                    fullWidth
-                    onClick={() => push('/login')}
-                    {...buttonStyles}
-                >
+                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
                     Back to login
                 </LemonButton>
             </div>

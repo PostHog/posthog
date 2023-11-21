@@ -12,7 +12,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanel } from './sidepanel/SidePanel'
-import { MinimalNavigation } from './components/MinimalNavigation'
 
 export function Navigation({
     children,
@@ -22,22 +21,16 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)
-    const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+    const { activeNavbarItem } = useValues(navigation3000Logic)
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
-    if (mode !== 'full') {
-        return (
-            <div className="Navigation3000 flex-col">
-                {mode === 'minimal' ? <MinimalNavigation /> : null}
-                <main>{children}</main>
-            </div>
-        )
+    if (sceneConfig?.layout === 'plain') {
+        return <>{children}</>
     }
-
     return (
         <div className="Navigation3000">
             <Navbar />
@@ -49,7 +42,6 @@ export function Navigation({
                 <div
                     className={clsx(
                         'Navigation3000__scene',
-                        // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >

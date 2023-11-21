@@ -6,8 +6,7 @@
     display: flex;
     flex-direction: column;
     flex: 1;
-    overflow: hidden;
-    height: 100vh;
+    overflow: scroll;
 
     &::-webkit-scrollbar {
         width: 0 !important;
