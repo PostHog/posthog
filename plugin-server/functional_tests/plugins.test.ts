@@ -122,13 +122,13 @@ test.concurrent(`plugin method tests: records error in app metrics on unhandled 
         return events
     })
 
-    const errorDetails = await waitForExpect(async () => {
-        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((record) => record.error_type)
+    const error = await waitForExpect(async () => {
+        const errors = (await fetchPluginAppMetrics(pluginConfig.id)).filter((metric) => metric.error_type)
         expect(errors.length).toEqual(1)
         return errors[0]
-    }).error_details
+    })
 
-    expect(errorDetails).toMatchObject({
+    expect(JSON.parse(error.error_details as string)).toMatchObject({
         error: { message: 'error thrown in plugin' },
         event: { properties: event.properties },
     })

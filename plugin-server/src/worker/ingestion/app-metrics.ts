@@ -53,6 +53,21 @@ interface QueuedMetric {
     metric: AppMetricIdentifier
 }
 
+/** An aggregated AppMetric, as written to/read from a ClickHouse row. */
+export interface RawAppMetric {
+    timestamp: string
+    team_id: number
+    plugin_config_id: number
+    job_id?: string
+    category: string
+    successes: number
+    successes_on_retry: number
+    failures: number
+    error_uuid?: string
+    error_type?: string
+    error_details?: string
+}
+
 const MAX_STRING_LENGTH = 1000
 
 const safeJSONStringify = configure({
@@ -164,7 +179,7 @@ export class AppMetrics {
                 error_uuid: value.errorUuid,
                 error_type: value.errorType,
                 error_details: value.errorDetails,
-            }),
+            } as RawAppMetric),
         }))
 
         await this.kafkaProducer.queueMessage({

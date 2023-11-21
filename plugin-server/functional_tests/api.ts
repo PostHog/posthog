@@ -19,6 +19,7 @@ import {
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { createPostgresPool, UUIDT } from '../src/utils/utils'
+import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
@@ -331,19 +332,11 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
 }
 
 export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
-    // TODO: Improve type handling here: the structure of ``AppMetric`` is
-    // inconsistent with that of the ClickHouse schema (seemingly for stylistic
-    // reasons), so that will need to be bridged somehow.
-    const { data: appMetrics } = await clickHouseClient.querying(`
+    const { data: appMetrics } = (await clickHouseClient.querying(`
         SELECT * FROM app_metrics
         WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp
-    `)
-    return appMetrics.map((row) => {
-        if (row.error_type) {
-            row.error_details = JSON.parse(row.error_details)
-        }
-        return row
-    })
+    `)) as unknown as ClickHouse.ObjectQueryResult<RawAppMetric>
+    return appMetrics
 }
 
 export const createOrganization = async (organizationProperties = {}) => {
