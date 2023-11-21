@@ -3,7 +3,7 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { Elements } from './elements/Elements'
 import { Fade } from 'lib/components/Fade/Fade'
 import { toolbarLogic } from './bar/toolbarLogic'
-import { HedgehogButton } from './bar/HedgehogButton'
+import { HedgehogButton } from './hedgehog/HedgehogButton'
 import { Toolbar } from './bar/Toolbar'
 
 export function ToolbarContainer(): JSX.Element {

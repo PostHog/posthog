@@ -9,7 +9,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']],
     }),
     actions({
         toggleTheme: true,
@@ -36,12 +36,7 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [
-                s.darkModeSavedPreference,
-                s.darkModeSystemPreference,
-                s.featureFlags,
-                sceneLogic.selectors.sceneConfig,
-            ],
+            (s) => [s.darkModeSavedPreference, s.darkModeSystemPreference, s.featureFlags, s.sceneConfig],
             (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (

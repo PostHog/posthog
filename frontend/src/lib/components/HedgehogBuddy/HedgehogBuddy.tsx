@@ -1,6 +1,6 @@
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
+import { range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
@@ -13,13 +13,12 @@ import {
     standardAnimations,
     standardAccessories,
     AccessoryInfo,
-    accessoryGroups,
     baseSpritePath,
     baseSpriteAccessoriesPath,
 } from './sprites/sprites'
-import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import './HedgehogBuddy.scss'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { HedgehogAccessories } from './HedgehogAccessories'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -477,30 +476,7 @@ export function HedgehogBuddy({
             overlay={
                 popoverOverlay || (
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <h3>Hi, I'm Max!</h3>
-                        <p>
-                            Don't mind me. I'm just here to keep you company.
-                            <br />
-                            You can move me around by clicking and dragging or control me with WASD / arrow keys.
-                        </p>
-
-                        {accessoryGroups.map((group) => (
-                            <div key={group}>
-                                <h4>{capitalizeFirstLetter(group)}</h4>
-
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAccessories)
-                                        .filter((acc) => standardAccessories[acc].group === group)
-                                        .map((acc) => (
-                                            <HedgehogBuddyAccessory
-                                                key={acc}
-                                                accessoryKey={acc}
-                                                accessory={standardAccessories[acc]}
-                                            />
-                                        ))}
-                                </div>
-                            </div>
-                        ))}
+                        <HedgehogAccessories />
 
                         <LemonDivider />
                         <div className="flex justify-end gap-2">

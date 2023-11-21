@@ -8,8 +8,8 @@ import {
     IconToggle,
     IconX,
 } from '@posthog/icons'
-import { IconMenu, IconTarget } from 'lib/lemon-ui/icons'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { IconFlare, IconMenu, IconTarget } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
 import { useActions, useValues } from 'kea'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -23,12 +23,13 @@ import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { ToolbarButton } from './ToolbarButton'
 
 import './Toolbar.scss'
+import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme } = useActions(toolbarLogic)
+    const { setHedgehogMode, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
@@ -40,28 +41,42 @@ function MoreMenu(): JSX.Element {
             placement="top-end"
             fallbackPlacements={['bottom-end']}
             getPopupContainer={getToolbarContainer}
-            items={[
-                {
-                    icon: <>🦔</>,
-                    label: 'Hedgehog mode',
-                    onClick: () => {
-                        setHedgehogMode(!hedgehogMode)
+            items={
+                [
+                    {
+                        icon: <>🦔</>,
+                        label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                        onClick: () => {
+                            if (!hedgehogMode) {
+                                setVisibleMenu('hedgehog')
+                            }
+                            setHedgehogMode(!hedgehogMode)
+                        },
                     },
-                },
-                {
-                    icon: currentlyLightMode ? <IconNight /> : <IconDay />,
-                    label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
-                    onClick: () => toggleTheme(),
-                },
-                {
-                    icon: <IconQuestion />,
-                    label: 'Help',
-                    onClick: () => {
-                        window.open(HELP_URL, '_blank')?.focus()
+                    hedgehogMode
+                        ? {
+                              icon: <IconFlare />,
+                              label: 'Hedgehog accessories',
+                              onClick: () => {
+                                  setVisibleMenu('hedgehog')
+                              },
+                          }
+                        : undefined,
+                    {
+                        icon: currentlyLightMode ? <IconNight /> : <IconDay />,
+                        label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
+                        onClick: () => toggleTheme(),
                     },
-                },
-                { icon: <IconX />, label: 'Logout', onClick: logout },
-            ]}
+                    {
+                        icon: <IconQuestion />,
+                        label: 'Help',
+                        onClick: () => {
+                            window.open(HELP_URL, '_blank')?.focus()
+                        },
+                    },
+                    { icon: <IconX />, label: 'Logout', onClick: logout },
+                ].filter(Boolean) as LemonMenuItems
+            }
             maxContentWidth={true}
         >
             <ToolbarButton icon={<IconMenu />} title="More options" />
@@ -80,6 +95,8 @@ export function ToolbarInfoMenu(): JSX.Element {
         <HeatmapToolbarMenu />
     ) : visibleMenu === 'actions' ? (
         <ActionsToolbarMenu />
+    ) : visibleMenu === 'hedgehog' ? (
+        <HedgehogMenu />
     ) : null
 
     useEffect(() => {
