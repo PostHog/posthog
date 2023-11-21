@@ -93,6 +93,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
     private poEEmbraceJoin: boolean
+    private skipPersonProcessing: boolean
 
     constructor(
         event: PluginEvent,
@@ -102,6 +103,7 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined = undefined,
         poEEmbraceJoin = false,
+        skipPersonProcessing = false,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -122,9 +124,14 @@ export class PersonState {
 
         // For persons on events embrace the join gradual roll-out, remove after fully rolled out
         this.poEEmbraceJoin = poEEmbraceJoin
+        this.skipPersonProcessing = skipPersonProcessing
     }
 
     async update(): Promise<Person> {
+        if (this.skipPersonProcessing) {
+            const [person, _] = await this.createOrGetPerson()
+            return person
+        }
         const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
         if (person) {
             // try to shortcut if we have the person from identify or alias

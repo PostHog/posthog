@@ -54,7 +54,8 @@ class StepErrorNoRetry extends Error {
 }
 
 export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
-    const runner = new EventPipelineRunner(hub, event)
+    const skipPersonProcessing = hub.skipPersonProcessingForTeams?.(event.team_id)
+    const runner = new EventPipelineRunner(hub, event, false, skipPersonProcessing)
     return runner.runEventPipeline(event)
 }
 
@@ -64,10 +65,12 @@ export class EventPipelineRunner {
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
+    skipPersonProcessing: boolean
 
-    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false, skipPersonProcessing = false) {
         this.hub = hub
         this.poEEmbraceJoin = poEEmbraceJoin
+        this.skipPersonProcessing = skipPersonProcessing
         this.originalEvent = event
     }
 

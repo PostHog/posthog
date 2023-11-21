@@ -281,6 +281,8 @@ export interface Hub extends PluginsServerConfig {
     poeEmbraceJoinForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    // Skip person processing
+    skipPersonProcessingForTeams: ValueMatcher<number>
 }
 
 export interface PluginServerCapabilities {

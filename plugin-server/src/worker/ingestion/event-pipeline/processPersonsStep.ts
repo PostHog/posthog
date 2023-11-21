@@ -29,7 +29,8 @@ export async function processPersonsStep(
         timestamp,
         runner.hub.db,
         runner.hub.statsd,
-        runner.poEEmbraceJoin
+        runner.poEEmbraceJoin,
+        runner.skipPersonProcessing
     ).update()
 
     return [event, person]
