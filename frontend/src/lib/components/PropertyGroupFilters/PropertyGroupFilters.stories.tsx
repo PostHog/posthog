@@ -5,6 +5,7 @@ import { useMountedLogic } from 'kea'
 import { PropertyGroupFilters } from './PropertyGroupFilters'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { cohortsModel } from '~/models/cohortsModel'
+import { useStorybookMocks } from '~/mocks/browser'
 
 const meta: Meta<typeof PropertyGroupFilters> = {
     title: 'Filters/PropertyGroupFilters',
@@ -36,6 +37,11 @@ const taxonomicGroupTypes = [
 ]
 
 export function GroupPropertyFilters(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/event/values/': [],
+        },
+    })
     useMountedLogic(cohortsModel)
 
     const [propertyGroupFilter, setPropertyGroupFilter] = useState<PropertyGroupFilter>({
