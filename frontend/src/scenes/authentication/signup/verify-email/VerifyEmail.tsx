@@ -51,7 +51,7 @@ export function VerifyEmail(): JSX.Element {
     return (
         <div className="flex h-full flex-col">
             <div className="flex h-full">
-                <BridgePage view="verifyEmail" fixedWidth={false} className="VerifyEmailContent">
+                <BridgePage view="verifyEmail" fixedWidth={false}>
                     <div className="px-12 py-8 text-center flex flex-col items-center max-w-200">
                         {view === 'pending' ? (
                             <>
