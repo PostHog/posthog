@@ -70,7 +70,8 @@ jobs:
 
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
-                  export HOSTNAME=pr-$PR_NUM-${{ github.sha }}
+                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
+                  export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH}
                   export HOSTNAME=${HOSTNAME:0:38}
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
