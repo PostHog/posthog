@@ -27,7 +27,7 @@ describe('sessionPlayerModalLogic', () => {
         it('starts as null', () => {
             expectLogic(logic).toMatchValues({ activeSessionRecording: null })
         })
-        it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
+        it('is set by openSessionPlayer and cleared by closeSessionPlayer', () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
                 .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({

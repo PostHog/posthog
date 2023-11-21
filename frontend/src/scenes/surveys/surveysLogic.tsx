@@ -13,6 +13,7 @@ import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -150,6 +151,7 @@ export const surveysLogic = kea<surveysLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
                 },

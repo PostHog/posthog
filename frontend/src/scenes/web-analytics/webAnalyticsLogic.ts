@@ -184,7 +184,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         deviceTab: [
-            DeviceTab.BROWSER as string,
+            DeviceTab.DEVICE_TYPE as string,
             {
                 setDeviceTab: (_, { tab }) => tab,
             },
@@ -450,6 +450,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
+                                id: DeviceTab.DEVICE_TYPE,
+                                title: 'Top Device Types',
+                                linkText: 'Device Type',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        breakdown: { breakdown: '$device_type', breakdown_type: 'event' },
+                                        dateRange,
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueUsers,
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            display: ChartDisplayType.ActionsPie,
+                                            show_labels_on_series: true,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    hidePersonsModal: true,
+                                    vizSpecificOptions: {
+                                        [ChartDisplayType.ActionsPie]: {
+                                            disableHoverOffset: true,
+                                            hideAggregation: true,
+                                        },
+                                    },
+                                },
+                            },
+                            {
                                 id: DeviceTab.BROWSER,
                                 title: 'Top browsers',
                                 linkText: 'Browser',
@@ -475,21 +508,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.OS,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                            {
-                                id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top device types',
-                                linkText: 'Device type',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.DeviceType,
                                         dateRange,
                                     },
                                 },
@@ -619,6 +637,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
             },
         ],
+        hasDeviceTypeFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$device_type')
+            },
+        ],
+        hasBrowserFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$browser')
+            },
+        ],
+        hasOSFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$os')
+            },
+        ],
     })),
     loaders(() => ({
         // load the status check query here and pass the response into the component, so the response
@@ -661,12 +697,38 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         shouldShowGeographyTile: {
             _default: null as boolean | null,
             loadShouldShowGeographyTile: async (): Promise<boolean> => {
-                const response = await api.propertyDefinitions.list({
-                    event_names: ['$pageview'],
-                    properties: ['$geoip_country_code'],
-                })
-                const countryCodeDefinition = response.results.find((r) => r.name === '$geoip_country_code')
-                return !!countryCodeDefinition && !isDefinitionStale(countryCodeDefinition)
+                const [propertiesResponse, pluginsResponse, pluginsConfigResponse] = await Promise.allSettled([
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageview'],
+                        properties: ['$geoip_country_code'],
+                    }),
+                    api.loadPaginatedResults('api/organizations/@current/plugins'),
+                    api.loadPaginatedResults('api/plugin_config'),
+                ])
+
+                const hasNonStaleCountryCodeDefinition =
+                    propertiesResponse.status === 'fulfilled' &&
+                    propertiesResponse.value.results.some(
+                        (property) => property.name === '$geoip_country_code' && !isDefinitionStale(property)
+                    )
+
+                if (!hasNonStaleCountryCodeDefinition) {
+                    return false
+                }
+
+                const geoIpPlugin =
+                    pluginsResponse.status === 'fulfilled' &&
+                    pluginsResponse.value.find(
+                        (plugin) => plugin.url === 'https://www.npmjs.com/package/@posthog/geoip-plugin'
+                    )
+                const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
+
+                const geoIpPluginConfig =
+                    isNotNil(geoIpPluginId) &&
+                    pluginsConfigResponse.status === 'fulfilled' &&
+                    pluginsConfigResponse.value.find((plugin) => plugin.id === geoIpPluginId)
+
+                return !!geoIpPluginConfig && geoIpPluginConfig.enabled
             },
         },
     })),

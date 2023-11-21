@@ -3,7 +3,7 @@ import { kea, path, listeners } from 'kea'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
@@ -24,7 +24,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 },
                 deleteKey: async (key: PersonalAPIKeyType) => {
                     await api.delete(`api/personal_api_keys/${key.id}/`)
-                    return (values.keys as PersonalAPIKeyType[]).filter((filteredKey) => filteredKey.id != key.id)
+                    return values.keys.filter((filteredKey) => filteredKey.id != key.id)
                 },
             },
         ],

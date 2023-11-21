@@ -3,21 +3,11 @@ import { SettingsMap } from './SettingsMap'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SettingSection, Setting, SettingSectionId, SettingLevelId, SettingId } from './types'
+import { SettingSection, Setting, SettingSectionId, SettingLevelId, SettingId, SettingsLogicProps } from './types'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils'
-
-export type SettingsLogicProps = {
-    logicKey?: string
-    // Optional - if given, renders only the given level
-    settingLevelId?: SettingLevelId
-    // Optional - if given, renders only the given section
-    sectionId?: SettingSectionId
-    // Optional - if given, renders only the given setting
-    settingId?: SettingId
-}
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
@@ -94,10 +84,9 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     listeners(({ values }) => ({
-        selectSetting({ setting }) {
+        async selectSetting({ setting }) {
             const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-
-            copyToClipboard(window.location.origin + url)
+            await copyToClipboard(window.location.origin + url)
         },
     })),
 ])

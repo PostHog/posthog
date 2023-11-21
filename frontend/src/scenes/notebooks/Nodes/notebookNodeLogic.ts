@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
@@ -265,7 +264,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
     })),
 
-    afterMount(async (logic) => {
+    afterMount((logic) => {
         const { props, actions, values } = logic
         props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
 
@@ -281,10 +280,3 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
-
-export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)
-
-// Currently there is no way to optionally get bound logics so this context allows us to maybe get a logic if it is "bound" via the provider
-export const useNotebookNode = (): BuiltLogic<notebookNodeLogicType> | undefined => {
-    return useContext(NotebookNodeContext)
-}

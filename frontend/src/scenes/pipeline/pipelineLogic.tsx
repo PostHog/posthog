@@ -3,6 +3,7 @@ import type { pipelineLogicType } from './pipelineLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Breadcrumb, PipelineTabs } from '~/types'
+import { Scene } from 'scenes/sceneTypes'
 
 export const singularName = (tab: PipelineTabs): string => {
     switch (tab) {
@@ -43,12 +44,13 @@ export const pipelineLogic = kea<pipelineLogicType>([
         breadcrumbs: [
             (s) => [s.currentTab],
             (tab): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [{ name: 'Pipeline' }]
-                breadcrumbs.push({
-                    name: humanFriendlyTabName(tab),
-                })
-
-                return breadcrumbs
+                return [
+                    { key: Scene.Pipeline, name: 'Data pipeline' },
+                    {
+                        key: tab,
+                        name: humanFriendlyTabName(tab),
+                    },
+                ]
             },
         ],
     })),

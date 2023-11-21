@@ -27,7 +27,7 @@ export const appContextLogic = kea<appContextLogicType>([
         const preloadedUser = appContext?.current_user
 
         if (appContext && preloadedUser) {
-            api.get('api/users/@me/').then((remoteUser: UserType) => {
+            void api.get('api/users/@me/').then((remoteUser: UserType) => {
                 if (remoteUser.uuid !== preloadedUser.uuid) {
                     console.error(`Preloaded user ${preloadedUser.uuid} does not match remote user ${remoteUser.uuid}`)
                     Sentry.captureException(

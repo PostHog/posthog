@@ -1,14 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
-import {
-    eventDefinitionsTableLogic,
-    PROPERTY_DEFINITIONS_PER_EVENT,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)

@@ -9,7 +9,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import type { insightsSidebarLogicType } from './insightsType'
 import { findSearchTermInItemName } from './utils'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { api } from '@posthog/apps-common'
 import { insightsModel } from '~/models/insightsModel'
@@ -86,7 +86,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                             },
                                             {
                                                 onClick: () => {
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: actions.loadInsights,
@@ -116,7 +116,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                             for (let i = startIndex; i < startIndex + INSIGHTS_PER_PAGE; i++) {
                                 cache.requestedInsights[i] = true
                             }
-                            await savedInsightsLogic.actions.setSavedInsightsFilters(
+                            await savedInsightsLogic.asyncActions.setSavedInsightsFilters(
                                 { page: Math.floor(startIndex / INSIGHTS_PER_PAGE) + 1 },
                                 true,
                                 false

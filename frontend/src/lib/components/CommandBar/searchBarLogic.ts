@@ -25,17 +25,23 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setIsAutoScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         searchResponse: [
             null as SearchResponse | null,
             {
-                setSearchQuery: async ({ query }, breakpoint) => {
+                loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(300)
-                    return await api.get(`api/projects/@current/search?q=${query}`)
+                    if (values.activeTab === 'all') {
+                        return await api.get(`api/projects/@current/search?q=${values.searchQuery}`)
+                    } else {
+                        return await api.get(
+                            `api/projects/@current/search?q=${values.searchQuery}&entities=${values.activeTab}`
+                        )
+                    }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         keyboardResultIndex: [
@@ -87,11 +93,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     listeners(({ values, actions }) => ({
         openResult: ({ index }) => {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const result = values.searchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
+        setSearchQuery: actions.loadSearchResponse,
+        setActiveTab: actions.loadSearchResponse,
     })),
     afterMount(({ actions, values, cache }) => {
         // load initial results
@@ -150,6 +157,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.featureFlag(result.result_id)
         case 'insight':
             return urls.insightView(result.result_id as InsightShortId)
+        case 'notebook':
+            return urls.notebook(result.result_id)
         default:
             throw new Error(`No action for type '${result.type}' defined.`)
     }

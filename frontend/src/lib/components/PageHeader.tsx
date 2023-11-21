@@ -5,6 +5,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -29,6 +31,9 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element | null {
     const is3000 = useFeatureFlag('POSTHOG_3000')
     const { actionsContainer } = useValues(breadcrumbsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
 
     return (
         <>
@@ -52,7 +57,7 @@ export function PageHeader({
             {is3000 && buttons && actionsContainer && createPortal(buttons, actionsContainer)}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className="my-4" />}
+            {delimited && <LemonDivider className={has3000 ? 'hidden' : 'my-4'} />}
         </>
     )
 }

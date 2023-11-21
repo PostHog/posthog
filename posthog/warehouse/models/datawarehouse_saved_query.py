@@ -47,7 +47,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         ]
 
     def get_columns(self) -> Dict[str, str]:
-        from posthog.api.query import process_query
+        from posthog.api.services.query import process_query
 
         # TODO: catch and raise error
         response = process_query(self.team, self.query)

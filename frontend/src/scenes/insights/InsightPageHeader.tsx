@@ -16,7 +16,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { urls } from 'scenes/urls'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -256,7 +256,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
@@ -345,14 +345,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saving={insightSaving}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                             />
                         ) : insight.tags?.length ? (
                             <ObjectTags
                                 tags={insight.tags}
                                 saving={insightSaving}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                                 staticOnly
                             />
