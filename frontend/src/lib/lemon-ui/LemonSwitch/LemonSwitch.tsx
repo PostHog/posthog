@@ -79,7 +79,7 @@ export function LemonSwitch({
         buttonComponent = (
             <Tooltip title={tooltipContent}>
                 {/* wrap it in a div so that the tooltip works even when disabled */}
-                <div>{buttonComponent}</div>
+                <div className="flex items-center">{buttonComponent}</div>
             </Tooltip>
         )
     }
