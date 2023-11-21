@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::billing_limits::QuotaResource;
-use crate::event::ProcessingContext;
+use crate::event::{Compression, ProcessingContext};
 use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 use crate::{
@@ -26,7 +26,18 @@ use crate::{
     utils::uuid_v7,
 };
 
-#[instrument(skip_all, fields(token, batch_size))]
+#[instrument(
+    skip_all,
+    fields(
+        token,
+        batch_size,
+        user_agent,
+        content_encoding,
+        content_type,
+        version,
+        compression
+    )
+)]
 pub async fn event(
     state: State<router::State>,
     InsecureClientIp(ip): InsecureClientIp,
@@ -34,21 +45,48 @@ pub async fn event(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
+    // content-type
+    // user-agent
+
+    let user_agent = headers
+        .get("user_agent")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    let content_encoding = headers
+        .get("content_encoding")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+
+    tracing::Span::current().record("user_agent", user_agent);
+    tracing::Span::current().record("content_encoding", content_encoding);
+
     let events = match headers
         .get("content-type")
         .map_or("", |v| v.to_str().unwrap_or(""))
     {
         "application/x-www-form-urlencoded" => {
+            tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
+
             let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).unwrap();
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(input.data)
                 .unwrap();
             RawEvent::from_bytes(&meta, payload.into())
         }
-        _ => RawEvent::from_bytes(&meta, body),
+        ct => {
+            tracing::Span::current().record("content_type", ct);
+
+            RawEvent::from_bytes(&meta, body)
+        }
     }?;
 
+    let comp = match meta.compression {
+        None => String::from("unknown"),
+        Some(Compression::Gzip) => String::from("gzip"),
+        Some(Compression::Unsupported) => String::from("unsupported"),
+    };
+
     tracing::Span::current().record("batch_size", events.len());
+    tracing::Span::current().record("version", meta.lib_version.clone());
+    tracing::Span::current().record("compression", comp.as_str());
 
     if events.is_empty() {
         return Err(CaptureError::EmptyBatch);
