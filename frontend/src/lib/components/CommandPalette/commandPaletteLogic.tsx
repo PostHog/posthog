@@ -16,21 +16,7 @@ import { openCHQueriesDebugModal } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import {
-    IconCalculate,
-    IconCheckmark,
-    IconCohort,
-    IconComment,
-    IconGithub,
-    IconKeyboard,
-    IconLockOpen,
-    IconLogout,
-    IconOpenInNew,
-    IconPersonFilled,
-    IconRecording,
-    IconTableChart,
-    IconTools,
-} from 'lib/lemon-ui/icons'
+import { IconCalculate, IconCohort, IconGithub, IconTools, IconKeyboard, IconTableChart } from 'lib/lemon-ui/icons'
 import {
     IconHome,
     IconDashboard,
@@ -60,6 +46,10 @@ import {
     IconApps,
     IconToolbar,
     IconGear,
+    IconLeave,
+    IconExternal,
+    IconUnlock,
+    IconCheck,
 } from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -411,7 +401,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         key: `person-${person.distinct_ids[0]}`,
                         resolver: [
                             {
-                                icon: IconPersonFilled,
+                                icon: IconPeopleFilled,
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
@@ -667,7 +657,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconLogout,
+                        icon: IconLeave,
                         display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
@@ -696,7 +686,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'debug-copy-session-recording-url',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconRecording,
+                    icon: IconRewindPlay,
                     display: 'Debug: Copy the session recording link to clipboard',
                     executor: () => {
                         const url = posthog.get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
@@ -738,7 +728,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 resolver: (argument) => {
                     const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                         (url: string) => ({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
@@ -748,7 +738,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     )
                     if (argument && isURL(argument)) {
                         results.push({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${argument}`,
                             synonyms: [`Visit ${argument}`],
                             executor: () => {
@@ -757,7 +747,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         })
                     }
                     results.push({
-                        icon: IconOpenInNew,
+                        icon: IconExternal,
                         display: 'Open PostHog Docs',
                         synonyms: ['technical documentation'],
                         executor: () => {
@@ -772,7 +762,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'create-personal-api-key',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconLockOpen,
+                    icon: IconUnlock,
                     display: 'Create Personal API Key',
                     executor: () => ({
                         instruction: 'Give your key a label',
@@ -781,7 +771,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconLockOpen,
+                                    icon: IconUnlock,
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
@@ -825,7 +815,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'share-feedback',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconComment,
+                    icon: IconThoughtBubble,
                     display: 'Share Feedback',
                     synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
@@ -833,12 +823,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: [
                             {
                                 display: 'Send Message Directly to PostHog',
-                                icon: IconComment,
+                                icon: IconThoughtBubble,
                                 executor: () => ({
                                     instruction: "What's on your mind?",
-                                    icon: IconComment,
+                                    icon: IconThoughtBubble,
                                     resolver: (argument) => ({
-                                        icon: IconComment,
+                                        icon: IconThoughtBubble,
                                         display: 'Send',
                                         executor: !argument?.length
                                             ? undefined
@@ -846,7 +836,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                                   posthog.capture('palette feedback', { message: argument })
                                                   return {
                                                       resolver: {
-                                                          icon: IconCheckmark,
+                                                          icon: IconCheck,
                                                           display: 'Message Sent!',
                                                           executor: true,
                                                       },
