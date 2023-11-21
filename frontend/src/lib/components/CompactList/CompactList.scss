@@ -33,6 +33,8 @@
     }
 
     .secondary-text {
-        color: var(--text-secondary);
+        .posthog-3000 & {
+            color: var(--text-secondary);
+        }
     }
 }
