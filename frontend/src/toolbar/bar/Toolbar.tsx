@@ -47,9 +47,6 @@ function MoreMenu(): JSX.Element {
                         icon: <>🦔</>,
                         label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
                         onClick: () => {
-                            if (!hedgehogMode) {
-                                setVisibleMenu('hedgehog')
-                            }
                             setHedgehogMode(!hedgehogMode)
                         },
                     },

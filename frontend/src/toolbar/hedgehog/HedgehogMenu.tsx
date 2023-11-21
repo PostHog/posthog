@@ -17,14 +17,7 @@ export const HedgehogMenu = (): JSX.Element => {
 
             <ToolbarMenu.Footer>
                 <div className="flex gap-2 justify-between flex-1">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            setHedgehogMode(false)
-                            setVisibleMenu('none')
-                        }}
-                    >
+                    <LemonButton type="secondary" size="small" onClick={() => setHedgehogMode(false)}>
                         Go away...
                     </LemonButton>
                     <LemonButton type="primary" size="small" onClick={() => setVisibleMenu('none')}>
