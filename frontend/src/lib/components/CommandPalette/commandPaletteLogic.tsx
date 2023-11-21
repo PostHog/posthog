@@ -16,40 +16,43 @@ import { openCHQueriesDebugModal } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { IconCalculate, IconCohort, IconGithub, IconTools, IconKeyboard, IconTableChart } from 'lib/lemon-ui/icons'
 import {
-    IconHome,
-    IconDashboard,
-    IconGraph,
-    IconTrends,
-    IconFunnels,
-    IconRetention,
-    IconUserPaths,
-    IconStickiness,
-    IconLifecycle,
-    IconHogQL,
-    IconNotebook,
-    IconLive,
-    IconDatabase,
+    IconApps,
+    IconCalculator,
+    IconChat,
+    IconCheck,
     IconCursor,
+    IconDashboard,
+    IconDatabase,
+    IconExternal,
+    IconFunnels,
+    IconGear,
+    IconGithub,
+    IconGraph,
+    IconHogQL,
+    IconHome,
+    IconKeyboard,
+    IconLeave,
+    IconLifecycle,
     IconList,
-    IconThoughtBubble,
+    IconLive,
+    IconNotebook,
+    IconPageChart,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
-    IconServer,
+    IconRetention,
     IconRewindPlay,
-    IconChat,
-    IconToggle,
-    IconTestTube,
     IconRocket,
-    IconApps,
+    IconServer,
+    IconStickiness,
+    IconTestTube,
+    IconThoughtBubble,
+    IconToggle,
     IconToolbar,
-    IconGear,
-    IconLeave,
-    IconExternal,
+    IconTrends,
     IconUnlock,
-    IconCheck,
+    IconUserPaths,
 } from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -246,7 +249,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         key: 'custom_dashboards',
                         resolver: dashboards.map((dashboard: DashboardType) => ({
                             key: `dashboard_${dashboard.id}`,
-                            icon: IconTableChart,
+                            icon: IconPageChart,
                             display: `Go to dashboard: ${dashboard.name}`,
                             executor: () => {
                                 const { push } = router.actions
@@ -554,7 +557,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconCohort,
+                        icon: IconPeople,
                         display: 'Go to Cohorts',
                         executor: () => {
                             push(urls.cohorts())
@@ -675,7 +678,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     preflightLogic.values.preflight?.is_debug ||
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
-                              icon: IconTools,
+                              icon: IconDatabase,
                               display: 'Debug ClickHouse Queries',
                               executor: () => openCHQueriesDebugModal(),
                           }
@@ -708,7 +711,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         return isNaN(result)
                             ? null
                             : {
-                                  icon: IconCalculate,
+                                  icon: IconCalculator,
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
