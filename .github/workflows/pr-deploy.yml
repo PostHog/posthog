@@ -45,8 +45,6 @@ jobs:
             - name: Build and push
               uses: docker/build-push-action@v5
               with:
-                context: .
-                file: ./Dockerfile
                 push: true
                 tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
                 build-args: COMMIT_HASH=${{ github.sha }}
