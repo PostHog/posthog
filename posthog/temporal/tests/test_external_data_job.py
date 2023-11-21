@@ -307,6 +307,7 @@ async def test_external_data_job_workflow(team):
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
+        # TODO: don't need to test all the activities here, just the workflow
         with mock.patch(
             "posthog.warehouse.data_load.pipeline.create_pipeline",
         ) as mock_create_pipeline, mock.patch(
