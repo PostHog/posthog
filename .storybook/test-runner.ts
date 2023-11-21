@@ -213,7 +213,11 @@ async function expectStoryToMatchComponentSnapshot(
             }
         })
         // Make the body transparent to take the screenshot without background
-        document.body.style.background = 'transparent'
+        if (theme === 'legacy') {
+            document.body.style.background = 'transparent'
+        } else {
+            document.body.style.background = 'inherit'
+        }
     })
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
