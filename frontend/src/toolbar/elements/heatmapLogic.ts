@@ -22,7 +22,8 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
-        values: [toolbarConfigLogic, ['apiURL']],
+        values: [toolbarConfigLogic, ['apiURL'], currentPageLogic, ['href', 'wildcardHref']],
+        actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -88,7 +89,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
-                    const { href, wildcardHref } = currentPageLogic.values
+                    const { href, wildcardHref } = values
                     let defaultUrl: string = ''
                     if (!url) {
                         const params: Partial<FilterType> = {
@@ -157,7 +158,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (selectors) => [
                 selectors.elementStats,
                 toolbarConfigLogic.selectors.dataAttributes,
-                currentPageLogic.selectors.href,
+                selectors.href,
                 selectors.matchLinksByHref,
             ],
             (elementStats, dataAttributes, href, matchLinksByHref) => {
@@ -314,13 +315,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.getElementStats(values.elementStats.next)
             }
         },
-        [currentPageLogic.actionTypes.setHref]: () => {
+        setHref: () => {
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
                 actions.getElementStats()
             }
         },
-        [currentPageLogic.actionTypes.setWildcardHref]: async (_, breakpoint) => {
+        setWildcardHref: async (_, breakpoint) => {
             await breakpoint(100)
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
