@@ -26,6 +26,7 @@ export interface BillingAlertConfig {
     buttonCTA?: string
     dismissKey?: string
     action?: LemonBannerAction
+    pathName?: string
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {

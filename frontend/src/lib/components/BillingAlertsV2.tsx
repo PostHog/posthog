@@ -12,10 +12,15 @@ export function BillingAlertsV2(): JSX.Element | null {
     const [alertHidden, setAlertHidden] = useState(false)
 
     useEffect(() => {
+        if (billingAlert?.pathName && currentLocation.pathname !== billingAlert?.pathName) {
+            setAlertHidden(true)
+        } else {
+            setAlertHidden(false)
+        }
         if (billingAlert) {
             reportBillingAlertShown(billingAlert)
         }
-    }, [billingAlert])
+    }, [billingAlert, currentLocation])
 
     if (!billingAlert || alertHidden) {
         return null

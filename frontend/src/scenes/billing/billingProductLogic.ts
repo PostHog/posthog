@@ -236,6 +236,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     actions.setProductSpecificAlert({
                         status: 'warning',
                         title: 'Billing Limit Automatically Applied',
+                        pathName: '/organization/billing',
+                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
                         message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
                         action: {
                             onClick: () => {
