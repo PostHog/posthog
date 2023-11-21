@@ -118,15 +118,17 @@ class Resolver(CloningVisitor):
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
+        select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-
-            # if it's an asterisk, carry on in a subroutine
             if isinstance(new_expr.type, ast.AsteriskType):
-                self._expand_asterisk_columns(new_node, new_expr.type)
-                continue
+                columns = self._asterisk_columns(new_expr.type)
+                select_nodes.extend([self.visit(expr) for expr in columns])
+            else:
+                select_nodes.append(new_expr)
 
-            # not an asterisk
+        columns_with_explicit_alias = {}
+        for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
@@ -139,12 +141,12 @@ class Resolver(CloningVisitor):
             if alias:
                 # Remember the first visible or last hidden expr for each alias
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
-                    if alias not in node_type.columns or not node_type.columns_with_explicit_alias.get(alias, False):
+                    if alias not in node_type.columns or not columns_with_explicit_alias.get(alias, False):
                         node_type.columns[alias] = new_expr.type
-                        node_type.columns_with_explicit_alias[alias] = False
+                        columns_with_explicit_alias[alias] = False
                 else:
                     node_type.columns[alias] = new_expr.type
-                    node_type.columns_with_explicit_alias[alias] = True
+                    columns_with_explicit_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
@@ -172,15 +174,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()
-            for key in database_fields.keys():
-                type = ast.FieldType(name=key, table_type=asterisk.table_type)
-                select_query.select.append(ast.Field(chain=[key], type=type))
-                select_query.type.columns[key] = type
+            return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -192,10 +191,7 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                for name in select.columns.keys():
-                    type = ast.FieldType(name=name, table_type=asterisk.table_type)
-                    select_query.select.append(ast.Field(chain=[name], type=type))
-                    select_query.type.columns[name] = type
+                return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
                 raise ResolverException("Can't expand asterisk (*) on subquery")
         else:

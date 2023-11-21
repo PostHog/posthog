@@ -41,6 +41,11 @@ class FieldAliasType(Type):
     def resolve_constant_type(self):
         return self.type.resolve_constant_type()
 
+    def resolve_database_field(self):
+        if isinstance(self.type, FieldType):
+            return self.type.resolve_database_field()
+        raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
+
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
@@ -126,8 +131,6 @@ class SelectQueryType(Type):
     aliases: Dict[str, FieldAliasType] = field(default_factory=dict)
     # all types a select query exports
     columns: Dict[str, Type] = field(default_factory=dict)
-    # these column have an explicit alias and can't be overridden
-    columns_with_explicit_alias: Dict[str, bool] = field(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: Dict[str, CTE] = field(default_factory=dict)
