@@ -23,9 +23,9 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
-    connect({
+    connect(() => ({
         values: [toolbarLogic, ['apiURL']],
-    }),
+    })),
     actions({
         getElementStats: (url?: string | null) => ({
             url,
