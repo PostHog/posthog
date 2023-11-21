@@ -196,6 +196,26 @@ def report_bulk_invited(
     )
 
 
+def report_user_organization_membership_level_changed(
+    user: User,
+    organization: Organization,
+    new_level: int,
+    previous_level: int,
+) -> None:
+    """
+    Triggered after a user's membership level in an organization is changed.
+    """
+    posthoganalytics.capture(
+        user.distinct_id,
+        "membership level changed",
+        properties={
+            "new_level": new_level,
+            "previous_level": previous_level,
+        },
+        groups=groups(organization),
+    )
+
+
 def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
         user.distinct_id,
