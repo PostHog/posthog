@@ -498,8 +498,13 @@ export interface FunnelsQuery extends InsightsQueryBase {
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+
+export interface RetentionQueryResponse extends QueryResponse {
+    results: any[]
+}
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
+    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
     retentionFilter?: RetentionFilter
 }

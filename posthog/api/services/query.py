@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
+    "RetentionQuery",
     "TrendsQuery",
     "WebOverviewQuery",
     "WebTopSourcesQuery",

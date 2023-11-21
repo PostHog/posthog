@@ -160,7 +160,7 @@ export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
 }
 
 export function isQueryWithHogQLSupport(node?: Node | null): node is LifecycleQuery {
-    return isLifecycleQuery(node) || isTrendsQuery(node)
+    return isLifecycleQuery(node) || isTrendsQuery(node) || isRetentionQuery(node)
 }
 
 export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {

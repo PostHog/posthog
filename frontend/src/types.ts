@@ -1825,6 +1825,7 @@ export interface PathsFilterType extends FilterType {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    /** @asType integer */
     total_intervals?: number // retention total intervals
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>

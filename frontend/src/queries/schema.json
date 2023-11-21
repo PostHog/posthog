@@ -2518,7 +2518,7 @@
                     "type": "object"
                 },
                 "total_intervals": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2560,6 +2560,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/RetentionQueryResponse"
+                },
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
                     "description": "Properties specific to the retention insight"
@@ -2570,6 +2573,35 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "RetentionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "RetentionType": {

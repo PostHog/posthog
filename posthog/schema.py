@@ -488,6 +488,18 @@ class RetentionPeriod(str, Enum):
     Month = "Month"
 
 
+class RetentionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+
+
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
@@ -920,7 +932,7 @@ class RetentionFilter(BaseModel):
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
-    total_intervals: Optional[float] = None
+    total_intervals: Optional[int] = None
 
 
 class SavedInsightNode(BaseModel):
@@ -1482,6 +1494,7 @@ class RetentionQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[RetentionQueryResponse] = None
     retentionFilter: Optional[RetentionFilter] = Field(
         default=None, description="Properties specific to the retention insight"
     )
