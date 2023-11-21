@@ -5,7 +5,7 @@ import datetime as dt
 from typing import List
 from posthog.warehouse.data_load.pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
-    PIPELINE_TYPE_MAPPING,
+    PIPELINE_TYPE_RUN_MAPPING,
     move_draft_to_production,
     SourceSchema,
 )
@@ -19,6 +19,7 @@ from posthog.warehouse.external_data_source.jobs import (
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.workflows.base import PostHogWorkflow
+from posthog.temporal.heartbeat import HeartbeatDetails
 from temporalio import activity, workflow, exceptions
 from temporalio.common import RetryPolicy
 from asgiref.sync import sync_to_async
@@ -103,9 +104,14 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> List[SourceSch
     job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
         team_id=inputs.team_id, job_type=model.source_type, dataset_name=model.draft_folder_path, **model.job_inputs
     )
-    job_fn = PIPELINE_TYPE_MAPPING[model.source_type]
+    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
 
-    return await sync_to_async(job_fn)(job_inputs)
+    async_job_fn = sync_to_async(job_fn)
+
+    heartbeat_details = HeartbeatDetails()
+    func = heartbeat_details.make_activity_heartbeat_while_running(async_job_fn, dt.timedelta(seconds=1))
+
+    return await func(job_inputs)
 
 
 # TODO: update retry policies
@@ -140,11 +146,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                start_to_close_timeout=dt.timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+                heartbeat_timeout=dt.timedelta(minutes=2),
             )
 
-            # check_first
+            # check schema first
             validate_inputs = ValidateSchemaInputs(
                 source_schemas=source_schemas, external_data_source_id=inputs.external_data_source_id, create=False
             )

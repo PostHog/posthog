@@ -240,10 +240,10 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             ),
         )
 
-        assert mock_get_columns.call_count == 1
+        assert mock_get_columns.call_count == 4
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)
-        assert table_length == 1
+        assert table_length == 4
 
         # Should still have one after
         await activity_environment.run(
@@ -268,7 +268,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)
 
-        assert table_length == 1
+        assert table_length == 4
 
 
 @pytest.mark.django_db(transaction=True)

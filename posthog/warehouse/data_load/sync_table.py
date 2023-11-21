@@ -1,4 +1,4 @@
-from posthog.warehouse.data_load.pipeline import SourceSchema
+from posthog.warehouse.data_load.pipeline import SourceSchema, PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
@@ -22,9 +22,14 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    for schema in source_schemas:
-        table_name = f"{resource.source_type}_{schema.name}"
-        url_pattern = f"https://{settings.BUCKET_URL}/{resource.draft_folder_path}/*.parquet"
+    # TODO: currently not using source_schemas
+    source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[resource.source_type]
+
+    for schema_name in source_schemas:
+        table_name = f"{resource.source_type}_{schema_name.lower()}"
+        url_pattern = (
+            f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{resource.draft_folder_path}/{schema_name.lower()}/*.parquet"
+        )
 
         data = {
             "credential": credential,
@@ -35,7 +40,13 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
         }
 
         if create:
-            table, _ = DataWarehouseTable.objects.get_or_create(name=table_name, team_id=resource.team_id)
+            exists = DataWarehouseTable.objects.filter(
+                name=table_name, team_id=resource.team_id, format="Parquet"
+            ).exists()
+            if exists:
+                table = DataWarehouseTable.objects.get(name=table_name, team_id=resource.team_id, format="Parquet")
+            else:
+                table = DataWarehouseTable.objects.create(**data)
         else:
             table = DataWarehouseTable(**data)
 

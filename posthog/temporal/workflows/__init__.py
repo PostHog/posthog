@@ -76,6 +76,7 @@ DATA_SYNC_ACTIVITIES = [
     update_external_data_job_model,
     run_external_data_job,
     move_draft_to_production_activity,
+    validate_schema_activity,
 ]
 
 WORKFLOWS = [*BATCH_EXPORTS_WORKFLOWS, *DATA_SYNC_WORKFLOWS]
