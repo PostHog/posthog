@@ -105,14 +105,12 @@ cd ..
 
 if [ -n "$3" ]
 then
-export REGISTRY_URL=$3
-else
-export REGISTRY_URL="posthog/posthog"
+export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
 fi
 
-if [ -n "$4" ]
+if [ "$REGISTRY_URL" == "" ]
 then
-export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
+export REGISTRY_URL="posthog/posthog"
 fi
 
 # rewrite caddyfile
