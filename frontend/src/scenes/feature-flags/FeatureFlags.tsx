@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
-import { copyToClipboard, deleteWithUndo } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -158,8 +159,8 @@ export function OverViewTab({
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={async () => {
-                                        await copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={() => {
+                                        void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
@@ -210,7 +211,7 @@ export function OverViewTab({
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
+                                            void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,

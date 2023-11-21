@@ -8,8 +8,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { dayjs } from 'lib/dayjs'
+import { insightUrlForEvent } from 'scenes/insights/utils'
 
 interface EventActionProps {
     event: EventType
@@ -27,7 +28,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         <LemonButton
                             status="stealth"
                             onClick={() =>
-                                createActionFromEvent(
+                                void createActionFromEvent(
                                     getCurrentTeamId(),
                                     event,
                                     0,
@@ -46,8 +47,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconLink />}
                             data-attr="events-table-event-link"
-                            onClick={async () =>
-                                await copyToClipboard(
+                            onClick={() =>
+                                void copyToClipboard(
                                     `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
                                     'link to event'
                                 )

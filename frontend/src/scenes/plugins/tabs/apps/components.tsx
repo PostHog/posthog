@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 
@@ -23,7 +23,7 @@ export function RepositoryTag({ plugin }: { plugin: PluginType | PluginRepositor
 
         if (plugin.plugin_type === 'local' && plugin.url) {
             return (
-                <LemonTag type="completion" onClick={async () => await copyToClipboard(plugin.url?.substring(5) || '')}>
+                <LemonTag type="completion" onClick={() => void copyToClipboard(plugin.url?.substring(5) || '')}>
                     Installed Locally
                 </LemonTag>
             )

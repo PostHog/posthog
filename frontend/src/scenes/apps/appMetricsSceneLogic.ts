@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { AppMetricsTab, AppMetricsUrlParams, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api, { PaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -12,30 +12,17 @@ import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-job
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
 import { router } from 'kea-router'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
     pluginConfigId: number
 }
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
 export const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
     AppMetricsTab.HistoricalExports,
@@ -95,6 +82,7 @@ const DEFAULT_DATE_FROM = '-30d'
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
 ]
@@ -194,10 +182,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             (s, p) => [s.pluginConfig, p.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
+                    key: Scene.Apps,
                     name: 'Apps',
                     path: urls.projectApps(),
                 },
                 {
+                    key: pluginConfigId,
                     name: pluginConfig?.plugin_info?.name,
                     path: urls.appMetrics(pluginConfigId),
                 },

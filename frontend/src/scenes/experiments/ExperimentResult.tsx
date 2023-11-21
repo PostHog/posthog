@@ -1,4 +1,4 @@
-import { Col, Progress, Tooltip } from 'antd'
+import { Col, Progress } from 'antd'
 import { useValues } from 'kea'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
@@ -12,6 +12,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { Query } from '~/queries/Query/Query'
 import { IconInfo } from '@posthog/icons'
 import { LoadingState } from './Experiment'
+import { Tooltip } from '@posthog/lemon-ui'
 
 export function ExperimentResult(): JSX.Element {
     const {
@@ -148,7 +149,7 @@ export function ExperimentResult(): JSX.Element {
             )}
             {experimentResults ? (
                 // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
-                <div className="mt-4 insights-page">
+                <div className="mt-4 Insight">
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,

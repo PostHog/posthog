@@ -1,4 +1,4 @@
-import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import {
     breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
@@ -11,12 +11,14 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '~/queries/schema'
 import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { BreakdownType, ChartDisplayType } from '~/types'
+import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export type TaxonomicBreakdownFilterLogicProps = {
+    insightProps: InsightLogicProps
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
@@ -25,8 +27,9 @@ export type TaxonomicBreakdownFilterLogicProps = {
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
-    path(['scenes', 'insights', 'filters', 'BreakdownFilter', 'taxonomicBreakdownFilterLogic']),
     props({} as TaxonomicBreakdownFilterLogicProps),
+    key((props) => keyForInsightLogicProps('new')(props.insightProps)),
+    path(['scenes', 'insights', 'filters', 'BreakdownFilter', 'taxonomicBreakdownFilterLogic']),
     defaults({
         // This is a hack to get `TaxonomicFilterGroupType` imported in `taxonomicBreakdownFilterLogicType.ts`
         __ignore: null as TaxonomicFilterGroupType | null,

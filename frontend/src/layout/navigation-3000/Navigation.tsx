@@ -1,4 +1,4 @@
-import { CommandPalette } from 'lib/components/CommandPalette'
+import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from './components/Breadcrumbs'
@@ -8,30 +8,36 @@ import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { navigation3000Logic } from './navigationLogic'
 import clsx from 'clsx'
-import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanel } from './sidepanel/SidePanel'
+import { MinimalNavigation } from './components/MinimalNavigation'
 
 export function Navigation({
     children,
     sceneConfig,
 }: {
     children: ReactNode
-    scene: Scene | null
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)
-    const { activeNavbarItem } = useValues(navigation3000Logic)
+    const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
-    if (sceneConfig?.layout === 'plain') {
-        return <>{children}</>
+    if (mode !== 'full') {
+        return (
+            <div className="Navigation3000 flex-col">
+                {mode === 'minimal' ? <MinimalNavigation /> : null}
+                <main>{children}</main>
+            </div>
+        )
     }
+
     return (
         <div className="Navigation3000">
             <Navbar />
@@ -43,6 +49,7 @@ export function Navigation({
                 <div
                     className={clsx(
                         'Navigation3000__scene',
+                        // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >

@@ -25,7 +25,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     KNOWN_NODES,
@@ -39,6 +39,8 @@ import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
+import { NotebookNodeContext } from './NotebookNodeContext'
+import { IconGear } from '@posthog/icons'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -55,6 +57,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
+        settingsIcon,
     } = props
 
     useWhyDidIRender('NodeWrapper.props', props)
@@ -145,7 +148,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             <ErrorBoundary>
                                 {!inView ? (
                                     <>
-                                        <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                        <div className="h-10" /> {/* Placeholder for the drag handle */}
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <div style={{ height: heightEstimate }}>
                                             <LemonSkeleton className="h-full" />
@@ -180,7 +183,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                             <LemonButton
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
-                                                                icon={<IconFilter />}
+                                                                icon={
+                                                                    typeof settingsIcon === 'string' ? (
+                                                                        settingsIcon === 'gear' ? (
+                                                                            <IconGear />
+                                                                        ) : (
+                                                                            <IconFilter />
+                                                                        )
+                                                                    ) : (
+                                                                        settingsIcon ?? <IconFilter />
+                                                                    )
+                                                                }
                                                                 active={editingNodeId === nodeId}
                                                             />
                                                         ) : null}

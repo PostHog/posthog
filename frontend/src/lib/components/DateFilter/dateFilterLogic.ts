@@ -3,11 +3,7 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import type { dateFilterLogicType } from './dateFilterLogicType'
 import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDate } from 'lib/utils'
 import { DateMappingOption } from '~/types'
-import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
-
-export const CUSTOM_OPTION_KEY = 'Custom'
-export const CUSTOM_OPTION_VALUE = 'No date range override'
-export const CUSTOM_OPTION_DESCRIPTION = 'Use the original date ranges of insights'
+import { CUSTOM_OPTION_VALUE, DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),
@@ -43,7 +39,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         rangeDateFrom: [
-            (props.dateFrom && (dayjs.isDayjs(props.dateFrom) || isDate.test(props.dateFrom as string))
+            (props.dateFrom && (dayjs.isDayjs(props.dateFrom) || isDate.test(props.dateFrom))
                 ? dayjs(props.dateFrom)
                 : null) as Dayjs | null,
             {
@@ -52,7 +48,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         rangeDateTo: [
-            (props.dateTo && (dayjs.isDayjs(props.dateTo) || isDate.test(props.dateTo as string))
+            (props.dateTo && (dayjs.isDayjs(props.dateTo) || isDate.test(props.dateTo))
                 ? dayjs(props.dateTo)
                 : dayjs()) as Dayjs | null,
             {

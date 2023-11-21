@@ -1,13 +1,36 @@
 import { useActions, useValues } from 'kea'
-// eslint-disable-next-line no-restricted-imports
-import { ClockCircleOutlined, LineChartOutlined } from '@ant-design/icons'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FunnelVizType as VizType, EditorFilterProps } from '~/types'
-import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { FunnelsFilter } from '~/queries/schema'
-import { IconFunnels } from '@posthog/icons'
+import { IconFilter, IconClock, IconTrending } from '@posthog/icons'
+
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+
+type LabelProps = {
+    icon: JSX.Element
+    title: string
+}
+const Label = ({ icon, title }: LabelProps): JSX.Element => (
+    <div className="flex items-center text-sm font-medium gap-1">
+        {icon} {title}
+    </div>
+)
+
+type LabelInMenuProps = {
+    icon: JSX.Element
+    title: string
+    description: string
+}
+const LabelInMenu = ({ icon, title, description }: LabelInMenuProps): JSX.Element => (
+    <div>
+        <div className="flex items-center text-sm font-medium gap-1">
+            {icon} {title}
+        </div>
+        <div className="text-muted text-xs mt-1">{description}</div>
+    </div>
+)
 
 export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
@@ -18,40 +41,51 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
 
     const options = [
         {
-            key: VizType.Steps,
-            label: 'Conversion steps',
-            description: `Track ${aggregationTargetLabel.plural} progress between steps of the funnel`,
-            icon: <IconFunnels />,
+            value: VizType.Steps,
+            label: <Label icon={<IconFilter className="text-muted" />} title="Conversion steps" />,
+            labelInMenu: (
+                <LabelInMenu
+                    icon={<IconFilter className="text-muted" />}
+                    title="Conversion steps"
+                    description={`Track ${aggregationTargetLabel.plural} progress between steps of the funnel`}
+                />
+            ),
         },
         {
-            key: VizType.TimeToConvert,
-            label: 'Time to convert',
-            description: `Track how long it takes for ${aggregationTargetLabel.plural} to convert`,
-            icon: <ClockCircleOutlined />,
+            value: VizType.TimeToConvert,
+            label: <Label icon={<IconClock className="text-muted" />} title="Time to convert" />,
+            labelInMenu: (
+                <LabelInMenu
+                    icon={<IconClock className="text-muted" />}
+                    title="Time to convert"
+                    description={`Track how long it takes for ${aggregationTargetLabel.plural} to convert`}
+                />
+            ),
         },
         {
-            key: VizType.Trends,
-            label: 'Historical trends',
-            description: "Track how this funnel's conversion rate is trending over time",
-            icon: <LineChartOutlined />,
+            value: VizType.Trends,
+            label: <Label icon={<IconTrending className="text-muted" />} title="Historical trends" />,
+            labelInMenu: (
+                <LabelInMenu
+                    icon={<IconTrending className="text-muted" />}
+                    title="Historical trends"
+                    description="Track how this funnel's conversion rate is trending over time"
+                />
+            ),
         },
     ]
 
     return (
-        <div className="funnel-chart-filter">
-            <DropdownSelector
-                options={options}
-                value={funnel_viz_type || VizType.Steps}
-                onValueChange={(val) => {
-                    const valueTyped = val as VizType
-
-                    if (funnel_viz_type !== valueTyped) {
-                        updateInsightFilter({ funnel_viz_type: valueTyped })
-                    }
-                }}
-                hideDescriptionOnDisplay
-                compact
-            />
-        </div>
+        <LemonSelect
+            size="small"
+            value={funnel_viz_type || VizType.Steps}
+            onChange={(value) => {
+                if (funnel_viz_type !== value) {
+                    updateInsightFilter({ funnel_viz_type: value })
+                }
+            }}
+            options={options}
+            dropdownMatchSelectWidth={false}
+        />
     )
 }

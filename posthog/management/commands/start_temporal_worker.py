@@ -1,13 +1,12 @@
 import asyncio
 import logging
 
+import structlog
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
-    from django.core.management.base import BaseCommand
     from django.conf import settings
-
-from prometheus_client import start_http_server
+    from django.core.management.base import BaseCommand
 
 from posthog.temporal.worker import start_worker
 
@@ -70,13 +69,15 @@ class Command(BaseCommand):
             options["client_key"] = "--SECRET--"
         logging.info(f"Starting Temporal Worker with options: {options}")
 
+        structlog.reset_defaults()
+
         metrics_port = int(options["metrics_port"])
-        start_http_server(port=metrics_port)
 
         asyncio.run(
             start_worker(
                 temporal_host,
                 temporal_port,
+                metrics_port=metrics_port,
                 namespace=namespace,
                 task_queue=task_queue,
                 server_root_ca_cert=server_root_ca_cert,

@@ -3,6 +3,7 @@
         width: 700px;
         display: flex;
         column-gap: 1rem;
+
         @media (max-width: 960px) {
             display: block;
             width: auto;
@@ -15,6 +16,7 @@
 
     .HalfColumn {
         width: 50%;
+
         @media (max-width: 960px) {
             width: 100%;
         }

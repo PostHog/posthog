@@ -1,6 +1,7 @@
 from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
 from django.conf import settings
+import datetime
 
 AIRBYTE_WORKSPACE_URL = "https://api.airbyte.com/v1/workspaces"
 
@@ -23,6 +24,8 @@ def get_or_create_workspace(team_id: int):
     if not team.external_data_workspace_id:
         workspace_id = create_workspace(team_id)
         team.external_data_workspace_id = workspace_id
+        # start tracking from now
+        team.external_data_workspace_last_synced_at = datetime.datetime.now(datetime.timezone.utc)
         team.save()
 
     return team.external_data_workspace_id
