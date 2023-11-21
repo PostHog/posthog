@@ -50,7 +50,16 @@ def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
     pipeline = create_pipeline(inputs)
 
     # TODO: decouple API calls so they can be incrementally read and sync_rows updated
-    source = stripe_source(stripe_secret_key=inputs.stripe_secret_key)
+    source = stripe_source(
+        stripe_secret_key=inputs.stripe_secret_key,
+        endpoints=(
+            "Subscription",
+            "Account",
+            "Customer",
+            "Product",
+            "Price",
+        ),
+    )
     pipeline.run(source, loader_file_format="parquet")
     return get_schema(pipeline)
 
