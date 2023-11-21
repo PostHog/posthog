@@ -1,19 +1,15 @@
-import clsx from 'clsx'
+export function ToolbarMenu({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className={'w-full h-full flex flex-col overflow-hidden'}>{children}</div>
+}
 
-export function ToolbarMenu({
-    header,
-    body,
-    footer,
-}: {
-    header: JSX.Element | null
-    body: JSX.Element | null
-    footer: JSX.Element | null
-}): JSX.Element {
-    return (
-        <div className={clsx('w-full h-full flex flex-col overflow-hidden')}>
-            {header ? <div className="pt-1 px-1">{header}</div> : null}
-            <div className={clsx('flex flex-col flex-1 h-full overflow-hidden overflow-y-auto px-2')}>{body}</div>
-            {footer ? <div className={clsx('flex flex-row p-2')}>{footer}</div> : null}
-        </div>
-    )
+ToolbarMenu.Header = function ToolbarMenuHeader({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="pt-1 px-1">{children}</div>
+}
+
+ToolbarMenu.Body = function ToolbarMenuBody({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="flex flex-col flex-1 h-full overflow-y-auto px-1 min-h-20">{children}</div>
+}
+
+ToolbarMenu.Footer = function ToolbarMenufooter({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="flex flex-row items-center p-2 border-t">{children}</div>
 }

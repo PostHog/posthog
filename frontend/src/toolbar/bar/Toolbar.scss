@@ -89,15 +89,6 @@
             color: var(--danger);
         }
     }
-
-    .FeatureFlagRow {
-        padding: 0.25rem;
-        border-radius: var(--radius);
-
-        &.FeatureFlagRow__overridden {
-            background-color: var(--mark);
-        }
-    }
 }
 
 .Toolbar {
