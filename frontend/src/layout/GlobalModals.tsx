@@ -13,7 +13,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
-import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
