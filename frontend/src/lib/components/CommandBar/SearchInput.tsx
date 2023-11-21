@@ -20,7 +20,7 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
                 size="small"
                 className="CommandBar__input"
                 fullWidth
-                suffix={<KeyboardShortcut escape muted />}
+                suffix={<KeyboardShortcut escape />}
                 autoFocus
                 value={searchQuery}
                 onChange={setSearchQuery}

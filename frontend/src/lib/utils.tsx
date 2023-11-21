@@ -1251,6 +1251,11 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToRGBA(rgb: string, a: number): string {
+    const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()

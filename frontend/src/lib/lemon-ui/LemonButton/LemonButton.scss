@@ -137,12 +137,6 @@
 
     @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
         &.LemonButton--status-#{$status} {
-            color: var(--#{$status}-3000, var(--#{$status}, var(--primary)));
-
-            .LemonButton__icon {
-                color: var(--#{$status}-3000, var(--#{$status}));
-            }
-
             // Primary - blocked color style
             &.LemonButton--primary {
                 color: #fff;

@@ -57,7 +57,7 @@
 ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   <class 'tuple'> (
-    'AND (  has(%(vglobalperson_0)s, "pmat_email"))',
+    'AND (  has(%(vglobalperson_0)s, replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_0)s), \'^"|"$\', \'\')))',
     <class 'dict'> {
       'kglobalperson_0': 'email',
       'vglobalperson_0': <class 'list'> [

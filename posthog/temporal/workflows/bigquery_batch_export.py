@@ -1,7 +1,8 @@
+import asyncio
 import contextlib
+import dataclasses
 import datetime as dt
 import json
-from dataclasses import dataclass
 
 from django.conf import settings
 from google.cloud import bigquery
@@ -10,6 +11,10 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
+from posthog.temporal.utils import (
+    HeartbeatDetails,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
@@ -26,7 +31,7 @@ from posthog.temporal.workflows.logger import bind_batch_exports_logger
 from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
 
 
-def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
+async def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
     """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
     job_config = bigquery.LoadJobConfig(
         source_format="NEWLINE_DELIMITED_JSON",
@@ -34,10 +39,10 @@ def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_
     )
 
     load_job = bigquery_client.load_table_from_file(jsonl_file, table, job_config=job_config, rewind=True)
-    load_job.result()
+    await asyncio.to_thread(load_job.result)
 
 
-def create_table_in_bigquery(
+async def create_table_in_bigquery(
     project_id: str,
     dataset_id: str,
     table_id: str,
@@ -49,12 +54,19 @@ def create_table_in_bigquery(
     fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
     table = bigquery.Table(fully_qualified_name, schema=table_schema)
     table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="timestamp")
-    table = bigquery_client.create_table(table, exists_ok=exists_ok)
+    table = await asyncio.to_thread(bigquery_client.create_table, table, exists_ok=exists_ok)
 
     return table
 
 
-@dataclass
+@dataclasses.dataclass
+class BigQueryHeartbeatDetails(HeartbeatDetails):
+    """The BigQuery batch export details included in every heartbeat."""
+
+    pass
+
+
+@dataclasses.dataclass
 class BigQueryInsertInputs:
     """Inputs for BigQuery."""
 
@@ -106,6 +118,15 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         inputs.data_interval_end,
     )
 
+    should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+
+    if should_resume is True and details is not None:
+        data_interval_start = details.last_inserted_at.isoformat()
+        last_inserted_at = details.last_inserted_at
+    else:
+        data_interval_start = inputs.data_interval_start
+        last_inserted_at = None
+
     async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -113,7 +134,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         count = await get_rows_count(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -132,7 +153,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -153,8 +174,24 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         ]
         json_columns = ("properties", "elements", "set", "set_once")
 
+        result = None
+
+        async def worker_shutdown_handler():
+            """Handle the Worker shutting down by heart-beating our latest status."""
+            await activity.wait_for_worker_shutdown()
+            logger.bind(last_inserted_at=last_inserted_at).debug("Worker shutting down!")
+
+            if last_inserted_at is None:
+                # Don't heartbeat if worker shuts down before we could even send anything
+                # Just start from the beginning again.
+                return
+
+            activity.heartbeat(last_inserted_at)
+
+        asyncio.create_task(worker_shutdown_handler())
+
         with bigquery_client(inputs) as bq_client:
-            bigquery_table = create_table_in_bigquery(
+            bigquery_table = await create_table_in_bigquery(
                 inputs.project_id,
                 inputs.dataset_id,
                 inputs.table_id,
@@ -166,13 +203,13 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
 
-                def flush_to_bigquery():
+                async def flush_to_bigquery():
                     logger.debug(
                         "Loading %s records of size %s bytes",
                         jsonl_file.records_since_last_reset,
                         jsonl_file.bytes_since_last_reset,
                     )
-                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
+                    await load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
 
                     rows_exported.add(jsonl_file.records_since_last_reset)
                     bytes_exported.add(jsonl_file.bytes_since_last_reset)
@@ -188,11 +225,20 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        flush_to_bigquery()
+                        await flush_to_bigquery()
+
+                        last_inserted_at = result["inserted_at"]
+                        activity.heartbeat(last_inserted_at)
+
                         jsonl_file.reset()
 
-                if jsonl_file.tell() > 0:
-                    flush_to_bigquery()
+                if jsonl_file.tell() > 0 and result is not None:
+                    await flush_to_bigquery()
+
+                    last_inserted_at = result["inserted_at"]
+                    activity.heartbeat(last_inserted_at)
+
+                    jsonl_file.reset()
 
 
 @workflow.defn(name="bigquery-export")
@@ -263,6 +309,4 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 "NotFound",
             ],
             update_inputs=update_inputs,
-            # Disable heartbeat timeout until we add heartbeat support.
-            heartbeat_timeout_seconds=None,
         )
