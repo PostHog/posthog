@@ -2,10 +2,11 @@ import pytest
 from asgiref.sync import sync_to_async
 import uuid
 from unittest import mock
+from django.test import override_settings
 
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, DataWarehouseTable
 
-from posthog.warehouse.data_load.pipeline import StripeJobInputs
+from posthog.warehouse.data_load.pipeline import StripeJobInputs, SourceColumnType, SourceSchema
 from posthog.warehouse.data_load.service import ExternalDataJobInputs
 
 from posthog.temporal.workflows.external_data_job import (
@@ -15,12 +16,21 @@ from posthog.temporal.workflows.external_data_job import (
     update_external_data_job_model,
     create_external_data_job,
     run_external_data_job,
+    move_draft_to_production_activity,
     ExternalDataJobWorkflow,
+    ValidateSchemaInputs,
+    validate_schema_activity,
 )
 
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from django.conf import settings
+
+
+AWS_BUCKET_MOCK_SETTINGS = {
+    "AIRBYTE_BUCKET_KEY": "test-key",
+    "AIRBYTE_BUCKET_SECRET": "test-secret",
+}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -86,16 +96,179 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
         "posthog.warehouse.data_load.pipeline.create_pipeline",
     ) as mock_create_pipeline, mock.patch(
         "posthog.warehouse.data_load.pipeline.stripe_source",
-    ) as mock_run_stripe:
-        await activity_environment.run(run_external_data_job, inputs)
+    ) as mock_run_stripe, mock.patch(
+        "posthog.warehouse.data_load.pipeline.get_schema",
+    ) as mock_data_tables:
+        mock_data_tables.return_value = [
+            SourceSchema(
+                resource="customers",
+                name="customers",
+                columns={
+                    "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                    "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                },
+                write_disposition="overwrite",
+            )
+        ]
+        schemas = await activity_environment.run(run_external_data_job, inputs)
         mock_create_pipeline.assert_called_once_with(
             StripeJobInputs(
                 job_type="Stripe",
                 team_id=team.id,
                 stripe_secret_key="test-key",
+                dataset_name=new_source.draft_folder_path,
             )
         )
         mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key")
+        assert len(schemas) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+        mock_get_columns.return_value = {"id": "string"}
+        await activity_environment.run(
+            validate_schema_activity,
+            ValidateSchemaInputs(
+                external_data_source_id=new_source.pk,
+                source_schemas=[
+                    SourceSchema(
+                        resource="customers",
+                        name="customers",
+                        columns={
+                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                        },
+                        write_disposition="overwrite",
+                    )
+                ],
+                create=False,
+            ),
+        )
+
+        assert mock_get_columns.call_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_is_schema_valid_activity_failed(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+        mock_get_columns.return_value = {"id": "string"}
+        mock_get_columns.side_effect = Exception("test")
+
+        with pytest.raises(Exception):
+            await activity_environment.run(
+                validate_schema_activity,
+                ValidateSchemaInputs(
+                    external_data_source_id=new_source.pk,
+                    source_schemas=[
+                        SourceSchema(
+                            resource="customers",
+                            name="customers",
+                            columns={
+                                "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                                "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                            },
+                            write_disposition="overwrite",
+                        )
+                    ],
+                    create=False,
+                ),
+            )
+
+        assert mock_get_columns.call_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_schema_activity(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+        mock_get_columns.return_value = {"id": "string"}
+        await activity_environment.run(
+            validate_schema_activity,
+            ValidateSchemaInputs(
+                external_data_source_id=new_source.pk,
+                source_schemas=[
+                    SourceSchema(
+                        resource="customers",
+                        name="customers",
+                        columns={
+                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                        },
+                        write_disposition="overwrite",
+                    )
+                ],
+                create=True,
+            ),
+        )
+
+        assert mock_get_columns.call_count == 1
+        all_tables = DataWarehouseTable.objects.all()
+        table_length = await sync_to_async(len)(all_tables)
+        assert table_length == 1
+
+        # Should still have one after
+        await activity_environment.run(
+            validate_schema_activity,
+            ValidateSchemaInputs(
+                external_data_source_id=new_source.pk,
+                source_schemas=[
+                    SourceSchema(
+                        resource="customers",
+                        name="customers",
+                        columns={
+                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                        },
+                        write_disposition="overwrite",
+                    )
+                ],
+                create=True,
+            ),
+        )
+
+        all_tables = DataWarehouseTable.objects.all()
+        table_length = await sync_to_async(len)(all_tables)
+
+        assert table_length == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -129,6 +302,8 @@ async def test_external_data_job_workflow(team):
             create_external_data_job_model,
             run_external_data_job,
             update_external_data_job_model,
+            move_draft_to_production_activity,
+            validate_schema_activity,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -136,7 +311,26 @@ async def test_external_data_job_workflow(team):
             "posthog.warehouse.data_load.pipeline.create_pipeline",
         ) as mock_create_pipeline, mock.patch(
             "posthog.warehouse.data_load.pipeline.stripe_source",
-        ) as mock_run_stripe:
+        ) as mock_run_stripe, mock.patch(
+            "posthog.warehouse.data_load.pipeline.get_schema",
+        ) as mock_data_tables, mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns, mock.patch(
+            "posthog.temporal.workflows.external_data_job.move_draft_to_production"
+        ) as mock_move_draft_to_production, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+            mock_get_columns.return_value = {"id": "string"}
+            mock_data_tables.return_value = [
+                SourceSchema(
+                    resource="customers",
+                    name="customers",
+                    columns={
+                        "id": SourceColumnType(name="id", data_type="string", nullable=False),
+                        "name": SourceColumnType(name="name", data_type="string", nullable=True),
+                    },
+                    write_disposition="overwrite",
+                )
+            ]
+
             await client.execute_workflow(
                 ExternalDataJobWorkflow.run,
                 inputs,
@@ -148,10 +342,19 @@ async def test_external_data_job_workflow(team):
                     job_type="Stripe",
                     team_id=team.id,
                     stripe_secret_key="test-key",
+                    dataset_name=new_source.draft_folder_path,
                 )
             )
             mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key")
 
-            new_job = await sync_to_async(ExternalDataJob.objects.first)()
+            assert mock_get_columns.call_count == 2
 
+            all_tables = DataWarehouseTable.objects.all()
+            table_length = await sync_to_async(len)(all_tables)
+
+            assert table_length == 1
+
+            assert mock_move_draft_to_production.call_count == 1
+
+            new_job = await sync_to_async(ExternalDataJob.objects.first)()
             assert new_job.status == ExternalDataJob.Status.COMPLETED

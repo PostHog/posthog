@@ -1,4 +1,5 @@
 import dlt
+from typing import Dict, List
 from django.conf import settings
 from .stripe import stripe_source
 from dataclasses import dataclass
@@ -26,16 +27,57 @@ def create_pipeline(inputs: PipelineInputs):
 
 
 @dataclass
+class SourceColumnType:
+    name: str
+    data_type: str
+    nullable: bool
+
+
+@dataclass
+class SourceSchema:
+    resource: str
+    name: str
+    columns: Dict[str, SourceColumnType]
+    write_disposition: str
+
+
+@dataclass
 class StripeJobInputs(PipelineInputs):
     stripe_secret_key: str
 
 
-def run_stripe_pipeline(inputs: StripeJobInputs):
+def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
     pipeline = create_pipeline(inputs)
 
     # TODO: decouple API calls so they can be incrementally read and sync_rows updated
     source = stripe_source(stripe_secret_key=inputs.stripe_secret_key)
     pipeline.run(source, loader_file_format="parquet")
+    return get_schema(pipeline)
+
+
+def get_schema(pipeline: dlt.pipeline) -> List[SourceSchema]:
+    schema = pipeline.default_schema
+    data_tables = schema.data_tables()
+    schemas = []
+
+    for resource in data_tables:
+        columns = {}
+        for column_name, column_details in resource["columns"].items():
+            columns[column_name] = SourceColumnType(
+                name=column_details["name"],
+                data_type=column_details["data_type"],
+                nullable=column_details["nullable"],
+            )
+
+        resource_schema = SourceSchema(
+            resource=resource["resource"],
+            name=resource["name"],
+            columns=columns,
+            write_disposition=resource["write_disposition"],
+        )
+        schemas.append(resource_schema)
+
+    return schemas
 
 
 PIPELINE_TYPE_INPUTS_MAPPING = {"Stripe": StripeJobInputs}

@@ -2,11 +2,14 @@ import json
 import dataclasses
 import uuid
 import datetime as dt
+from typing import List
 from posthog.warehouse.data_load.pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_MAPPING,
     move_draft_to_production,
+    SourceSchema,
 )
+from posthog.warehouse.data_load.sync_table import is_schema_valid, SchemaValidationError
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.external_data_source.jobs import (
@@ -17,6 +20,7 @@ from posthog.warehouse.external_data_source.jobs import (
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.workflows.base import PostHogWorkflow
 from temporalio import activity, workflow, exceptions
+from temporalio.common import RetryPolicy
 from asgiref.sync import sync_to_async
 
 
@@ -54,6 +58,22 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 
 @dataclasses.dataclass
+class ValidateSchemaInputs:
+    source_schemas: List[SourceSchema]
+    external_data_source_id: str
+    create: bool
+
+
+@activity.defn
+async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
+    return await sync_to_async(is_schema_valid)(
+        source_schemas=inputs.source_schemas,
+        external_data_source_id=inputs.external_data_source_id,
+        create=inputs.create,
+    )
+
+
+@dataclasses.dataclass
 class MoveDraftToProductionExternalDataJobInputs:
     team_id: int
     external_data_source_id: str
@@ -74,7 +94,7 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> List[SourceSchema]:
     model: ExternalDataSource = await sync_to_async(get_external_data_source)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
@@ -85,10 +105,10 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     )
     job_fn = PIPELINE_TYPE_MAPPING[model.source_type]
 
-    await sync_to_async(job_fn)(job_inputs)
+    return await sync_to_async(job_fn)(job_inputs)
 
 
-# TODO: add retry policies
+# TODO: update retry policies
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
@@ -108,6 +128,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             create_external_data_job_model,
             create_external_data_job_inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
@@ -116,11 +137,39 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         # TODO: can make this a child workflow for separate worker pool
         try:
-            await workflow.execute_activity(
+            source_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 inputs,
                 start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
             )
+
+            # check_first
+            validate_inputs = ValidateSchemaInputs(
+                source_schemas=source_schemas, external_data_source_id=inputs.external_data_source_id, create=False
+            )
+
+            await workflow.execute_activity(
+                validate_schema_activity,
+                validate_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            # if not errors, then create the schema
+            validate_inputs.create = True
+            await workflow.execute_activity(
+                validate_schema_activity,
+                validate_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            move_inputs = MoveDraftToProductionExternalDataJobInputs(
+                team_id=inputs.team_id,
+                external_data_source_id=inputs.external_data_source_id,
+            )
+
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
@@ -129,24 +178,25 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             update_inputs.latest_error = str(e.cause)
             raise
-        except Exception:
+        except Exception as e:
+            if isinstance(e, SchemaValidationError):
+                update_inputs.latest_error = "Schema validation failed"
+            else:
+                update_inputs.latest_error = "An unexpected error has ocurred"
+
             update_inputs.status = ExternalDataJob.Status.FAILED
-            update_inputs.latest_error = "An unexpected error has ocurred"
             raise
         else:
-            move_inputs = MoveDraftToProductionExternalDataJobInputs(
-                team_id=inputs.team_id,
-                external_data_source_id=inputs.external_data_source_id,
-            )
-
             await workflow.execute_activity(
                 move_draft_to_production_activity,
                 move_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
         finally:
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
