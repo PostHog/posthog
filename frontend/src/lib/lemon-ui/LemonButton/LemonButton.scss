@@ -7,6 +7,11 @@
     cursor: pointer;
     display: flex;
     flex-direction: row;
+
+    .posthog-3000 & {
+        font-family: var(--font-title);
+    }
+
     flex-shrink: 0;
     font-size: 0.875rem;
     font-weight: 500;
@@ -19,12 +24,6 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
         transform 100ms ease;
     user-select: none;
-
-    &:not(.Link) {
-        .posthog-3000 & {
-            font-family: var(--font-title);
-        }
-    }
 
     .font-normal {
         font-family: var(--font-sans);
