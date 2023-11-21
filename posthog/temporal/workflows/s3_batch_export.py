@@ -276,7 +276,7 @@ class HeartbeatDetails(typing.NamedTuple):
     def from_activity_details(cls, details):
         last_uploaded_part_timestamp = details[0]
         upload_state = S3MultiPartUploadState(*details[1])
-        return HeartbeatDetails(last_uploaded_part_timestamp, upload_state)
+        return cls(last_uploaded_part_timestamp, upload_state)
 
 
 @dataclass

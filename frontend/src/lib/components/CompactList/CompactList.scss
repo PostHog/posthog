@@ -31,4 +31,10 @@
         overflow: auto auto;
         padding: 0 0.5rem 0.5rem;
     }
+
+    .secondary-text {
+        .posthog-3000 & {
+            color: var(--text-secondary);
+        }
+    }
 }

@@ -1,6 +1,5 @@
 .posthog-3000 {
-    --transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-        transform 200ms ease;
+    --transition: opacity 200ms ease, transform 200ms ease;
 
     .LemonButton {
         border-width: 0;
@@ -36,9 +35,7 @@
             padding: 0.25rem 0.75rem;
             width: 100%;
 
-            .LemonButton__icon:first-child {
-                transition: var(--transition);
-                color: var(--default);
+            .LemonButton__icon {
                 opacity: 0.5;
             }
         }

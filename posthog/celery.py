@@ -395,24 +395,19 @@ def redis_heartbeat():
 
 
 @app.task(ignore_result=True, bind=True)
-def enqueue_clickhouse_execute_with_progress(
-    self, team_id, query_id, query, args=None, settings=None, with_column_types=False
-):
+def process_query_task(self, team_id, query_id, query_json, in_export_context=False, refresh_requested=False):
     """
-    Kick off query with progress reporting
-    Iterate over the progress status
-    Save status to redis
+    Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_with_progress
+    from posthog.client import execute_process_query
 
-    execute_with_progress(
-        team_id,
-        query_id,
-        query,
-        args,
-        settings,
-        with_column_types,
+    execute_process_query(
+        team_id=team_id,
+        query_id=query_id,
+        query_json=query_json,
+        in_export_context=in_export_context,
+        refresh_requested=refresh_requested,
         task_id=self.request.id,
     )
 
@@ -515,10 +510,10 @@ def pg_row_count():
 
 
 CLICKHOUSE_TABLES = [
-    "events",
+    "sharded_events",
     "person",
     "person_distinct_id2",
-    "session_replay_events",
+    "sharded_session_replay_events",
     "log_entries",
 ]
 if not is_cloud():
@@ -540,9 +535,8 @@ def clickhouse_lag():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = (
-                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-                )
+                QUERY = """SELECT max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag
+                    FROM {table}"""
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
                 statsd.gauge(
@@ -688,9 +682,8 @@ def clickhouse_row_count():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = (
-                    """select count(1) freq from {table} where _timestamp >= toStartOfDay(date_sub(DAY, 2, now()));"""
-                )
+                QUERY = """SELECT sum(rows) rows from system.parts
+                       WHERE table = '{table}' and active;"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -745,10 +738,11 @@ def clickhouse_part_count():
     from posthog.client import sync_execute
 
     QUERY = """
-        select table, count(1) freq
-        from system.parts
-        group by table
-        order by freq desc;
+        SELECT table, count(1) freq
+        FROM system.parts
+        WHERE active
+        GROUP BY table
+        ORDER BY freq DESC;
     """
     rows = sync_execute(QUERY)
 

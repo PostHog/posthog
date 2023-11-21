@@ -179,10 +179,7 @@ class TestResolver(BaseTest):
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
         expected = self._print_hogql("select 1 from events")
-        self.assertEqual(
-            expr,
-            expected,
-        )
+        self.assertEqual(expr, expected)
 
     def test_ctes_recursive_column(self):
         self.assertEqual(

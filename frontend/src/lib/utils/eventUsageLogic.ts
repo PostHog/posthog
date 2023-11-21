@@ -31,7 +31,6 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { now } from 'lib/dayjs'
 import {
@@ -42,7 +41,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
 
@@ -1102,6 +1101,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
             })
@@ -1110,6 +1110,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey launched', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 question_types: survey.questions.map((question) => question.type),
                 created_at: survey.created_at,
                 start_date: survey.start_date,

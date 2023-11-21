@@ -1,5 +1,5 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export function truncateUuid(uuid: string): string {
     // Simple function to truncate a UUID. Useful for more simple displaying but should always be made clear it is truncated.

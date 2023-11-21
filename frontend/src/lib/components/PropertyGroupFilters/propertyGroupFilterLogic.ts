@@ -4,8 +4,9 @@ import { PropertyGroupFilter, FilterLogicalOperator, EmptyPropertyFilter } from 
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
-import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { convertPropertiesToPropertyGroup } from '../PropertyFilters/utils'
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     path(['lib', 'components', 'PropertyGroupFilters', 'propertyGroupFilterLogic']),

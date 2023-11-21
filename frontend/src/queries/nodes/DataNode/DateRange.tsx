@@ -10,7 +10,6 @@ export function DateRange({ query, setQuery }: DateRangeProps): JSX.Element | nu
     if (isEventsQuery(query)) {
         return (
             <DateFilter
-                size="medium"
                 dateFrom={query.after ?? undefined}
                 dateTo={query.before ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
