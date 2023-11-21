@@ -49,8 +49,8 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                 push: true
-                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
-                build-args: COMMIT_HASH=${{ github.sha }}
+                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
+                build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
                 cache-from: type=gha
                 cache-to: type=gha,mode=max                
 
@@ -68,29 +68,19 @@ jobs:
                   aws eks update-kubeconfig --name "posthog-dev"
                   kubectl config set-cluster arn:aws:eks:us-east-1:169684386827:cluster/posthog-dev --server=https://eks-posthog-dev --tls-server-name 8BD6E1D2FEBDE47C8177E29CAC9E6C61.gr7.us-east-1.eks.amazonaws.com
 
-                  #export COMMIT_SHA=${{ github.sha }}
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
-                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
-                  #export RELEASE_NAME=posthog
-                  export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH//\//-}
+                  export HOSTNAME=pr-$PR_NUM-${{ github.sha }}
                   export HOSTNAME=${HOSTNAME:0:38}
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
-                  export TAILNET_NAME=hedgehog-kitefin
                   export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
-                  export DOCKER_TAG=${{ github.sha }}
-                  #export TS_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }}
+                  export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
 
-                  export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
-                  export POSTHOG_WEB_SERVICE_PORT=8000
-                  #envsubst < posthog/.github/pr-deploy/tailscale.yaml.tmpl > posthog/.github/pr-deploy/tailscale.yaml
                   envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
 
                   #Clean and deploy
-                  #kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/tailscale.yaml || true
                   kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml || true
-                  #kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
                   kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
 
                   echo "url=$NAMESPACE-${HOSTNAME}.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
