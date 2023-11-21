@@ -134,6 +134,11 @@ export function mapRRWebNetworkRequest(
         }
     })
 
+    // KLUDGE: this shouldn't be necessary but let's display correctly while we figure out why it is.
+    if (!data.name && 'url' in capturedRequest) {
+        data.name = capturedRequest.url as string | undefined
+    }
+
     return data as PerformanceEvent
 }
 
