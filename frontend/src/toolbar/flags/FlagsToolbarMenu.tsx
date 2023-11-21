@@ -34,7 +34,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                             <div className={clsx('p-1 rounded', hasOverride && 'bg-mark')} key={feature_flag.key}>
-                                <div className={clsx('flex flex-row items-center', 'FeatureFlagRow__header')}>
+                                <div className={clsx('flex flex-row items-center')}>
                                     <div className="flex-1 truncate">
                                         <Link
                                             className="font-medium"
@@ -68,12 +68,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                 </div>
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
-                                    <div
-                                        className={clsx(
-                                            'variant-radio-group flex flex-col w-full px-4 py-2 ml-8',
-                                            hasOverride && 'overridden'
-                                        )}
-                                    >
+                                    <div className={clsx('flex flex-col px-2 ml-2', hasOverride && 'overridden')}>
                                         {feature_flag.filters?.multivariate?.variants.map((variant) => (
                                             <LemonCheckbox
                                                 key={variant.key}
@@ -100,7 +95,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                             </div>
                         ))
                     ) : (
-                        <div className={'FeatureFlagRow flex flex-row items-center px-2 py-1'}>
+                        <div className={'flex flex-row items-center px-2 py-1'}>
                             {userFlagsLoading ? (
                                 <span className="flex-1 flex justify-center items-center p-4">
                                     <Spinner className="text-2xl" />
