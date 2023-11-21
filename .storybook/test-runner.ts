@@ -78,7 +78,7 @@ module.exports = {
         }
     },
     tags: {
-        skip: ['test-skip'],
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
