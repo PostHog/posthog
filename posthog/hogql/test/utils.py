@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from pydantic import BaseModel
 
 
 def pretty_print_in_tests(query: str, team_id: int) -> str:
@@ -21,6 +22,9 @@ def pretty_dataclasses(obj, seen=None, indent=0):
 
     indent_space = " " * indent
     next_indent = " " * (indent + 2)
+
+    if isinstance(obj, BaseModel):
+        obj = obj.model_dump()
 
     if dataclasses.is_dataclass(obj):
         obj_id = id(obj)
@@ -53,6 +57,9 @@ def pretty_dataclasses(obj, seen=None, indent=0):
 
     elif isinstance(obj, str):
         return json.dumps(obj)
+
+    elif callable(obj):
+        return "<function>"
 
     else:
         return str(obj)
