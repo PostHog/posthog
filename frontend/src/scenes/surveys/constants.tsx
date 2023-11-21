@@ -2,7 +2,6 @@ import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType, SurveyUrlMa
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
-export const QUESTION_CHOICE_OPEN_ENDED_PREFIX = 'OPENlabel='
 
 export const SurveyQuestionLabel = {
     [SurveyQuestionType.Open]: 'Freeform text',

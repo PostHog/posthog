@@ -10,7 +10,7 @@ import {
     BasicSurveyQuestion,
     LinkSurveyQuestion,
 } from '~/types'
-import { defaultSurveyAppearance, QUESTION_CHOICE_OPEN_ENDED_PREFIX } from './constants'
+import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
     check,
@@ -643,12 +643,13 @@ export function SurveyMultipleChoiceAppearance({
                 )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) =>
-                        choice.startsWith(QUESTION_CHOICE_OPEN_ENDED_PREFIX) ? (
+                        multipleChoiceQuestion?.has_open_choice &&
+                        idx === multipleChoiceQuestion.choices?.length - 1 ? (
                             <OpenEndedChoice
                                 key={idx}
                                 initialChecked={!!initialChecked?.includes(idx)}
                                 inputType={inputType}
-                                label={choice.slice(QUESTION_CHOICE_OPEN_ENDED_PREFIX.length)}
+                                label={choice}
                                 textColor={textColor}
                             />
                         ) : (

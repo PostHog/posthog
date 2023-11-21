@@ -22,7 +22,7 @@ import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { defaultSurveyFieldValues, QUESTION_CHOICE_OPEN_ENDED_PREFIX, NEW_SURVEY, NewSurvey } from './constants'
+import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import { sanitizeHTML } from './utils'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -335,10 +335,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 // Zero-fill choices that are not open-ended
-                question.choices.forEach((choice) => {
+                question.choices.forEach((choice, idx) => {
                     if (
                         results?.length &&
-                        !choice.startsWith(QUESTION_CHOICE_OPEN_ENDED_PREFIX) &&
+                        idx === question.choices.length - 1 &&
+                        question?.has_open_choice &&
                         !results.some((r) => r[1] === choice)
                     ) {
                         results.push([0, choice])
