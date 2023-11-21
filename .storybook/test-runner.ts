@@ -191,7 +191,7 @@ async function expectStoryToMatchComponentSnapshot(
     theme: SnapshotTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
-    await page.evaluate(() => {
+    await page.evaluate((theme) => {
         const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
@@ -217,7 +217,7 @@ async function expectStoryToMatchComponentSnapshot(
         })
         // For legacy style, make the body transparent to take the screenshot without background
         document.body.style.background = theme === 'legacy' ? 'transparent' : 'inherit'
-    })
+    }, theme)
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,
