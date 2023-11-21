@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
+import { status } from '../../../utils/status'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
@@ -51,6 +52,12 @@ export async function populateTeamDataStep(
             throw new Error(`Not a valid UUID: "${event.uuid}"`)
         }
 
+        status.info('📥', 'Processing event: team_id was provided', {
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+        })
+
         return event as PluginEvent
     }
 
@@ -95,5 +102,11 @@ export async function populateTeamDataStep(
         team_id: team.id,
     }
 
+    status.info('📥', 'Processing event: token resolved successfully', {
+        team_id: event.team_id,
+        token: event.token,
+        distinct_id: event.distinct_id,
+        event: event.event,
+    })
     return event as PluginEvent
 }

@@ -430,7 +430,9 @@ export class PersonState {
                 targetPersonDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
             })
-            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
+                team_id: this.teamId,
+            })
             return mergeInto // We're returning the original person tied to distinct_id used for the event
         }
 
