@@ -190,7 +190,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <>
                                                         {Settings ? (
                                                             <LemonButton
-                                                                onClick={() => toggleEditing()}
+                                                                onClick={() => toggleEditing(true)}
                                                                 size="small"
                                                                 icon={
                                                                     typeof settingsIcon === 'string' ? (
