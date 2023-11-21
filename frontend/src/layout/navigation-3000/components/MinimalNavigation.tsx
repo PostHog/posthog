@@ -22,14 +22,14 @@ export function MinimalNavigation(): JSX.Element {
     return (
         <nav className="flex items-center justify-between gap-2 p-2 border-b">
             <span className="flex-1">
-                <LemonButton icon={<IconLogomark className="text-2xl" />} to={urls.projectHomepage()} />
+                <LemonButton noPadding icon={<IconLogomark className="text-3xl" />} to={urls.projectHomepage()} />
             </span>
             {currentOrganization?.teams?.length ?? 0 > 1 ? (
                 <Popover
                     overlay={<ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />}
                     visible={isProjectSwitcherShown}
                     onClickOutside={hideProjectSwitcher}
-                    placement="right-start"
+                    placement="bottom"
                 >
                     <LemonButton
                         type="tertiary"
@@ -45,7 +45,7 @@ export function MinimalNavigation(): JSX.Element {
                 overlay={<SitePopoverOverlay />}
                 visible={isSitePopoverOpen}
                 onClickOutside={closeSitePopover}
-                placement="right-end"
+                placement="bottom"
             >
                 <LemonButton
                     type="tertiary"
