@@ -23,9 +23,6 @@ jobs:
               with:
                   path: posthog
 
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
             - uses: aws-actions/configure-aws-credentials@v1
               with:
                   aws-region: us-east-1
@@ -45,15 +42,14 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build image # We don't push this because we use Depot cache as the communication channel
-              id: build
-              uses: depot/build-push-action@v1
+            - name: Build and push
+              uses: docker/build-push-action@v5
               with:
-                buildx-fallback: false # buildx is so slow it's better to just fail
-                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
-                platforms: linux/amd64,linux/arm64
-                build-args: COMMIT_HASH=${{ github.sha }}
+                context: .
+                file: ./Dockerfile
                 push: true
+                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.sha }}
+                build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
