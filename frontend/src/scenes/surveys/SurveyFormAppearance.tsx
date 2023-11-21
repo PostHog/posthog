@@ -2,7 +2,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { SurveyAppearance, SurveyThankYou } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NewSurvey, defaultSurveyAppearance } from './constants'
-import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { Survey, SurveyType } from '~/types'
 
 interface SurveyFormAppearanceProps {
     activePreview: number
@@ -25,13 +25,6 @@ export function SurveyFormAppearance({
                 <SurveyAppearance
                     type={survey.questions[activePreview].type}
                     surveyQuestionItem={survey.questions[activePreview]}
-                    question={survey.questions[activePreview].question}
-                    description={survey.questions[activePreview].description}
-                    link={
-                        survey.questions[activePreview].type === SurveyQuestionType.Link
-                            ? (survey.questions[activePreview] as LinkSurveyQuestion).link
-                            : undefined
-                    }
                     appearance={{
                         ...(survey.appearance || defaultSurveyAppearance),
                         ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),

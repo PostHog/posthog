@@ -1,4 +1,3 @@
-import { urls } from 'scenes/urls'
 import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
@@ -38,6 +37,8 @@ export enum TeamMembershipLevel {
     Member = 1,
     Admin = 8,
 }
+
+export type EitherMembershipLevel = OrganizationMembershipLevel | TeamMembershipLevel
 
 /** See posthog/api/organization.py for details. */
 export enum PluginsAccessLevel {
@@ -136,6 +137,7 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
+    QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
@@ -143,7 +145,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -168,14 +169,15 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    CMD_K_SEARCH: 'cmd-k-search', // owner: @thmsobrmlr
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
-    SIDE_PANEL_DOCS: 'side-panel-docs', // owner: #noteforce-3000
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
+    INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -239,10 +241,6 @@ export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     saml: 'Single sign-on (SAML)',
 }
 
-// TODO: Remove UPGRADE_LINK, as the billing page is now universal
-export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
-    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
-
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi
 
@@ -257,3 +255,9 @@ export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
 
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
+
+export const ACTIVITY_PAGE_SIZE = 20
+export const EVENT_DEFINITIONS_PER_PAGE = 50
+export const PROPERTY_DEFINITIONS_PER_EVENT = 5
+export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
+export const LOGS_PORTION_LIMIT = 50

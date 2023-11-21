@@ -1,4 +1,4 @@
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
 
@@ -11,12 +11,12 @@ def get_bytes_exported_metric() -> MetricCounter:
 
 
 def get_export_started_metric() -> MetricCounter:
-    return activity.metric_meter().create_counter("batch_export_started", "Number of batch exports started.")
+    return workflow.metric_meter().create_counter("batch_export_started", "Number of batch exports started.")
 
 
 def get_export_finished_metric(status: str) -> MetricCounter:
     return (
-        activity.metric_meter()
+        workflow.metric_meter()
         .with_additional_attributes({"status": status})
         .create_counter(
             "batch_export_finished", "Number of batch exports finished, for any reason (including failure)."

@@ -1,4 +1,3 @@
-import { Tooltip } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
@@ -10,6 +9,7 @@ import { RefCallback, useEffect, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 import { isInteractionNode, isQueryNode, isSessionNode, TimeToSeeNode, TimeToSeeSessionNode } from '../types'
 import { sessionNodeFacts, SpanData, traceLogic } from './traceLogic'
+import { Tooltip } from '@posthog/lemon-ui'
 
 export interface TraceProps {
     timeToSeeSession: TimeToSeeSessionNode

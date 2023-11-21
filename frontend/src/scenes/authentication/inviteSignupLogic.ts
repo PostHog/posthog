@@ -88,7 +88,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 first_name: !first_name ? 'Please enter your name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                await breakpoint()
+                breakpoint()
 
                 if (!values.invite) {
                     return

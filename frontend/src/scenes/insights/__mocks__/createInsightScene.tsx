@@ -9,7 +9,8 @@ import { StoryFn } from '@storybook/react'
 let shortCounter = 0
 export function createInsightStory(
     insight: Partial<InsightModel>,
-    mode: 'view' | 'edit' = 'view'
+    mode: 'view' | 'edit' = 'view',
+    showLegend: boolean = false
 ): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
@@ -21,7 +22,15 @@ export function createInsightStory(
                     ctx.json({
                         count: 1,
                         results: [
-                            { ...insight, short_id: `${insight.short_id}${count}`, id: (insight.id ?? 0) + 1 + count },
+                            {
+                                ...insight,
+                                short_id: `${insight.short_id}${count}`,
+                                id: (insight.id ?? 0) + 1 + count,
+                                filters: {
+                                    ...insight.filters,
+                                    show_legend: showLegend,
+                                },
+                            },
                         ],
                     }),
                 ],

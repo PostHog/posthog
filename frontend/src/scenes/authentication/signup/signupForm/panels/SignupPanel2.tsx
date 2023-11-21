@@ -6,12 +6,14 @@ import { Field } from 'lib/forms/Field'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
+import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { isSignupPanel2Submitting } = useValues(signupLogic)
+    const buttonStyles = useButtonStyle()
 
     return (
         <div className="space-y-4 Signup__panel__2">
@@ -44,6 +46,7 @@ export function SignupPanel2(): JSX.Element | null {
                     data-attr="signup-submit"
                     loading={isSignupPanel2Submitting}
                     disabled={isSignupPanel2Submitting}
+                    {...buttonStyles}
                 >
                     {!preflight?.demo
                         ? 'Create account'

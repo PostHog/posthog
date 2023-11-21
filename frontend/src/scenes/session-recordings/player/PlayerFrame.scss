@@ -14,7 +14,7 @@
         position: absolute;
 
         iframe {
-            border: 0px;
+            border: 0;
             background-color: white;
         }
 
@@ -40,14 +40,14 @@
             display: inline-block;
             width: 20px;
             height: 20px;
-            background: rgb(73, 80, 246);
+            background: rgb(73 80 246);
             border-radius: 100%;
             transform: translate(-50%, -50%);
             opacity: 0.3;
         }
 
         .replayer-mouse.active::after {
-            animation: click 0.2s ease-in-out 1;
+            animation: PlayerFrame__click 0.2s ease-in-out 1;
         }
 
         .replayer-mouse.touch-device {
@@ -59,12 +59,12 @@
             border-radius: 100%;
             margin-left: -37px;
             margin-top: -37px;
-            border-color: rgba(73, 80, 246, 0);
+            border-color: rgb(73 80 246 / 0%);
             transition: left 0s linear, top 0s linear, border-color 0.2s ease-in-out;
         }
 
         .replayer-mouse.touch-device.touch-active {
-            border-color: rgba(73, 80, 246, 1);
+            border-color: rgb(73 80 246 / 100%);
             transition: left 0.25s linear, top 0.25s linear, border-color 0.2s ease-in-out;
         }
 
@@ -73,7 +73,7 @@
         }
 
         .replayer-mouse.touch-device.active::after {
-            animation: touch-click 0.2s ease-in-out 1;
+            animation: PlayerFrame__touch-click 0.2s ease-in-out 1;
         }
 
         .replayer-mouse-tail {
@@ -81,12 +81,13 @@
             pointer-events: none;
         }
 
-        @keyframes click {
+        @keyframes PlayerFrame__click {
             0% {
                 opacity: 0.3;
                 width: 20px;
                 height: 20px;
             }
+
             50% {
                 opacity: 0.5;
                 width: 10px;
@@ -94,12 +95,13 @@
             }
         }
 
-        @keyframes touch-click {
+        @keyframes PlayerFrame__touch-click {
             0% {
                 opacity: 0;
                 width: 20px;
                 height: 20px;
             }
+
             50% {
                 opacity: 0.5;
                 width: 10px;

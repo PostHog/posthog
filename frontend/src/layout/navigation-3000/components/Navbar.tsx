@@ -1,7 +1,6 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
+import { IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -91,23 +90,13 @@ export function Navbar(): JSX.Element {
                             onClick={() => toggleTheme()}
                             persistentTooltip
                         />
-                        <HelpButton
-                            customComponent={
-                                <NavbarButton
-                                    icon={<IconQuestion />}
-                                    identifier="help-button"
-                                    title="Need any help?"
-                                    shortTitle="Help"
-                                />
-                            }
-                            placement="right-end"
-                        />
                         <NavbarButton
                             icon={<IconGear />}
                             identifier={Scene.Settings}
                             title="Project settings"
                             to={urls.settings('project')}
                         />
+
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}

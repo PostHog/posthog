@@ -80,6 +80,7 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        renameNotebook: (title: string) => ({ title }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
@@ -264,6 +265,13 @@ export const notebookLogic = kea<notebookLogicType>([
                             throw error
                         }
                     }
+                },
+                renameNotebook: async ({ title }) => {
+                    if (!values.notebook) {
+                        return values.notebook
+                    }
+                    const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    return response
                 },
             },
         ],

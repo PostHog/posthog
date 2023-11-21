@@ -11,6 +11,7 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -28,20 +29,24 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        -- These 'timestamp' checks are a heuristic to exploit the sort key.
-        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
-        -- As a side-effect, this heuristic will discard historical loads older than 2 days.
-        timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-        AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-        AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
+        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
+        $timestamp
         $exclude_events
         $include_events
     $order_by
     $format
     """
 )
+
+TIMESTAMP_PREDICATES = """
+-- These 'timestamp' checks are a heuristic to exploit the sort key.
+-- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
+-- As a side-effect, this heuristic will discard historical loads older than a day.
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
+"""
 
 
 async def get_rows_count(
@@ -69,10 +74,15 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
+    timestamp_predicates = TIMESTAMP_PREDICATES
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        timestamp_predicates = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
+        timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
@@ -154,10 +164,15 @@ def get_results_iterator(
         include_events_statement = ""
         events_to_include_tuple = ()
 
+    timestamp_predicates = TIMESTAMP_PREDICATES
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        timestamp_predicates = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=S3_FIELDS if include_person_properties else FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
+        timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
@@ -486,7 +501,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    get_export_started_metric().add(1)
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
     logger.info(
         "Creating batch export for range %s - %s",
@@ -519,8 +533,6 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    get_export_finished_metric(status=inputs.status.lower()).add(1)
-
     logger = await bind_batch_exports_logger(team_id=inputs.team_id)
 
     batch_export_run = await sync_to_async(update_batch_export_run_status)(
@@ -637,6 +649,7 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
+    get_export_started_metric().add(1)
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
         maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
@@ -667,6 +680,7 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
+        get_export_finished_metric(status=update_inputs.status.lower()).add(1)
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

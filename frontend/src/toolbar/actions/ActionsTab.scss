@@ -8,9 +8,11 @@
 
 .action-section {
     &.highlight {
-        background: hsla(228, 14%, 96%, 1);
+        background: hsl(228deg 14% 96% / 100%);
+
         &:nth-child(even) {
             background: white;
+
             &:last-child {
                 padding-bottom: 10px;
             }
@@ -28,7 +30,7 @@
 
     .action-field-caption {
         font-size: 0.8em;
-        color: rgba(0, 0, 0, 0.5);
+        color: rgb(0 0 0 / 50%);
         padding: 8px 0;
     }
 }

@@ -11,6 +11,7 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 import type { batchExportLogicType } from './batchExportLogicType'
 import { router } from 'kea-router'
+import { Scene } from 'scenes/sceneTypes'
 
 export type BatchExportLogicProps = {
     id: string
@@ -228,11 +229,13 @@ export const batchExportLogic = kea<batchExportLogicType>([
             (s) => [s.batchExportConfig],
             (config): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 {
-                    name: config?.name ?? 'Loading',
+                    key: config?.id || 'loading',
+                    name: config?.name,
                 },
             ],
         ],

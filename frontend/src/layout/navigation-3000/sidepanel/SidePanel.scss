@@ -17,7 +17,7 @@
             top: 0;
             right: 0;
             max-width: calc(100vw - 3rem);
-            box-shadow: 0px 0px 30px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 0 30px rgb(0 0 0 / 20%);
 
             [theme='dark'] & {
                 box-shadow: none;

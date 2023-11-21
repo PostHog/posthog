@@ -191,15 +191,6 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_plans(self, plan_keys: Optional[str]):
-        res = requests.get(
-            f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
-
     def _get_products(self, organization: Optional[Organization]):
         headers = {}
         params = {"plan": "standard"}
@@ -234,6 +225,7 @@ class BillingManager:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
+                rows_synced=usage_summary.get("rows_synced", None),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

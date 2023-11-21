@@ -1,10 +1,5 @@
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
 import { Link } from './lemon-ui/Link'
-
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
@@ -835,7 +830,7 @@ export function getKeyMapping(
         data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+            data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {

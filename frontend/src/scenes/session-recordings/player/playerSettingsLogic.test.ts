@@ -57,7 +57,7 @@ describe('playerSettingsLogic', () => {
         afterEach(() => {
             localStorage.clear()
         })
-        it('should start with the first entry selected', async () => {
+        it('should start with the first entry selected', () => {
             expect(logic.values.selectedMiniFilters).toEqual([
                 'all-automatic',
                 'console-all',
@@ -66,7 +66,7 @@ describe('playerSettingsLogic', () => {
             ])
         })
 
-        it('should remove other selected filters if alone', async () => {
+        it('should remove other selected filters if alone', () => {
             logic.actions.setMiniFilter('all-errors', true)
 
             expect(logic.values.selectedMiniFilters.sort()).toEqual([
@@ -77,7 +77,7 @@ describe('playerSettingsLogic', () => {
             ])
         })
 
-        it('should allow multiple filters if not alone', async () => {
+        it('should allow multiple filters if not alone', () => {
             logic.actions.setMiniFilter('console-warn', true)
             logic.actions.setMiniFilter('console-info', true)
 
@@ -90,7 +90,7 @@ describe('playerSettingsLogic', () => {
             ])
         })
 
-        it('should reset to first in tab if empty', async () => {
+        it('should reset to first in tab if empty', () => {
             expect(logic.values.selectedMiniFilters.sort()).toEqual([
                 'all-automatic',
                 'console-all',

@@ -1,6 +1,7 @@
 import { NotebookNodeType } from '~/types'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+import posthog from 'posthog-js'
 
 export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
@@ -9,6 +10,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Properties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
+    | NotebookNodeType.Embed
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
@@ -47,6 +49,7 @@ export function ContainsTypeFilters({
                     }, {})}
                 value={filters.contains}
                 onChange={(newValue: string[]) => {
+                    posthog.capture('notebook containing filter applied')
                     setFilters({ contains: newValue.map((x) => x as NotebookNodeType) })
                 }}
                 data-attr={'notebooks-list-contains-filters'}

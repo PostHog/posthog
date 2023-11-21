@@ -36,7 +36,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults(
+                    const results: PluginType[] = await api.loadPaginatedResults(
                         `api/organizations/@current/pipeline_transformations`
                     )
                     const plugins: Record<number, PluginType> = {}
@@ -60,7 +60,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
-                    const results = await loadPaginatedResults(
+                    const results = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
                     )
 
@@ -185,21 +185,3 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
         actions.loadPluginConfigs()
     }),
 ])
-
-const PAGINATION_DEFAULT_MAX_PAGES = 10
-async function loadPaginatedResults(
-    url: string | null,
-    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-): Promise<any[]> {
-    let results: any[] = []
-    for (let i = 0; i <= maxIterations; ++i) {
-        if (!url) {
-            break
-        }
-
-        const { results: partialResults, next } = await api.get(url)
-        results = results.concat(partialResults)
-        url = next
-    }
-    return results
-}

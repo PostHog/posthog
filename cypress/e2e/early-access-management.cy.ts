@@ -6,7 +6,7 @@ describe('Early Access Management', () => {
     it('Early access feature new and list', () => {
         // load an empty early access feature page
         cy.get('h1').should('contain', 'Early Access Management')
-        cy.title().should('equal', 'Early Access Management • PostHog')
+        cy.title().should('equal', 'Early access features • PostHog')
         cy.get('h2').should('contain', 'Create your first feature')
         cy.get('[data-attr="product-introduction-docs-link"]').should(
             'contain',

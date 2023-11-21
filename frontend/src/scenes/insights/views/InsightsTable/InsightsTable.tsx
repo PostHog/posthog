@@ -229,7 +229,6 @@ export function InsightsTable({
             loading={insightDataLoading}
             emptyState="No insight results"
             data-attr="insights-table-graph"
-            className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
             rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
             firstColumnSticky
