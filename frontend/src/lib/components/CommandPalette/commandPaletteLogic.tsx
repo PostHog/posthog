@@ -19,7 +19,6 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import {
     IconAction,
     IconApps,
-    IconBarChart,
     IconCalculate,
     IconCheckmark,
     IconCohort,
@@ -29,7 +28,6 @@ import {
     IconEmojiPeople,
     IconFlag,
     IconFunnelHorizontal,
-    IconGauge,
     IconGithub,
     IconKeyboard,
     IconLive,
@@ -46,6 +44,24 @@ import {
     IconTrendingFlat,
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
+import {
+    // IconApps,
+    IconDashboard,
+    // IconDatabase,
+    IconGraph,
+    // IconHome,
+    // IconLive,
+    // IconPeople,
+    // IconPieChart,
+    // IconRewindPlay,
+    // IconTestTube,
+    // IconToggle,
+    // IconToolbar,
+    // IconNotebook,
+    // IconRocket,
+    // IconServer,
+    // IconChat,
+} from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -419,14 +435,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 prefixes: ['open', 'visit'],
                 resolver: [
                     {
-                        icon: IconGauge,
+                        icon: IconDashboard,
                         display: 'Go to Dashboards',
                         executor: () => {
                             push(urls.dashboards())
                         },
                     },
                     {
-                        icon: IconBarChart,
+                        icon: IconGraph,
                         display: 'Go to Insights',
                         executor: () => {
                             push(urls.savedInsights())
@@ -689,7 +705,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconGauge,
+                    icon: IconDashboard,
                     display: 'Create Dashboard',
                     executor: () => ({
                         instruction: 'Name your new dashboard',
@@ -698,7 +714,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconGauge,
+                                    icon: IconDashboard,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
                                         newDashboardLogic.actions.addDashboard({ name: argument })
