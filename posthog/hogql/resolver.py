@@ -594,6 +594,8 @@ class Resolver(CloningVisitor):
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
             if isinstance(node.type.table_type, ast.TableAliasType):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
@@ -602,6 +604,8 @@ class Resolver(CloningVisitor):
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if (
             isinstance(node, ast.SelectQuery)
             and node.select_from

@@ -38,6 +38,9 @@ class FieldAliasType(Type):
     def has_child(self, name: str) -> bool:
         return self.type.has_child(name)
 
+    def resolve_constant_type(self):
+        return self.type.resolve_constant_type()
+
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
