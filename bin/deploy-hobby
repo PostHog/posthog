@@ -90,6 +90,10 @@ elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
     echo "Pulling latest from current branch: $(git branch --show-current)"
     git pull
+elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
+then
+    echo "Checking out specific commit hash: $POSTHOG_APP_TAG"
+    git checkout $POSTHOG_APP_TAG
 else
     releaseTag="${POSTHOG_APP_TAG/release-/""}"
     git fetch --tags
