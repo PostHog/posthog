@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -36,8 +36,8 @@ dependencies:
     specifier: 4.4.6
     version: 4.4.6(monaco-editor@0.39.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/icons':
-    specifier: 0.4.1
-    version: 0.4.1(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.4.10
+    version: 0.4.10(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -3422,8 +3422,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.4.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-sR7lDltjoAeExsOMZOZvCz8Z1rHbBqhZo8RABCCvx00MoBCUuydE1y2xpSoP5BVfMogY4ycDktnihw4ICUsb3Q==}
+  /@posthog/icons@0.4.10(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-92/pvHxVSWpNri8XoT9cfLfzf7RRvYGn8qMM6vUhMwkebBiurg8/oQHY1rZ0GcKLvCvzyAtgIr4o/N7ma9kWlQ==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -5353,7 +5353,7 @@ packages:
     resolution: {integrity: sha512-iu5W0Kdd6nysN5CPkY4GRl+0BpxRTdSfBIJak7mb6xCIHSB5t1tw4BOuqMQ5EgpikRY3MWJ4gY647QkWBX3MNQ==}
     dependencies:
       '@storybook/channels': 7.5.3
-      '@types/babel__core': 7.20.4
+      '@types/babel__core': 7.20.5
       '@types/express': 4.17.21
       file-system-cache: 2.3.0
     dev: true
@@ -5898,8 +5898,8 @@ packages:
       '@types/babel__traverse': 7.20.3
     dev: true
 
-  /@types/babel__core@7.20.4:
-    resolution: {integrity: sha512-mLnSC22IC4vcWiuObSRjrLd9XcBTGf59vUSoq2jkQDJ/QQ8PMI9rSuzE+aEV8karUMbskw07bKYoUJCKTUaygg==}
+  /@types/babel__core@7.20.5:
+    resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
     dependencies:
       '@babel/parser': 7.23.4
       '@babel/types': 7.23.4
@@ -5957,7 +5957,11 @@ packages:
     resolution: {integrity: sha512-fB3Zu92ucau0iQ0JMCFQE7b/dv8Ot07NI3KaZIkIUNXq82k4eBAqUaneXfleGY9JWskeS9y+u0nXMyspcuQrCg==}
     dependencies:
       '@types/connect': 3.4.38
+<<<<<<< HEAD
       '@types/node': 18.18.4
+=======
+      '@types/node': 18.18.11
+>>>>>>> master
     dev: true
 
   /@types/chart.js@2.9.37:
@@ -5985,7 +5989,11 @@ packages:
   /@types/connect@3.4.38:
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
     dependencies:
+<<<<<<< HEAD
       '@types/node': 18.18.4
+=======
+      '@types/node': 18.18.11
+>>>>>>> master
     dev: true
 
   /@types/cookie@0.4.1:
@@ -6263,7 +6271,11 @@ packages:
   /@types/express-serve-static-core@4.17.41:
     resolution: {integrity: sha512-OaJ7XLaelTgrvlZD8/aa0vvvxZdUmlCn6MtWeB7TkiKW70BQLc9XEPpDLPdbo52ZhXUCrznlWdCHWxJWtdyajA==}
     dependencies:
+<<<<<<< HEAD
       '@types/node': 18.18.4
+=======
+      '@types/node': 18.18.11
+>>>>>>> master
       '@types/qs': 6.9.10
       '@types/range-parser': 1.2.7
       '@types/send': 0.17.4
@@ -6448,6 +6460,12 @@ packages:
     resolution: {integrity: sha512-CRpX21/kGdzjOpFsZSkcrXMGIBWMGNIHXXBVFSH+ggkftxg+XYP20TESbh+zFvFj3EQOl5byk0HTRn1IL6hbqg==}
     dev: true
 
+  /@types/node@18.18.11:
+    resolution: {integrity: sha512-c1vku6qnTeujJneYH94/4aq73XrVcsJe35UPyAsSok1ijiKrkRzK+AxQPSpNMUnC03roWBBwJx/9I8V7lQoxmA==}
+    dependencies:
+      undici-types: 5.26.5
+    dev: true
+
   /@types/node@18.18.4:
     resolution: {integrity: sha512-t3rNFBgJRugIhackit2mVcLfF6IRc0JE4oeizPQL8Zrm8n2WY/0wOdpOPhdtG0V9Q2TlW/axbF1MJ6z+Yj/kKQ==}
     dev: true
@@ -6597,7 +6615,11 @@ packages:
     resolution: {integrity: sha512-x2EM6TJOybec7c52BX0ZspPodMsQUd5L6PRwOunVyVUhXiBSKf3AezDL8Dgvgt5o0UfKNfuA0eMLr2wLT4AiBA==}
     dependencies:
       '@types/mime': 1.3.5
+<<<<<<< HEAD
       '@types/node': 18.18.4
+=======
+      '@types/node': 18.18.11
+>>>>>>> master
     dev: true
 
   /@types/serve-static@1.15.4:
@@ -6613,7 +6635,11 @@ packages:
     dependencies:
       '@types/http-errors': 2.0.4
       '@types/mime': 3.0.4
+<<<<<<< HEAD
       '@types/node': 18.18.4
+=======
+      '@types/node': 18.18.11
+>>>>>>> master
     dev: true
 
   /@types/set-cookie-parser@2.4.2:
@@ -19011,6 +19037,10 @@ packages:
       has-bigints: 1.0.2
       has-symbols: 1.0.3
       which-boxed-primitive: 1.0.2
+    dev: true
+
+  /undici-types@5.26.5:
+    resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
     dev: true
 
   /unicode-canonical-property-names-ecmascript@2.0.0:
