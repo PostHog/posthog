@@ -61,9 +61,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
             style={{
                 height,
             }}
-        >
-            wat
-        </div>
+        />
     )
 }
 
