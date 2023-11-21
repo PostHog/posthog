@@ -449,7 +449,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     question.type ===
                                                                         SurveyQuestionType.MultipleChoice) && (
                                                                     <div className="flex flex-col gap-2">
-                                                                        <Field name="has_open_choice">
+                                                                        <Field name="hasOpenChoice">
                                                                             {({
                                                                                 value: hasOpenChoice,
                                                                                 onChange: toggleHasOpenChoice,
@@ -466,7 +466,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                         hasOpenChoice &&
                                                                                                         index ===
                                                                                                             value?.length -
-                                                                                                            1
+                                                                                                                1
                                                                                                     return (
                                                                                                         <div
                                                                                                             className="flex flex-row gap-2 relative"

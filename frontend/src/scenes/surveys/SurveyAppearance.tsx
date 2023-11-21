@@ -643,8 +643,7 @@ export function SurveyMultipleChoiceAppearance({
                 )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) =>
-                        multipleChoiceQuestion?.has_open_choice &&
-                        idx === multipleChoiceQuestion.choices?.length - 1 ? (
+                        multipleChoiceQuestion?.hasOpenChoice && idx === multipleChoiceQuestion.choices?.length - 1 ? (
                             <OpenEndedChoice
                                 key={idx}
                                 index={idx}
