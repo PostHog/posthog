@@ -34,21 +34,21 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
                             label: descriptions.successes,
                             data: metrics.successes,
                             borderColor: '',
-                            ...colorConfig('data-brand-blue'),
+                            ...colorConfig('data-color-1'),
                         },
                         ...(descriptions.successes_on_retry
                             ? [
                                   {
                                       label: descriptions.successes_on_retry,
                                       data: metrics.successes_on_retry,
-                                      ...colorConfig('data-yellow'),
+                                      ...colorConfig('data-color-13'),
                                   },
                               ]
                             : []),
                         {
                             label: descriptions.failures,
                             data: metrics.failures,
-                            ...colorConfig('data-vermilion'),
+                            ...colorConfig('data-color-5'),
                         },
                     ],
                 },

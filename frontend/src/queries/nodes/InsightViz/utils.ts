@@ -105,6 +105,14 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
     }
 }
 
+export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.show_labels_on_series
+    } else {
+        return undefined
+    }
+}
+
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.show_percent_stack_view

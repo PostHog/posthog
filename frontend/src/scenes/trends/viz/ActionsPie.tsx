@@ -12,13 +12,18 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ChartParams, GraphDataset, GraphType } from '~/types'
+import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
-export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsPie({
+    inSharedMode,
+    inCardView,
+    showPersonsModal = true,
+    context,
+}: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -32,9 +37,15 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
         trendsFilter,
         formula,
         showValueOnSeries,
+        showLabelOnSeries,
         supportsPercentStackView,
         showPercentStackView,
+        pieChartVizOptions,
     } = useValues(trendsDataLogic(insightProps))
+
+    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
+
+    const showAggregation = !pieChartVizOptions?.hideAggregation
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -72,6 +83,27 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
         }
     }, [indexedResults, hiddenLegendKeys])
 
+    const onClick =
+        renderingMetadata?.onSegmentClick ||
+        (!showPersonsModal || formula
+            ? undefined
+            : (payload) => {
+                  const { points, index, crossDataset } = payload
+                  const dataset = points.referencePoint.dataset
+                  const label = dataset.labels?.[index]
+
+                  const urls = urlsForDatasets(crossDataset, index)
+                  const selectedUrl = urls[index]?.value
+
+                  if (selectedUrl) {
+                      openPersonsModal({
+                          urls,
+                          urlsIndex: index,
+                          title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                      })
+                  }
+              })
+
     return data ? (
         data[0] && data[0].labels ? (
             <div className="ActionsPie">
@@ -89,33 +121,18 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             trendsFilter={trendsFilter}
                             formula={formula}
                             showValueOnSeries={showValueOnSeries}
+                            showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}
-                            onClick={
-                                !showPersonsModal || formula
-                                    ? undefined
-                                    : (payload) => {
-                                          const { points, index, crossDataset } = payload
-                                          const dataset = points.referencePoint.dataset
-                                          const label = dataset.labels?.[index]
-
-                                          const urls = urlsForDatasets(crossDataset, index)
-                                          const selectedUrl = urls[index]?.value
-
-                                          if (selectedUrl) {
-                                              openPersonsModal({
-                                                  urls,
-                                                  urlsIndex: index,
-                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                              })
-                                          }
-                                      }
-                            }
+                            onClick={onClick}
+                            disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>
-                    <h3 className="text-7xl text-center font-bold m-0">
-                        {formatAggregationAxisValue(trendsFilter, total)}
-                    </h3>
+                    {showAggregation && (
+                        <h3 className="text-7xl text-center font-bold m-0">
+                            {formatAggregationAxisValue(trendsFilter, total)}
+                        </h3>
+                    )}
                 </div>
                 {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
             </div>

@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { PropertyFilterType } from '~/types'
+import { GraphPointPayload, PropertyFilterType } from '~/types'
 import { ChartDisplayType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
@@ -174,9 +174,12 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 }
 
 export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
-    const { togglePropertyFilter, setGeographyTab } = useActions(webAnalyticsLogic)
-    const { hasCountryFilter } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter, setGeographyTab, setDeviceTab } = useActions(webAnalyticsLogic)
+    const { hasCountryFilter, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter } =
+        useValues(webAnalyticsLogic)
     const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
+    const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
+
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
             togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
@@ -186,6 +189,33 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             }
         },
         [togglePropertyFilter, worldMapPropertyName]
+    )
+
+    const onDeviceTilePieChartClick = useCallback(
+        (graphPoint: GraphPointPayload) => {
+            if (graphPoint.seriesId == null) {
+                return
+            }
+            const dataset = graphPoint.crossDataset?.[graphPoint.seriesId]
+            if (!dataset) {
+                return
+            }
+            const breakdownValue = dataset.breakdownValues?.[graphPoint.index]
+            if (!breakdownValue) {
+                return
+            }
+            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
+
+            // switch to a different tab if we can, try them in this order: DeviceType Browser OS
+            if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
+                setDeviceTab(DeviceTab.DEVICE_TYPE)
+            } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
+                setDeviceTab(DeviceTab.BROWSER)
+            } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
+                setDeviceTab(DeviceTab.OS)
+            }
+        },
+        [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
 
     const context = useMemo((): QueryContext => {
@@ -201,6 +231,9 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
                                     : undefined,
                         }
                     },
+                },
+                [ChartDisplayType.ActionsPie]: {
+                    onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
         }
