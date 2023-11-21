@@ -87,7 +87,7 @@
         border-radius: var(--lemon-switch-height);
         height: 100%;
         width: 100%;
-        top: 0px;
+        top: 0;
         pointer-events: none;
         background-color: var(--border-bold);
     }
@@ -123,6 +123,7 @@
         --lemon-switch-active-translate: translateX(
             calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - var(--lemon-switch-handle-gutter) * 2)
         );
+
         top: var(--lemon-switch-handle-gutter);
         left: var(--lemon-switch-handle-gutter);
         width: var(--lemon-switch-handle-width);
@@ -148,6 +149,7 @@
 
         .posthog-3000 & {
             --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio) * 1.2);
+
             transform: none;
         }
     }
