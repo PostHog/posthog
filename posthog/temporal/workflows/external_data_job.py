@@ -109,7 +109,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> List[SourceSch
     async_job_fn = sync_to_async(job_fn)
 
     heartbeat_details = HeartbeatDetails()
-    func = heartbeat_details.make_activity_heartbeat_while_running(async_job_fn, dt.timedelta(seconds=1))
+    func = heartbeat_details.make_activity_heartbeat_while_running(async_job_fn, dt.timedelta(seconds=10))
 
     return await func(job_inputs)
 
@@ -148,7 +148,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 inputs,
                 start_to_close_timeout=dt.timedelta(minutes=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                heartbeat_timeout=dt.timedelta(minutes=1),
             )
 
             # check schema first
