@@ -8,6 +8,20 @@
     justify-content: center;
     flex-direction: column;
     flex: 1;
+
+    @include screen($md) {
+        padding: 3rem 3rem 5rem;
+
+        .InsightCard & {
+            padding: 2rem;
+        }
+    }
+
+    .BoldNumber__value {
+        font-weight: 700;
+        width: 100%;
+        letter-spacing: -0.025em;
+    }
 }
 
 .BoldNumber__comparison {
