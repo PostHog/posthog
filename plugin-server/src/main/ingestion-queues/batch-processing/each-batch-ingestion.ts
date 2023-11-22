@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
-import { Hub, PipelineEvent } from '../../../types'
+import { Hub, PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
@@ -11,7 +11,7 @@ import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
@@ -95,6 +95,7 @@ async function handleProcessingError(
 }
 
 export async function eachBatchParallelIngestion(
+    tokenBlockList: ValueMatcher<string>,
     messages: Message[],
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
@@ -112,7 +113,7 @@ export async function eachBatchParallelIngestion(
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
         const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
-        const splitBatch = splitIngestionBatch(messages, overflowMode)
+        const splitBatch = splitIngestionBatch(tokenBlockList, messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', messages.length, {
@@ -280,6 +281,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
 }
 
 export function splitIngestionBatch(
+    tokenBlockList: ValueMatcher<string>,
     kafkaMessages: Message[],
     overflowMode: IngestionOverflowMode
 ): IngestionSplitBatch {
@@ -300,8 +302,19 @@ export function splitIngestionBatch(
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
-        output.toProcess = kafkaMessages.map((m) => new Array({ message: m, pluginEvent: formPipelineEvent(m) }))
-        return output
+        for (const message of kafkaMessages) {
+            const pluginEvent = formPipelineEvent(message)
+            if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
+                continue
+            }
+            output.toProcess.push(new Array({ message: message, pluginEvent }))
+        }
     }
 
     const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
@@ -312,6 +325,18 @@ export function splitIngestionBatch(
             continue
         }
         const pluginEvent = formPipelineEvent(message)
+
+        // Drop based on a token blocklist
+        if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'blocked_token',
+                })
+                .inc()
+            continue
+        }
+
         const eventKey = computeKey(pluginEvent)
         if (
             overflowMode === IngestionOverflowMode.Reroute &&
