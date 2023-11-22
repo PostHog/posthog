@@ -5,7 +5,7 @@ import asyncio
 import datetime as dt
 
 
-class HeartbeatDetails(typing.NamedTuple):
+class AsyncHeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
     def make_activity_heartbeat_while_running(

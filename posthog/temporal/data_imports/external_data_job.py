@@ -21,7 +21,7 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import HeartbeatDetails
+from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
 from temporalio import activity, workflow, exceptions
 from temporalio.common import RetryPolicy
 from asgiref.sync import sync_to_async
@@ -108,7 +108,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> List[SourceSch
     )
     job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
 
-    heartbeat_details = HeartbeatDetails()
+    heartbeat_details = AsyncHeartbeatDetails()
     func = heartbeat_details.make_activity_heartbeat_while_running(job_fn, dt.timedelta(seconds=10))
 
     return await func(job_inputs)

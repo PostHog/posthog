@@ -12,7 +12,7 @@ import temporalio.exceptions
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.common.heartbeat import HeartbeatDetails
+from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
 from posthog.batch_exports.service import BackfillBatchExportInputs
 from posthog.temporal.common.client import connect
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -31,7 +31,7 @@ class TemporalScheduleNotFoundError(Exception):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-class BackfillHeartbeatDetails(HeartbeatDetails):
+class BackfillHeartbeatDetails(AsyncHeartbeatDetails):
     schedule_id: str
     start_at: str
     end_at: str
