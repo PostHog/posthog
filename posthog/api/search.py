@@ -21,8 +21,8 @@ LIMIT = 25
 ENTITY_MAP = {
     "insight": {
         "klass": Insight,
-        "search_fields": {"name": "A", "derived_name": "B", "description": "C"},
-        "extra_fields": ["name", "derived_name", "description"],
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description", "filters", "query"],
     },
     "dashboard": {
         "klass": Dashboard,

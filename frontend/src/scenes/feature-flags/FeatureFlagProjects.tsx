@@ -1,17 +1,19 @@
-import { OrganizationFeatureFlag } from '~/types'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonButton, LemonSelect, LemonTag, Link, LemonBanner } from '@posthog/lemon-ui'
-import { IconArrowRight, IconSync } from 'lib/lemon-ui/icons'
-import { groupFilters } from './FeatureFlags'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from './featureFlagLogic'
-import { organizationLogic } from '../organizationLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconArrowRight, IconSync } from 'lib/lemon-ui/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { useEffect } from 'react'
+
 import { groupsModel } from '~/models/groupsModel'
+import { OrganizationFeatureFlag } from '~/types'
+
+import { organizationLogic } from '../organizationLogic'
+import { featureFlagLogic } from './featureFlagLogic'
+import { groupFilters } from './FeatureFlags'
 
 const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
     const { currentTeamId } = useValues(teamLogic)

@@ -1,12 +1,13 @@
-import { actions, kea, reducers, path, selectors, connect, listeners } from 'kea'
-import { EarlyAccessFeature, posthog } from 'posthog-js'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EarlyAccessFeature, posthog } from 'posthog-js'
+import { userLogic } from 'scenes/userLogic'
+
+import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 
 /** Features that can only be toggled if you fall under the `${flagKey}-preview` flag */
 export const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([FEATURE_FLAGS.POSTHOG_3000])

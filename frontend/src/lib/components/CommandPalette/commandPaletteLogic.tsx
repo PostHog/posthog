@@ -1,29 +1,13 @@
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { router } from 'kea-router'
-import type { commandPaletteLogicType } from './commandPaletteLogicType'
-import Fuse from 'fuse.js'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { Parser } from 'expr-eval'
-import { DashboardType, InsightType } from '~/types'
-import api from 'lib/api'
-import { isMobile, isURL, uniqueBy } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { userLogic } from 'scenes/userLogic'
-import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import posthog from 'posthog-js'
-import { openCHQueriesDebugModal } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import {
     IconApps,
+    IconAsterisk,
     IconCalculator,
     IconChat,
     IconCheck,
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDay,
     IconExternal,
     IconFunnels,
     IconGear,
@@ -36,6 +20,7 @@ import {
     IconLifecycle,
     IconList,
     IconLive,
+    IconNight,
     IconNotebook,
     IconPageChart,
     IconPeople,
@@ -54,10 +39,32 @@ import {
     IconUnlock,
     IconUserPaths,
 } from '@posthog/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Parser } from 'expr-eval'
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile, isURL, uniqueBy } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardType, InsightType } from '~/types'
+
+import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
+import { openCHQueriesDebugModal } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -127,7 +134,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
+        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
@@ -860,6 +867,42 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const toggleTheme: Command = {
+                key: 'toggle-theme',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: ThemeIcon,
+                    display: 'Switch theme',
+                    synonyms: ['toggle theme', 'dark mode', 'light mode'],
+                    executor: () => ({
+                        scope: 'Switch theme',
+                        resolver: [
+                            {
+                                icon: IconDay,
+                                display: 'Light theme',
+                                executor: () => {
+                                    actions.overrideTheme(false)
+                                },
+                            },
+                            {
+                                icon: IconNight,
+                                display: 'Dark theme',
+                                executor: () => {
+                                    actions.overrideTheme(true)
+                                },
+                            },
+                            {
+                                icon: IconAsterisk,
+                                display: 'Sync with system settings',
+                                executor: () => {
+                                    actions.overrideTheme(null)
+                                },
+                            },
+                        ],
+                    }),
+                },
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -868,6 +911,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
+            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                actions.registerCommand(toggleTheme)
+            }
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -878,6 +924,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('create-dashboard')
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
+            actions.deregisterCommand('toggle-theme')
         },
     })),
 ])

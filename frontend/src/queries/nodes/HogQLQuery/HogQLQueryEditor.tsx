@@ -1,19 +1,21 @@
-import { useActions, useValues } from 'kea'
-import { HogQLQuery } from '~/queries/schema'
-import { useEffect, useRef, useState } from 'react'
-import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 import { Monaco } from '@monaco-editor/react'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import clsx from 'clsx'
+import type { editor as importedEditor, IDisposable, languages } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+import { urls } from 'scenes/urls'
+
+import { HogQLQuery } from '~/queries/schema'
+
+import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery

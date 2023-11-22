@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { useValues, useActions } from 'kea'
-import { personsLogic } from './personsLogic'
+import { LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonInput } from '@posthog/lemon-ui'
+import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
+
+import { personsLogic } from './personsLogic'
 
 export const PersonsSearch = (): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)

@@ -1,5 +1,6 @@
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
 import { countryCodeToName } from '../../WorldMap'
 
 export function WorldMapColumnTitle(): JSX.Element {

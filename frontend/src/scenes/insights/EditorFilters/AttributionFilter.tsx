@@ -1,8 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { FunnelsFilter } from '~/queries/schema'
+import { useActions, useValues } from 'kea'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+import { FunnelsFilter } from '~/queries/schema'
+import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
+
 import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'
 
 export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {

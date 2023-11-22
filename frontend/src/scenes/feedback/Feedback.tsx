@@ -1,11 +1,12 @@
 import { LemonTag } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { feedbackLogic } from './feedbackLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { feedbackLogic } from './feedbackLogic'
 import { InAppFeedback, InAppFeedbackHeaderButtons } from './InAppFeedback'
 import { UserInterviewScheduler, UserInterviewSchedulerHeaderButtons } from './UserInterviewScheduler'
-import { useActions, useValues } from 'kea'
 
 export const Feedback = (): JSX.Element => {
     const { activeTab } = useValues(feedbackLogic)

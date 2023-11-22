@@ -1,9 +1,10 @@
-import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
+import './LemonFileInput.scss'
+
+import clsx from 'clsx'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import clsx from 'clsx'
-import './LemonFileInput.scss'
+import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]

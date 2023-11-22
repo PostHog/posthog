@@ -1,15 +1,18 @@
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { TZLabel } from 'lib/components/TZLabel'
-import { useValues } from 'kea'
 import './ActivityLog.scss'
-import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import clsx from 'clsx'
-import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
+
 import { LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useValues } from 'kea'
+import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
+import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
+import { ProductKey } from '~/types'
+
+import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number

@@ -1,12 +1,14 @@
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { AnyPropertyFilter } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { groupsModel } from '~/models/groupsModel'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { AnyPropertyFilter } from '~/types'
+
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 function TestAccountFiltersConfig(): JSX.Element {

@@ -1,26 +1,28 @@
+import { hide } from '@floating-ui/react'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
+import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
+import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { useActions, useValues } from 'kea'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { useEffect } from 'react'
-import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
-import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
-import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { hide } from '@floating-ui/react'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
+import { useEffect } from 'react'
+
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+
 import { TZLabel } from '../TZLabel'
 
 function TaxonomyIntroductionSection(): JSX.Element {

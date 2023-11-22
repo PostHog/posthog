@@ -1,6 +1,6 @@
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch } from '@posthog/lemon-ui'
 
 export function IPCapture(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)

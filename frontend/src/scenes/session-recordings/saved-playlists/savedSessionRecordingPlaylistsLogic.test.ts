@@ -1,14 +1,15 @@
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { ReplayTabs } from '~/types'
-import { useMocks } from '~/mocks/jest'
+import { expectLogic } from 'kea-test-utils'
 import {
     DEFAULT_PLAYLIST_FILTERS,
     PLAYLISTS_PER_PAGE,
     savedSessionRecordingPlaylistsLogic,
 } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { ReplayTabs } from '~/types'
 
 describe('savedSessionRecordingPlaylistsLogic', () => {
     let logic: ReturnType<typeof savedSessionRecordingPlaylistsLogic.build>

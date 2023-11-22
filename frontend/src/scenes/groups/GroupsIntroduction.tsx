@@ -1,7 +1,8 @@
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { AvailableFeature } from '~/types'
 import { Link } from '@posthog/lemon-ui'
+import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+
+import { AvailableFeature } from '~/types'
 
 interface Props {
     access: GroupsAccessStatus.NoAccess | GroupsAccessStatus.HasAccess | GroupsAccessStatus.HasGroupTypes

@@ -1,13 +1,16 @@
-import React, { useState } from 'react'
-import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
-import { PropertyFilterButton } from './PropertyFilterButton'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import './FilterRow.scss'
+
 import clsx from 'clsx'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import React, { useState } from 'react'
+
+import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
+
 import { OperandTag } from './OperandTag'
+import { PropertyFilterButton } from './PropertyFilterButton'
 
 interface FilterRowProps {
     item: Record<string, any>

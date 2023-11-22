@@ -1,7 +1,9 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
+
 import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
+
 import { EditableBreakdownTag } from './BreakdownTag'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 

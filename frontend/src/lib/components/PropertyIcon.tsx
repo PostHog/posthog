@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -17,10 +18,9 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 import { HTMLAttributes, ReactNode } from 'react'
+import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 export const PROPERTIES_ICON_MAP = {
     $browser: {

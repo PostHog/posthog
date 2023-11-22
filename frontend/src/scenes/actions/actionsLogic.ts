@@ -1,16 +1,17 @@
-import { kea, selectors, path, actions, reducers, connect } from 'kea'
-import { ActionType, Breadcrumb, ProductKey } from '~/types'
+import Fuse from 'fuse.js'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { ActionType, Breadcrumb, ProductKey } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
-import { actionsModel } from '~/models/actionsModel'
-import Fuse from 'fuse.js'
-import { userLogic } from 'scenes/userLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { Scene } from 'scenes/sceneTypes'
-import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 
 export type ActionsFilterType = 'all' | 'me'
 

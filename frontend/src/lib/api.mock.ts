@@ -1,3 +1,6 @@
+import apiReal from 'lib/api'
+import { PluginInstallationType } from 'scenes/plugins/types'
+
 import {
     CohortType,
     FilterLogicalOperator,
@@ -14,9 +17,8 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
+
 import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
-import apiReal from 'lib/api'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
 export const MOCK_TEAM_ID: TeamType['id'] = 997

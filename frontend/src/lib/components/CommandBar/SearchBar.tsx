@@ -2,7 +2,6 @@ import { useMountedLogic } from 'kea'
 import { useRef } from 'react'
 
 import { searchBarLogic } from './searchBarLogic'
-
 import { SearchInput } from './SearchInput'
 import { SearchResults } from './SearchResults'
 import { SearchTabs } from './SearchTabs'

@@ -1,7 +1,7 @@
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { IconCottage, IconPerson } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { IconCottage, IconPerson } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
 
 export function SceneIcon(props: { scene: DashboardCompatibleScenes; size: 'small' | 'large' }): JSX.Element | null {
     const className = clsx('text-warning', props.size === 'small' ? 'text-lg' : 'text-3xl')

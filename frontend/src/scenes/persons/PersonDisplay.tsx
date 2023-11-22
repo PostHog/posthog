@@ -1,14 +1,17 @@
 import './PersonDisplay.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+
 import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { PersonPreview } from './PersonPreview'
-import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
-import { asDisplay, asLink } from './person-utils'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+
 import { NotebookNodeType } from '~/types'
+
+import { asDisplay, asLink } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }

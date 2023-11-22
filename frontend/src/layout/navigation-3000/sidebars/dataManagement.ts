@@ -1,17 +1,19 @@
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
+import { getPropertyLabel } from 'lib/taxonomy'
+import { actionsFuse, actionsLogic } from 'scenes/actions/actionsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { SidebarCategory, BasicListItem } from '../types'
+
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { ActionType, EventDefinition, PropertyDefinition, ReplayTabs } from '~/types'
+
+import { BasicListItem, SidebarCategory } from '../types'
 import type { dataManagementSidebarLogicType } from './dataManagementType'
 import { findSearchTermInItemName } from './utils'
-import { loaders } from 'kea-loaders'
-import { ActionType, EventDefinition, PropertyDefinition, ReplayTabs } from '~/types'
-import api from 'lib/api'
-import { subscriptions } from 'kea-subscriptions'
-import { getPropertyLabel } from 'lib/taxonomy'
-import { actionsFuse, actionsLogic } from 'scenes/actions/actionsLogic'
 import { FuseSearchMatch } from './utils'
 
 export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([

@@ -1,13 +1,13 @@
-import { Radio, RadioChangeEvent } from 'antd'
-import { dashboardLogic, DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
-import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
-import clsx from 'clsx'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dayjs } from 'lib/dayjs'
 import { LemonButtonWithSideAction, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { Radio, RadioChangeEvent } from 'antd'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDuration } from 'lib/utils'
+import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)

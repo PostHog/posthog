@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { supportLogic } from './supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { SupportForm, SupportFormButtons } from './SupportForm'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { supportLogic } from './supportLogic'
 
 export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
     const { sendSupportRequest, isSupportFormOpen, sendSupportLoggedOutRequest, title } = useValues(supportLogic)

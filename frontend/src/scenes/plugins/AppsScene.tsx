@@ -1,21 +1,22 @@
-import { useEffect } from 'react'
+import './Plugins.scss'
+
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { pluginsLogic } from './pluginsLogic'
-import { PageHeader } from 'lib/components/PageHeader'
-import { canGloballyManagePlugins, canViewPlugins } from './access'
-import { userLogic } from 'scenes/userLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { BatchExportsTab } from './tabs/batch-exports/BatchExportsTab'
-import { AppsTab } from './tabs/apps/AppsTab'
-import { PluginTab } from './types'
-import { LemonButton } from '@posthog/lemon-ui'
+import { useEffect } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import './Plugins.scss'
+import { canGloballyManagePlugins, canViewPlugins } from './access'
+import { pluginsLogic } from './pluginsLogic'
 import { AppsManagementTab } from './tabs/apps/AppsManagementTab'
+import { AppsTab } from './tabs/apps/AppsTab'
+import { BatchExportsTab } from './tabs/batch-exports/BatchExportsTab'
+import { PluginTab } from './types'
 
 export const scene: SceneExport = {
     component: AppsScene,

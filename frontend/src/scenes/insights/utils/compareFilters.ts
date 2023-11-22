@@ -1,5 +1,6 @@
-import { AnyFilterType } from '~/types'
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+
+import { AnyFilterType } from '~/types'
 
 import { cleanFilters } from './cleanFilters'
 

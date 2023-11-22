@@ -1,6 +1,6 @@
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 export function SettingPersonsOnEvents(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)

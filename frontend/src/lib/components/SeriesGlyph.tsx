@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface SeriesGlyphProps {
