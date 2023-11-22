@@ -9,6 +9,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import type { elementsLogicType } from './elementsLogicType'
+import { heatmapLogic } from './heatmapLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
