@@ -8,6 +8,7 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, DataWa
 
 from posthog.warehouse.data_load.pipeline import StripeJobInputs, SourceColumnType, SourceSchema
 from posthog.warehouse.data_load.service import ExternalDataJobInputs
+from posthog.warehouse.data_load.stripe import ENDPOINTS
 
 from posthog.temporal.data_imports.external_data_job import (
     create_external_data_job_model,
@@ -119,7 +120,7 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
                 dataset_name=new_source.draft_folder_path,
             )
         )
-        mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key")
+        mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key", endpoints=ENDPOINTS)
         assert len(schemas) == 1
 
 
@@ -159,7 +160,7 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
             ),
         )
 
-        assert mock_get_columns.call_count == 1
+        assert mock_get_columns.call_count == 5
 
 
 @pytest.mark.django_db(transaction=True)
@@ -240,10 +241,10 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             ),
         )
 
-        assert mock_get_columns.call_count == 4
+        assert mock_get_columns.call_count == 5
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)
-        assert table_length == 4
+        assert table_length == 5
 
         # Should still have one after
         await activity_environment.run(
@@ -268,7 +269,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)
 
-        assert table_length == 4
+        assert table_length == 5
 
 
 @pytest.mark.django_db(transaction=True)
