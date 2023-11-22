@@ -3738,6 +3738,38 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 0, response)
 
+    def test_creating_static_cohort_with_no_person_distinct_ids(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature2",
+            created_by=self.user,
+        )
+
+        Person.objects.create(team=self.team)
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with self.assertNumQueries(5):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        # don't even try inserting anything, because invalid flag, so None instead of 0
+        self.assertEqual(cohort.count, None)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 0, response)
+
     def test_creating_static_cohort_with_non_existing_flag(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -3783,7 +3815,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             properties={"key": "value"},
         )
         flush_persons_and_events()
-        # TODO: Check right person is added here
 
         FeatureFlagHashKeyOverride.objects.create(
             feature_flag_key="some-feature2",
@@ -3872,6 +3903,177 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 3, response)
+
+    def test_creating_static_cohort_with_default_person_properties_adjustment(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "key", "value": "value", "type": "person", "operator": "icontains"}],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature2",
+            created_by=self.user,
+            ensure_experience_continuity=False,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "key", "value": "value", "type": "person", "operator": "is_set"}],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature-new",
+            created_by=self.user,
+            ensure_experience_continuity=False,
+        )
+
+        _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"})
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person2"],
+            properties={"key": "vaalue"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person3"],
+            properties={"key22": "value"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+            # no queries to evaluate flags, because all evaluated using override properties
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 1)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort2",
+        )
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
+            # need to evaluate flags for person3 using db, because is_set operator can't have defaults added.
+            get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
+
+        cohort2.refresh_from_db()
+        self.assertEqual(cohort2.name, "some cohort2")
+        self.assertEqual(cohort2.count, 2)
+
+    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(self):
+        cohort_nested = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "does-not-exist", "value": "none", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        cohort_static = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+        )
+        cohort_existing = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "group", "value": "none", "type": "person"},
+                                {"key": "group2", "value": [1, 2, 3], "type": "person"},
+                                {"key": "id", "value": cohort_static.pk, "type": "cohort"},
+                                {"key": "id", "value": cohort_nested.pk, "type": "cohort"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort_existing.pk, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    },
+                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 100},
+                ],
+                "multivariate": None,
+            },
+            name="some feature",
+            key="some-feature-new",
+            created_by=self.user,
+            ensure_experience_continuity=False,
+        )
+
+        _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"})
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person2"],
+            properties={"group": "none"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person3"],
+            properties={"key22": "value", "group2": 2},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person4"],
+            properties={},
+        )
+        flush_persons_and_events()
+
+        cohort_static.insert_users_by_list([f"person4"])
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="some cohort",
+        )
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+            # forced to evaluate flags by going to db, because cohorts need db query to evaluate
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 4)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
