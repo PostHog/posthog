@@ -75,7 +75,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
     const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+    const { setRef, setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+
+    const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
+
+    const setRefs = useCallback(
+        (node) => {
+            setRef(node)
+            inViewRef(node)
+        },
+        [inViewRef]
+    )
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
@@ -92,7 +102,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         mountedNotebookLogic,
     })
 
-    const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
@@ -136,7 +145,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
                 <NodeViewWrapper as="div">
                     <div
-                        ref={ref}
+                        ref={setRefs}
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
                             'NotebookNode--editable': getPos && isEditable,

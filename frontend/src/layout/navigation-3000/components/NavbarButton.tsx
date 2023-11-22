@@ -12,6 +12,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
+    sideIcon?: ReactElement
     title?: string
     shortTitle?: string
     tag?: 'alpha' | 'beta'

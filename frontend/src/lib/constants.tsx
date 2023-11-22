@@ -176,6 +176,7 @@ export const FEATURE_FLAGS = {
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

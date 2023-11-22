@@ -1,6 +1,6 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
+import { IconGear, IconDay, IconNight, IconAsterisk, IconSearch } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -14,6 +14,9 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -25,10 +28,12 @@ export function Navbar(): JSX.Element {
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { toggleSearchBar } = useActions(commandBarLogic)
 
     const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     return (
         <nav className="Navbar3000" ref={containerRef}>
@@ -65,6 +70,21 @@ export function Navbar(): JSX.Element {
                 </div>
                 <div className="Navbar3000__bottom">
                     <ul>
+                        <NavbarButton
+                            identifier="search-button"
+                            icon={<IconSearch />}
+                            title="Search"
+                            onClick={toggleSearchBar}
+                            sideIcon={
+                                !isUsingNewNav ? (
+                                    <span className="text-xs">
+                                        <KeyboardShortcut shift k />
+                                    </span>
+                                ) : (
+                                    <></>
+                                )
+                            }
+                        />
                         <NavbarButton
                             icon={
                                 isThemeSyncedWithSystem ? (

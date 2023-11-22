@@ -5,7 +5,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { Divider } from 'antd'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -27,8 +26,10 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
+    const is3000 = useFeatureFlag('POSTHOG_3000')
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
@@ -126,8 +127,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <Divider />
-                <div className="space-y-2" style={{ maxWidth: 640 }}>
+                {!is3000 && <LemonDivider />}
+                <div className="space-y-2 max-w-160">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <Field name="name" label="Name">
@@ -211,7 +212,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div className="flex items-center justify-between my-4">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
@@ -236,7 +237,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                 {typeof cohort.id === 'number' && (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div>
                             <h3 className="l3 mb-4">
                                 Persons in this cohort

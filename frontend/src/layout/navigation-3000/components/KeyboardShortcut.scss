@@ -3,28 +3,25 @@
 }
 
 .KeyboardShortcut__key {
-    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    height: 1.25rem;
-    min-width: 1.25rem;
-    padding: 0 0.1875rem;
+    background: var(--accent-3000);
     border-radius: 0.125rem;
     border-width: 1px;
-    background: var(--accent-3000);
     color: var(--default);
+    display: inline-flex;
+    height: 1.25rem;
+    justify-content: center;
+    min-width: 1.25rem;
+    padding: 0 0.1875rem;
     text-transform: capitalize;
 
     .posthog-3000 & {
-        text-transform: uppercase;
-        border-radius: 0.25rem;
         border-bottom-width: 2px;
+        border-color: var(--secondary-3000-button-border-hover);
+        border-radius: 0.25rem;
         font-size: 0.625rem;
         padding: 0.125rem 0.25rem;
-    }
-
-    .posthog-3000[theme='dark'] & {
-        border-color: var(--muted-3000);
+        text-transform: uppercase;
     }
 
     .KeyboardShortcut--muted > & {

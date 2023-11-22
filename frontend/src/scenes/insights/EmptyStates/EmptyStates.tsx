@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
 import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { Button, Empty } from 'antd'
+import { Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -312,17 +312,19 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <p className="empty-state__description">{description}</p>
                 )}
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Link to={urls.insightNew()}>
-                        <Button
-                            size="large"
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-insight-button"
-                        >
-                            New Insight
-                        </Button>
-                    </Link>
+                    <div className="flex justify-center">
+                        <Link to={urls.insightNew()}>
+                            <LemonButton
+                                size="large"
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<PlusCircleOutlined />}
+                                className="add-insight-button"
+                            >
+                                New Insight
+                            </LemonButton>
+                        </Link>
+                    </div>
                 )}
             </div>
         </div>

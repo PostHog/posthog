@@ -47,9 +47,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
 
     return (
         <div
-            className={`w-full pl-3 pr-2 ${
-                focused ? 'bg-accent-3000' : 'bg-bg-light'
-            } border-r border-b cursor-pointer`}
+            className={`w-full pl-3 pr-2 ${focused ? 'bg-bg-light' : 'bg-bg-3000'} border-r border-b cursor-pointer`}
             onMouseEnter={() => {
                 if (isAutoScrolling) {
                     return
