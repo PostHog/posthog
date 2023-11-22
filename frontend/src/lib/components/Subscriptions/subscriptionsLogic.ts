@@ -1,13 +1,12 @@
 import { actions, afterMount, BreakPointFunction, kea, key, listeners, path, props, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { getInsightId } from 'scenes/insights/utils'
+
 import { SubscriptionType } from '~/types'
 
-import api from 'lib/api'
-import { loaders } from 'kea-loaders'
-
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
-import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps } from './utils'
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([

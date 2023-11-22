@@ -1,10 +1,18 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors, connect } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     PropertyFilterType,
@@ -14,17 +22,11 @@ import {
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
-import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
-import { surveysLogic } from './surveysLogic'
-import { dayjs } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import type { surveyLogicType } from './surveyLogicType'
+import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
-import { Scene } from 'scenes/sceneTypes'
 
 export enum SurveyEditSection {
     Steps = 'steps',

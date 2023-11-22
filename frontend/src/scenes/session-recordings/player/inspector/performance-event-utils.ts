@@ -1,5 +1,6 @@
 import { eventWithTime } from '@rrweb/types'
 import { CapturedNetworkRequest } from 'posthog-js'
+
 import { PerformanceEvent } from '~/types'
 
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
@@ -133,6 +134,11 @@ export function mapRRWebNetworkRequest(
             data[value] = capturedRequest[key]
         }
     })
+
+    // KLUDGE: this shouldn't be necessary but let's display correctly while we figure out why it is.
+    if (!data.name && 'url' in capturedRequest) {
+        data.name = capturedRequest.url as string | undefined
+    }
 
     return data as PerformanceEvent
 }

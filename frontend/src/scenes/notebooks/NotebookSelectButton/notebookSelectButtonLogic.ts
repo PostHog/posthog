@@ -1,8 +1,8 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '~/types'
-
 import api from 'lib/api'
+
+import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '~/types'
 
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 

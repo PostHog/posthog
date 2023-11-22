@@ -1,17 +1,19 @@
+import * as Icons from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { SceneExport } from 'scenes/sceneTypes'
-import { BillingProductV2Type, ProductKey } from '~/types'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { router } from 'kea-router'
-import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
+
 import { productsLogic } from './productsLogic'
-import * as Icons from '@posthog/icons'
-import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: Products,

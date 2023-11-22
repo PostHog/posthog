@@ -1,19 +1,20 @@
-import { useState } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
+import './BreakdownTag.scss'
 
 import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
+import { useState } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { BreakdownType } from '~/types'
+
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { BreakdownType } from '~/types'
-import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
-import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
-import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
-import { cohortsModel } from '~/models/cohortsModel'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
-
-import './BreakdownTag.scss'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number

@@ -1,8 +1,9 @@
 import './LemonInput.scss'
-import React, { useRef, useState } from 'react'
+
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<

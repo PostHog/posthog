@@ -1,4 +1,5 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+
 import { SidePanelTab } from '~/types'
 
 import type { sidePanelStateLogicType } from './sidePanelStateLogicType'

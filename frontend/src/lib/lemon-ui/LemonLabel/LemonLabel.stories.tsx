@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonLabel, LemonLabelProps } from './LemonLabel'
 import { LemonModal } from '@posthog/lemon-ui'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
+import { LemonLabel, LemonLabelProps } from './LemonLabel'
 
 type Story = StoryObj<typeof LemonLabel>
 const meta: Meta<typeof LemonLabel> = {

@@ -1,20 +1,21 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { PropertyDefinition } from '~/types'
-import api from 'lib/api'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
 
-import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
+import { PropertyDefinition } from '~/types'
+
 import { groupsModel } from '../../../models/groupsModel'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
 
 export interface Filters {
     property: string

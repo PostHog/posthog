@@ -1,11 +1,13 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { PipelineAppTabs, PipelineTabs } from '~/types'
-import { pipelineLogic } from './pipelineLogic'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { PipelineAppTabs, PipelineTabs } from '~/types'
+
+import { pipelineLogic } from './pipelineLogic'
 
 export default {
     title: 'Scenes-App/Pipeline',

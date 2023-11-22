@@ -1,7 +1,9 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+
 import { FilterType, InsightType } from '~/types'
+
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 

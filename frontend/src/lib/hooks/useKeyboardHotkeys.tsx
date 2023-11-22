@@ -1,5 +1,6 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
+
 import { HotKey } from '~/types'
 
 export interface HotkeyInterface {

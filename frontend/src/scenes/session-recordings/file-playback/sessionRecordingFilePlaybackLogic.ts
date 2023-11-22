@@ -1,20 +1,19 @@
-import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
-import { urls } from 'scenes/urls'
-import { loaders } from 'kea-loaders'
-
-import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { uuid } from 'lib/utils'
-
-import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 import { eventWithTime } from '@rrweb/types'
-import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
+
+import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 
 export type ExportedSessionRecordingFileV1 = {
     version: '2022-12-02'

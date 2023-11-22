@@ -1,19 +1,20 @@
-import { useState } from 'react'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
-import { EventJSON } from 'scenes/events/EventJSON'
-import { EventType, PropertyDefinitionType } from '~/types'
+import './EventDetails.scss'
+
+import ReactJson from '@microlink/react-json-view'
 import { Properties } from '@posthog/plugin-scaffold'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import ReactJson from '@microlink/react-json-view'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { pluralize } from 'lib/utils'
+import { useState } from 'react'
+import { EventJSON } from 'scenes/events/EventJSON'
 
-import './EventDetails.scss'
+import { EventType, PropertyDefinitionType } from '~/types'
 
 interface EventDetailsProps {
     event: EventType

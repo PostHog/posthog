@@ -1,6 +1,9 @@
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+
 import { Experiment, MultivariateFlagVariant } from '~/types'
+
 import {
     GolangSnippet,
     JSSnippet,
@@ -10,7 +13,6 @@ import {
     RNSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
-import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null

@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
+import { activationLogic, ActivationTaskType } from 'lib/components/ActivationSidebar/activationLogic'
 import { ActivationTask } from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { ActivationTaskType, activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { ProfessorHog } from 'lib/components/hedgehogs'
-import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { LemonIconProps } from 'lib/lemon-ui/icons'
+import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 
 export const SidePanelActivation = (): JSX.Element => {
     const { activeTasks, completionPercent, completedTasks } = useValues(activationLogic)

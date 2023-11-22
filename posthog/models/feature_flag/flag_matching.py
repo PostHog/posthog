@@ -138,6 +138,7 @@ class FeatureFlagMatcher:
         property_value_overrides: Dict[str, Union[str, int]] = {},
         group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
         skip_database_flags: bool = False,
+        cohorts_cache: Optional[Dict[int, Cohort]] = None,
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -147,7 +148,11 @@ class FeatureFlagMatcher:
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
         self.skip_database_flags = skip_database_flags
-        self.cohorts_cache: Dict[int, Cohort] = {}
+
+        if cohorts_cache is None:
+            self.cohorts_cache = {}
+        else:
+            self.cohorts_cache = cohorts_cache
 
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -481,7 +486,8 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
-                if any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                # only fetch all cohorts if not passed in any cached cohorts
+                if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
                     all_cohorts = {
                         cohort.pk: cohort
                         for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
@@ -582,6 +588,10 @@ class FeatureFlagMatcher:
                 self.cache.group_type_index_to_name[group_type_index], {}
             )
         for property in properties:
+            # can't locally compute if property is a cohort
+            # need to atleast fetch the cohort
+            if property.type == "cohort":
+                return False
             if property.key not in target_properties:
                 return False
             if property.operator == "is_not_set":
@@ -602,19 +612,24 @@ class FeatureFlagMatcher:
 
 
 def get_feature_flag_hash_key_overrides(
-    team_id: int, distinct_ids: List[str], using_database: str = "default"
+    team_id: int,
+    distinct_ids: List[str],
+    using_database: str = "default",
+    person_id_to_distinct_id_mapping: Optional[Dict[int, str]] = None,
 ) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
 
-    person_and_distinct_ids = list(
-        PersonDistinctId.objects.using(using_database)
-        .filter(distinct_id__in=distinct_ids, team_id=team_id)
-        .values_list("person_id", "distinct_id")
-    )
-
-    person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+    if not person_id_to_distinct_id_mapping:
+        person_and_distinct_ids = list(
+            PersonDistinctId.objects.using(using_database)
+            .filter(distinct_id__in=distinct_ids, team_id=team_id)
+            .values_list("person_id", "distinct_id")
+        )
+        person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+    else:
+        person_id_to_distinct_id = person_id_to_distinct_id_mapping
 
     person_ids = list(person_id_to_distinct_id.keys())
 

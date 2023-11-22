@@ -1,33 +1,34 @@
-import {
-    InsightQueryNode,
-    EventsNode,
-    ActionsNode,
-    NodeKind,
-    InsightNodeKind,
-    InsightsQueryBase,
-} from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter } from '~/types'
-import {
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithSeries,
-} from '~/queries/utils'
-import {
-    isTrendsFilter,
-    isFunnelsFilter,
-    isRetentionFilter,
-    isPathsFilter,
-    isStickinessFilter,
-    isLifecycleFilter,
-} from 'scenes/insights/sharedUtils'
+import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
-import * as Sentry from '@sentry/react'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+
+import {
+    ActionsNode,
+    EventsNode,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightsQueryBase,
+    NodeKind,
+} from '~/queries/schema'
+import {
+    isFunnelsQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { ActionFilter, FilterType, InsightType } from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,

@@ -1,9 +1,35 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import type { featureFlagLogicType } from './featureFlagLogicType'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { sum, toParams } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { Scene } from 'scenes/sceneTypes'
+import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 import {
     AnyPropertyFilter,
     AvailableFeature,
     Breadcrumb,
+    CohortType,
+    DashboardBasicType,
+    EarlyAccessFeatureType,
+    FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
     FilterType,
@@ -11,43 +37,20 @@ import {
     InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
+    NewEarlyAccessFeatureType,
+    OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
-    FeatureFlagGroupType,
-    UserBlastRadiusType,
-    DashboardBasicType,
-    NewEarlyAccessFeatureType,
-    EarlyAccessFeatureType,
     Survey,
     SurveyQuestionType,
-    OrganizationFeatureFlag,
+    UserBlastRadiusType,
 } from '~/types'
-import api from 'lib/api'
-import { router, urlToAction } from 'kea-router'
-import { sum, toParams } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { urls } from 'scenes/urls'
-import { teamLogic } from '../teamLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { dayjs } from 'lib/dayjs'
-import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { userLogic } from 'scenes/userLogic'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+
 import { organizationLogic } from '../organizationLogic'
-import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
-import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from '../teamLogic'
+import type { featureFlagLogicType } from './featureFlagLogicType'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -580,6 +583,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        newCohort: [
+            null as CohortType | null,
+            {
+                createStaticCohort: async () => {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                        return (await api.featureFlags.createStaticCohort(props.id)).cohort
+                    }
+                    return null
+                },
+            },
+        ],
         projectsWithCurrentFlag: {
             __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
@@ -789,6 +803,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
+        },
+        createStaticCohortSuccess: ({ newCohort }) => {
+            if (newCohort) {
+                lemonToast.success('Static cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(newCohort.id)),
+                    },
+                })
+            }
         },
     })),
     selectors({

@@ -1,10 +1,12 @@
 // PasswordResetComplete.stories.tsx
 import { Meta } from '@storybook/react'
-import { PasswordResetComplete } from './PasswordResetComplete'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
+
 import { useStorybookMocks } from '~/mocks/browser'
+
+import { PasswordResetComplete } from './PasswordResetComplete'
 
 // some metadata and optional parameters
 const meta: Meta = {
