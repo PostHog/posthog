@@ -7,7 +7,7 @@ import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogi
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconArrowRight, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconOpenSidebar, IconInfo } from '@posthog/icons'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import './NotebookScene.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -48,7 +48,7 @@ export function NotebookScene(): JSX.Element {
         return (
             <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10 flex-1">
                 <h2 className="text-muted-alt">
-                    This Notebook is open in the side panel <IconArrowRight />
+                    This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
                 <p>
@@ -84,7 +84,7 @@ export function NotebookScene(): JSX.Element {
 
                     <LemonButton
                         type="secondary"
-                        icon={<IconHelpOutline />}
+                        icon={<IconInfo />}
                         size={buttonSize}
                         onClick={() => {
                             if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
@@ -109,11 +109,11 @@ export function NotebookScene(): JSX.Element {
                         tooltip={
                             <>
                                 Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
-                                app. This is great for dragging and dropping elements like Insights, Recordings or even
-                                Feature Flags into your active Notebook.
+                                app. This is great for dragging and dropping elements like insights, recordings or even
+                                feature flags into your active notebook.
                             </>
                         }
-                        sideIcon={<IconArrowRight />}
+                        sideIcon={<IconOpenSidebar />}
                     >
                         Open in side panel
                     </LemonButton>

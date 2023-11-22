@@ -65,7 +65,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp()
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 event.preventDefault()
 
                 if (values.activeFlow) {
@@ -79,7 +79,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                     actions.hidePalette()
                 }
             } else if (event.key === 'Backspace') {
-                if (values.input.length === 0) {
+                if (values.input.length === 0 && event.repeat === false) {
                     // transition to search when pressing backspace with empty input
                     actions.setCommandBar(BarStatus.SHOW_SEARCH)
                 }
