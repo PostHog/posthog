@@ -89,7 +89,7 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 export function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
-        ...(cohort.description ? { description: cohort.description } : {}),
+        ...{ description: cohort.description ?? '' },
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         filters: JSON.stringify(

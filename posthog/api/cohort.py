@@ -190,7 +190,7 @@ class CohortSerializer(serializers.ModelSerializer):
         user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
-        cohort.description = validated_data.get("description", "")
+        cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
