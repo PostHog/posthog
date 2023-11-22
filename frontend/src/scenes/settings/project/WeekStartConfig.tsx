@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function WeekStartConfig(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

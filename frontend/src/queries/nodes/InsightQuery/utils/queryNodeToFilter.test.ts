@@ -1,6 +1,6 @@
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightType, LifecycleFilterType } from '~/types'
 import { LifecycleQuery, NodeKind } from '~/queries/schema'
+import { InsightType, LifecycleFilterType } from '~/types'
 
 describe('queryNodeToFilter', () => {
     test('converts a query node to a filter', () => {

@@ -1,14 +1,16 @@
 import { Meta } from '@storybook/react'
-import recordings from './__mocks__/recordings.json'
-import { useEffect } from 'react'
-import { mswDecorator } from '~/mocks/browser'
 import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
+import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
+
 import recording_playlists from './__mocks__/recording_playlists.json'
+import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Recordings',

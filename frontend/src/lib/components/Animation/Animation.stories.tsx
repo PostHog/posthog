@@ -1,5 +1,5 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { AnimationType } from 'lib/animations/animations'
-import { StoryFn, Meta, StoryObj } from '@storybook/react'
 import { Animation } from 'lib/components/Animation/Animation'
 
 type Story = StoryObj<typeof Animation>

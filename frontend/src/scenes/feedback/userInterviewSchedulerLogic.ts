@@ -1,8 +1,10 @@
-import { isURL } from 'lib/utils'
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { isURL } from 'lib/utils'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+
 import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import type { userInterviewSchedulerLogicType } from './userInterviewSchedulerLogicType'
 
 export const FLAG_PREFIX = 'interview-'

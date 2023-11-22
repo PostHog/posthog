@@ -1,16 +1,17 @@
-import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
+
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { urls } from 'scenes/urls'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { Link } from 'lib/lemon-ui/Link'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)

@@ -1,11 +1,13 @@
-import clsx from 'clsx'
-import React from 'react'
-import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+
+import { useSliderPositioning } from '../hooks'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
     value: T

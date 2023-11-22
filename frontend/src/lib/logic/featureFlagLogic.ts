@@ -1,8 +1,10 @@
-import { kea, path, actions, reducers, afterMount } from 'kea'
-import type { featureFlagLogicType } from './featureFlagLogicType'
-import posthog from 'posthog-js'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
 import { AppContext } from '~/types'
+
+import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string

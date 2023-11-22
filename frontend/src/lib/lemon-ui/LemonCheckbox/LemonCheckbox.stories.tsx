@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
 type Story = StoryObj<typeof LemonCheckbox>

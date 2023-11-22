@@ -17,7 +17,7 @@ export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null =>
     }
 
     return (
-        <div className="flex items-center border-t space-x-3 px-2 shrink-0 overflow-x-auto">
+        <div className="flex items-center border-t shrink-0 overflow-x-auto bg-bg-light">
             <SearchBarTab type="all" active={activeTab === 'all'} inputRef={inputRef} />
             {Object.entries(searchResponse.counts).map(([type, count]) => (
                 <SearchBarTab

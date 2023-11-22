@@ -1,16 +1,17 @@
-import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSync } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref } = useValues(currentPageLogic)

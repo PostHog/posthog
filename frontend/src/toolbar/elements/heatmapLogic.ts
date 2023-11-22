@@ -1,17 +1,19 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { encodeParams } from 'kea-router'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, trimElement } from '~/toolbar/utils'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import type { heatmapLogicType } from './heatmapLogicType'
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { posthog } from '~/toolbar/posthog'
-import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { elementToSelector, escapeRegex } from 'lib/actionUtils'
-import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
-import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
+import { encodeParams } from 'kea-router'
+import { elementToSelector, escapeRegex } from 'lib/actionUtils'
+import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+
+import { posthog } from '~/toolbar/posthog'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { elementToActionStep, trimElement } from '~/toolbar/utils'
+import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import type { heatmapLogicType } from './heatmapLogicType'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,

@@ -2,7 +2,9 @@ import { useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
+
 import { InsightModel } from '~/types'
+
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function RecentFeatureFlagInsights(): JSX.Element {

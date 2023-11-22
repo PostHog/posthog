@@ -8,10 +8,10 @@ import {
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { pluralize } from 'lib/utils'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 const dataManagementActionsMapping: Record<

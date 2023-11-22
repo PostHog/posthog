@@ -1,20 +1,23 @@
 import './ActionFilter.scss'
-import React, { useEffect } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
-import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../../../teamLogic'
-import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import React, { useEffect } from 'react'
+import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
+
+import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
+
+import { teamLogic } from '../../../teamLogic'
+import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { entityFilterLogic, LocalFilter, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void

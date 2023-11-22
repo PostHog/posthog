@@ -1,18 +1,19 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
+import { useActions, useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
-import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
-import { useActions, useMountedLogic } from 'kea'
-import { MenuState, toolbarLogic } from './bar/toolbarLogic'
-import { toolbarConfigLogic } from './toolbarConfigLogic'
+
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
 import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
+import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
+import { MenuState, toolbarLogic } from './bar/toolbarLogic'
+import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 function useToolbarStyles(): void {
     useEffect(() => {

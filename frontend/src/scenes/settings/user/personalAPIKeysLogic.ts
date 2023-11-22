@@ -1,10 +1,12 @@
+import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, listeners } from 'kea'
 import api from 'lib/api'
-import { PersonalAPIKeyType } from '~/types'
-import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { PersonalAPIKeyType } from '~/types'
+
+import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),

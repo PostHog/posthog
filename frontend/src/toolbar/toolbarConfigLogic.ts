@@ -1,12 +1,13 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { ToolbarProps } from '~/types'
-import { posthog } from '~/toolbar/posthog'
+import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+
+import { posthog } from '~/toolbar/posthog'
+import { ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { combineUrl, encodeParams } from 'kea-router'
 import { clearSessionToolbarToken } from './utils'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),

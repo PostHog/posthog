@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
-import { toolbarConfigLogic } from './toolbarConfigLogic'
-import { Elements } from './elements/Elements'
 import { Fade } from 'lib/components/Fade/Fade'
-import { toolbarLogic } from './bar/toolbarLogic'
-import { HedgehogButton } from './hedgehog/HedgehogButton'
+
 import { Toolbar } from './bar/Toolbar'
+import { toolbarLogic } from './bar/toolbarLogic'
+import { Elements } from './elements/Elements'
+import { HedgehogButton } from './hedgehog/HedgehogButton'
+import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 export function ToolbarContainer(): JSX.Element {
     const { buttonVisible } = useValues(toolbarConfigLogic)

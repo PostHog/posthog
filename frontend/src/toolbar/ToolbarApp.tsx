@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react'
-import { useSecondRender } from 'lib/hooks/useSecondRender'
-import root from 'react-shadow'
-import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useValues } from 'kea'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { ToolbarProps } from '~/types'
+import { useSecondRender } from 'lib/hooks/useSecondRender'
+import { useRef, useState } from 'react'
+import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
+
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
+import { ToolbarProps } from '~/types'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 

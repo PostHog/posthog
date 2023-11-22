@@ -1,7 +1,8 @@
+import './Experiment.scss'
+
+import clsx from 'clsx'
 import { IconCheckmark, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
-import './Experiment.scss'
-import clsx from 'clsx'
 
 export function ExperimentWorkflow(): JSX.Element {
     const [workflowValidateStepCompleted, setWorkflowValidateStepCompleted] = useState(false)

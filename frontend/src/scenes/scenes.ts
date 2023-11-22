@@ -1,14 +1,15 @@
+import { combineUrl } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
-import { urls } from 'scenes/urls'
-import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
-import { combineUrl } from 'kea-router'
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { EventsQuery } from '~/queries/schema'
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -118,7 +119,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'Experiments',
+        name: 'A/B testing',
     },
     [Scene.Experiment]: {
         projectBased: true,

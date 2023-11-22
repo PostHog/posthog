@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+
+import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
 type Story = StoryObj<typeof LemonSelect>
 const meta: Meta<typeof LemonSelect> = {

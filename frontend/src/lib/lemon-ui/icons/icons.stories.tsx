@@ -1,9 +1,10 @@
-import * as React from 'react'
-import * as icons from './icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import * as React from 'react'
+
+import * as icons from './icons'
 
 const { IconGauge, IconWithCount } = icons
 

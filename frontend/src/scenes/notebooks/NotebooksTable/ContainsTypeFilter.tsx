@@ -1,7 +1,8 @@
-import { NotebookNodeType } from '~/types'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
-import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import posthog from 'posthog-js'
+import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+
+import { NotebookNodeType } from '~/types'
 
 export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,

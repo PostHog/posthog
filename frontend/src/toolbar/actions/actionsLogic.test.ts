@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'

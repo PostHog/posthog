@@ -1,4 +1,5 @@
-import { kea, path, actions, reducers, events } from 'kea'
+import { actions, events, kea, path, reducers } from 'kea'
+
 import type { currentPageLogicType } from './currentPageLogicType'
 
 export const currentPageLogic = kea<currentPageLogicType>([

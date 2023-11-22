@@ -1,20 +1,22 @@
-import { dayjs } from 'lib/dayjs'
-import { useActions, useValues } from 'kea'
-
 import './ProjectHomepage.scss'
+
+import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { urls } from 'scenes/urls'
-import { SessionRecordingType } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { humanFriendlyDuration } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { teamLogic } from 'scenes/teamLogic'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDuration } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { SessionRecordingType } from '~/types'
+
+import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 interface RecordingRowProps {
     recording: SessionRecordingType

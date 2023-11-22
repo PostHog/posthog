@@ -1,23 +1,25 @@
+import './HedgehogBuddy.scss'
+import './HedgehogBuddy.scss'
+
+import { useValues } from 'kea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { range, sampleOne } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { range, sampleOne } from 'lib/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useValues } from 'kea'
+import { HedgehogAccessories } from './HedgehogAccessories'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    AccessoryInfo,
+    baseSpriteAccessoriesPath,
+    baseSpritePath,
     SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    standardAnimations,
     standardAccessories,
-    AccessoryInfo,
-    baseSpritePath,
-    baseSpriteAccessoriesPath,
+    standardAnimations,
 } from './sprites/sprites'
-import './HedgehogBuddy.scss'
-import { HedgehogAccessories } from './HedgehogAccessories'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20

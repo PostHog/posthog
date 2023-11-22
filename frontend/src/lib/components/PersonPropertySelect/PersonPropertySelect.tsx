@@ -1,16 +1,15 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import clsx from 'clsx'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
-
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
-import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 
 export interface PersonPropertySelectProps {
     addText: string
