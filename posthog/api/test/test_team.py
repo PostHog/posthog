@@ -10,7 +10,7 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.batch_exports.service import describe_schedule
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
