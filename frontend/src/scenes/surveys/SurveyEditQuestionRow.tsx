@@ -1,9 +1,11 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconDelete, SortableDragIcon } from 'lib/lemon-ui/icons'
-import { CSS } from '@dnd-kit/utilities'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete, SortableDragIcon } from 'lib/lemon-ui/icons'
+
 import { Survey } from '~/types'
+
 import { NewSurvey } from './constants'
 
 type SurveyQuestionHeaderProps = {
