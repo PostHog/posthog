@@ -126,7 +126,7 @@ jobs:
             - name: Check for changes that affect temporal worker
               id: check_changes_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
 
             - name: Trigger Temporal Worker Cloud deployment
               if: steps.check_changes_temporal_worker.outputs.changed != ''
