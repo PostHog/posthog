@@ -2,7 +2,9 @@ import { kea, path, connect, afterMount, beforeUnmount } from 'kea'
 
 import { commandBarLogic } from './commandBarLogic'
 
-export const shortcutsLogic = kea([
+import type { shortcutsLogicType } from './shortcutsLogicType'
+
+export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['lib', 'components', 'CommandBar', 'shortcutsLogic']),
     connect({
         actions: [commandBarLogic, ['hideCommandBar']],
