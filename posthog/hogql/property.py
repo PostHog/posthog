@@ -113,7 +113,9 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
-    elif property.type == "event" or property.type == "feature" or property.type == "person":
+    elif (
+        property.type == "event" or property.type == "feature" or property.type == "person" or property.type == "group"
+    ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
                 f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
@@ -147,7 +149,13 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        chain = ["person", "properties"] if property.type == "person" and scope != "person" else ["properties"]
+        if property.type == "person":
+            chain = ["person", "properties"]
+        elif property.type == "group":
+            chain = [f"group_{property.group_type_index}", "properties"]
+        else:
+            chain = ["properties"]
+
         field = ast.Field(chain=chain + [property.key])
         properties_field = ast.Field(chain=chain)
 
@@ -288,7 +296,7 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
+    # TODO: Add support for these types "recording", "behavioral", and "session" types
 
     raise NotImplementedException(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"

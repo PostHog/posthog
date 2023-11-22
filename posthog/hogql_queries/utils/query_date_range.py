@@ -172,8 +172,6 @@ class QueryDateRange:
             return True
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
-        is_delta_days = delta_mapping.get("days", None) is not None
-        is_delta_weeks = delta_mapping.get("weeks", None) is not None
 
         if interval == IntervalType.hour:
             return False
@@ -182,16 +180,8 @@ class QueryDateRange:
                 return False
             else:
                 return True
-        elif interval == IntervalType.week:
-            if is_delta_hours or is_delta_days:
-                return False
-            else:
-                return True
-        elif interval == IntervalType.month:
-            if is_delta_hours or is_delta_days or is_delta_weeks:
-                return False
-            else:
-                return True
+        elif interval == IntervalType.week or interval == IntervalType.month:
+            return True
 
         return True
 

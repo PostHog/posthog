@@ -54,13 +54,13 @@ class TrendsQueryBuilder:
     def build_persons_query(self) -> ast.SelectQuery:
         event_query = self._get_events_subquery(True)
 
-        event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person_id"]))]
+        event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
         event_query.group_by = None
 
         return event_query
 
-    def _get_date_subqueries(self) -> List[ast.SelectQuery]:
-        if not self._breakdown.enabled:
+    def _get_date_subqueries(self, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
+        if not self._breakdown.enabled or ignore_breakdowns:
             return [
                 cast(
                     ast.SelectQuery,
@@ -111,7 +111,7 @@ class TrendsQueryBuilder:
                                 coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
                             )
                         UNION ALL
-                        SELECT {date_from} AS day_start
+                        SELECT {date_from_start_of_interval} AS day_start
                     ) as ticks
                     CROSS JOIN (
                         SELECT breakdown_value
@@ -164,7 +164,9 @@ class TrendsQueryBuilder:
 
         # No breakdowns and no complex series aggregation
         if (
-            not self._breakdown.enabled and not self._aggregation_operation.requires_query_orchestration()
+            not self._breakdown.enabled
+            and not self._aggregation_operation.requires_query_orchestration()
+            and not self._aggregation_operation.aggregating_on_session_duration()
         ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
@@ -181,13 +183,60 @@ class TrendsQueryBuilder:
             orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
             orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+            if (
+                self._aggregation_operation.should_aggregate_values
+                and not self._aggregation_operation.is_count_per_actor_variant()
+            ):
+                orchestrator.parent_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
             return orchestrator.build()
+        # Breakdowns and session duration math property
+        elif self._breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
+            default_query.select = [
+                ast.Alias(
+                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                ),
+                self._breakdown.column_expr(),
+            ]
+
+            default_query.group_by.extend([ast.Field(chain=["session", "id"]), ast.Field(chain=["breakdown_value"])])
+
+            wrapper = self.session_duration_math_property_wrapper(default_query)
+
+            if not self._trends_display.should_aggregate_values():
+                default_query.select.append(day_start)
+                default_query.group_by.append(ast.Field(chain=["day_start"]))
+
+                wrapper.select.append(ast.Field(chain=["day_start"]))
+                wrapper.group_by.append(ast.Field(chain=["day_start"]))
+
+            wrapper.select.append(ast.Field(chain=["breakdown_value"]))
+            wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
+
+            return wrapper
         # Just breakdowns
         elif self._breakdown.enabled:
             default_query.select.append(self._breakdown.column_expr())
             default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
+        # Just session duration math property
+        elif self._aggregation_operation.aggregating_on_session_duration():
+            default_query.select = [
+                ast.Alias(
+                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                )
+            ]
+            default_query.group_by.append(ast.Field(chain=["session", "id"]))
 
+            wrapper = self.session_duration_math_property_wrapper(default_query)
+
+            if not self._trends_display.should_aggregate_values():
+                default_query.select.append(day_start)
+                default_query.group_by.append(ast.Field(chain=["day_start"]))
+
+                wrapper.select.append(ast.Field(chain=["day_start"]))
+                wrapper.group_by.append(ast.Field(chain=["day_start"]))
+
+            return wrapper
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_query_orchestrator(
@@ -211,17 +260,29 @@ class TrendsQueryBuilder:
             ),
         )
 
-        query = self._trends_display.modify_outer_query(outer_query=query, inner_query=inner_query)
+        query = self._trends_display.modify_outer_query(
+            outer_query=query,
+            inner_query=inner_query,
+            dates_queries=ast.SelectUnionQuery(select_queries=self._get_date_subqueries(ignore_breakdowns=True)),
+        )
+
+        query.order_by = [ast.OrderExpr(expr=ast.Call(name="sum", args=[ast.Field(chain=["count"])]), order="DESC")]
 
         if self._breakdown.enabled:
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
-                    expr=ast.Call(name="ifNull", args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value="")]),
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
+                            ast.Constant(value=""),
+                        ],
+                    ),
                 )
             )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
-            query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC")]
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query
 
@@ -305,8 +366,12 @@ class TrendsQueryBuilder:
 
         # Actions
         if isinstance(series, ActionsNode):
-            action = Action.objects.get(pk=int(series.id), team=self.team)
-            filters.append(action_to_expr(action))
+            try:
+                action = Action.objects.get(pk=int(series.id), team=self.team)
+                filters.append(action_to_expr(action))
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                filters.append(parse_expr("1 = 2"))
 
         # Breakdown
         if not ignore_breakdowns:
@@ -328,6 +393,24 @@ class TrendsQueryBuilder:
 
         return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
+    def session_duration_math_property_wrapper(self, default_query: ast.SelectQuery) -> ast.SelectQuery:
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                    SELECT {aggregation_operation} AS total
+                    FROM {default_query}
+                """,
+                placeholders={
+                    "aggregation_operation": self._aggregation_operation.select_aggregation(),
+                    "default_query": default_query,
+                },
+            ),
+        )
+
+        query.group_by = []
+        return query
+
     @cached_property
     def _breakdown(self):
         return Breakdown(
@@ -341,7 +424,9 @@ class TrendsQueryBuilder:
 
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
-        return AggregationOperations(self.series, self.query_date_range, self._trends_display.should_aggregate_values())
+        return AggregationOperations(
+            self.team, self.series, self.query_date_range, self._trends_display.should_aggregate_values()
+        )
 
     @cached_property
     def _trends_display(self) -> TrendsDisplay:

@@ -86,7 +86,7 @@ class Breakdown:
                 return None
 
             return ast.CompareOperation(
-                left=ast.Field(chain=["person_id"]),
+                left=ast.Field(chain=["person", "id"]),
                 op=ast.CompareOperationOp.InCohort,
                 right=ast.Constant(value=int(self.query.breakdown.breakdown)),
             )
@@ -100,6 +100,11 @@ class Breakdown:
             ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
             for v in self._get_breakdown_values
         ]
+
+        if len(compare_ops) == 1:
+            return compare_ops[0]
+        elif len(compare_ops) == 0:
+            return parse_expr("1 = 1")
 
         return ast.Or(exprs=compare_ops)
 

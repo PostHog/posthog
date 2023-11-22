@@ -2,6 +2,7 @@ from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode
 
 
@@ -47,13 +48,19 @@ class QueryAlternator:
 
 
 class AggregationOperations:
+    team: Team
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
     should_aggregate_values: bool
 
     def __init__(
-        self, series: EventsNode | ActionsNode, query_date_range: QueryDateRange, should_aggregate_values: bool
+        self,
+        team: Team,
+        series: EventsNode | ActionsNode,
+        query_date_range: QueryDateRange,
+        should_aggregate_values: bool,
     ) -> None:
+        self.team = team
         self.series = series
         self.query_date_range = query_date_range
         self.should_aggregate_values = should_aggregate_values
@@ -64,7 +71,8 @@ class AggregationOperations:
         elif self.series.math == "total":
             return parse_expr("count(e.uuid)")
         elif self.series.math == "dau":
-            return parse_expr("count(DISTINCT e.person_id)")
+            actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person.id"
+            return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
             return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
         elif self.series.math == "monthly_active":
@@ -83,7 +91,7 @@ class AggregationOperations:
             elif self.series.math == "max":
                 return self._math_func("max", None)
             elif self.series.math == "median":
-                return self._math_func("median", None)
+                return self._math_quantile(0.5, None)
             elif self.series.math == "p90":
                 return self._math_quantile(0.9, None)
             elif self.series.math == "p95":
@@ -99,9 +107,12 @@ class AggregationOperations:
             "monthly_active",
         ]
 
-        return self._is_count_per_actor_variant() or self.series.math in math_to_return_true
+        return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
-    def _is_count_per_actor_variant(self):
+    def aggregating_on_session_duration(self) -> bool:
+        return self.series.math_property == "$session_duration"
+
+    def is_count_per_actor_variant(self):
         return self.series.math in [
             "avg_count_per_actor",
             "min_count_per_actor",
@@ -128,14 +139,17 @@ class AggregationOperations:
             )
 
         if self.series.math_property == "$session_duration":
-            chain = ["session", "duration"]
+            chain = ["session_duration"]
         else:
             chain = ["properties", self.series.math_property]
 
         return ast.Call(name=method, args=[ast.Field(chain=chain)])
 
     def _math_quantile(self, percentile: float, override_chain: Optional[List[str | int]]) -> ast.Call:
-        chain = ["properties", self.series.math_property]
+        if self.series.math_property == "$session_duration":
+            chain = ["session_duration"]
+        else:
+            chain = ["properties", self.series.math_property]
 
         return ast.Call(
             name="quantile",
@@ -163,7 +177,7 @@ class AggregationOperations:
     def _parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if self._is_count_per_actor_variant():
+        if self.is_count_per_actor_variant():
             query = parse_select(
                 "SELECT total FROM {inner_query}",
                 placeholders={"inner_query": inner_query},
@@ -181,19 +195,28 @@ class AggregationOperations:
             ),
         )
 
-        query = parse_select(
-            """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT counts AS total
                 FROM {inner_query}
-                WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                WHERE timestamp >= {date_from_start_of_interval} AND timestamp <= {date_to}
             """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "inner_query": inner_query,
-            },
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "inner_query": inner_query,
+                },
+            ),
         )
 
-        if not self.should_aggregate_values:
+        if self.should_aggregate_values:
+            query.select = [
+                ast.Alias(
+                    alias="total", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["actor_id"])])
+                )
+            ]
+        else:
             query.select.append(day_start)
 
         return query
@@ -201,7 +224,7 @@ class AggregationOperations:
     def _inner_select_query(
         self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if self._is_count_per_actor_variant():
+        if self.is_count_per_actor_variant():
             if self.series.math == "avg_count_per_actor":
                 math_func = self._math_func("avg", ["total"])
             elif self.series.math == "min_count_per_actor":
@@ -209,7 +232,7 @@ class AggregationOperations:
             elif self.series.math == "max_count_per_actor":
                 math_func = self._math_func("max", ["total"])
             elif self.series.math == "median_count_per_actor":
-                math_func = self._math_func("median", ["total"])
+                math_func = self._math_quantile(0.5, ["total"])
             elif self.series.math == "p90_count_per_actor":
                 math_func = self._math_quantile(0.9, ["total"])
             elif self.series.math == "p95_count_per_actor":
@@ -239,8 +262,10 @@ class AggregationOperations:
 
             return query
 
-        return parse_select(
-            """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
@@ -257,12 +282,19 @@ class AggregationOperations:
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                **self._interval_placeholders(),
-                "cross_join_select_query": cross_join_select_query,
-            },
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    **self._interval_placeholders(),
+                    "cross_join_select_query": cross_join_select_query,
+                },
+            ),
         )
+
+        if self.should_aggregate_values:
+            query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
+            query.group_by.append(ast.Field(chain=["actor_id"]))
+
+        return query
 
     def _events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
@@ -286,7 +318,7 @@ class AggregationOperations:
 
         where_clause_combined = ast.And(exprs=[events_where_clause, *date_filters])
 
-        if self._is_count_per_actor_variant():
+        if self.is_count_per_actor_variant():
             day_start = ast.Alias(
                 alias="day_start",
                 expr=ast.Call(
@@ -302,11 +334,16 @@ class AggregationOperations:
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
-                    GROUP BY e.person_id
+                    GROUP BY {person_field}
                 """,
                 placeholders={
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
+                    "person_field": ast.Field(
+                        chain=["e", "distinct_id"]
+                        if self.team.aggregate_users_by_distinct_id
+                        else ["e", "person", "id"]
+                    ),
                 },
             )
 
@@ -320,7 +357,7 @@ class AggregationOperations:
             """
                 SELECT
                     timestamp as timestamp,
-                    e.person_id AS actor_id
+                    {person_field} AS actor_id
                 FROM
                     events e
                 SAMPLE {sample}
@@ -332,6 +369,9 @@ class AggregationOperations:
             placeholders={
                 "events_where_clause": where_clause_combined,
                 "sample": sample_value,
+                "person_field": ast.Field(
+                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person", "id"]
+                ),
             },
         )
 
