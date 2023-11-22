@@ -7,12 +7,14 @@ import { billingProductLogic } from './billingProductLogic'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
+import { useRef } from 'react'
 
 export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+    const limitInputRef = useRef<HTMLInputElement | null>(null)
     const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
     const { isEditingBillingLimit, showBillingLimitInput, billingLimitInput, customLimitUsd } = useValues(
-        billingProductLogic({ product })
+        billingProductLogic({ product, billingLimitInputRef: limitInputRef })
     )
     const { setIsEditingBillingLimit, setBillingLimitInput } = useActions(billingProductLogic({ product }))
 
@@ -78,7 +80,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         return null
     }
     return (
-        <div className="border-t border-border p-8">
+        <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
             <div className="flex">
                 <div className="flex items-center gap-1">
                     {!isEditingBillingLimit ? (
@@ -104,6 +106,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                         <>
                             <div className="max-w-40">
                                 <LemonInput
+                                    ref={limitInputRef}
                                     type="number"
                                     fullWidth={false}
                                     value={billingLimitInput}
