@@ -38,7 +38,7 @@ ENTITY_MAP = {
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
-        "extra_fields": ["title", "content", "short_id"],
+        "extra_fields": ["title", "content"],
     },
     "action": {
         "klass": Action,

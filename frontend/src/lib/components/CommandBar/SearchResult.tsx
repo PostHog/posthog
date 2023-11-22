@@ -103,7 +103,7 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
 }
 
 export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | null => {
-    const { type, extra_fields } = result
+    const { result_id, type, extra_fields } = result
     if (type === 'feature_flag') {
         return extra_fields.name && extra_fields.name !== extra_fields.key ? (
             <span>{extra_fields.name}</span>
@@ -113,7 +113,7 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
     } else if (type === 'notebook') {
         return (
             <Notebook
-                shortId={extra_fields.short_id as string}
+                shortId={result_id}
                 mode="notebook"
                 editable={false}
                 initialContent={extra_fields.content as JSONContent}
