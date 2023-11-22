@@ -23,7 +23,13 @@ from posthog.batch_exports.models import (
     BatchExportRun,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import create_schedule, update_schedule, unpause_schedule, pause_schedule, delete_schedule
+from posthog.temporal.common.schedule import (
+    create_schedule,
+    update_schedule,
+    unpause_schedule,
+    pause_schedule,
+    delete_schedule,
+)
 
 
 class BatchExportsInputsProtocol(typing.Protocol):
@@ -250,6 +256,7 @@ async def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> No
             raise BatchExportServiceScheduleNotFound(schedule_id)
         else:
             raise BatchExportServiceRPCError() from e
+
 
 @async_to_sync
 async def cancel_running_batch_export_backfill(temporal: Client, workflow_id: str) -> None:
