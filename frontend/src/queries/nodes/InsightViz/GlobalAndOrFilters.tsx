@@ -34,7 +34,6 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
             setQuery={updateQuerySource}
             eventNames={getAllEventNames(querySource as TrendsQuery | StickinessQuery, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            noTitle
         />
     )
 }
