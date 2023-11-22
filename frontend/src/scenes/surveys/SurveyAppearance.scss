@@ -228,7 +228,7 @@
 
 .multiple-choice-options input:checked + label {
     font-weight: bold;
-    border: 1.5px solid rgb(0 0 0);
+    border: 1.5px solid rgb(0 0 0 / 100%);
 }
 
 .multiple-choice-options input:checked + label input {
