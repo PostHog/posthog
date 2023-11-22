@@ -9,7 +9,7 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, DataWa
 from posthog.warehouse.data_load.pipeline import StripeJobInputs, SourceColumnType, SourceSchema
 from posthog.warehouse.data_load.service import ExternalDataJobInputs
 
-from posthog.temporal.workflows.external_data_job import (
+from posthog.temporal.data_imports.external_data_job import (
     create_external_data_job_model,
     CreateExternalDataJobInputs,
     UpdateExternalDataJobStatusInputs,

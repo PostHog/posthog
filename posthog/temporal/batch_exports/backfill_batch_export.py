@@ -12,11 +12,11 @@ import temporalio.exceptions
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.heartbeat import HeartbeatDetails
+from posthog.temporal.common.heartbeat import HeartbeatDetails
 from posthog.batch_exports.service import BackfillBatchExportInputs
-from posthog.temporal.client import connect
-from posthog.temporal.workflows.base import PostHogWorkflow
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.common.client import connect
+from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
     create_batch_export_backfill_model,

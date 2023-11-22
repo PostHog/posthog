@@ -17,10 +17,18 @@
 
     &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-3000-hover);
+
+        .posthog-3000 & {
+            border-color: var(--border-bold);
+        }
     }
 
     &.LemonInput--focused:not([aria-disabled='true']) {
         border-color: var(--primary-3000);
+
+        .posthog-3000 & {
+            border-color: var(--border-bold);
+        }
     }
 
     &.LemonInput--transparent-background {

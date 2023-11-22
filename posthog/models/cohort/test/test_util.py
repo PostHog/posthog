@@ -508,3 +508,39 @@ class TestDependentCohorts(BaseTest):
         self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
         self.assertEqual(get_dependent_cohorts(cohort4), [cohort1])
         self.assertEqual(get_dependent_cohorts(cohort5), [cohort4, cohort1, cohort2])
+
+    def test_dependent_cohorts_ignore_invalid_ids(self):
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+
+        cohort2 = _create_cohort(
+            team=self.team,
+            name="cohort2",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": cohort1.pk, "type": "cohort"},
+                        {"key": "id", "value": "invalid-key", "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+
+        cohort3 = _create_cohort(
+            team=self.team,
+            name="cohorte",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": cohort2.pk, "type": "cohort"},
+                        {"key": "id", "value": "invalid-key", "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+
+        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
+        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])

@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0364_team_external_data_workspace_rows"),
+        ("posthog", "0366_alter_action_created_by"),
     ]
 
     operations = [

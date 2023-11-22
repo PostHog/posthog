@@ -1,13 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
-import { FunnelStepWithConversionMetrics } from '~/types'
-import { percentage } from 'lib/utils'
-import { getSeriesColor } from 'lib/colors'
 import clsx from 'clsx'
-import { funnelTooltipLogic } from '../funnelTooltipLogic'
+import { useActions, useValues } from 'kea'
+import { getSeriesColor } from 'lib/colors'
+import { percentage } from 'lib/utils'
+import { useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { FunnelStepWithConversionMetrics } from '~/types'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { funnelTooltipLogic } from '../funnelTooltipLogic'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics

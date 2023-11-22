@@ -1,12 +1,13 @@
-import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
-import { ChartDisplayType } from '~/types'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
 import { TrendsFilter } from '~/queries/schema'
+import { ChartDisplayType } from '~/types'
 
 type InsightLegendRowProps = {
     hiddenLegendKeys: Record<string, boolean | undefined>

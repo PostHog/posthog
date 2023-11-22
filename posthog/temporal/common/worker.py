@@ -5,9 +5,8 @@ from datetime import timedelta
 from temporalio.runtime import Runtime, TelemetryConfig, PrometheusConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.client import connect
-from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
-from posthog.temporal.sentry import SentryInterceptor
+from posthog.temporal.common.client import connect
+from posthog.temporal.common.sentry import SentryInterceptor
 
 
 async def start_worker(
@@ -16,8 +15,8 @@ async def start_worker(
     metrics_port,
     namespace,
     task_queue,
-    workflows=WORKFLOWS,
-    activities=ACTIVITIES,
+    workflows,
+    activities,
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,

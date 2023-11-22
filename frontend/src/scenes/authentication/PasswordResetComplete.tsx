@@ -1,17 +1,18 @@
 /*
 Scene to enter a new password from a received reset link
 */
-import { useValues } from 'kea'
-import { passwordResetLogic } from './passwordResetLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Field } from 'lib/forms/Field'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import PasswordStrength from 'lib/components/PasswordStrength'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import { Field } from 'lib/forms/Field'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { passwordResetLogic } from './passwordResetLogic'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,

@@ -18,7 +18,8 @@ from posthog.warehouse.external_data_source.jobs import (
     get_external_data_source,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.temporal.workflows.base import PostHogWorkflow
+# TODO: remove dependency 
+from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.heartbeat import HeartbeatDetails
 from temporalio import activity, workflow, exceptions
 from temporalio.common import RetryPolicy

@@ -1,12 +1,14 @@
-import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
-import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
-import { groupBy } from 'lib/utils'
-import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
-import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import { teamLogic } from 'scenes/teamLogic'
 import { Tick } from 'chart.js'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { groupBy } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
+
+import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 
 export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
     insightNumericId: InsightModel['id'] | 'new'

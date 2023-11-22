@@ -1,4 +1,5 @@
 // This file contains example queries, used in storybook and in the /query interface.
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
     DataTableNode,
@@ -26,7 +27,6 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,

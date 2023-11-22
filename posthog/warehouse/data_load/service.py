@@ -13,9 +13,9 @@ from dataclasses import asdict
 from posthog.warehouse.models import ExternalDataSource
 
 
-from posthog.temporal.client import sync_connect
-from posthog.temporal.workflows.external_data_job import ExternalDataJobWorkflow, ExternalDataJobInputs
-from posthog.temporal.schedule import (
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow, ExternalDataJobInputs
+from posthog.temporal.common.schedule import (
     create_schedule,
     update_schedule,
     trigger_schedule,

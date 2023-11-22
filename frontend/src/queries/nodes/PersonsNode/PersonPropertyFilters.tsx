@@ -1,9 +1,10 @@
-import { PersonsNode, PersonsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PersonPropertyFilter } from '~/types'
-import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
+
+import { PersonsNode, PersonsQuery } from '~/queries/schema'
 import { isPersonsQuery } from '~/queries/utils'
+import { PersonPropertyFilter } from '~/types'
 
 interface PersonPropertyFiltersProps {
     query: PersonsNode | PersonsQuery

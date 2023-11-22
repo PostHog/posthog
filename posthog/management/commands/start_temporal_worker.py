@@ -8,13 +8,9 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
-from posthog.temporal.worker import start_worker
-from posthog.temporal.workflows import (
-    BATCH_EXPORTS_WORKFLOWS,
-    BATCH_EXPORT_ACTIVITIES,
-    DATA_SYNC_ACTIVITIES,
-    DATA_SYNC_WORKFLOWS,
-)
+from posthog.temporal.common.worker import start_worker
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORT_ACTIVITIES
+from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS, ACTIVITIES as DATA_SYNC_ACTIVITIES
 
 
 class Command(BaseCommand):

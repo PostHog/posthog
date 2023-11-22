@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -21,8 +22,14 @@ from posthog.batch_exports.models import (
     BatchExportBackfill,
     BatchExportRun,
 )
-from posthog.temporal.client import sync_connect
-from posthog.temporal.schedule import create_schedule, update_schedule, pause_schedule, unpause_schedule
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import (
+    create_schedule,
+    update_schedule,
+    unpause_schedule,
+    pause_schedule,
+    delete_schedule,
+)
 
 
 class BatchExportsInputsProtocol(typing.Protocol):
@@ -162,6 +169,14 @@ class BatchExportServiceRPCError(BatchExportServiceError):
     """Exception raised when the underlying Temporal RPC fails."""
 
 
+class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
+    """Exception raised when the underlying Temporal RPC fails because a schedule was not found."""
+
+    def __init__(self, schedule_id: str):
+        self.schedule_id = schedule_id
+        super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
+
+
 def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
     """Pause this BatchExport.
 
@@ -229,6 +244,17 @@ def unpause_batch_export(
     end_at = batch_export.last_updated_at
 
     backfill_export(temporal, batch_export_id, start_at, end_at)
+
+
+def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
+    """Delete a Temporal Schedule."""
+    try:
+        delete_schedule(temporal, schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise BatchExportServiceScheduleNotFound(schedule_id)
+        else:
+            raise BatchExportServiceRPCError() from e
 
 
 @async_to_sync

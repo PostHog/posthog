@@ -1,12 +1,13 @@
-import { ElementType } from '~/types'
-import {
-    parseCSSSelector,
-    matchesSelector,
-    preselect,
-    parsedSelectorToSelectorString,
-} from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { EXAMPLE_ELEMENTS } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
 import { elementsChain } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
+import {
+    matchesSelector,
+    parseCSSSelector,
+    parsedSelectorToSelectorString,
+    preselect,
+} from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+
+import { ElementType } from '~/types'
 
 const elements = [
     {

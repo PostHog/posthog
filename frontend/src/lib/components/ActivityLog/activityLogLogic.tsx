@@ -1,6 +1,7 @@
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, actions, reducers, selectors, listeners, events } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
+import { router, urlToAction } from 'kea-router'
+import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -8,17 +9,17 @@ import {
     humanize,
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-
-import type { activityLogLogicType } from './activityLogLogicType'
+import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { urls } from 'scenes/urls'
-import { router, urlToAction } from 'kea-router'
+import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
-import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { urls } from 'scenes/urls'
+
+import type { activityLogLogicType } from './activityLogLogicType'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules

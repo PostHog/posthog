@@ -1,9 +1,10 @@
-import { initKeaTests } from '~/test/init'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic, partial } from 'kea-test-utils'
-import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { initKeaTests } from '~/test/init'
+import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 
 const propertyDefinitions: PropertyDefinition[] = [
     {

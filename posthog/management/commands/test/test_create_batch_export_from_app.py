@@ -18,8 +18,8 @@ from posthog.management.commands.create_batch_export_from_app import (
     map_plugin_config_to_destination,
 )
 from posthog.models import Plugin, PluginAttachment, PluginConfig
-from posthog.temporal.client import sync_connect
-from posthog.temporal.codec import EncryptionCodec
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.codec import EncryptionCodec
 
 
 @pytest.fixture

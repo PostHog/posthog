@@ -1,6 +1,7 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
+
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 export function SidePanelPaneHeader({ children }: { children: React.ReactNode }): JSX.Element {

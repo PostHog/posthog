@@ -1,10 +1,6 @@
-import { KeyMapping, PropertyFilterValue } from '~/types'
-import { Link } from './lemon-ui/Link'
+import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
 
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
+import { Link } from './lemon-ui/Link'
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py

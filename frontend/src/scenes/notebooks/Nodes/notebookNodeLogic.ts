@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
@@ -64,6 +63,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        setRef: (ref: HTMLElement | null) => ({ ref }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -72,6 +72,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     })),
 
     reducers(({ props }) => ({
+        ref: [
+            null as HTMLElement | null,
+            {
+                setRef: (_, { ref }) => ref,
+                unregisterNodeLogic: () => null,
+            },
+        ],
         expanded: [
             props.startExpanded ?? true,
             {
@@ -247,7 +254,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.updateAttributes(attributes)
         },
         toggleEditing: ({ visible }) => {
-            const shouldShowThis = typeof visible === 'boolean' ? visible : !values.notebookLogic.values.editingNodeId
+            const shouldShowThis =
+                typeof visible === 'boolean' ? visible : values.notebookLogic.values.editingNodeId !== values.nodeId
+
             props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
         },
         initializeNode: () => {
@@ -281,10 +290,3 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
-
-export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)
-
-// Currently there is no way to optionally get bound logics so this context allows us to maybe get a logic if it is "bound" via the provider
-export const useNotebookNode = (): BuiltLogic<notebookNodeLogicType> | undefined => {
-    return useContext(NotebookNodeContext)
-}

@@ -1,6 +1,13 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
+
 import {
     AnyPropertyFilter,
     PropertyFilterType,
@@ -11,15 +18,9 @@ import {
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import equal from 'fast-deep-equal'
-import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import posthog from 'posthog-js'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
 export type PersonUUID = string

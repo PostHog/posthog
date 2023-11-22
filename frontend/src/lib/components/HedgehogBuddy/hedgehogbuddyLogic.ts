@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import type { hedgehogbuddyLogicType } from './hedgehogbuddyLogicType'
-import posthog from 'posthog-js'
 import { AccessoryInfo, standardAccessories } from './sprites/sprites'
 
 export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([

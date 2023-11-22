@@ -1,7 +1,8 @@
+import { Drawer } from 'antd'
 import { useActions, useValues } from 'kea'
+
 import { pluginsLogic } from '../pluginsLogic'
 import { PluginLogs } from './PluginLogs'
-import { Drawer } from 'antd'
 
 export function LogsDrawer(): JSX.Element {
     const { showingLogsPlugin, lastShownLogsPlugin } = useValues(pluginsLogic)
