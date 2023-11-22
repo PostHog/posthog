@@ -62,9 +62,6 @@ function createEntry(entry) {
                 cypress: path.resolve(__dirname, 'cypress'),
                 process: 'process/browser',
             },
-            fallback: {
-                buffer: require.resolve('buffer'),
-            },
         },
         module: {
             rules: [
@@ -209,9 +206,6 @@ function createEntry(entry) {
                       new HtmlWebpackHarddiskPlugin(),
                       new webpack.ProvidePlugin({
                           process: 'process/browser',
-                      }),
-                      new webpack.ProvidePlugin({
-                          Buffer: ['buffer', 'Buffer'],
                       }),
                   ]
                 : []
