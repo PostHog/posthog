@@ -1,5 +1,5 @@
-import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export interface InlineHogQLEditorProps {
     value?: TaxonomicFilterValue

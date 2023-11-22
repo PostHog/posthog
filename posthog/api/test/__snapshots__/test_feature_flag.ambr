@@ -1759,7 +1759,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
   FROM "posthog_featureflag"
-  INNER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_featureflag"."team_id" = 2
          AND "posthog_featureflag"."id" = 2)
   LIMIT 21 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/

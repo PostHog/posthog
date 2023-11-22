@@ -1,21 +1,24 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
-import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
-import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from './playerInspectorLogic'
-import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { range } from 'd3'
-import { teamLogic } from 'scenes/teamLogic'
-import { playerSettingsLogic } from '../playerSettingsLogic'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { userLogic } from 'scenes/userLogic'
+import { useActions, useValues } from 'kea'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect, useMemo, useRef } from 'react'
+import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
+import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
+import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
+
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 function isLocalhost(url: string | null | undefined): boolean {
     return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)

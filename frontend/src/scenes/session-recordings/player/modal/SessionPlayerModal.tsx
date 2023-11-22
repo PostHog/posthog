@@ -1,9 +1,10 @@
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { BindLogic, useActions, useValues } from 'kea'
-import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 import { LemonModal } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+
 import { PlayerMeta } from '../PlayerMeta'
-import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
 export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())

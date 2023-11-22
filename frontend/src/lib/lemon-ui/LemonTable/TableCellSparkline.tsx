@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { offset } from '@floating-ui/react'
-
 import './TableCellSparkline.scss'
+
+import { offset } from '@floating-ui/react'
+import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useEffect, useRef, useState } from 'react'
 
 export function TableCellSparkline({ labels, data }: { labels?: string[]; data: number[] }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)

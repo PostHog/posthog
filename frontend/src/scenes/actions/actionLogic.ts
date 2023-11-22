@@ -1,11 +1,13 @@
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
-import type { actionLogicType } from './actionLogicType'
-import { ActionType, Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
-import { Scene } from 'scenes/sceneTypes'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { ActionType, Breadcrumb } from '~/types'
+
+import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
     id?: ActionType['id']

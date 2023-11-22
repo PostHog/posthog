@@ -1,14 +1,14 @@
-import { forwardRef, useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-
-import { commandBarLogic } from './commandBarLogic'
-import { BarStatus } from './types'
-
 import './index.scss'
-import { SearchBar } from './SearchBar'
+
+import { useActions, useValues } from 'kea'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { forwardRef, useRef } from 'react'
+
 import { ActionBar } from './ActionBar'
+import { commandBarLogic } from './commandBarLogic'
+import { SearchBar } from './SearchBar'
+import { Shortcuts } from './Shortcuts'
+import { BarStatus } from './types'
 
 interface CommandBarOverlayProps {
     barStatus: BarStatus
@@ -56,7 +56,9 @@ export function CommandBar(): JSX.Element | null {
 
     return (
         <CommandBarOverlay barStatus={barStatus}>
-            {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
+            {barStatus === BarStatus.SHOW_SEARCH && <SearchBar />}
+            {barStatus === BarStatus.SHOW_ACTIONS && <ActionBar />}
+            {barStatus === BarStatus.SHOW_SHORTCUTS && <Shortcuts />}
         </CommandBarOverlay>
     )
 }

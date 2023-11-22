@@ -1,10 +1,17 @@
-import { useLayoutEffect, useRef } from 'react'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef } from 'react'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { Node } from '~/queries/schema'
+import { FilterType } from '~/types'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 
 type SearchResultProps = {
     result: SearchResultType
@@ -41,9 +48,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
 
     return (
         <div
-            className={`w-full pl-3 pr-2 ${
-                focused ? 'bg-accent-3000' : 'bg-bg-light'
-            } border-r border-b cursor-pointer`}
+            className={`w-full pl-3 pr-2 ${focused ? 'bg-bg-light' : 'bg-bg-3000'} border-r border-b cursor-pointer`}
             onMouseEnter={() => {
                 if (isAutoScrolling) {
                     return
@@ -88,9 +93,23 @@ type ResultNameProps = {
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
+
     const { type, extra_fields } = result
     if (type === 'insight') {
-        return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{extra_fields.derived_name}</i>
+        return extra_fields.name ? (
+            <span>{extra_fields.name}</span>
+        ) : (
+            <i>
+                {summarizeInsight(extra_fields.query as Node | null, extra_fields.filters as Partial<FilterType>, {
+                    aggregationLabel,
+                    cohortsById,
+                    mathDefinitions,
+                })}
+            </i>
+        )
     } else if (type === 'feature_flag') {
         return <span>{extra_fields.key}</span>
     } else if (type === 'notebook') {

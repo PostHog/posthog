@@ -1,24 +1,26 @@
-import { useValues } from 'kea'
-import { useLayoutEffect, useRef, useState } from 'react'
+import './BoldNumber.scss'
+import './BoldNumber.scss'
+
+import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
+import React from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
+import { groupsModel } from '~/models/groupsModel'
+import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-import { ChartParams, TrendResult } from '~/types'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { ensureTooltip } from '../LineGraph/LineGraph'
-import { groupsModel } from '~/models/groupsModel'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
-import { percentage } from 'lib/utils'
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-
-import './BoldNumber.scss'
-import { useEffect } from 'react'
 import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */

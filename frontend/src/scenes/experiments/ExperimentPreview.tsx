@@ -1,8 +1,16 @@
+import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { InputNumber, Slider } from 'antd'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import { urls } from 'scenes/urls'
+
 import {
     ActionFilter as ActionFilterType,
     AnyPropertyFilter,
@@ -10,17 +18,11 @@ import {
     InsightType,
     MultivariateFlagVariant,
 } from '~/types'
+
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { humanFriendlyNumber } from 'lib/utils'
-import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
-import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { TZLabel } from 'lib/components/TZLabel'
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
-import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
-import { urls } from 'scenes/urls'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'

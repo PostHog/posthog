@@ -1,14 +1,14 @@
-import { useActions, useValues } from 'kea'
+import { Tooltip } from '@posthog/lemon-ui'
 import { Dropdown } from 'antd'
+import { useActions, useValues } from 'kea'
 
 import { InsightLogicProps } from '~/types'
 
-import { pageUrl, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
-import { PathNodeCardMenu } from './PathNodeCardMenu'
-import { PathNodeCardButton } from './PathNodeCardButton'
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
+import { PathNodeCardButton } from './PathNodeCardButton'
+import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { pathsDataLogic } from './pathsDataLogic'
-import { Tooltip } from '@posthog/lemon-ui'
+import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps

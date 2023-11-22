@@ -1,14 +1,16 @@
-import { ManageSubscriptions } from './views/ManageSubscriptions'
-import { EditSubscription } from './views/EditSubscription'
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
-import { PayGatePage } from '../PayGatePage/PayGatePage'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
+
+import { PayGatePage } from '../PayGatePage/PayGatePage'
+import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
+import { EditSubscription } from './views/EditSubscription'
+import { ManageSubscriptions } from './views/ManageSubscriptions'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     isOpen: boolean

@@ -1,6 +1,6 @@
+import { NotFound } from 'lib/components/NotFound'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { NotFound } from 'lib/components/NotFound'
 
 export function RecordingNotFound(): JSX.Element {
     return (

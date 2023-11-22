@@ -1,10 +1,11 @@
 import { Meta } from '@storybook/react'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { App } from 'scenes/App'
-import { useEffect } from 'react'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 
 const meta: Meta = {
     title: 'Scenes-Other/Settings',

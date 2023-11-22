@@ -1,12 +1,12 @@
-import { kea, path, actions, reducers, selectors, listeners, connect, afterMount, beforeUnmount } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
-import { commandBarLogic } from './commandBarLogic'
 
+import { InsightShortId } from '~/types'
+
+import { commandBarLogic } from './commandBarLogic'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
@@ -90,6 +90,10 @@ export const searchBarLogic = kea<searchBarLogicType>([
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
             (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex || keyboardResultIndex,
         ],
+        tabs: [
+            (s) => [s.searchCounts],
+            (counts): ResultTypeWithAll[] => ['all', ...(Object.keys(counts || {}) as ResultTypeWithAll[])],
+        ],
     }),
     listeners(({ values, actions }) => ({
         openResult: ({ index }) => {
@@ -118,7 +122,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 // hide command bar
                 actions.hideCommandBar()
             } else if (event.key === '>') {
@@ -132,6 +136,16 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     // transition to actions when entering '>' with empty input, or when replacing the whole input
                     event.preventDefault()
                     actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                }
+            } else if (event.key === 'Tab') {
+                event.preventDefault()
+                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                if (event.shiftKey) {
+                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                    actions.setActiveTab(values.tabs[prevIndex])
+                } else {
+                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                    actions.setActiveTab(values.tabs[nextIndex])
                 }
             }
         }

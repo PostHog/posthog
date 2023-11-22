@@ -1,8 +1,11 @@
-import clsx from 'clsx'
-import { UserBasicType } from '~/types'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { TZLabel } from '../TZLabel'
 import './UserActivityIndicator.scss'
+
+import clsx from 'clsx'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
+import { UserBasicType } from '~/types'
+
+import { TZLabel } from '../TZLabel'
 
 export interface UserActivityIndicatorProps {
     prefix?: string

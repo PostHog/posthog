@@ -1,8 +1,8 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { IconGlobeLock } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
 
 import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
-import { IconGlobeLock } from 'lib/lemon-ui/icons'
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
     const [isChecked, setIsChecked] = useState(checked || false)

@@ -1,13 +1,16 @@
+import './PlayerFrameOverlay.scss'
+
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState } from '~/types'
 import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './PlayerFrameOverlay.scss'
-import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
-import clsx from 'clsx'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { SessionPlayerState } from '~/types'
+
+import { PlayerUpNext } from './PlayerUpNext'
 
 const PlayerFrameOverlayContent = ({
     currentPlayerState,
