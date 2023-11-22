@@ -5,6 +5,12 @@ import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { Node } from '~/queries/schema'
+import { FilterType } from '~/types'
 
 type SearchResultProps = {
     result: SearchResultType
@@ -86,9 +92,23 @@ type ResultNameProps = {
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
+
     const { type, extra_fields } = result
     if (type === 'insight') {
-        return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{extra_fields.derived_name}</i>
+        return extra_fields.name ? (
+            <span>{extra_fields.name}</span>
+        ) : (
+            <i>
+                {summarizeInsight(extra_fields.query as Node | null, extra_fields.filters as Partial<FilterType>, {
+                    aggregationLabel,
+                    cohortsById,
+                    mathDefinitions,
+                })}
+            </i>
+        )
     } else if (type === 'feature_flag') {
         return <span>{extra_fields.key}</span>
     } else if (type === 'notebook') {

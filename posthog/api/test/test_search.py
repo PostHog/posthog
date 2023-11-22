@@ -74,11 +74,7 @@ class TestSearch(APIBaseTest):
                 "rank": response.json()["results"][1]["rank"],
                 "type": "insight",
                 "result_id": self.insight_1.short_id,
-                "extra_fields": {
-                    "derived_name": None,
-                    "name": "second insight",
-                    "description": None,
-                },
+                "extra_fields": {"name": "second insight", "description": None, "filters": {}, "query": None},
             },
         )
 
@@ -88,7 +84,7 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json()["results"][0]["extra_fields"],
-            {"derived_name": "derived name", "description": None, "name": None},
+            {"name": None, "description": None, "filters": {}, "query": None},
         )
 
     def test_search_with_fully_invalid_query(self):
