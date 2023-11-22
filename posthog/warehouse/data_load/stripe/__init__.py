@@ -8,8 +8,8 @@ from dlt.extract.source import DltResource
 
 from pendulum import DateTime
 
-from .helper import pagination, transform_date
-from .settings import ENDPOINTS, INCREMENTAL_ENDPOINTS
+from .helper import pagination
+from .settings import ENDPOINTS
 
 
 @dlt.source
