@@ -7,3 +7,12 @@
         background: var(--border-light);
     }
 }
+
+.question-choice-open-ended-footer {
+    position: absolute;
+    bottom: -5px;
+    left: 6px;
+    font-size: 10px;
+    background-color: var(--bg-3000);
+    padding: 0 5px;
+}

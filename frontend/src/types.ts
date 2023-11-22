@@ -2242,6 +2242,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    hasOpenChoice?: boolean
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
