@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import './SavedInsights.scss'
@@ -15,6 +15,8 @@ import {
     IconHogQL,
     IconLifecycle,
     IconRetention,
+    IconStar,
+    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
@@ -29,8 +31,6 @@ import {
     IconPerson,
     IconPlusMini,
     IconSelectEvents,
-    IconStarFilled,
-    IconStarOutline,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -429,10 +429,10 @@ export function SavedInsights(): JSX.Element {
                                     insight.favorited ? (
                                         <IconStarFilled className="text-warning" />
                                     ) : (
-                                        <IconStarOutline className="text-muted" />
+                                        <IconStar className="text-muted" />
                                     )
                                 }
-                                tooltip={`${insight.favorited ? 'Add to' : 'Remove from'} favorite insights`}
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (

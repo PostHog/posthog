@@ -279,6 +279,8 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
     effective_level: OrganizationMembershipLevel
 }
 
+export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
+
 /**
  * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
  * this interface is only used in the frontend for fusing the data from these models together.
@@ -1149,6 +1151,10 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+
+    //rrweb/network@1 - i.e. not in ClickHouse table
+    is_initial?: boolean
+    raw?: Record<string, any>
 }
 
 export interface CurrentBillCycleType {
@@ -1752,6 +1758,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     show_values_on_series?: boolean
+    show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
 }
 
@@ -2690,6 +2697,11 @@ export interface KeyMapping {
     system?: boolean
 }
 
+export interface KeyMappingInterface {
+    event: Record<string, KeyMapping>
+    element: Record<string, KeyMapping>
+}
+
 export interface TileParams {
     title: string
     targetPath: string
@@ -3409,6 +3421,23 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
+
+export interface AppMetricsUrlParams {
+    tab?: AppMetricsTab
+    from?: string
+    error?: [string, string]
+}
+
+export enum AppMetricsTab {
+    Logs = 'logs',
+    ProcessEvent = 'processEvent',
+    OnEvent = 'onEvent',
+    ComposeWebhook = 'composeWebhook',
+    ExportEvents = 'exportEvents',
+    ScheduledTask = 'scheduledTask',
+    HistoricalExports = 'historical_exports',
+    History = 'history',
+}
 
 export enum SidePanelTab {
     Notebooks = 'notebook',

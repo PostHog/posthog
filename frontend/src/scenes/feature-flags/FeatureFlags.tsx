@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
-import { copyToClipboard, deleteWithUndo } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -257,6 +258,7 @@ export function OverViewTab({
                     <div>
                         <div className="flex justify-between mb-4">
                             <LemonInput
+                                className="w-60"
                                 type="search"
                                 placeholder={searchPlaceholder || ''}
                                 onChange={setSearchTerm}

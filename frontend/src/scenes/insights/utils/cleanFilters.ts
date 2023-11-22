@@ -7,6 +7,7 @@ import {
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
+    IntervalType,
     LifecycleFilterType,
     PathsFilterType,
     PathType,
@@ -19,12 +20,12 @@ import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndef
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import {
     BIN_COUNT_AUTO,
+    NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
     RETENTION_FIRST_TIME,
     ShownAsValue,
 } from 'lib/constants'
-import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
@@ -162,6 +163,46 @@ export const setTestAccountFilterForNewInsight = (
     } else if (!filter.filter_test_accounts && test_account_filters_default_checked !== undefined) {
         // overwrite with team default, only if not set
         filter.filter_test_accounts = test_account_filters_default_checked
+    }
+}
+
+const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
+    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
+        // Non-time-series insights should not have an interval
+        return undefined
+    }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
+    if (!filters.interval) {
+        return 'day'
+    }
+
+    // @ts-expect-error - Old legacy interval support
+    const minute_disabled = filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
     }
 }
 

@@ -5,11 +5,9 @@ import { mockEventPropertyDefinitions } from '~/test/mocks'
 import { useMocks } from '~/mocks/jest'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
-import {
-    EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    propertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 
 describe('propertyDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof propertyDefinitionsTableLogic.build>

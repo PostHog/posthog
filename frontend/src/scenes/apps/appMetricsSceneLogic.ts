@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { AppMetricsTab, AppMetricsUrlParams, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api, { PaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -19,22 +19,6 @@ export interface AppMetricsLogicProps {
     pluginConfigId: number
 }
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ComposeWebhook = 'composeWebhook',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
 export const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,

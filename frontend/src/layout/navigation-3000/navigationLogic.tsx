@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
@@ -42,6 +42,8 @@ import { isNotNil } from 'lib/utils'
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
+export type Navigation3000Mode = 'none' | 'minimal' | 'full'
+
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
 const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
@@ -50,6 +52,9 @@ const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
+    connect(() => ({
+        values: [sceneLogic, ['sceneConfig']],
+    })),
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
@@ -278,6 +283,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
+        mode: [
+            (s) => [s.sceneConfig],
+            (sceneConfig): Navigation3000Mode => {
+                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
+                    ? 'minimal'
+                    : sceneConfig?.layout !== 'plain'
+                    ? 'full'
+                    : 'none'
+            },
+        ],
         navbarItems: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags): NavbarItem[][] => {
