@@ -246,11 +246,10 @@ def unpause_batch_export(
     backfill_export(temporal, batch_export_id, start_at, end_at)
 
 
-@async_to_sync
-async def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
+def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
     try:
-        await delete_schedule(temporal, schedule_id)
+        delete_schedule(temporal, schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             raise BatchExportServiceScheduleNotFound(schedule_id)
