@@ -3,8 +3,6 @@ import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
 import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
 import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
 
