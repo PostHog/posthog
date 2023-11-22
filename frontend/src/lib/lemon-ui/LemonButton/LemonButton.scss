@@ -1,4 +1,6 @@
-.LemonButton {
+.LemonButton,
+.Link.LemonButton {
+    // Make sure we override .Link's styles where needed, e.g. padding
     align-items: center;
     appearance: none !important; // Important as this gets overridden by Ant styles...
     background: none;
