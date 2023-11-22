@@ -6,10 +6,6 @@ import { useSortable } from '@dnd-kit/sortable'
 import { Survey } from '~/types'
 import { NewSurvey } from './constants'
 
-export function SurveyEditQuestionRow(): JSX.Element {
-    return <></>
-}
-
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
@@ -17,17 +13,18 @@ type SurveyQuestionHeaderProps = {
     setSurveyValue: (key: string, value: any) => void
 }
 
+const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
+    <span className="SurveyQuestionDragHandle" {...props}>
+        <SortableDragIcon />
+    </span>
+)
+
 export function SurveyEditQuestionHeader({
     index,
     survey,
     setSelectedQuestion,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
-    const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-        <span className="SurveyQuestionDragHandle" {...props}>
-            <SortableDragIcon />
-        </span>
-    )
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -45,7 +42,7 @@ export function SurveyEditQuestionHeader({
                 transition,
             }}
         >
-            <div className="flex flex-row gap-2">
+            <div className="flex flex-row gap-2 items-center">
                 {questionsStartElements.length ? (
                     <div className="SurveyQuestionHeader__start">{questionsStartElements}</div>
                 ) : null}

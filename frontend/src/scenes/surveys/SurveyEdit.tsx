@@ -117,10 +117,14 @@ export default function SurveyEdit(): JSX.Element {
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
             const clone = [...arr]
-            Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-            return clone.map((child, order) => ({ ...child, order }))
+            // Remove the element from the array
+            const [element] = clone.splice(from, 1)
+            // Insert the element at the new position
+            clone.splice(to, 0, element)
+            return clone.map((child) => ({ ...child }))
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
+        setSelectedQuestion(newIndex)
     }
 
     return (
@@ -175,6 +179,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             key: index,
                                                             header: (
                                                                 <SurveyEditQuestionHeader
+                                                                    key={index}
                                                                     index={index}
                                                                     survey={survey}
                                                                     setSelectedQuestion={setSelectedQuestion}
