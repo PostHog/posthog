@@ -14,6 +14,7 @@ class SchemaValidationError(Exception):
         super().__init__(f"Schema validation failed")
 
 
+# TODO: make async
 def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id: str, create: bool = False) -> bool:
     resource = ExternalDataSource.objects.get(pk=external_data_source_id)
     credential, _ = DataWarehouseCredential.objects.get_or_create(

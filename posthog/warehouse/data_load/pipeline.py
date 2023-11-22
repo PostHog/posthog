@@ -5,6 +5,7 @@ from .stripe import stripe_source
 from dataclasses import dataclass
 from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 import s3fs
+from asgiref.sync import sync_to_async
 
 
 @dataclass
@@ -56,7 +57,8 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
 }
 
 
-# TODO: add heartbeat
+# Run pipeline on separate thread. No db clients used
+@sync_to_async(thread_sensitive=False)
 def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
     pipeline = create_pipeline(inputs)
 
@@ -102,21 +104,23 @@ PIPELINE_TYPE_RUN_MAPPING = {"Stripe": run_stripe_pipeline}
 
 
 def get_s3fs():
-    return s3fs.S3FileSystem(key=settings.AIRBYTE_BUCKET_KEY, secret=settings.AIRBYTE_BUCKET_SECRET)
+    return s3fs.S3FileSystem(key=settings.AIRBYTE_BUCKET_KEY, secret=settings.AIRBYTE_BUCKET_SECRET, asynchronous=True)
 
 
-def move_draft_to_production(team_id: int, external_data_source_id: str):
+async def move_draft_to_production(team_id: int, external_data_source_id: str):
     model = ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
     bucket_name = settings.BUCKET_URL
     s3 = get_s3fs()
-    s3.copy(
+    await s3._copy(
         f"{bucket_name}/{model.draft_folder_path}", f"{bucket_name}/{model.draft_folder_path}_success", recursive=True
     )
     try:
         s3.delete(f"{bucket_name}/{model.folder_path}", recursive=True)
     except:
         pass
-    s3.copy(f"{bucket_name}/{model.draft_folder_path}_success", f"{bucket_name}/{model.folder_path}", recursive=True)
+    await s3._copy(
+        f"{bucket_name}/{model.draft_folder_path}_success", f"{bucket_name}/{model.folder_path}", recursive=True
+    )
     s3.delete(f"{bucket_name}/{model.draft_folder_path}_success", recursive=True)
     s3.delete(f"{bucket_name}/{model.draft_folder_path}", recursive=True)
 
@@ -129,6 +133,6 @@ def move_draft_to_production(team_id: int, external_data_source_id: str):
             f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{model.draft_folder_path}/{schema_name.lower()}/*.parquet"
         )
 
-        DataWarehouseTable.objects.filter(
+        await sync_to_async(DataWarehouseTable.objects.filter)(
             name=table_name, team_id=model.team_id, url_pattern=url_pattern, format="Parquet"
         ).update(url_pattern=url_pattern.replace("_draft", ""))
