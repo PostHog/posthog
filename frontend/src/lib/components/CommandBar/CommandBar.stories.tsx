@@ -277,3 +277,13 @@ export function Actions(): JSX.Element {
 
     return <CommandBar />
 }
+
+export function Shortcuts(): JSX.Element {
+    const { setCommandBar } = useActions(commandBarLogic)
+
+    useEffect(() => {
+        setCommandBar(BarStatus.SHOW_SHORTCUTS)
+    }, [])
+
+    return <CommandBar />
+}
