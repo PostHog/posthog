@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { useMocks } from '~/mocks/jest'
 import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 
 describe('sessionRecordingsPlaylistSceneLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistSceneLogic.build>

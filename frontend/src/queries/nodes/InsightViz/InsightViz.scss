@@ -68,6 +68,12 @@
     }
 }
 
+.WebAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 25rem;
+    }
+}
+
 .RetentionContainer {
     width: 100%;
     display: flex;

@@ -1,11 +1,13 @@
-import { capitalizeFirstLetter } from 'lib/utils'
-import { Link } from 'lib/lemon-ui/Link'
 import './NotFound.scss'
-import { useActions, useValues } from 'kea'
-import { supportLogic } from '../Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { supportLogic } from '../Support/supportLogic'
 
 interface NotFoundProps {
     object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)

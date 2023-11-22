@@ -1,13 +1,12 @@
-import { useActions, useValues } from 'kea'
+import './BreakdownTagMenu.scss'
 
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-
-import './BreakdownTagMenu.scss'
 
 export const BreakdownTagMenu = (): JSX.Element => {
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)

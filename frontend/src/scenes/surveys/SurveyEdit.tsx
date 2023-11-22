@@ -1,7 +1,7 @@
 import './EditSurvey.scss'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Group } from 'kea-forms'
+
+import { DndContext } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
     LemonBanner,
     LemonButton,
@@ -14,17 +14,37 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { FlagSelector } from 'lib/components/FlagSelector'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field, PureField } from 'lib/forms/Field'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+
 import {
+    AvailableFeature,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    LinkSurveyQuestion,
-    RatingSurveyQuestion,
     SurveyUrlMatchType,
-    AvailableFeature,
 } from '~/types'
-import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    SurveyQuestionLabel,
+    SurveyUrlMatchTypeLabels,
+} from './constants'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 import {
     BaseAppearance,
     Customization,
@@ -32,27 +52,10 @@ import {
     SurveyMultipleChoiceAppearance,
     SurveyRatingAppearance,
 } from './SurveyAppearance'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import {
-    defaultSurveyFieldValues,
-    defaultSurveyAppearance,
-    SurveyQuestionLabel,
-    SurveyUrlMatchTypeLabels,
-} from './constants'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React from 'react'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { surveysLogic } from './surveysLogic'
-import { FlagSelector } from 'lib/components/FlagSelector'
-import clsx from 'clsx'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext } from '@dnd-kit/core'
 import { SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 
 function PresentationTypeCard({
     title,

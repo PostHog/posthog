@@ -1,27 +1,29 @@
-import { useValues, useActions } from 'kea'
-import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
 // eslint-disable-next-line no-restricted-imports
-import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { CloseCircleOutlined, CrownFilled, LogoutOutlined } from '@ant-design/icons'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { FusedTeamMemberType, AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
+import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     teamMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { AddMembersModalWithButton } from './AddMembersModal'
-import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, FusedTeamMemberType } from '~/types'
+
+import { AddMembersModalWithButton } from './AddMembersModal'
+import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
 
 function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

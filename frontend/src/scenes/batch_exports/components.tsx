@@ -1,9 +1,10 @@
+import './BatchExports.scss'
+
 import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BatchExportConfiguration, BatchExportRun } from '~/types'
 
-import './BatchExports.scss'
+import { BatchExportConfiguration, BatchExportRun } from '~/types'
 
 export function BatchExportTag({ batchExportConfig }: { batchExportConfig: BatchExportConfiguration }): JSX.Element {
     return (

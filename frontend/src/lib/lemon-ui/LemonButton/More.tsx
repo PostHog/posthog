@@ -1,6 +1,7 @@
-import { LemonButtonWithDropdown } from '.'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
+
 import { PopoverProps } from '../Popover/Popover'
+import { LemonButtonWithDropdown } from '.'
 import { LemonButtonProps, LemonButtonWithDropdownProps } from './LemonButton'
 
 export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> &

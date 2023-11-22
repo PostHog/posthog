@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
-import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
-import { userLogic } from 'scenes/userLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { urls } from 'scenes/urls'
+import { Link } from 'lib/lemon-ui/Link'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
 import { ProductKey } from '~/types'
+
+import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string

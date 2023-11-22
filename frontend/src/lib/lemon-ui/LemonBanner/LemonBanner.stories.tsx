@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonBanner, LemonBannerProps } from './LemonBanner'
 
 type Story = StoryObj<typeof LemonBanner>

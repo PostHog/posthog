@@ -1,7 +1,9 @@
 import { Meta } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'
+
 import { PropertiesTimeline } from '.'
 import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 

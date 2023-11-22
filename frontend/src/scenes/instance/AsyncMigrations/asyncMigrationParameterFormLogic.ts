@@ -1,4 +1,4 @@
-import { kea, key, props, path } from 'kea'
+import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 

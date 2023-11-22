@@ -1,11 +1,11 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { LemonButton } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
