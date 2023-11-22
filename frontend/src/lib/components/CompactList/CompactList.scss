@@ -32,7 +32,13 @@
         padding: 0 0.5rem 0.5rem;
     }
 
+    .LemonButton {
+        font-family: var(--font-sans) !important;
+    }
+
     .secondary-text {
-        color: var(--text-secondary);
+        .posthog-3000 & {
+            color: var(--text-secondary);
+        }
     }
 }
