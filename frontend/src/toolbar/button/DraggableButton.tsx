@@ -1,13 +1,15 @@
-import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
-import Draggable from 'react-draggable'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
-import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
+import Draggable from 'react-draggable'
+
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
-import { posthog } from '~/toolbar/posthog'
+import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { posthog } from '~/toolbar/posthog'
+import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
+
 import { HedgehogButton } from './HedgehogButton'
 
 export function DraggableButton(): JSX.Element {

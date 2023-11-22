@@ -1,8 +1,8 @@
-export { LemonButton, LemonButtonWithSideAction, LemonButtonWithDropdown } from './LemonButton'
 export type {
-    LemonButtonPropsBase,
     LemonButtonProps,
-    LemonButtonWithSideActionProps,
+    LemonButtonPropsBase,
     LemonButtonWithDropdownProps,
+    LemonButtonWithSideActionProps,
     SideAction,
 } from './LemonButton'
+export { LemonButton, LemonButtonWithDropdown, LemonButtonWithSideAction } from './LemonButton'

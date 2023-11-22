@@ -1,35 +1,35 @@
-import { useValues } from 'kea'
-import { useMemo } from 'react'
 import './FunnelBarChart.scss'
-import { ChartParams } from '~/types'
+
 import clsx from 'clsx'
-import { useScrollable } from 'lib/hooks/useScrollable'
+import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepLegend } from './StepLegend'
-import { StepBars } from './StepBars'
-import { StepBarLabels } from './StepBarLabels'
+import { useScrollable } from 'lib/hooks/useScrollable'
+import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { ChartParams } from '~/types'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { useFunnelTooltip } from '../useFunnelTooltip'
+import { StepBarLabels } from './StepBarLabels'
+import { StepBars } from './StepBars'
+import { StepLegend } from './StepLegend'
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string
     '--bar-row-height': string
 }
 
-export function FunnelBarChart({
-    inCardView,
-    showPersonsModal: showPersonsModalProp = true,
-}: ChartParams): JSX.Element {
+export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
+    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
-    const { height } = useResizeObserver({ ref: scrollRef })
-
-    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
+    const { height } = useResizeObserver({ ref: vizRef })
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -54,8 +54,6 @@ export function FunnelBarChart({
             : seriesCount >= 2
             ? 96
             : 192
-
-    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
@@ -109,16 +107,12 @@ export function FunnelBarChart({
         )
     }, [visibleStepsWithConversionMetrics, height])
 
-    // negative margin-top so that the scrollable shadow is visible on the canvas label as well
-    const scrollableAdjustmentCanvasLabel = !inCardView && '-mt-12 pt-10'
-
     return (
         <div
             className={clsx(
                 'FunnelBarChart scrollable',
                 isScrollableLeft && 'scrollable--left',
-                isScrollableRight && 'scrollable--right',
-                scrollableAdjustmentCanvasLabel
+                isScrollableRight && 'scrollable--right'
             )}
             ref={vizRef}
             data-attr="funnel-bar-graph"

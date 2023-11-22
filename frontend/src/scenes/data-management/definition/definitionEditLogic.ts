@@ -1,20 +1,22 @@
 import { beforeUnmount, connect, kea, key, path, props } from 'kea'
-import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 import {
     definitionLogic,
     DefinitionLogicProps,
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
-import type { definitionEditLogicType } from './definitionEditLogicType'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { Definition, EventDefinition, PropertyDefinition } from '~/types'
+
+import type { definitionEditLogicType } from './definitionEditLogicType'
 
 export interface DefinitionEditLogicProps extends DefinitionLogicProps {
     definition: Definition

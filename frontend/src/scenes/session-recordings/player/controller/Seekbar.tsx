@@ -1,15 +1,18 @@
 import './Seekbar.scss'
-import { useEffect, useRef } from 'react'
-import { useActions, useValues } from 'kea'
+
 import clsx from 'clsx'
-import { seekbarLogic } from './seekbarLogic'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { RecordingSegment } from '~/types'
+
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
-import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
+import { seekbarLogic } from './seekbarLogic'
 
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)

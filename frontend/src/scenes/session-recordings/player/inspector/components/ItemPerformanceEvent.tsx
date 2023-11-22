@@ -1,15 +1,17 @@
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
-import { Body, PerformanceEvent } from '~/types'
-import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
+import { Fragment, useState } from 'react'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+
+import { Body, PerformanceEvent } from '~/types'
+
+import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -140,7 +142,7 @@ export function ItemPerformanceEvent({
     expanded,
     setExpanded,
 }: ItemPerformanceEvent): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body'>('timings')
+    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
 
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
     const startTime = item.start_time || item.fetch_start || 0
@@ -176,7 +178,11 @@ export function ItemPerformanceEvent({
             return acc
         }
 
-        if (['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status'].includes(key)) {
+        if (
+            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
+                key
+            )
+        ) {
             return acc
         }
 
@@ -317,7 +323,7 @@ export function ItemPerformanceEvent({
                     ) : (
                         <>
                             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                                <StatusRow status={item.response_status} />
+                                <StatusRow item={item} />
                             </FlaggedFeature>
                             <p>
                                 Request started at{' '}
@@ -392,6 +398,17 @@ export function ItemPerformanceEvent({
                                                   ),
                                               }
                                             : false,
+                                        // raw is only available if the feature flag is enabled
+                                        // TODO before proper release we should put raw behind its own flag
+                                        {
+                                            key: 'raw',
+                                            label: 'Json',
+                                            content: (
+                                                <CodeSnippet language={Language.JSON} wrap thing="performance event">
+                                                    {JSON.stringify(item.raw, null, 2)}
+                                                </CodeSnippet>
+                                            ),
+                                        },
                                     ]}
                                 />
                             </FlaggedFeature>
@@ -466,29 +483,52 @@ function HeadersDisplay({
     )
 }
 
-function StatusRow({ status }: { status: number | undefined }): JSX.Element | null {
-    if (status === undefined) {
-        return null
+function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    let statusRow = null
+    let methodRow = null
+
+    let fromDiskCache = false
+    if (item.transfer_size === 0 && item.response_body && item.response_status && item.response_status < 400) {
+        fromDiskCache = true
     }
 
-    const statusDescription = `${status} ${friendlyHttpStatus[status] || ''}`
+    if (item.response_status) {
+        const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
 
-    let statusType: LemonTagType = 'success'
-    if (status >= 400 || status < 100) {
-        statusType = 'warning'
-    } else if (status >= 500) {
-        statusType = 'danger'
+        let statusType: LemonTagType = 'success'
+        if (item.response_status >= 400 || item.response_status < 100) {
+            statusType = 'warning'
+        } else if (item.response_status >= 500) {
+            statusType = 'danger'
+        }
+
+        statusRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Status code</div>
+                <div>
+                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                    {fromDiskCache && <span className={'text-muted'}> (from cache)</span>}
+                </div>
+            </div>
+        )
     }
 
-    return (
+    if (item.method) {
+        methodRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Request method</div>
+                <div className={'uppercase font-semibold'}>{item.method}</div>
+            </div>
+        )
+    }
+
+    return methodRow || statusRow ? (
         <p>
             <div className="text-xs space-y-1 max-w-full">
-                <div className="flex gap-4 items-start justify-between overflow-hidden">
-                    <span className="font-semibold">Status code</span>
-                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                </div>
+                {methodRow}
+                {statusRow}
             </div>
             <LemonDivider dashed />
         </p>
-    )
+    ) : null
 }

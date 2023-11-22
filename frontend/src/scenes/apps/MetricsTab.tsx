@@ -1,15 +1,18 @@
-import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
-import { DescriptionColumns } from './constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
-import { AppMetricsGraph } from './AppMetricsGraph'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconInfo } from 'lib/lemon-ui/icons'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+
+import { AppMetricsTab } from '~/types'
+
+import { AppMetricsGraph } from './AppMetricsGraph'
+import { AppErrorSummary, AppMetrics, appMetricsSceneLogic } from './appMetricsSceneLogic'
+import { DescriptionColumns } from './constants'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -39,7 +42,7 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
 
                 <LemonSelect
                     value={dateFrom}
-                    onChange={(newValue) => setDateFrom(newValue as string)}
+                    onChange={(newValue) => setDateFrom(newValue)}
                     options={[
                         { label: 'Last 30 days', value: '-30d' },
                         { label: 'Last 7 days', value: '-7d' },
@@ -78,7 +81,7 @@ export function MetricsOverview({
     exportFailureReason,
 }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
-        return <LemonSkeleton className="w-20 mb-2" repeat={4} />
+        return <LemonSkeleton className="w-20 h-4 mb-2" repeat={4} />
     }
 
     return (

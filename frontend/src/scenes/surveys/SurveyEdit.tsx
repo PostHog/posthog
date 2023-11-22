@@ -1,7 +1,5 @@
 import './EditSurvey.scss'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Group } from 'kea-forms'
+
 import {
     LemonBanner,
     LemonButton,
@@ -14,17 +12,37 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { FlagSelector } from 'lib/components/FlagSelector'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field, PureField } from 'lib/forms/Field'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+
 import {
+    AvailableFeature,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    LinkSurveyQuestion,
-    RatingSurveyQuestion,
     SurveyUrlMatchType,
-    AvailableFeature,
 } from '~/types'
-import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    SurveyQuestionLabel,
+    SurveyUrlMatchTypeLabels,
+} from './constants'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 import {
     BaseAppearance,
     Customization,
@@ -32,24 +50,9 @@ import {
     SurveyMultipleChoiceAppearance,
     SurveyRatingAppearance,
 } from './SurveyAppearance'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import {
-    defaultSurveyFieldValues,
-    defaultSurveyAppearance,
-    SurveyQuestionLabel,
-    SurveyUrlMatchTypeLabels,
-} from './constants'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React from 'react'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { FlagSelector } from 'lib/components/FlagSelector'
-import clsx from 'clsx'
 
 function PresentationTypeCard({
     title,
@@ -450,7 +453,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                         SurveyQuestionType.MultipleChoice) && (
                                                                     <div className="flex flex-col gap-2">
                                                                         <Field name="choices" label="Choices">
-                                                                            {({ value, onChange }) => (
+                                                                            {({
+                                                                                value,
+                                                                                onChange,
+                                                                            }: {
+                                                                                value: string[]
+                                                                                onChange: (newValue: string[]) => void
+                                                                            }) => (
                                                                                 <div className="flex flex-col gap-2">
                                                                                     {(value || []).map(
                                                                                         (
@@ -527,7 +536,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                     <LemonInput
                                                                         value={
                                                                             question.buttonText === undefined
-                                                                                ? survey.appearance.submitButtonText
+                                                                                ? survey.questions.length > 1 &&
+                                                                                  index !== survey.questions.length - 1
+                                                                                    ? 'Next'
+                                                                                    : survey.appearance.submitButtonText
                                                                                 : question.buttonText
                                                                         }
                                                                     />
@@ -600,6 +612,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                               setWritingHTMLDescription
                                                                           }
                                                                           textPlaceholder="ex: We really appreciate it."
+                                                                      />
+                                                                  </PureField>
+                                                                  <PureField label="Auto disappear">
+                                                                      <LemonCheckbox
+                                                                          checked={!!survey.appearance.autoDisappear}
+                                                                          onChange={(checked) =>
+                                                                              setSurveyValue('appearance', {
+                                                                                  ...survey.appearance,
+                                                                                  autoDisappear: checked,
+                                                                              })
+                                                                          }
                                                                       />
                                                                   </PureField>
                                                               </>
@@ -830,7 +853,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </PureField>
-                                                        <PureField label="Selector matches:">
+                                                        <PureField label="CSS selector matches:">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>

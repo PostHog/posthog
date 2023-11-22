@@ -1,12 +1,15 @@
-import React, { useState } from 'react'
-import { NotebookNodeType } from '~/types'
 import './DraggableToNotebook.scss'
-import { useActions, useValues } from 'kea'
+
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useNotebookNode } from '../Nodes/notebookNodeLogic'
+import React, { useState } from 'react'
+
+import { NotebookNodeType } from '~/types'
+
+import { useNotebookNode } from '../Nodes/NotebookNodeContext'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
 export type DraggableToNotebookBaseProps = {

@@ -2,15 +2,17 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconCloudDownload, IconRefresh } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
-import { PluginsSearch } from 'scenes/plugins/PluginsSearch'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { userLogic } from 'scenes/userLogic'
-import { AdvancedInstallModal } from './AdvancedInstallModal'
-import { AppsTable } from './AppsTable'
-import { AppManagementView } from './AppManagementView'
+import { PluginsSearch } from 'scenes/plugins/PluginsSearch'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
+import { userLogic } from 'scenes/userLogic'
+
 import { PluginType } from '~/types'
+
+import { AdvancedInstallModal } from './AdvancedInstallModal'
+import { AppManagementView } from './AppManagementView'
+import { AppsTable } from './AppsTable'
 
 export function AppsManagementTab(): JSX.Element {
     const { user } = useValues(userLogic)

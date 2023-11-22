@@ -1,8 +1,10 @@
 from unittest import mock
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.test.base import BaseTest
@@ -77,3 +79,28 @@ class TestOrganization(BaseTest):
             new_org.usage = {"events": {"usage": 1000, "limit": None}}
             new_org.update_available_features()
             assert new_org.available_features == ["test1", "test2"]
+
+
+class TestOrganizationMembership(BaseTest):
+    @patch("posthoganalytics.capture")
+    def test_event_sent_when_membership_level_changed(
+        self,
+        mock_capture,
+    ):
+        user = self._create_user("user1")
+        organization = Organization.objects.create(name="Test Org")
+        membership = OrganizationMembership.objects.create(user=user, organization=organization, level=1)
+        mock_capture.assert_not_called()
+        # change the level
+        membership.level = 15
+        membership.save()
+        # check that the event was sent
+        mock_capture.assert_called_once_with(
+            user.distinct_id,
+            "membership level changed",
+            properties={
+                "new_level": 15,
+                "previous_level": 1,
+            },
+            groups=mock.ANY,
+        )

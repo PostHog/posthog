@@ -1,8 +1,8 @@
-import { EventType } from '~/types'
-
 import { Tooltip } from '@posthog/lemon-ui'
-import { IconAdsClick, IconExclamation, IconEyeHidden, IconEyeVisible, IconCode } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconCode, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
 import { KEY_MAPPING } from 'lib/taxonomy'
+
+import { EventType } from '~/types'
 
 type EventIconProps = { event: EventType }
 

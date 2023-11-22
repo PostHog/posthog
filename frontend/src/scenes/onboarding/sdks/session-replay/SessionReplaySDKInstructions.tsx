@@ -1,4 +1,5 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
+
 import { JSWebInstructions, NextJSInstructions, ReactInstructions } from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {

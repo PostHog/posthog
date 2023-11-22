@@ -1,6 +1,6 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsScene } from 'scenes/events/EventsScene'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
     component: Events,
@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 export function Events(): JSX.Element {
     return (
         <>
-            <PageHeader title={'Event Explorer'} />
+            <PageHeader title={'Event explorer'} />
             <div className="pt-4 border-t" />
             <EventsScene />
         </>

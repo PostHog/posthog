@@ -1,24 +1,5 @@
-import { Popconfirm, Progress } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useState } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
-import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { SecondaryMetrics } from './SecondaryMetrics'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { ExperimentPreview } from './ExperimentPreview'
-import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
+
 import {
     LemonDivider,
     LemonInput,
@@ -29,23 +10,45 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { NotFound } from 'lib/components/NotFound'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Form, Group } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { userLogic } from 'scenes/userLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { Query } from '~/queries/Query/Query'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { ExperimentResult } from './ExperimentResult'
+import { Popconfirm, Progress } from 'antd'
 import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
+import { dayjs } from 'lib/dayjs'
+import { Field } from 'lib/forms/Field'
+import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { useEffect, useState } from 'react'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+
+import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentPreview } from './ExperimentPreview'
+import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
+import { ExperimentInsightCreator } from './MetricSelector'
+import { SecondaryMetrics } from './SecondaryMetrics'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -244,13 +247,13 @@ export function Experiment(): JSX.Element {
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <div className="variants">
-                                                {experiment.parameters.feature_flag_variants?.map((variant, index) => (
+                                                {experiment.parameters.feature_flag_variants?.map((_, index) => (
                                                     <Group
                                                         key={index}
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
                                                         <div
-                                                            key={`${variant}-${index}`}
+                                                            key={`variant-${index}`}
                                                             className={clsx(
                                                                 'feature-flag-variant',
                                                                 index === 0
@@ -529,12 +532,14 @@ export function Experiment(): JSX.Element {
                                 title={`${experiment?.name}`}
                                 buttons={
                                     <>
-                                        <CopyToClipboardInline
-                                            explicitValue={experiment.feature_flag?.key}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        >
-                                            <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                        </CopyToClipboardInline>
+                                        {experiment.feature_flag && (
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag.key}</span>
+                                            </CopyToClipboardInline>
+                                        )}
                                         <StatusTag experiment={experiment} />
                                         <ResultsTag />
                                     </>
@@ -855,10 +860,10 @@ export function ResultsTag(): JSX.Element {
 export function LoadingState(): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3" />
+            <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
 }

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import structlog
 from dateutil import parser
@@ -440,7 +440,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
 def get_dependent_cohorts(
     cohort: Cohort,
     using_database: str = "default",
-    seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+    seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
 ) -> List[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
@@ -449,22 +449,84 @@ def get_dependent_cohorts(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+    queue = []
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                queue.append(int(prop.value))
+            except (ValueError, TypeError):
+                continue
 
     while queue:
         cohort_id = queue.pop()
         try:
-            parsed_cohort_id = str(cohort_id)
-            if parsed_cohort_id in seen_cohorts_cache:
-                cohort = seen_cohorts_cache[parsed_cohort_id]
+            if cohort_id in seen_cohorts_cache:
+                cohort = seen_cohorts_cache[cohort_id]
             else:
                 cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                seen_cohorts_cache[parsed_cohort_id] = cohort
+                seen_cohorts_cache[cohort_id] = cohort
             if cohort.id not in seen_cohort_ids:
                 cohorts.append(cohort)
                 seen_cohort_ids.add(cohort.id)
-                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+
+                for prop in cohort.properties.flat:
+                    if prop.type == "cohort" and not isinstance(prop.value, list):
+                        try:
+                            queue.append(int(prop.value))
+                        except (ValueError, TypeError):
+                            continue
+
         except Cohort.DoesNotExist:
             continue
 
     return cohorts
+
+
+def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, Cohort]) -> List[int]:
+    """
+    Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
+    followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
+    only depends on cohorts that appear earlier in the list.
+    """
+
+    if not cohort_ids:
+        return []
+
+    dependency_graph: Dict[int, List[int]] = {}
+    seen = set()
+
+    # build graph (adjacency list)
+    def traverse(cohort):
+        # add parent
+        dependency_graph[cohort.id] = []
+        for prop in cohort.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                # add child
+                dependency_graph[cohort.id].append(int(prop.value))
+
+                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    traverse(neighbor_cohort)
+
+    for cohort_id in cohort_ids:
+        cohort = seen_cohorts_cache[int(cohort_id)]
+        traverse(cohort)
+
+    # post-order DFS (children first, then the parent)
+    def dfs(node, seen, sorted_arr):
+        neighbors = dependency_graph.get(node, [])
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                dfs(neighbor, seen, sorted_arr)
+        sorted_arr.append(int(node))
+        seen.add(node)
+
+    sorted_cohort_ids: List[int] = []
+    seen = set()
+    for cohort_id in cohort_ids:
+        if cohort_id not in seen:
+            seen.add(cohort_id)
+            dfs(cohort_id, seen, sorted_cohort_ids)
+
+    return sorted_cohort_ids

@@ -1,5 +1,14 @@
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
     mockCohort,
@@ -9,15 +18,7 @@ import {
     mockGroup,
     mockPersonProperty,
 } from '~/test/mocks'
-import { initKeaTests } from '~/test/init'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { expectLogic } from 'kea-test-utils'
-import { urls } from 'scenes/urls'
-import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { useMocks } from '~/mocks/jest'
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>
@@ -65,8 +66,8 @@ describe('definitionPopoverLogic', () => {
 
         it('make local state dirty', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                logic.actions.setDefinition(mockEventDefinitions[0])
+                logic.actions.setPopoverState(DefinitionPopoverState.Edit)
             })
                 .toDispatchActions(['setDefinition', 'setPopoverState'])
                 .toMatchValues({
@@ -87,9 +88,9 @@ describe('definitionPopoverLogic', () => {
 
         it('cancel', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
-                await logic.actions.setLocalDefinition({ description: 'new description' })
+                logic.actions.setDefinition(mockEventDefinitions[0])
+                logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                logic.actions.setLocalDefinition({ description: 'new description' })
             })
                 .toDispatchActions(['setLocalDefinition'])
                 .toMatchValues({
@@ -159,7 +160,7 @@ describe('definitionPopoverLogic', () => {
                 },
                 {
                     type: TaxonomicFilterGroupType.Cohorts,
-                    definition: mockCohort as CohortType,
+                    definition: mockCohort,
                     url: `api/projects/@current/cohorts/${mockCohort.id}`,
                     dispatchActions: [cohortsModel, ['updateCohort']],
                 },
@@ -178,10 +179,10 @@ describe('definitionPopoverLogic', () => {
                     logic.mount()
 
                     const expectChain = expectLogic(logic, async () => {
-                        await logic.actions.setDefinition(group.definition)
-                        await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
-                        await logic.actions.setLocalDefinition({ description: 'new and improved description' })
-                        await logic.actions.handleSave({})
+                        logic.actions.setDefinition(group.definition)
+                        logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                        logic.actions.setLocalDefinition({ description: 'new and improved description' })
+                        logic.actions.handleSave({})
                     }).toDispatchActions(['setDefinitionSuccess', 'setPopoverState', 'handleSave'])
 
                     if (group.dispatchActions.length > 0) {
@@ -202,9 +203,9 @@ describe('definitionPopoverLogic', () => {
 
         it('add tags', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
-                await logic.actions.setLocalDefinition({ tags: ['ohhello', 'ohwow'] })
+                logic.actions.setDefinition(mockEventDefinitions[0])
+                logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                logic.actions.setLocalDefinition({ tags: ['ohhello', 'ohwow'] })
             })
                 .toDispatchActions(['setDefinitionSuccess', 'setLocalDefinition'])
                 .toMatchValues({
@@ -221,8 +222,8 @@ describe('definitionPopoverLogic', () => {
             logic.mount()
 
             await expectLogic(logic, async () => {
-                await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setDefinition(mockEventDefinitions[1])
+                logic.actions.setDefinition(mockEventDefinitions[0])
+                logic.actions.setDefinition(mockEventDefinitions[1])
             })
                 .toDispatchActions(['setDefinitionSuccess'])
                 .toMatchValues({

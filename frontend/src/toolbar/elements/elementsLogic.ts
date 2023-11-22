@@ -1,16 +1,17 @@
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import type { elementsLogicType } from './elementsLogicType'
-import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { posthog } from '~/toolbar/posthog'
-import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
+import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
+
+import type { elementsLogicType } from './elementsLogicType'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>

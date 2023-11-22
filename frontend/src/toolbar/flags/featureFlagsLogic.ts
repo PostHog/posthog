@@ -1,13 +1,15 @@
-import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { CombinedFeatureFlagAndValueType } from '~/types'
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
-import { toolbarFetch } from '~/toolbar/utils'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import Fuse from 'fuse.js'
-import type { PostHog } from 'posthog-js'
-import { posthog } from '~/toolbar/posthog'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import type { PostHog } from 'posthog-js'
+
+import { posthog } from '~/toolbar/posthog'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarFetch } from '~/toolbar/utils'
+import { CombinedFeatureFlagAndValueType } from '~/types'
+
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     path(['toolbar', 'flags', 'featureFlagsLogic']),
@@ -111,7 +113,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
             }
         },
-        deleteOverriddenUserFlag: async ({ flagKey }) => {
+        deleteOverriddenUserFlag: ({ flagKey }) => {
             const { posthog: clientPostHog } = toolbarLogic.values
             if (clientPostHog) {
                 const updatedFlags = { ...values.localOverrides }
@@ -128,8 +130,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         },
     })),
     events(({ actions }) => ({
-        afterMount: async () => {
-            await actions.getUserFlags()
+        afterMount: () => {
+            actions.getUserFlags()
             actions.checkLocalOverrides()
         },
     })),

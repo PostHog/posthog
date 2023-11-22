@@ -1,11 +1,12 @@
-import { kea, path, selectors, connect } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
+import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { SidePanelTab } from '~/types'
 
 import type { sidePanelLogicType } from './sidePanelLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
-import { SidePanelTab } from '~/types'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -35,10 +36,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
-                if (featureFlags[FEATURE_FLAGS.SIDE_PANEL_DOCS]) {
-                    tabs.push(SidePanelTab.Docs)
-                }
-
+                tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activation)
 

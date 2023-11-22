@@ -1,11 +1,11 @@
-import { useActions, useValues } from 'kea'
-
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { InsightQueryNode } from '~/queries/schema'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { InsightQueryNode } from '~/queries/schema'
 
 type TestAccountFilterProps = {
     query: InsightQueryNode

@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { Field, Form, Group } from 'kea-forms'
+import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { StepField } from '~/toolbar/actions/StepField'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { posthog } from '~/toolbar/posthog'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
-import { Field, Form, Group } from 'kea-forms'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export function EditAction(): JSX.Element {
     const {

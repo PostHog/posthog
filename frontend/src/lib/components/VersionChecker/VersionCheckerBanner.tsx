@@ -1,12 +1,17 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+
 import { versionCheckerLogic } from './versionCheckerLogic'
 
-export function VersionCheckerBanner(): JSX.Element {
+export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepted?: string }): JSX.Element {
     const { versionWarning } = useValues(versionCheckerLogic)
-
     // We don't want to show a message if the diff is too small (we might be still deploying the changes out)
-    if (!versionWarning || versionWarning.diff < 5) {
+    if (
+        !versionWarning ||
+        (minVersionAccepted && versionWarning.currentVersion
+            ? versionWarning.currentVersion.localeCompare(minVersionAccepted) >= 0
+            : versionWarning.diff < 5)
+    ) {
         return <></>
     }
 

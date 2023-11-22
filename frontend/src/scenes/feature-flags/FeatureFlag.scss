@@ -1,4 +1,4 @@
-.variant-form-list {
+.VariantFormList {
     font-size: 13px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -19,13 +19,16 @@
             align-items: center;
         }
     }
+
+    .VariantFormList__row {
+        grid-template-columns: repeat(24, minmax(0, 1fr));
+    }
 }
 
 .feature-flag-property-display {
     display: flex;
-    flex-direction: row;
+    flex-flow: row wrap;
     align-items: center;
-    flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.5rem;
 
@@ -61,7 +64,11 @@
 }
 
 .FeatureConditionCard {
+    .posthog-3000 & {
+        background: var(--bg-light);
+    }
+
     .FeatureConditionCard--border--highlight {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
     }
 }

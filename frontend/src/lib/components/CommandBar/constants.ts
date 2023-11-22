@@ -6,8 +6,9 @@ export const resultTypeToName: Record<ResultTypeWithAll, string> = {
     cohort: 'Cohorts',
     dashboard: 'Dashboards',
     experiment: 'Experiments',
-    feature_flag: 'Feature Flags',
+    feature_flag: 'Feature flags',
     insight: 'Insights',
+    notebook: 'Notebooks',
 }
 
 export const actionScopeToName: Record<string, string> = {

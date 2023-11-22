@@ -2,7 +2,6 @@
     .metrics-selection {
         border-top: 1px solid var(--border);
         padding-top: 1rem;
-
         width: 100%;
     }
 
@@ -12,49 +11,6 @@
         padding-top: 1rem;
         align-items: center;
         justify-content: space-between;
-    }
-
-    .insights-graph-container {
-        margin-bottom: 1rem;
-
-        .display-config-inner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            overflow-x: auto;
-        }
-
-        .ant-card-body {
-            padding: 0;
-        }
-
-        .insights-graph-container-row {
-            .insights-graph-container-row-left {
-                width: 100%;
-            }
-
-            .insights-graph-container-row-right {
-                width: 100%;
-                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
-                max-width: 300px;
-                padding: 0 1rem 1rem 0;
-                display: flex;
-                align-items: center;
-            }
-        }
-
-        .LineGraph {
-            width: calc(100% - 2rem);
-            height: calc(100% - 2rem) !important;
-            margin-top: 1rem;
-        }
-    }
-
-    .insights-graph-header {
-        margin-top: 0 !important;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        min-height: 48px;
     }
 
     .experiment-preview {
@@ -75,6 +31,7 @@
     .variants {
         margin-top: 0.5rem;
         padding-bottom: 1rem;
+
         .ant-form-horizontal {
             min-height: 32px;
         }
@@ -92,7 +49,7 @@
         .feature-flag-variant {
             display: flex;
             align-items: center;
-            padding: 0.5rem 0.5rem;
+            padding: 0.5rem;
             background: var(--bg-light);
             border-width: 1px;
             border-color: var(--border);
@@ -111,7 +68,7 @@
             justify-content: center;
             align-items: center;
             border-radius: 4px;
-            color: #ffffff;
+            color: #fff;
             min-width: 52px;
             padding: 2px 6px;
             margin-right: 8px;
@@ -151,6 +108,7 @@
 
     .participants {
         background-color: white;
+
         .ant-collapse-header {
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
@@ -162,10 +120,12 @@
         li {
             display: inline;
         }
-        li:after {
+
+        li::after {
             content: ', ';
         }
-        li:last-child:after {
+
+        li:last-child::after {
             content: '';
         }
     }
@@ -209,9 +169,7 @@
         min-height: 320px;
         font-size: 24px;
     }
-}
 
-.view-experiment {
     .computation-time-and-sampling-notice {
         margin-top: 8px;
     }
@@ -231,6 +189,7 @@
     border-bottom: 1px solid var(--border);
     padding-bottom: 1rem;
     margin-bottom: 1rem;
+
     &:last-child {
         border-bottom: none;
         padding-bottom: 0;

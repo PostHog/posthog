@@ -1,7 +1,7 @@
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, MaterializationMode
 from posthog.test.base import BaseTest
 from django.test import override_settings
 
@@ -144,3 +144,43 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
         assert "LEFT JOIN" in response.clickhouse
+
+    def test_modifiers_materialization_mode(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+
+        response = execute_hogql_query(
+            "SELECT properties.$browser FROM events",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.auto),
+        )
+        assert "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') FROM events" in response.clickhouse
+
+        response = execute_hogql_query(
+            "SELECT properties.$browser FROM events",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_null),
+        )
+        assert "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') FROM events" in response.clickhouse
+
+        response = execute_hogql_query(
+            "SELECT properties.$browser FROM events",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+        )
+        assert "SELECT nullIf(events.`mat_$browser`, '') FROM events" in response.clickhouse
+
+        response = execute_hogql_query(
+            "SELECT properties.$browser FROM events",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+        )
+        assert (
+            "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') FROM events"
+            in response.clickhouse
+        )

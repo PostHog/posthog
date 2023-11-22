@@ -1,23 +1,24 @@
-import { useEffect, useRef } from 'react'
 import './Login.scss'
-import { useActions, useValues } from 'kea'
-import { loginLogic } from './loginLogic'
-import { Link } from 'lib/lemon-ui/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import clsx from 'clsx'
-import { SceneExport } from 'scenes/sceneTypes'
+
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import RegionSelect from './RegionSelect'
+import { Link } from 'lib/lemon-ui/Link'
+import { useEffect, useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { loginLogic } from './loginLogic'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { captureException } from '@sentry/react'
+import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
+import { useButtonStyle } from './useButtonStyles'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -54,19 +55,18 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+    const buttonStyles = useButtonStyle()
 
     useEffect(() => {
-        try {
-            // Turn on E2E test when this flag is removed
-            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
+        if (preflight?.cloud) {
+            try {
                 redirectIfLoggedInOtherInstance()
+            } catch (e) {
+                captureException(e)
             }
-        } catch (e) {
-            captureException(e)
         }
     }, [])
 
@@ -150,6 +150,7 @@ export function Login(): JSX.Element {
                             type="primary"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
+                            {...buttonStyles}
                         >
                             Log in
                         </LemonButton>
