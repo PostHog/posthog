@@ -1,17 +1,20 @@
-import { useValues } from 'kea'
-import { useMemo } from 'react'
 import './FunnelBarChart.scss'
-import { ChartParams } from '~/types'
+
 import clsx from 'clsx'
-import { useScrollable } from 'lib/hooks/useScrollable'
+import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepLegend } from './StepLegend'
-import { StepBars } from './StepBars'
-import { StepBarLabels } from './StepBarLabels'
+import { useScrollable } from 'lib/hooks/useScrollable'
+import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { ChartParams } from '~/types'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { useFunnelTooltip } from '../useFunnelTooltip'
+import { StepBarLabels } from './StepBarLabels'
+import { StepBars } from './StepBars'
+import { StepLegend } from './StepLegend'
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string

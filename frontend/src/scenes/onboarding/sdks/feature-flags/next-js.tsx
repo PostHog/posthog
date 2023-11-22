@@ -1,7 +1,8 @@
 import { SDKKey } from '~/types'
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
-import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
+
 import { NodeInstallSnippet, NodeSetupSnippet } from '../sdk-install-instructions'
+import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
+import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
 export function FeatureFlagsNextJSInstructions(): JSX.Element {
     return (

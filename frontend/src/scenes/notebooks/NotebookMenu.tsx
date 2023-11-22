@@ -1,12 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
+import './NotebookScene.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { IconDelete, IconEllipsis, IconExport, IconNotification, IconShare } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { notebooksModel } from '~/models/notebooksModel'
-import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import './NotebookScene.scss'
+
+import { notebooksModel } from '~/models/notebooksModel'
+
+import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
 import { openNotebookShareDialog } from './Notebook/NotebookShare'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {

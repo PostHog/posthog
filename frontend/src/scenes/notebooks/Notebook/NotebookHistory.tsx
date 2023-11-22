@@ -1,20 +1,21 @@
-import { useActions, useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { TZLabel } from '@posthog/apps-common'
 import {
     LemonBanner,
     LemonButton,
     LemonSkeleton,
+    lemonToast,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
-    lemonToast,
     usePagination,
 } from '@posthog/lemon-ui'
 import { JSONContent } from '@tiptap/core'
+import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { TZLabel } from '@posthog/apps-common'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMemo } from 'react'
+
+import { notebookLogic } from './notebookLogic'
 
 const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
     return logItem.detail.changes?.find((x) => x.field === field)?.after

@@ -1,8 +1,9 @@
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useState } from 'react'
+
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { ElementType } from '~/types'
 
 export const SelectorEditingModal = ({

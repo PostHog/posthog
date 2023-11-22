@@ -1,14 +1,16 @@
-import clsx from 'clsx'
-import React, { useContext } from 'react'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
-import { Link } from '../Link'
-import { Spinner } from '../Spinner/Spinner'
-import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
+
+import clsx from 'clsx'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import React, { useContext } from 'react'
+
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { Link } from '../Link'
 import { PopoverReferenceContext } from '../Popover'
+import { Spinner } from '../Spinner/Spinner'
+import { Tooltip, TooltipProps } from '../Tooltip'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -109,6 +111,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             ref
         ): JSX.Element => {
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+            const within3000PageHeader = useContext(Within3000PageHeaderContext)
 
             if (!active && popoverVisibility) {
                 active = true
@@ -126,6 +129,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (loading) {
                 icon = <Spinner textColored />
                 disabled = true // Cannot interact with a loading button
+            }
+            if (within3000PageHeader) {
+                size = 'small'
             }
 
             let tooltipContent: TooltipProps['title']
@@ -184,7 +190,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...linkDependentProps}
                     {...buttonProps}
                 >
-                    <span>
+                    <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
@@ -209,6 +215,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
         }
     )
 LemonButton.displayName = 'LemonButton'
+
+export const Within3000PageHeaderContext = React.createContext<boolean>(false)
 
 export type SideAction = Pick<
     LemonButtonProps,

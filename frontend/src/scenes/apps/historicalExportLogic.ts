@@ -1,9 +1,9 @@
-import { kea, events, key, props, path } from 'kea'
+import { events, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+
 import { teamLogic } from '../teamLogic'
 import { AppErrorSummary, AppMetrics, HistoricalExportInfo } from './appMetricsSceneLogic'
-
 import type { historicalExportLogicType } from './historicalExportLogicType'
 
 export interface HistoricalExportLogicProps {

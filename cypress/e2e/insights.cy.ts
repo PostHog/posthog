@@ -1,7 +1,8 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
+
 import { decideResponse } from '../fixtures/api/decide'
-import { savedInsights, createInsight, insight } from '../productAnalytics'
+import { createInsight, insight, savedInsights } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈

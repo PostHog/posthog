@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
+import { uuid } from 'lib/utils'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PersonType } from '~/types'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { uuid } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 type PersonFeedCanvasProps = {
     person: PersonType

@@ -1,6 +1,8 @@
+import './LemonCheckbox.scss'
+
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
-import './LemonCheckbox.scss'
+
 import { Tooltip } from '../Tooltip'
 
 export interface LemonCheckboxProps {

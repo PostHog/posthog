@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { useMemo } from 'react'
 
 interface SelectorCountProps {
     selector: string

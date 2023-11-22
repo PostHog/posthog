@@ -1,7 +1,7 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function SDKInstallRNInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

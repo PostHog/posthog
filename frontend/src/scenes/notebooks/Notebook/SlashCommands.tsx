@@ -1,14 +1,9 @@
-import { Extension } from '@tiptap/core'
-import Suggestion from '@tiptap/suggestion'
-
-import { ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { IconBold, IconCohort, IconItalic } from 'lib/lemon-ui/icons'
 import {
     IconCursor,
     IconFunnels,
     IconHogQL,
     IconLifecycle,
+    IconPeople,
     IconRetention,
     IconRewindPlay,
     IconStickiness,
@@ -16,21 +11,28 @@ import {
     IconUpload,
     IconUserPaths,
 } from '@posthog/icons'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange } from './utils'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema'
+import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+
+import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
+import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
-import { NodeKind } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
-import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
-import { IconCode } from '@posthog/icons'
+import { notebookLogic } from './notebookLogic'
+import { EditorCommands, EditorRange } from './utils'
 
 type SlashCommandConditionalProps =
     | {
@@ -97,7 +99,7 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
 const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'Trend',
-        search: 'trend insight',
+        search: 'graph trend insight',
         icon: <IconTrends color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
@@ -176,7 +178,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     },
     {
         title: 'Paths',
-        search: 'paths insight',
+        search: 'user paths insight',
         icon: <IconUserPaths color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(
@@ -282,9 +284,9 @@ order by count() desc
             ),
     },
     {
-        title: 'Persons',
-        search: 'people users',
-        icon: <IconCohort />,
+        title: 'People',
+        search: 'persons users',
+        icon: <IconPeople />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -299,14 +301,14 @@ order by count() desc
             ),
     },
     {
-        title: 'Session Replays',
-        search: 'recordings video',
+        title: 'Session recordings',
+        search: 'video replay',
         icon: <IconRewindPlay />,
         command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
-        search: 'picture',
+        search: 'picture gif',
         icon: <IconUpload />,
         command: async (chain, pos) => {
             // Trigger upload followed by insert

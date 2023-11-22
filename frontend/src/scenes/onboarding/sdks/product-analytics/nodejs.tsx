@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallNodeInstructions } from '../sdk-install-instructions'
 
 function NodeCaptureSnippet(): JSX.Element {

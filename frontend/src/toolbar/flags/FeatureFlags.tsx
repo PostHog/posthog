@@ -1,16 +1,17 @@
 import './featureFlags.scss'
 
-import { useActions, useValues } from 'kea'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { urls } from 'scenes/urls'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
+
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function FeatureFlags(): JSX.Element {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)

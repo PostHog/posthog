@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { PageHeader } from 'lib/components/PageHeader'
+
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 
 export function PersonsManagementScene(): JSX.Element {
     const { tabs, activeTab, tabKey } = useValues(personsManagementSceneLogic)

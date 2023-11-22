@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
-import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
-import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const scene: SceneExport = {
     component: Dashboards,

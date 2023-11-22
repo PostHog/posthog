@@ -64,6 +64,10 @@
 }
 
 .FeatureConditionCard {
+    .posthog-3000 & {
+        background: var(--bg-light);
+    }
+
     .FeatureConditionCard--border--highlight {
         border-color: var(--primary-3000);
     }

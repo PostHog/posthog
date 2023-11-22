@@ -1,10 +1,11 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
-import { Form } from 'kea-forms'
-import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 import { useActions, useValues } from 'kea'
-import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
+import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import stripeLogo from 'public/stripe-logo.svg'
+
+import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
+import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
 

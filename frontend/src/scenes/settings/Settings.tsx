@@ -1,15 +1,16 @@
+import './Settings.scss'
+
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
-import { settingsLogic } from './settingsLogic'
-import { useActions, useValues } from 'kea'
-import { SettingLevelIds, SettingsLogicProps } from './types'
 import clsx from 'clsx'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import './Settings.scss'
-import { NotFound } from 'lib/components/NotFound'
+import { settingsLogic } from './settingsLogic'
+import { SettingLevelIds, SettingsLogicProps } from './types'
 
 export function Settings({
     hideSections = false,

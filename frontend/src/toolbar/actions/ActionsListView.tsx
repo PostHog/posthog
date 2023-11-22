@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionType } from '~/types'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 
 interface ActionsListViewProps {
     actions: ActionType[]
