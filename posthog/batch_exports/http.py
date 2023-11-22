@@ -5,6 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
+from prometheus_client import Gauge
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
@@ -36,6 +37,7 @@ from posthog.batch_exports.service import (
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -52,6 +54,14 @@ from posthog.temporal.client import sync_connect
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+
+LABEL_INTERVAL = "interval"
+
+BATCH_EXPORTS_LIVE_GAUGE = Gauge(
+    "batch_exports_live",
+    "Track batch exports that are live (i.e. unpaused) by teams by interval.",
+    labelnames=[LABEL_TEAM_ID, LABEL_INTERVAL],
+)
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -206,6 +216,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             destination.save()
             batch_export.save()
 
+        BATCH_EXPORTS_LIVE_GAUGE.labels(team_id=team_id, interval=batch_export.interval).inc()
+
         return batch_export
 
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
@@ -296,6 +308,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except BatchExportServiceError:
             raise
 
+        BATCH_EXPORTS_LIVE_GAUGE.labels(team_id=team_id, interval=batch_export.interval).dec()
+
         return response.Response({"paused": True})
 
     @action(methods=["POST"], detail=True)
@@ -321,6 +335,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except BatchExportServiceError:
             raise
 
+        BATCH_EXPORTS_LIVE_GAUGE.labels(team_id=team_id, interval=batch_export.interval).inc()
+
         return response.Response({"paused": False})
 
     def perform_destroy(self, instance: BatchExport):
@@ -345,6 +361,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
             if backfill.status == BatchExportBackfill.Status.RUNNING:
                 cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+
+        BATCH_EXPORTS_LIVE_GAUGE.labels(team_id=instance.team.pk, interval=instance.interval).dec()
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):

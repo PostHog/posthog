@@ -291,7 +291,7 @@ async def test_bigquery_export_workflow(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100,
+        count=100000,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -340,7 +340,7 @@ async def test_bigquery_export_workflow(
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=240),
                 )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
