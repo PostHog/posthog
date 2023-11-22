@@ -22,7 +22,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actionsTabLogic,
             ['showButtonActions', 'hideButtonActions'],
             elementsLogic,
-            ['enableInspect', 'disableInspect'],
+            ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
             ['enableHeatmap', 'disableHeatmap'],
         ],
@@ -253,6 +253,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
             setTimeout(() => sync(), 150)
             setTimeout(() => sync(), 300)
             setTimeout(() => sync(), 550)
+        },
+        createAction: () => {
+            actions.setVisibleMenu('actions')
         },
     })),
     subscriptions({

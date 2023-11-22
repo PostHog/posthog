@@ -1,6 +1,5 @@
 import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 
-import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
@@ -30,7 +29,7 @@ export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
     connect(() => ({
         values: [actionsTabLogic, ['actionForm'], currentPageLogic, ['href']],
-        actions: [actionsTabLogic, ['selectAction']],
+        actions: [actionsTabLogic, ['selectAction', 'newAction']],
     })),
     actions({
         enableInspect: true,
@@ -402,9 +401,8 @@ export const elementsLogic = kea<elementsLogicType>([
             })
         },
         createAction: ({ element }) => {
-            toolbarLogic.actions.setVisibleMenu('actions')
-            elementsLogic.actions.selectElement(null)
-            actionsTabLogic.actions.newAction(element)
+            actions.selectElement(null)
+            actions.newAction(element)
         },
     })),
     events(({ cache, values, actions }) => ({
