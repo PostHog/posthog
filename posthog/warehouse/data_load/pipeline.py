@@ -1,7 +1,7 @@
 import dlt
 from typing import Dict, List
 from django.conf import settings
-from .stripe import stripe_source
+from .stripe import stripe_source, ENDPOINTS
 from dataclasses import dataclass
 from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 import s3fs
@@ -47,14 +47,7 @@ class StripeJobInputs(PipelineInputs):
     stripe_secret_key: str
 
 
-PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
-    "Stripe": (
-        "Subscription",
-        "Customer",
-        "Product",
-        "Price",
-    )
-}
+PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {ExternalDataSource.Type.STRIPE: ENDPOINTS}
 
 
 # Run pipeline on separate thread. No db clients used
@@ -65,7 +58,7 @@ def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
     # TODO: decouple API calls so they can be incrementally read and sync_rows updated
     source = stripe_source(
         stripe_secret_key=inputs.stripe_secret_key,
-        endpoints=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING["Stripe"],
+        endpoints=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE],
     )
     pipeline.run(source, loader_file_format="parquet")
     return get_schema(pipeline)
@@ -99,8 +92,8 @@ def get_schema(pipeline: dlt.pipeline) -> List[SourceSchema]:
     return schemas
 
 
-PIPELINE_TYPE_INPUTS_MAPPING = {"Stripe": StripeJobInputs}
-PIPELINE_TYPE_RUN_MAPPING = {"Stripe": run_stripe_pipeline}
+PIPELINE_TYPE_INPUTS_MAPPING = {ExternalDataSource.Type.STRIPE: StripeJobInputs}
+PIPELINE_TYPE_RUN_MAPPING = {ExternalDataSource.Type.STRIPE: run_stripe_pipeline}
 
 
 def get_s3fs():
