@@ -8,6 +8,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
+import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapLogic } from './heatmapLogic'
 

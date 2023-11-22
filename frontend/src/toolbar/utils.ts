@@ -1,3 +1,4 @@
+import { finder } from '@medv/finder'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
