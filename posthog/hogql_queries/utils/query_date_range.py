@@ -9,7 +9,7 @@ from pydantic_core._pydantic_core import ValidationError
 
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.parser import ast
-from posthog.models.team import Team
+from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp
 from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
@@ -210,15 +210,23 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self._total_intervals, self._interval.name)
-        date_from = self.now_with_timezone - delta
-        if self.is_hourly:
-            return date_from
-        return date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if self._interval == IntervalType.hour:
+            return self.date_to() - delta
+        elif self._interval == IntervalType.week:
+            date_from = self.date_to() - delta
+            week_start_alignment_days = date_from.isoweekday() % 7
+            if self._team.week_start_day == WeekStartDay.MONDAY:
+                week_start_alignment_days = date_from.weekday()
+            return date_from - timedelta(days=week_start_alignment_days)
+        else:
+            date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
+            return date_to - delta
 
     def date_to(self) -> datetime:
         delta = self.determine_time_delta(1, self._interval.name)
         date_to = self.now_with_timezone + delta
 
         if self.is_hourly:
-            return date_to
-        return date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+            return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+        return date_to.replace(minute=0, second=0, microsecond=0)

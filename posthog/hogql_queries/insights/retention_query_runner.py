@@ -41,7 +41,7 @@ class RetentionQueryRunner(QueryRunner):
     def returning_event_query(self) -> ast.SelectQuery:
         return parse_select(
             """
-            SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp), 'US/Pacific')) AS event_date,
+            SELECT toStartOfDay(e.timestamp) AS event_date,
                                                     e.person_id                                                            as target
                                              FROM events e
                                              WHERE e.event = '$pageview'
@@ -60,7 +60,7 @@ class RetentionQueryRunner(QueryRunner):
                                                     e.person_id                                                                 as target,
                                                     [
                                                         dateDiff(
-                                                                'Day',
+                                                                {interval},
                                                                 toStartOfDay({date_from}),
                                                                 toStartOfDay(min(e.timestamp))
                                                         )
@@ -77,9 +77,9 @@ class RetentionQueryRunner(QueryRunner):
 
     def actor_query(self) -> ast.SelectQuery:
         placeholders = {
+            **self.query_date_range.to_placeholders(),
             "returning_event_query": self.returning_event_query(),
             "target_event_query": self.target_event_query(),
-            "period": ast.Constant(value="Day"),
             "breakdown_values_filter": ast.Constant(value=None),
             "selected_interval": ast.Constant(value=None),
         }
@@ -92,7 +92,7 @@ class RetentionQueryRunner(QueryRunner):
             FROM (
                      SELECT target_event.breakdown_values AS breakdown_values,
                             dateDiff(
-                                    {period},
+                                    {interval},
                                     target_event.event_date,
                                     returning_event.event_date
                             )                             AS intervals_from_base,
