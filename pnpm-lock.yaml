@@ -355,8 +355,8 @@ devDependencies:
     specifier: ^5.17.1
     version: 5.17.1(@babel/core@7.22.10)(@babel/preset-env@7.22.10)(babel-loader@8.3.0)(webpack@5.88.2)
   '@playwright/test':
-    specifier: 1.40.0
-    version: 1.40.0
+    specifier: 1.32.2
+    version: 1.32.2
   '@sentry/types':
     specifier: 7.22.0
     version: 7.22.0
@@ -3374,12 +3374,15 @@ packages:
       tslib: 2.6.2
     dev: true
 
-  /@playwright/test@1.40.0:
-    resolution: {integrity: sha512-PdW+kn4eV99iP5gxWNSDQCbhMaDVej+RXL5xr6t04nbKLCBwYtA046t7ofoczHOm8u6c+45hpDKQVZqtqwkeQg==}
-    engines: {node: '>=16'}
+  /@playwright/test@1.32.2:
+    resolution: {integrity: sha512-nhaTSDpEdTTttdkDE8Z6K3icuG1DVRxrl98Qq0Lfc63SS9a2sjc9+x8ezysh7MzCKz6Y+nArml3/mmt+gqRmQQ==}
+    engines: {node: '>=14'}
     hasBin: true
     dependencies:
-      playwright: 1.40.0
+      '@types/node': 18.18.4
+      playwright-core: 1.32.2
+    optionalDependencies:
+      fsevents: 2.3.2
     dev: true
 
   /@pmmmwh/react-refresh-webpack-plugin@0.5.11(react-refresh@0.11.0)(webpack@5.88.2):
@@ -13188,7 +13191,7 @@ packages:
       jest-process-manager: 0.3.1
       jest-runner: 29.7.0
       nyc: 15.1.0
-      playwright-core: 1.29.2
+      playwright-core: 1.32.2
       rimraf: 3.0.2
       uuid: 8.3.2
     transitivePeerDependencies:
@@ -15413,9 +15416,9 @@ packages:
     hasBin: true
     dev: true
 
-  /playwright-core@1.40.0:
-    resolution: {integrity: sha512-fvKewVJpGeca8t0ipM56jkVSU6Eo0RmFvQ/MaCQNDYm+sdvKkMBBWTE1FdeMqIdumRaXXjZChWHvIzCGM/tA/Q==}
-    engines: {node: '>=16'}
+  /playwright-core@1.32.2:
+    resolution: {integrity: sha512-zD7aonO+07kOTthsrCR3YCVnDcqSHIJpdFUtZEMOb6//1Rc7/6mZDRdw+nlzcQiQltOOsiqI3rrSyn/SlyjnJQ==}
+    engines: {node: '>=14'}
     hasBin: true
     dev: true
 
@@ -15426,16 +15429,6 @@ packages:
     requiresBuild: true
     dependencies:
       playwright-core: 1.29.2
-    dev: true
-
-  /playwright@1.40.0:
-    resolution: {integrity: sha512-gyHAgQjiDf1m34Xpwzaqb76KgfzYrhK7iih+2IzcOCoZWr/8ZqmdBw+t0RU85ZmfJMgtgAiNtBQ/KS2325INXw==}
-    engines: {node: '>=16'}
-    hasBin: true
-    dependencies:
-      playwright-core: 1.40.0
-    optionalDependencies:
-      fsevents: 2.3.2
     dev: true
 
   /please-upgrade-node@3.2.0:

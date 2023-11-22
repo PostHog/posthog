@@ -182,7 +182,7 @@
         "@babel/preset-typescript": "^7.22.5",
         "@babel/runtime": "^7.22.10",
         "@cypress/webpack-preprocessor": "^5.17.1",
-        "@playwright/test": "1.40.0",
+        "@playwright/test": "1.32.2",
         "@sentry/types": "7.22.0",
         "@storybook/addon-a11y": "^7.5.1",
         "@storybook/addon-actions": "^7.5.1",
