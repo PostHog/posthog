@@ -1,6 +1,7 @@
 import json
 from typing import List, cast
-from unittest.mock import ANY, MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -219,15 +220,16 @@ class TestTeamAPI(APIBaseTest):
             AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(),
             1,
         )
-        mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "team deleted",
-            properties={},
-            groups={
-                "instance": ANY,
-                "organization": str(self.organization.id),
-                "project": str(self.team.uuid),
-            },
+        mock_capture.assert_has_calls(
+            calls=[
+                call(
+                    self.user.distinct_id,
+                    "membership level changed",
+                    properties={"new_level": 8, "previous_level": 1},
+                    groups=mock.ANY,
+                ),
+                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+            ]
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
