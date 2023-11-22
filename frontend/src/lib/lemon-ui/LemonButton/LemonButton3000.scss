@@ -39,29 +39,30 @@
             }
         }
 
-        &.LemonButton--full-width .LemonButton__chrome {
-            padding-left: 0.5rem;
-            padding-right: 0.5rem;
+        &.LemonButton--full-width {
+            .LemonButton__chrome {
+                padding-left: 0.5rem;
+                padding-right: 0.5rem;
+            }
         }
 
         &.LemonButton--xsmall {
             min-height: 1.5rem;
             padding-left: 0;
+            font-size: 0.8125rem;
 
             .LemonButton__chrome {
                 min-height: 1.5rem;
                 padding: 0.125rem 0.375rem;
             }
 
-            &.LemonButton--has-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 .LemonButton__chrome {
                     padding-left: 0.25rem;
                 }
             }
 
-            &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-side-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 .LemonButton__chrome {
                     padding-right: 0.25rem;
                 }
@@ -70,21 +71,20 @@
 
         &.LemonButton--small {
             min-height: 1.75rem;
+            font-size: 0.8125rem;
 
             .LemonButton__chrome {
                 min-height: 1.75rem;
                 padding: 0.25rem 0.5rem;
             }
 
-            &.LemonButton--has-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 .LemonButton__chrome {
                     padding-left: 0.375rem;
                 }
             }
 
-            &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-side-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 .LemonButton__chrome {
                     padding-right: 0.375rem;
                 }
@@ -100,8 +100,7 @@
                 padding: 0.5rem 1rem;
             }
 
-            &.LemonButton--has-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 padding-left: 0;
 
                 .LemonButton__chrome {
@@ -109,8 +108,7 @@
                 }
             }
 
-            &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
-            &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            &.LemonButton--has-side-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 padding-right: 0;
 
                 .LemonButton__chrome {
@@ -247,19 +245,19 @@
         border-top-right-radius: 5px;
         border-bottom-right-radius: 5px;
 
-        & .LemonButton {
+        .LemonButton {
             background: none !important;
             border: none !important;
             padding-bottom: 0 !important;
             margin: 0 auto !important;
             height: 100%;
+        }
 
-            .LemonButton__chrome {
-                margin: auto !important;
-                top: 0 !important;
-                background: none !important;
-                border: none !important;
-            }
+        .LemonButton__chrome {
+            margin: auto !important;
+            top: 0 !important;
+            background: none !important;
+            border: none !important;
         }
 
         &:not([aria-disabled='true']):hover {

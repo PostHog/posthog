@@ -27,7 +27,9 @@ export function CompactList({
                 <h3>{title}</h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
-            <LemonDivider className="m-2" />
+            <div className="mx-2">
+                <LemonDivider />
+            </div>
             <div className="scrollable-list">
                 {loading ? (
                     <div className="p-2 space-y-6">
