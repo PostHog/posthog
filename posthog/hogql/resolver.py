@@ -118,41 +118,38 @@ class Resolver(CloningVisitor):
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
-        hidden_aliases = {}
+        select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-
-            # if it's an asterisk, carry on in a subroutine
             if isinstance(new_expr.type, ast.AsteriskType):
-                self._expand_asterisk_columns(new_node, new_expr.type)
-                continue
+                columns = self._asterisk_columns(new_expr.type)
+                select_nodes.extend([self.visit(expr) for expr in columns])
+            else:
+                select_nodes.append(new_expr)
 
-            # Any alias we can use to refer to this field?
-            alias = None
+        columns_with_visible_alias = {}
+        for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
                 alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
+            else:
+                alias = None
 
             if alias:
+                # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
-                    hidden_aliases[alias] = new_expr
+                    if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
+                        node_type.columns[alias] = new_expr.type
+                        columns_with_visible_alias[alias] = False
                 else:
                     node_type.columns[alias] = new_expr.type
+                    columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
-
-        # this dict will contain the last used hidden alias with this name
-        for key, hidden_alias in hidden_aliases.items():
-            # if no column took this alias, unhide it
-            if key not in node_type.columns:
-                node_type.columns[key] = hidden_alias.type
-                hidden_alias.hidden = False
-                if isinstance(hidden_alias.type, ast.FieldAliasType):
-                    hidden_alias.type.hidden = False
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -177,15 +174,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()
-            for key in database_fields.keys():
-                type = ast.FieldType(name=key, table_type=asterisk.table_type)
-                select_query.select.append(ast.Field(chain=[key], type=type))
-                select_query.type.columns[key] = type
+            return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -197,10 +191,7 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                for name in select.columns.keys():
-                    type = ast.FieldType(name=name, table_type=asterisk.table_type)
-                    select_query.select.append(ast.Field(chain=[name], type=type))
-                    select_query.type.columns[name] = type
+                return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
                 raise ResolverException("Can't expand asterisk (*) on subquery")
         else:
@@ -485,11 +476,12 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
+            property_alias = "__".join(node.type.chain)
             return ast.Alias(
-                alias=node.type.chain[-1],
+                alias=property_alias,
                 expr=node,
                 hidden=True,
-                type=ast.FieldAliasType(alias=node.type.chain[-1], type=node.type),
+                type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
         return node
@@ -497,40 +489,48 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        array = node.array
+        while isinstance(array, ast.Alias):
+            array = array.expr
+
         if (
-            isinstance(node.array, ast.Field)
+            isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(node.array.type, ast.PropertyType))
+                (isinstance(array.type, ast.PropertyType))
                 or (
-                    isinstance(node.array.type, ast.FieldType)
+                    isinstance(array.type, ast.FieldType)
                     and isinstance(
-                        node.array.type.resolve_database_field(),
+                        array.type.resolve_database_field(),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
-            node.array.chain.append(node.property.value)
-            node.array.type = node.array.type.get_child(node.property.value)
-            return node.array
+            array.chain.append(node.property.value)
+            array.type = array.type.get_child(node.property.value)
+            return array
 
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
-        if isinstance(node.tuple, ast.Field) and (
-            (isinstance(node.tuple.type, ast.PropertyType))
+        tuple = node.tuple
+        while isinstance(tuple, ast.Alias):
+            tuple = tuple.expr
+
+        if isinstance(tuple, ast.Field) and (
+            (isinstance(tuple.type, ast.PropertyType))
             or (
-                isinstance(node.tuple.type, ast.FieldType)
-                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                isinstance(tuple.type, ast.FieldType)
+                and isinstance(tuple.type.resolve_database_field(), StringJSONDatabaseField)
             )
         ):
-            node.tuple.chain.append(node.index)
-            node.tuple.type = node.tuple.type.get_child(node.index)
-            return node.tuple
+            tuple.chain.append(node.index)
+            tuple.type = tuple.type.get_child(node.index)
+            return tuple
 
         return node
 
@@ -593,6 +593,8 @@ class Resolver(CloningVisitor):
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
             if isinstance(node.type.table_type, ast.TableAliasType):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
@@ -601,6 +603,8 @@ class Resolver(CloningVisitor):
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if (
             isinstance(node, ast.SelectQuery)
             and node.select_from

@@ -229,11 +229,52 @@ class _Printer(Visitor):
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
-                raise HogQLException(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
+                raise HogQLException(
+                    f"Invalid where of type {type(extra_where).__name__} returned by join_expr", node=visited_join.where
+                )
 
             next_join = next_join.next_join
 
-        columns = [self.visit(column) for column in node.select] if node.select else ["1"]
+        if node.select:
+            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
+            # each unique alias name. Then make the last hidden aliases visible.
+            if self.dialect == "clickhouse":
+                visible_aliases = {}
+                for alias in reversed(node.select):
+                    if isinstance(alias, ast.Alias):
+                        if not visible_aliases.get(alias.alias, None) or not alias.hidden:
+                            visible_aliases[alias.alias] = alias
+
+                columns = []
+                for column in node.select:
+                    if isinstance(column, ast.Alias):
+                        # It's either a visible alias, or the last hidden alias for this name.
+                        if visible_aliases.get(column.alias) == column:
+                            if column.hidden:
+                                if (
+                                    isinstance(column.expr, ast.Field)
+                                    and isinstance(column.expr.type, ast.FieldType)
+                                    and column.expr.type.name == column.alias
+                                ):
+                                    # Hide the hidden alias only if it's a simple field,
+                                    # and we're using the same name for the field and the alias
+                                    # E.g. events.event AS event --> events.evnet.
+                                    column = column.expr
+                                else:
+                                    # Make the hidden alias visible
+                                    column = cast(ast.Alias, clone_expr(column))
+                                    column.hidden = False
+                            else:
+                                # Always print visible aliases.
+                                pass
+                        else:
+                            # This is not the alias for this unique alias name. Skip it.
+                            column = column.expr
+                    columns.append(self.visit(column))
+            else:
+                columns = [self.visit(column) for column in node.select]
+        else:
+            columns = ["1"]
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
@@ -810,6 +851,7 @@ class _Printer(Visitor):
         raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
+        # Skip hidden aliases completely.
         if node.hidden:
             return self.visit(node.expr)
         expr = node.expr
@@ -1102,6 +1144,8 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
+        elif isinstance(node, ast.Alias):
+            return self._is_nullable(node.expr)
 
         # we don't know if it's nullable, so we assume it can be
         return True
