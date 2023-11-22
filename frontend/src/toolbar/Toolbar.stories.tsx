@@ -20,10 +20,10 @@ const toolbarParams: ToolbarParams = {
 
 const meta: Meta = {
     title: 'Scenes-Other/Toolbar',
+    tags: ['test-skip'], // This story is not valuable to snapshot as is
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        testOptions: { skip: true }, // This story is not valuable to snapshot as is
     },
 }
 export default meta

@@ -14,12 +14,12 @@ import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Recordings',
+    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
-        testOptions: { skip: true }, // TODO: Fix the flakey rendering due to player playback
     },
     decorators: [
         mswDecorator({

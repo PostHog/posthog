@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, FilterLogicalOperator, FilterType, PropertyGroupFilter, PropertyOperator } from '~/types'
 
@@ -38,6 +39,11 @@ const taxonomicGroupTypes = [
 ]
 
 export function GroupPropertyFilters(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/event/values/': [],
+        },
+    })
     useMountedLogic(cohortsModel)
 
     const [propertyGroupFilter, setPropertyGroupFilter] = useState<PropertyGroupFilter>({
