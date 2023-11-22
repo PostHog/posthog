@@ -1,6 +1,8 @@
-import { personsModalLogic } from './personsModalLogic'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
+
+import { initKeaTests } from '~/test/init'
+
+import { personsModalLogic } from './personsModalLogic'
 
 describe('personsModalLogic', () => {
     let logic: ReturnType<typeof personsModalLogic.build>

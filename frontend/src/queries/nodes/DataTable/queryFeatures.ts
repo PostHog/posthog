@@ -1,3 +1,4 @@
+import { Node } from '~/queries/schema'
 import {
     isEventsQuery,
     isHogQLQuery,
@@ -7,7 +8,6 @@ import {
     isWebStatsTableQuery,
     isWebTopClicksQuery,
 } from '~/queries/utils'
-import { Node } from '~/queries/schema'
 
 export enum QueryFeature {
     columnsInResponse,

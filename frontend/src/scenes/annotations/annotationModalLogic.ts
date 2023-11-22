@@ -1,16 +1,18 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
 import { forms } from 'kea-forms'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import type { annotationModalLogicType } from './annotationModalLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
+import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
+
+import type { annotationModalLogicType } from './annotationModalLogicType'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 

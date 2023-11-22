@@ -1,14 +1,16 @@
-import clsx from 'clsx'
-import React, { useContext } from 'react'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
-import { Link } from '../Link'
-import { Spinner } from '../Spinner/Spinner'
-import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
+
+import clsx from 'clsx'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import React, { useContext } from 'react'
+
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { Link } from '../Link'
 import { PopoverReferenceContext } from '../Popover'
+import { Spinner } from '../Spinner/Spinner'
+import { Tooltip, TooltipProps } from '../Tooltip'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 

@@ -1,11 +1,9 @@
-import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
-
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconClose, IconComment } from 'lib/lemon-ui/icons'
+import { useRef } from 'react'
+import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

@@ -1,9 +1,10 @@
 import './Animation.scss'
+
 import { Player } from '@lottiefiles/react-lottie-player'
-import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { AnimationType, getAnimationSource, animations } from 'lib/animations/animations'
+import { animations, AnimationType, getAnimationSource } from 'lib/animations/animations'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useEffect, useState } from 'react'
 
 export interface AnimationProps {
     /** Animation to show */

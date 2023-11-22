@@ -1,22 +1,11 @@
-import posthog from 'posthog-js'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
-import {
-    isInsightQueryNode,
-    isEventsQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    isTimeToSeeDataQuery,
-    isDataTableNode,
-    isTimeToSeeDataSessionsNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isQueryWithHogQLSupport,
-    isPersonsQuery,
-    isLifecycleQuery,
-} from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
+import { currentSessionId } from 'lib/internalMetrics'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay, flattenObject, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -26,12 +15,25 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { flattenObject, delay, toParams } from 'lib/utils'
+
+import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import {
+    isDataTableNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPersonsNode,
+    isPersonsQuery,
+    isQueryWithHogQLSupport,
+    isTimeToSeeDataQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
+} from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300

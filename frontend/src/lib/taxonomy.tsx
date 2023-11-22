@@ -1,4 +1,5 @@
 import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
+
 import { Link } from './lemon-ui/Link'
 
 // If adding event properties with labels, check whether they should be added to

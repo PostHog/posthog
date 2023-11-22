@@ -1,12 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { DataWarehouseSceneRow } from '../types'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export function DataWarehouseTablesContainer(): JSX.Element {
     const { tables, dataWarehouseLoading } = useValues(dataWarehouseSceneLogic)

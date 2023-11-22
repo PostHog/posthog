@@ -1,5 +1,5 @@
-import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',

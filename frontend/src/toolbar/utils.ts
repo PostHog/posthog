@@ -1,12 +1,13 @@
-import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, StringMatching } from '~/types'
-import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
-import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { finder } from '@medv/finder'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
-import { finder } from '@medv/finder'
+import { cssEscape } from 'lib/utils/cssEscape'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import wildcardMatch from 'wildcard-match'
+
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
+import { ActionStepType, StringMatching } from '~/types'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {

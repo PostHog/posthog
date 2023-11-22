@@ -1,15 +1,21 @@
 import './SurveyAppearance.scss'
+
 import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import React, { useEffect, useRef, useState } from 'react'
+
 import {
-    SurveyAppearance as SurveyAppearanceType,
-    SurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyQuestionType,
-    MultipleSurveyQuestion,
     AvailableFeature,
     BasicSurveyQuestion,
     LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance as SurveyAppearanceType,
+    SurveyQuestion,
+    SurveyQuestionType,
 } from '~/types'
+
 import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
@@ -23,9 +29,6 @@ import {
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
-import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {

@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { IconCalculate, IconCalendar, IconLightBulb, IconSettings } from '../icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 

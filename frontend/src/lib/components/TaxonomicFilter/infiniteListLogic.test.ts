@@ -1,11 +1,13 @@
-import { infiniteListLogic } from './infiniteListLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition } from '~/types'
-import { useMocks } from '~/mocks/jest'
+
+import { infiniteListLogic } from './infiniteListLogic'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 

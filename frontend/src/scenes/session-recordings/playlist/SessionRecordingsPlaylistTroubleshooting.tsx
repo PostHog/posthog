@@ -1,5 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 

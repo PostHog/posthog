@@ -1,11 +1,12 @@
-import { useActions, useValues } from 'kea'
-import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
-import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { themeLogic } from '../../themeLogic'
+import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 function SidePanelDocsSkeleton(): JSX.Element {
     return (

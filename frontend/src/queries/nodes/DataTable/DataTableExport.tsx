@@ -1,23 +1,25 @@
-import Papa from 'papaparse'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport } from 'lib/lemon-ui/icons'
+import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { ExporterFormat } from '~/types'
-import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { IconExport } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import Papa from 'papaparse'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
+
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import {
     defaultDataTableColumns,
     extractExpressionComment,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
-import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { getPersonsEndpoint } from '~/queries/query'
-import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
-import { DataTableRow, dataTableLogic } from './dataTableLogic'
-import { useValues } from 'kea'
-import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import { ExporterFormat } from '~/types'
+
+import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
 const EXPORT_MAX_LIMIT = 10000
 

@@ -1,7 +1,8 @@
-import { initKeaTests } from '~/test/init'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { expectLogic } from 'kea-test-utils'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 const SURVEY: Survey = {

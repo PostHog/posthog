@@ -1,4 +1,5 @@
 import { elementToSelector } from 'lib/actionUtils'
+
 import { ElementType } from '~/types'
 
 describe('elementToSelector', () => {

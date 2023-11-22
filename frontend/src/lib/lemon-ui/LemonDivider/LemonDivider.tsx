@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './LemonDivider.scss'
+
+import clsx from 'clsx'
 
 export interface LemonDividerProps {
     /** 3x the thickness of the line. */

@@ -1,13 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
-import { Settings } from 'scenes/settings/Settings'
-import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { settingsLogic } from 'scenes/settings/settingsLogic'
-import { useEffect } from 'react'
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { IconExternal } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { Settings } from 'scenes/settings/Settings'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
+import { urls } from 'scenes/urls'
+
+import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 
 export const SidePanelSettings = (): JSX.Element => {
     const { settings } = useValues(sidePanelSettingsLogic)

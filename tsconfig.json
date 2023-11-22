@@ -34,7 +34,7 @@
         "lib": ["dom", "es2019"]
     },
     "include": ["frontend/**/*", ".storybook/**/*"],
-    "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"],
+    "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"

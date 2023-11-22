@@ -1,16 +1,17 @@
-import { useState } from 'react'
-import { useValues } from 'kea'
-import { teamMembersLogic } from './teamMembersLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { TeamMembershipLevel } from 'lib/constants'
 import { Field } from 'lib/forms/Field'
 import { IconPlus } from 'lib/lemon-ui/icons'
-import { TeamMembershipLevel } from 'lib/constants'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { teamMembersLogic } from './teamMembersLogic'
 
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)

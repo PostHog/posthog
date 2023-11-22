@@ -1,18 +1,20 @@
 import './LemonTextArea.scss'
-import React, { createRef, useRef, useState } from 'react'
+
 import clsx from 'clsx'
-import TextareaAutosize from 'react-textarea-autosize'
-import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import posthog from 'posthog-js'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import posthog from 'posthog-js'
+import React, { createRef, useRef, useState } from 'react'
+import TextareaAutosize from 'react-textarea-autosize'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { LemonTabs } from '../LemonTabs'
-import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 export interface LemonTextAreaProps
     extends Pick<

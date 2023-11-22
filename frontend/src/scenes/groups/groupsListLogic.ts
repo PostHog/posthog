@@ -1,10 +1,12 @@
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { Noun, groupsModel } from '~/models/groupsModel'
+
+import { groupsModel, Noun } from '~/models/groupsModel'
 import { Group } from '~/types'
+
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsPaginatedResponse {

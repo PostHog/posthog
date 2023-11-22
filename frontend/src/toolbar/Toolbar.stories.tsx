@@ -1,12 +1,12 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
+import { useEffect } from 'react'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
 
 const toolbarParams: ToolbarParams = {
     temporaryToken: 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',

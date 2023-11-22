@@ -1,15 +1,17 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconCloudDownload, IconDelete, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTypeWithConfig, PluginRepositoryEntry, PluginInstallationType } from 'scenes/plugins/types'
-import { PluginType } from '~/types'
-import { PluginTags } from './components'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Popconfirm } from 'antd'
-import { canGloballyManagePlugins } from 'scenes/plugins/access'
+import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { userLogic } from 'scenes/userLogic'
+
+import { PluginType } from '~/types'
+
+import { PluginTags } from './components'
 
 export function AppManagementView({
     plugin,

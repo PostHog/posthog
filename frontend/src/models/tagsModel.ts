@@ -1,9 +1,9 @@
 import { afterMount, connect, kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { tagsModelType } from './tagsModelType'
-import { loaders } from 'kea-loaders'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 export const tagsModel = kea<tagsModelType>([
     path(['models', 'tagsModel']),

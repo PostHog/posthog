@@ -1,11 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { DataNode } from '~/queries/schema'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { DataNode } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 import { FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps, InsightType } from '~/types'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelCorrelationDetailsLogic } from './funnelCorrelationDetailsLogic'
 
 const funnelResults = [

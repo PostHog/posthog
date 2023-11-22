@@ -1,9 +1,9 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-
-import { LemonInput } from './LemonInput'
 import { IconArrowDropDown, IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { LemonInput } from './LemonInput'
 
 type Story = StoryObj<typeof LemonInput>
 const meta: Meta<typeof LemonInput> = {

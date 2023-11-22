@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+
 import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
