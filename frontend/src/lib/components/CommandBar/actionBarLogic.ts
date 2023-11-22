@@ -65,7 +65,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp()
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 event.preventDefault()
 
                 if (values.activeFlow) {

@@ -122,7 +122,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 // hide command bar
                 actions.hideCommandBar()
             } else if (event.key === '>') {
