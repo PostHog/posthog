@@ -10,8 +10,8 @@ from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import NoOpInputs
-from posthog.temporal.codec import EncryptionCodec
-from posthog.temporal.workflows.noop import NoOpWorkflow, noop_activity
+from posthog.temporal.common.codec import EncryptionCodec
+from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 
 
 def get_history_event_payloads(event):
@@ -63,7 +63,7 @@ async def test_payloads_are_encrypted():
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=[NoOpWorkflow],
         activities=[noop_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),

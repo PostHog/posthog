@@ -9,8 +9,8 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.temporal.client import connect
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
+from posthog.temporal.common.client import connect
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.workflows import WORKFLOWS
+        from posthog.temporal.batch_exports import WORKFLOWS
 
         return WORKFLOWS
 
@@ -116,7 +116,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.workflows import ACTIVITIES
+        from posthog.temporal.batch_exports import ACTIVITIES
 
         return ACTIVITIES
 
@@ -125,7 +125,7 @@ async def activities(request):
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=workflows,
         activities=activities,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),

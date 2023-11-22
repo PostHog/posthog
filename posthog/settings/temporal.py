@@ -3,7 +3,8 @@ import os
 from posthog.settings.utils import get_list
 
 TEMPORAL_NAMESPACE = os.getenv("TEMPORAL_NAMESPACE", "default")
-TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "no-sandbox-python-django")
+# NOTE: TEMPORAL_TASK_QUEUE refactored to TEMPORAL_BATCH_EXPORTS_TASK_QUEUE
+TEMPORAL_BATCH_EXPORTS_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "no-sandbox-python-django")
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1")
 TEMPORAL_PORT = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)

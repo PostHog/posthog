@@ -25,11 +25,11 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.tests.utils.datetimes import to_isoformat
 from posthog.temporal.tests.utils.events import EventValues, generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.s3_batch_export import (
+from posthog.temporal.batch_exports.s3_batch_export import (
     HeartbeatDetails,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
@@ -280,7 +280,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):  # 5MB, the minimum for Multipart uploads
         with mock.patch(
-            "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+            "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
             side_effect=create_test_client,
         ):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
@@ -396,7 +396,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -407,14 +407,14 @@ async def test_s3_export_workflow_with_minio_bucket(
         ):
             # We patch the S3 client to return our client that targets MinIO.
             with mock.patch(
-                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+                "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
                 side_effect=create_test_client,
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(minutes=10),
                 )
@@ -531,7 +531,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -541,14 +541,14 @@ async def test_s3_export_workflow_with_s3_bucket(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch(
-                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+                "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
                 side_effect=create_minio_client,
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -613,7 +613,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -623,14 +623,14 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch(
-                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+                "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
                 side_effect=create_test_client,
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=360),
                 )
@@ -689,7 +689,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -699,14 +699,14 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch(
-                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+                "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
                 side_effect=create_test_client,
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -774,7 +774,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -784,14 +784,14 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch(
-                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+                "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
                 side_effect=create_test_client,
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -843,7 +843,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -857,7 +857,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -895,7 +895,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -908,7 +908,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -1136,7 +1136,7 @@ async def test_insert_into_s3_activity_heartbeats(
 
     with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         with mock.patch(
-            "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client",
+            "posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session.client",
             side_effect=create_test_client,
         ):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)

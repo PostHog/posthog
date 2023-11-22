@@ -8,13 +8,19 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
-from posthog.temporal.worker import start_worker
+from posthog.temporal.common.worker import start_worker
+from posthog.temporal.batch_exports import WORKFLOWS, ACTIVITIES
 
 
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--workflow-group",
+            default=settings.WORKFLOW_GROUP,
+            help="Group of temporal workflows and activities to execute (batch-exports)",
+        )
         parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
@@ -32,7 +38,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--task-queue",
-            default=settings.TEMPORAL_TASK_QUEUE,
+            default=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             help="Task queue to service",
         )
         parser.add_argument(
@@ -64,6 +70,13 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+        workflow_group = options["workflow_group"]
+
+        if workflow_group == "batch-exports":
+            workflows = WORKFLOWS
+            activities = ACTIVITIES
+        else:
+            raise ValueError(f"Unknown workflow group: {workflow_group}")
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -83,5 +96,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
+                workflows=workflows,
+                activities=activities,
             )
         )

@@ -6,8 +6,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.client import connect
-from posthog.temporal.workflows import WORKFLOWS
+from posthog.temporal.common.client import connect
+from posthog.temporal.batch_exports import WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -48,7 +48,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--task-queue",
-            default=settings.TEMPORAL_TASK_QUEUE,
+            default=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             help="Task queue to service",
         )
         parser.add_argument(

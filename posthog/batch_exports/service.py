@@ -13,8 +13,6 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
-    ScheduleUpdate,
-    ScheduleUpdateInput,
 )
 
 from posthog import settings
@@ -23,7 +21,8 @@ from posthog.batch_exports.models import (
     BatchExportBackfill,
     BatchExportRun,
 )
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import create_schedule, update_schedule, unpause_schedule, pause_schedule
 
 
 class BatchExportsInputsProtocol(typing.Protocol):
@@ -186,13 +185,6 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
     batch_export.save()
 
 
-@async_to_sync
-async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
-    """Pause a Temporal Schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    await handle.pause(note=note)
-
-
 def unpause_batch_export(
     temporal: Client,
     batch_export_id: str,
@@ -237,27 +229,6 @@ def unpause_batch_export(
     end_at = batch_export.last_updated_at
 
     backfill_export(temporal, batch_export_id, start_at, end_at)
-
-
-@async_to_sync
-async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
-    """Unpause a Temporal Schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    await handle.unpause(note=note)
-
-
-@async_to_sync
-async def delete_schedule(temporal: Client, schedule_id: str) -> None:
-    """Delete a Temporal Schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    await handle.delete()
-
-
-@async_to_sync
-async def describe_schedule(temporal: Client, schedule_id: str):
-    """Describe a Temporal Schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    return await handle.describe()
 
 
 @async_to_sync
@@ -330,7 +301,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -402,7 +373,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             start_at=batch_export.start_at,
@@ -420,29 +391,6 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
 
     return batch_export
-
-
-@async_to_sync
-async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
-    """Create a Temporal Schedule."""
-    return await temporal.create_schedule(
-        id=id,
-        schedule=schedule,
-        trigger_immediately=trigger_immediately,
-    )
-
-
-@async_to_sync
-async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
-    """Update a Temporal Schedule."""
-    handle = temporal.get_schedule_handle(id)
-
-    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
-        return ScheduleUpdate(schedule=schedule)
-
-    return await handle.update(
-        updater=updater,
-    )
 
 
 def create_batch_export_backfill(

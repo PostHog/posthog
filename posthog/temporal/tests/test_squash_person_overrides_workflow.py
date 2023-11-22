@@ -22,7 +22,7 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.temporal.workflows.squash_person_overrides import (
+from posthog.temporal.batch_exports.squash_person_overrides import (
     QueryInputs,
     SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,
@@ -1211,7 +1211,7 @@ async def test_squash_person_overrides_workflow(
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
             prepare_person_overrides,
@@ -1228,7 +1228,7 @@ async def test_squash_person_overrides_workflow(
             SquashPersonOverridesWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         )
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
@@ -1260,7 +1260,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
             prepare_person_overrides,
@@ -1277,7 +1277,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
             SquashPersonOverridesWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         )
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
@@ -1304,7 +1304,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
 
     async with Worker(
         client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
             prepare_person_overrides,
@@ -1321,7 +1321,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
             SquashPersonOverridesWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         )
 
     with pytest.raises(AssertionError):

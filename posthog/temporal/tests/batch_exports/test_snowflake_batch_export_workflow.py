@@ -25,11 +25,11 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.snowflake_batch_export import (
+from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeInsertInputs,
@@ -394,7 +394,7 @@ async def test_snowflake_export_workflow_exports_events(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -404,7 +404,7 @@ async def test_snowflake_export_workflow_exports_events(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
             ) as mock, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
                 fake_conn = FakeSnowflakeConnection()
                 mock.return_value = fake_conn
@@ -414,7 +414,7 @@ async def test_snowflake_export_workflow_exports_events(
                     inputs,
                     id=workflow_id,
                     execution_timeout=dt.timedelta(seconds=10),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -461,7 +461,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -479,7 +479,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -544,7 +544,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -559,7 +559,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                     super().__init__(*args, failure_mode="put", **kwargs)
 
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnPut,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:
@@ -567,7 +567,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                         SnowflakeBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -610,7 +610,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -625,7 +625,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                     super().__init__(*args, failure_mode="copy", **kwargs)
 
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnCopy,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:
@@ -633,7 +633,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                         SnowflakeBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -661,7 +661,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -675,7 +675,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -709,7 +709,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -722,7 +722,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -952,7 +952,7 @@ async def test_snowflake_export_workflow(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -965,7 +965,7 @@ async def test_snowflake_export_workflow(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=10),
             )
@@ -1030,7 +1030,7 @@ async def test_snowflake_export_workflow_with_many_files(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -1044,7 +1044,7 @@ async def test_snowflake_export_workflow_with_many_files(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=20),
                 )
@@ -1096,7 +1096,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 create_export_run,
@@ -1111,7 +1111,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 

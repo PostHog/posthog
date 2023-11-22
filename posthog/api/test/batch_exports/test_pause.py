@@ -18,7 +18,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import delete_schedule, describe_schedule
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,

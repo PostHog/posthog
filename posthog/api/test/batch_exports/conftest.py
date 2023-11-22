@@ -13,8 +13,8 @@ from temporalio.service import RPCError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.client import sync_connect
-from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.batch_exports import ACTIVITIES, WORKFLOWS
 
 
 class ThreadedWorker(Worker):
@@ -91,7 +91,7 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
 def start_test_worker(temporal: TemporalClient):
     with ThreadedWorker(
         client=temporal,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
         workflow_runner=UnsandboxedWorkflowRunner(),
