@@ -318,7 +318,7 @@ async def test_external_data_job_workflow(team):
         ) as mock_data_tables, mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
         ) as mock_get_columns, mock.patch(
-            "posthog.temporal.workflows.external_data_job.move_draft_to_production"
+            "posthog.temporal.data_imports.external_data_job.move_draft_to_production"
         ) as mock_move_draft_to_production, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
             mock_get_columns.return_value = {"id": "string"}
             mock_data_tables.return_value = [
