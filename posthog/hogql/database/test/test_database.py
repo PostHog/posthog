@@ -103,10 +103,16 @@ class TestDatabase(BaseTest):
             == "SELECT numbers.number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000"
         ), query
 
-        # sql = "select double from (select double from numbers(2))"
-        # query = print_ast(parse_select(sql), context, dialect="clickhouse")
-        # assert query == "SELECT numbers.number, multiply(numbers.number, 2), plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000", query
-        #
-        # sql = "select double from (select * from numbers(2))"
-        # query = print_ast(parse_select(sql), context, dialect="clickhouse")
-        # assert query == "SELECT numbers.number, multiply(numbers.number, 2), plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000", query
+        sql = "select double from (select double from numbers(2))"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            query
+            == "SELECT double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+        ), query
+
+        sql = "select double from (select * from numbers(2))"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            query
+            == "SELECT double FROM (SELECT numbers.number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+        ), query
