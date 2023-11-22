@@ -251,6 +251,7 @@
         "eslint-plugin-posthog": "link:./eslint-rules",
         "eslint-plugin-prettier": "^5.0.1",
         "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "file-loader": "^6.1.0",
         "givens": "^1.3.6",

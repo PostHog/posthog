@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { query } from '~/queries/query'
 
+import { query } from '~/queries/query'
 import { DatabaseSchemaQuery, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'

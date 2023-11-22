@@ -1,7 +1,9 @@
-import { isMac } from 'lib/utils'
-import { HotKeyOrModifier } from '~/types'
 import './KeyboardShortcut.scss'
+
 import clsx from 'clsx'
+import { isMac } from 'lib/utils'
+
+import { HotKeyOrModifier } from '~/types'
 
 const IS_MAC = isMac()
 const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {

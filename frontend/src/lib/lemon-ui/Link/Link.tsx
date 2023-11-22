@@ -1,15 +1,17 @@
-import React from 'react'
-import { router } from 'kea-router'
-import { isExternalLink } from 'lib/utils'
-import clsx from 'clsx'
 import './Link.scss'
+
+import clsx from 'clsx'
+import { useActions } from 'kea'
+import { router } from 'kea-router'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { isExternalLink } from 'lib/utils'
+import React from 'react'
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
+
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useActions } from 'kea'
-
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
 

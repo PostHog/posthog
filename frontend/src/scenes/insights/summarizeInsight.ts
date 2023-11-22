@@ -1,6 +1,6 @@
-import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
-import { BreakdownFilter, InsightQueryNode, Node } from '~/queries/schema'
+import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { KEY_MAPPING } from 'lib/taxonomy'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
     isFunnelsFilter,
@@ -10,10 +10,19 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import {
+    getDisplayNameFromEntityFilter,
+    getDisplayNameFromEntityNode,
+    humanizePathsEventTypes,
+} from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
+import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { groupsModelType } from '~/models/groupsModelType'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { BreakdownFilter, InsightQueryNode, Node } from '~/queries/schema'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -29,15 +38,7 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { groupsModelType } from '~/models/groupsModelType'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters

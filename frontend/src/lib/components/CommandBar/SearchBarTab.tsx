@@ -1,10 +1,10 @@
-import { RefObject } from 'react'
 import { useActions, useValues } from 'kea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { RefObject } from 'react'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 import { ResultTypeWithAll } from './types'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 
 type SearchBarTabProps = {
     type: ResultTypeWithAll

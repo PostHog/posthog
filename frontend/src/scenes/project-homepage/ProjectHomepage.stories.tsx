@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 const meta: Meta = {

@@ -1,7 +1,7 @@
-import { Fade } from 'lib/components/Fade/Fade'
-import Draggable from 'react-draggable'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Fade } from 'lib/components/Fade/Fade'
+import { IconClose } from 'lib/lemon-ui/icons'
+import Draggable from 'react-draggable'
 
 interface ButtonWindowProps {
     name: string

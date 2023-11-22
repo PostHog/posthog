@@ -1,4 +1,5 @@
 import './EmptyMessage.scss'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export interface EmptyMessageProps {

@@ -1,14 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { Scene } from 'scenes/sceneTypes'
-import { Group, GroupPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
-import { groupDashboardLogic } from 'scenes/groups/groupDashboardLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
+import { useActions, useValues } from 'kea'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { useEffect } from 'react'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { groupDashboardLogic } from 'scenes/groups/groupDashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+
+import { Group, GroupPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function GroupDashboard({ groupData }: { groupData: Group }): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Group }))

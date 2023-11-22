@@ -9,7 +9,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, TeamBasicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {

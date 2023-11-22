@@ -1,3 +1,25 @@
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import {
+    BIN_COUNT_AUTO,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+    RETENTION_FIRST_TIME,
+    ShownAsValue,
+} from 'lib/constants'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
+
 import {
     AnyFilterType,
     ChartDisplayType,
@@ -16,28 +38,8 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
-import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
-import {
-    BIN_COUNT_AUTO,
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-    RETENTION_FIRST_TIME,
-    ShownAsValue,
-} from 'lib/constants'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
-import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()

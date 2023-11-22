@@ -1,46 +1,48 @@
+import { IconLive } from '@posthog/icons'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { userLogic } from '../../../scenes/userLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
-    IconCheckmark,
-    IconOffline,
-    IconLogout,
-    IconUpdate,
-    IconExclamation,
-    IconBill,
     IconArrowDropDown,
-    IconSettings,
+    IconBill,
+    IconCheckmark,
     IconCorporate,
+    IconExclamation,
+    IconFlare,
+    IconLogout,
+    IconOffline,
     IconPlus,
     IconRedeem,
-    IconFlare,
+    IconSettings,
+    IconUpdate,
 } from 'lib/lemon-ui/icons'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from '../../../scenes/urls'
-import { navigationLogic } from '../navigationLogic'
-import { OrganizationBasicType } from '../../../types'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconLive } from '@posthog/icons'
-import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
+
+import { organizationLogic } from '../../../scenes/organizationLogic'
+import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { urls } from '../../../scenes/urls'
+import { userLogic } from '../../../scenes/userLogic'
+import { OrganizationBasicType } from '../../../types'
+import { navigationLogic } from '../navigationLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (

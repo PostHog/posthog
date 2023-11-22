@@ -1,12 +1,12 @@
 import { Meta } from '@storybook/react'
-
-import { CommandBar } from './CommandBar'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { useActions } from 'kea'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { CommandBar } from './CommandBar'
 
 const SEARCH_RESULT = {
     results: [

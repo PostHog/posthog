@@ -1,11 +1,11 @@
+import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { kea, useActions, useValues, path, actions, reducers } from 'kea'
-import { urls } from 'scenes/urls'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import type { dataWarehouseTabsLogicType } from './DataWarehousePageTabsType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum DataWarehouseTab {
     Posthog = 'posthog',

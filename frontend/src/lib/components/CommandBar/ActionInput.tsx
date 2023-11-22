@@ -1,12 +1,12 @@
-import React from 'react'
-import { useActions, useValues } from 'kea'
-
 import { LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { IconChevronRight, IconEdit } from 'lib/lemon-ui/icons'
+import React from 'react'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { actionBarLogic } from './actionBarLogic'
-import { IconChevronRight, IconEdit } from 'lib/lemon-ui/icons'
-import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
 
 type PrefixIconProps = {
     activeFlow: CommandFlow | null

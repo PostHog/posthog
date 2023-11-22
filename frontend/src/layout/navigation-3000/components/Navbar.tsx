@@ -1,22 +1,24 @@
+import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconGear, IconDay, IconNight, IconAsterisk, IconSearch } from '@posthog/icons'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { navigation3000Logic } from '../navigationLogic'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
-import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { useRef } from 'react'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function ThemeIcon(): JSX.Element {
     const { isDarkModeOn, isThemeSyncedWithSystem } = useValues(themeLogic)

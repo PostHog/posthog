@@ -1,47 +1,49 @@
-import { ReactElement } from 'react'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import {
-    Breadcrumb,
-    Experiment,
-    ExperimentResults,
-    FilterType,
-    FunnelVizType,
-    InsightType,
-    MultivariateFlagVariant,
-    TrendResult,
-    FunnelStep,
-    SecondaryExperimentMetric,
-    SignificanceCode,
-    CountPerActorMathType,
-    ActionFilter as ActionFilterType,
-    TrendExperimentVariant,
-    PropertyMathType,
-} from '~/types'
-import type { experimentLogicType } from './experimentLogicType'
-import { router, urlToAction } from 'kea-router'
-import { experimentsLogic } from './experimentsLogic'
-import { FunnelLayout } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { toParams } from 'lib/utils'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode } from '~/queries/schema'
-import { groupsModel } from '~/models/groupsModel'
-import { Scene } from 'scenes/sceneTypes'
+import {
+    ActionFilter as ActionFilterType,
+    Breadcrumb,
+    CountPerActorMathType,
+    Experiment,
+    ExperimentResults,
+    FilterType,
+    FunnelStep,
+    FunnelVizType,
+    InsightType,
+    MultivariateFlagVariant,
+    PropertyMathType,
+    SecondaryExperimentMetric,
+    SignificanceCode,
+    TrendExperimentVariant,
+    TrendResult,
+} from '~/types'
+
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
+import type { experimentLogicType } from './experimentLogicType'
+import { experimentsLogic } from './experimentsLogic'
 
 export const DEFAULT_DURATION = 14 // days
 

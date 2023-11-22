@@ -1,13 +1,15 @@
-import { useEffect } from 'react'
 import { Meta, StoryObj } from '@storybook/react'
-import funnelOneStep from './funnelOneStep.json'
-import { useStorybookMocks } from '~/mocks/browser'
 import { router } from 'kea-router'
-import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
-import { InsightShortId } from '~/types'
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+
+import { useStorybookMocks } from '~/mocks/browser'
+import { InsightShortId } from '~/types'
+
+import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

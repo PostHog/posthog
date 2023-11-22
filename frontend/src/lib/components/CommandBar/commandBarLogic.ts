@@ -1,7 +1,7 @@
-import { kea, path, actions, reducers, afterMount, beforeUnmount } from 'kea'
-import { BarStatus } from './types'
+import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
 import type { commandBarLogicType } from './commandBarLogicType'
+import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),

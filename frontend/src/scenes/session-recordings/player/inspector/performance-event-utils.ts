@@ -1,5 +1,6 @@
 import { eventWithTime } from '@rrweb/types'
 import { CapturedNetworkRequest } from 'posthog-js'
+
 import { PerformanceEvent } from '~/types'
 
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'

@@ -1,12 +1,14 @@
-import { kea, path, connect, selectors, afterMount } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { GroupType, GroupTypeIndex } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import type { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { loaders } from 'kea-loaders'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { GroupType, GroupTypeIndex } from '~/types'
+
+import type { groupsModelType } from './groupsModelType'
 
 export interface Noun {
     singular: string

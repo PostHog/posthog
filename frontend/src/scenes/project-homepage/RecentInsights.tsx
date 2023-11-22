@@ -1,16 +1,17 @@
-import { useEffect } from 'react'
 import './ProjectHomepage.scss'
-import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 
+import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
+import { dayjs } from 'lib/dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useEffect } from 'react'
+import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
+
 import { InsightModel } from '~/types'
 
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
-import { projectHomepageLogic } from './projectHomepageLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
+import { projectHomepageLogic } from './projectHomepageLogic'
 
 interface InsightRowProps {
     insight: InsightModel

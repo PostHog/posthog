@@ -1,17 +1,19 @@
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
-import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
-import { DataWarehouseSavedQueriesContainer } from './DataWarehouseSavedQueriesContainer'
-import { useValues } from 'kea'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { router } from 'kea-router'
-import { ProductKey } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { Error404 } from '~/layout/Error404'
+import { ProductKey } from '~/types'
+
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { DataWarehouseSavedQueriesContainer } from './DataWarehouseSavedQueriesContainer'
+import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSavedQueriesScene,

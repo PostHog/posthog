@@ -1,13 +1,12 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { isMac } from 'lib/utils'
+import { forwardRef, Ref } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { searchBarLogic } from './searchBarLogic'
-import { forwardRef, Ref } from 'react'
-
-import { teamLogic } from 'scenes/teamLogic'
-import { isMac } from 'lib/utils'
 
 export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInputElement>): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

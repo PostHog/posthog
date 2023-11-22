@@ -1,6 +1,7 @@
-import { Mark, getMarkRange, mergeAttributes } from '@tiptap/core'
-import { linkPasteRule } from '../Nodes/utils'
+import { getMarkRange, Mark, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+
+import { linkPasteRule } from '../Nodes/utils'
 
 export const NotebookMarkLink = Mark.create({
     name: 'link',

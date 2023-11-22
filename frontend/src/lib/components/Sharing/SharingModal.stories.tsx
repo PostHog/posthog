@@ -1,10 +1,12 @@
-import { useState } from 'react'
 import { Meta } from '@storybook/react'
-import { SharingModal, SharingModalProps } from './SharingModal'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+
+import { SharingModal, SharingModalProps } from './SharingModal'
 
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
