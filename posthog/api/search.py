@@ -92,7 +92,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),  # type: ignore
-                extra_fields=entity_meta.get("extra_fields"),
+                extra_fields=entity_meta.get("extra_fields"),  # type: ignore
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
