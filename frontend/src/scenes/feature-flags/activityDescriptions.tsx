@@ -6,13 +6,14 @@ import {
     detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name

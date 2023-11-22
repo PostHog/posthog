@@ -1,9 +1,11 @@
 import { Card } from 'antd'
 import { useValues } from 'kea'
+
+import { AppMetricsTab } from '~/types'
+
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { historicalExportLogic, HistoricalExportLogicProps } from './historicalExportLogic'
 import { ErrorsOverview, MetricsOverview } from './MetricsTab'
-import { AppMetricsTab } from '~/types'
 
 export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element {
     const { data, dataLoading } = useValues(historicalExportLogic(props))

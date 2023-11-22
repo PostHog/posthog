@@ -1,15 +1,15 @@
-import { expectLogic } from 'kea-test-utils'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
 
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
-import { urls } from 'scenes/urls'
-import { useMocks } from '~/mocks/jest'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 jest.mock('scenes/trends/persons-modal/PersonsModal')
 

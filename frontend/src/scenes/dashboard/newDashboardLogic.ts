@@ -1,15 +1,17 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import type { newDashboardLogicType } from './newDashboardLogicType'
-import { DashboardRestrictionLevel } from 'lib/constants'
-import { DashboardTemplateType, DashboardType, DashboardTemplateVariableType, DashboardTile, JsonType } from '~/types'
-import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
+import { router } from 'kea-router'
+import api from 'lib/api'
+import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
+
+import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
     name: string

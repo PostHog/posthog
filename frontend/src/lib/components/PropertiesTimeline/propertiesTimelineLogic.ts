@@ -1,14 +1,15 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
-import { toParams, uuid } from 'lib/utils'
-import { ActorType, PropertiesTimelineFilterType } from '~/types'
-import { kea, key, props, path, connect, afterMount, selectors, reducers, actions } from 'kea'
+import { captureException } from '@sentry/react'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
+import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
+import { toParams, uuid } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ActorType, PropertiesTimelineFilterType } from '~/types'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
-import { captureException } from '@sentry/react'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs

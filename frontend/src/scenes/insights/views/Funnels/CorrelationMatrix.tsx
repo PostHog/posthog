@@ -1,13 +1,9 @@
-import { Button, Modal } from 'antd'
 import './CorrelationMatrix.scss'
+
+import { Button, Modal } from 'antd'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import {
     IconCancel,
     IconCheckCircleOutline,
@@ -16,11 +12,17 @@ import {
     IconTrendingFlatDown,
 } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import clsx from 'clsx'
-import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

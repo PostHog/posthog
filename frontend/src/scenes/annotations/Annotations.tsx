@@ -1,26 +1,28 @@
-import { useValues, useActions } from 'kea'
+import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { IconEdit } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { shortTimeZone } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
+
+import { AnnotationModal } from './AnnotationModal'
 import {
+    ANNOTATION_DAYJS_FORMAT,
+    annotationModalLogic,
     annotationScopeToLevel,
     annotationScopeToName,
-    annotationModalLogic,
-    ANNOTATION_DAYJS_FORMAT,
 } from './annotationModalLogic'
-import { AnnotationScope, InsightShortId, AnnotationType, ProductKey } from '~/types'
-import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconEdit } from 'lib/lemon-ui/icons'
-import { Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { teamLogic } from 'scenes/teamLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { AnnotationModal } from './AnnotationModal'
-import { shortTimeZone } from 'lib/utils'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

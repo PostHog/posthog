@@ -1,7 +1,7 @@
-import { kea, path, actions, reducers, afterMount, beforeUnmount } from 'kea'
-import { BarStatus } from './types'
+import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
 import type { commandBarLogicType } from './commandBarLogicType'
+import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
@@ -10,6 +10,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
         hideCommandBar: true,
         toggleSearchBar: true,
         toggleActionsBar: true,
+        toggleShortcutOverview: true,
     }),
     reducers({
         barStatus: [
@@ -18,9 +19,15 @@ export const commandBarLogic = kea<commandBarLogicType>([
                 setCommandBar: (_, { status }) => status,
                 hideCommandBar: () => BarStatus.HIDDEN,
                 toggleSearchBar: (previousState) =>
-                    previousState === BarStatus.HIDDEN ? BarStatus.SHOW_SEARCH : BarStatus.HIDDEN,
+                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
+                        ? BarStatus.SHOW_SEARCH
+                        : BarStatus.HIDDEN,
                 toggleActionsBar: (previousState) =>
-                    previousState === BarStatus.HIDDEN ? BarStatus.SHOW_ACTIONS : BarStatus.HIDDEN,
+                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
+                        ? BarStatus.SHOW_ACTIONS
+                        : BarStatus.HIDDEN,
+                toggleShortcutOverview: (previousState) =>
+                    previousState === BarStatus.HIDDEN ? BarStatus.SHOW_SHORTCUTS : previousState,
             },
         ],
     }),
@@ -36,6 +43,8 @@ export const commandBarLogic = kea<commandBarLogicType>([
                     // cmd+k opens search
                     actions.toggleSearchBar()
                 }
+            } else if (event.shiftKey && event.key === '?') {
+                actions.toggleShortcutOverview()
             }
         }
         window.addEventListener('keydown', cache.onKeyDown)

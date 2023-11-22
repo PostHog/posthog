@@ -1,4 +1,5 @@
 import { FeatureFlagType } from '~/types'
+
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 
 export function FeatureFlagCodeExample({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {

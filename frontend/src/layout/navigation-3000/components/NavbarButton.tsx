@@ -1,17 +1,20 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import React, { FunctionComponent, ReactElement, useState } from 'react'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/navigation/SideBar/SidebarChangeNotice'
-import { navigation3000Logic } from '../navigationLogic'
-import { LemonTag } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import React, { FunctionComponent, ReactElement, useState } from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
+
+import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/navigation/SideBar/SidebarChangeNotice'
+
+import { navigation3000Logic } from '../navigationLogic'
 
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
+    sideIcon?: ReactElement
     title?: string
     shortTitle?: string
     tag?: 'alpha' | 'beta'

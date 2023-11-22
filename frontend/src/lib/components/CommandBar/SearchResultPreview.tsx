@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
+import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
-
-import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 
 export const SearchResultPreview = (): JSX.Element | null => {
     const { activeResultIndex, filterSearchResults } = useValues(searchBarLogic)

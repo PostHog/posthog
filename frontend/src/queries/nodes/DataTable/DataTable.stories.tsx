@@ -1,9 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { Query } from '~/queries/Query/Query'
-import { examples } from './DataTable.examples'
+
 import { mswDecorator } from '~/mocks/browser'
+import { Query } from '~/queries/Query/Query'
+
 import events from '../DataNode/__mocks__/EventsNode.json'
 import persons from '../DataNode/__mocks__/PersonsNode.json'
+import { examples } from './DataTable.examples'
 
 type Story = StoryObj<typeof Query>
 const meta: Meta<typeof Query> = {

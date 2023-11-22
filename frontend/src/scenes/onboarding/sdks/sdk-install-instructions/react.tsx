@@ -1,6 +1,7 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {

@@ -1,2 +1,2 @@
-export { LemonCard } from './LemonCard'
 export type { LemonCardProps } from './LemonCard'
+export { LemonCard } from './LemonCard'
