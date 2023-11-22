@@ -122,7 +122,7 @@
 
         &--active {
             height: 8rem;
-            border-color: var(--primary);
+            border-color: var(--primary-3000);
 
             .NotebookPanelDropzone__message {
                 opacity: 1;
@@ -135,7 +135,7 @@
             height: 100%;
             padding: 1rem;
             background-color: var(--bg-light);
-            border-color: var(--primary);
+            border-color: var(--primary-3000);
         }
     }
 }

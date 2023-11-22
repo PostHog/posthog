@@ -1,6 +1,5 @@
 import './Definition.scss'
 import clsx from 'clsx'
-import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -28,6 +27,7 @@ import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { TZLabel } from '@posthog/apps-common'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -192,7 +192,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                     />
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     <DefinitionPopover.Grid cols={2}>
                         {isEvent && (
                             <>
@@ -214,11 +214,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             />
                         )}
                     </DefinitionPopover.Grid>
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     {isEvent && definition.id !== 'new' && (
                         <>
                             <EventDefinitionProperties definition={definition} />
-                            <Divider />
+                            <LemonDivider className="my-6" />
                             <div className="definition-matching-events">
                                 <span className="definition-matching-events-header">Matching events</span>
                                 <p className="definition-matching-events-subtext">

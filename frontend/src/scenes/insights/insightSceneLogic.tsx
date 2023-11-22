@@ -85,14 +85,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [s.insight],
-            (insight): Breadcrumb[] => [
+            (s) => [s.insight, s.insightLogicRef],
+            (insight, insightLogicRef): Breadcrumb[] => [
                 {
-                    name: 'Insights',
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
                     path: urls.savedInsights(),
                 },
                 {
+                    key: insight?.short_id || 'new',
                     name: insight?.name || insight?.derived_name || 'Unnamed',
+                    onRename: async (name: string) => {
+                        await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                    },
                 },
             ],
         ],

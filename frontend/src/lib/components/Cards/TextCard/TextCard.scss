@@ -2,10 +2,8 @@
     background: var(--bg-light);
 }
 
-.TextCard-Body {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+.TextCard__body {
+    flex: 1;
     overflow-y: auto;
 
     ul {

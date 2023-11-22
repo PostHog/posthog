@@ -85,7 +85,7 @@ export const ProductIntroduction = ({
                         {action ? (
                             <LemonButton
                                 type="primary"
-                                sideIcon={<IconPlus />}
+                                icon={<IconPlus />}
                                 onClick={() => {
                                     updateHasSeenProductIntroFor(productKey, true)
                                     action && action()

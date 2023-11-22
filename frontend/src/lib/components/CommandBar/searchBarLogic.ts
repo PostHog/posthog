@@ -25,17 +25,23 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setIsAutoScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         searchResponse: [
             null as SearchResponse | null,
             {
-                setSearchQuery: async ({ query }, breakpoint) => {
+                loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(300)
-                    return await api.get(`api/projects/@current/search?q=${query}`)
+                    if (values.activeTab === 'all') {
+                        return await api.get(`api/projects/@current/search?q=${values.searchQuery}`)
+                    } else {
+                        return await api.get(
+                            `api/projects/@current/search?q=${values.searchQuery}&entities=${values.activeTab}`
+                        )
+                    }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         keyboardResultIndex: [
@@ -84,14 +90,19 @@ export const searchBarLogic = kea<searchBarLogicType>([
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
             (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex || keyboardResultIndex,
         ],
+        tabs: [
+            (s) => [s.searchCounts],
+            (counts): ResultTypeWithAll[] => ['all', ...(Object.keys(counts || {}) as ResultTypeWithAll[])],
+        ],
     }),
     listeners(({ values, actions }) => ({
         openResult: ({ index }) => {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const result = values.searchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
+        setSearchQuery: actions.loadSearchResponse,
+        setActiveTab: actions.loadSearchResponse,
     })),
     afterMount(({ actions, values, cache }) => {
         // load initial results
@@ -111,14 +122,30 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 // hide command bar
                 actions.hideCommandBar()
             } else if (event.key === '>') {
-                if (values.searchQuery.length === 0) {
-                    // transition to actions when entering '>' with empty input
+                const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
+                if (
+                    values.searchQuery.length === 0 ||
+                    (selectionStart !== null &&
+                        selectionEnd !== null &&
+                        (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
+                ) {
+                    // transition to actions when entering '>' with empty input, or when replacing the whole input
                     event.preventDefault()
                     actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                }
+            } else if (event.key === 'Tab') {
+                event.preventDefault()
+                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                if (event.shiftKey) {
+                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                    actions.setActiveTab(values.tabs[prevIndex])
+                } else {
+                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                    actions.setActiveTab(values.tabs[nextIndex])
                 }
             }
         }
@@ -144,6 +171,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.featureFlag(result.result_id)
         case 'insight':
             return urls.insightView(result.result_id as InsightShortId)
+        case 'notebook':
+            return urls.notebook(result.result_id)
         default:
             throw new Error(`No action for type '${result.type}' defined.`)
     }

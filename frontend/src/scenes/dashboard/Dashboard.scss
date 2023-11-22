@@ -37,3 +37,11 @@
         }
     }
 }
+
+.DashboardTemplates__option {
+    border: 1px solid var(--border);
+
+    &:hover {
+        border-color: var(--primary-3000-hover);
+    }
+}

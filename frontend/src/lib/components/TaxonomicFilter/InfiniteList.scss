@@ -48,7 +48,7 @@
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--primary);
+                        color: var(--primary-3000);
                     }
                 }
             }
@@ -68,6 +68,10 @@
         &.hover {
             background-color: var(--primary-bg-hover);
             border-radius: var(--radius);
+
+            .posthog-3000 & {
+                background-color: var(--bg-3000);
+            }
         }
 
         &.selected {
@@ -82,7 +86,7 @@
         }
 
         &.expand-row {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 }

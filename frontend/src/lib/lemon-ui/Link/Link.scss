@@ -6,15 +6,15 @@
     background: none;
     border: none;
     outline: none;
-    transition: color 200ms ease, opacity 200ms ease;
+    transition: none;
 
     &:not(:disabled) {
         &:hover {
-            color: var(--primary-light);
+            color: var(--primary-3000-hover);
         }
 
         &:active {
-            color: var(--primary-dark);
+            color: var(--primary-3000-active);
         }
     }
 

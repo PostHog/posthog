@@ -33,7 +33,7 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
                 >
                     <div className="text-default flex flex-col text-sm py-1">
                         <strong>{listedInsightTypeMetadata.name}</strong>
-                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
+                        <span className="text-xs font-sans">{listedInsightTypeMetadata.description}</span>
                     </div>
                 </LemonButton>
             )

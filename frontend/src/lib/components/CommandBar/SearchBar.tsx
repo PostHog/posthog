@@ -1,21 +1,22 @@
 import { useMountedLogic } from 'kea'
+import { useRef } from 'react'
 
 import { searchBarLogic } from './searchBarLogic'
 
-import SearchInput from './SearchInput'
-import SearchResults from './SearchResults'
-import SearchTabs from './SearchTabs'
+import { SearchInput } from './SearchInput'
+import { SearchResults } from './SearchResults'
+import { SearchTabs } from './SearchTabs'
 
-const SearchBar = (): JSX.Element => {
+export const SearchBar = (): JSX.Element => {
     useMountedLogic(searchBarLogic) // load initial results
+
+    const inputRef = useRef<HTMLInputElement>(null)
 
     return (
         <div className="flex flex-col h-full">
-            <SearchInput />
+            <SearchInput ref={inputRef} />
             <SearchResults />
-            <SearchTabs />
+            <SearchTabs inputRef={inputRef} />
         </div>
     )
 }
-
-export default SearchBar

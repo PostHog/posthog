@@ -11,8 +11,6 @@
     custom naming conventions 🙌
 */
 
-/* stylelint-disable order/order */
-
 // TODO: Support the screen breakpoint versions like md:foo
 // The problem is CSS file size, which could be solved by using Tailwind directly.
 // See the Grid section, which has breakpoint support, to add it for something in this file.
@@ -757,11 +755,6 @@ $decorations: underline, overline, line-through, no-underline;
     $prefix: if($name == 'base', '', $name + '\\:');
 
     @include screen($size) {
-        @for $i from 1 through 12 {
-            .#{$prefix}grid-cols-#{$i} {
-                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
-            }
-        }
         .#{$prefix}grid-cols-none {
             grid-template-columns: none;
         }
@@ -770,29 +763,11 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}col-auto {
             grid-column: auto;
         }
-
-        @for $i from 1 through 12 {
-            .#{$prefix}col-span-#{$i} {
-                grid-column: span #{$i} / span #{$i};
-            }
-        }
         .#{$prefix}col-span-full {
             grid-column: 1 / -1;
         }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-start-#{$i} {
-                grid-column-start: #{$i};
-            }
-        }
         .#{$prefix}col-start-auto {
             grid-column-start: auto;
-        }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-end-#{$i} {
-                grid-column-end: #{$i};
-            }
         }
         .#{$prefix}col-end-auto {
             grid-column-end: auto;
@@ -802,14 +777,53 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}row-auto {
             grid-row: auto;
         }
+        .#{$prefix}row-span-full {
+            grid-row: 1 / -1;
+        }
+        .#{$prefix}row-start-auto {
+            grid-row-start: auto;
+        }
+        .#{$prefix}row-end-auto {
+            grid-row-end: auto;
+        }
+        .#{$prefix}gap-px {
+            gap: 1px;
+        }
+        .#{$prefix}gap-x-px {
+            column-gap: 1px;
+        }
+        .#{$prefix}gap-y-px {
+            row-gap: 1px;
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}grid-cols-#{$i} {
+                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
+            }
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}col-span-#{$i} {
+                grid-column: span #{$i} / span #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-start-#{$i} {
+                grid-column-start: #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-end-#{$i} {
+                grid-column-end: #{$i};
+            }
+        }
 
         @for $i from 1 through 6 {
             .#{$prefix}row-span-#{$i} {
                 grid-row: span #{$i} / span #{$i};
             }
-        }
-        .#{$prefix}row-span-full {
-            grid-row: 1 / -1;
         }
 
         @for $i from 1 through 7 {
@@ -817,17 +831,11 @@ $decorations: underline, overline, line-through, no-underline;
                 grid-row-start: #{$i};
             }
         }
-        .#{$prefix}row-start-auto {
-            grid-row-start: auto;
-        }
 
         @for $i from 1 through 7 {
             .#{$prefix}row-end-#{$i} {
                 grid-row-end: #{$i};
             }
-        }
-        .#{$prefix}row-end-auto {
-            grid-row-end: auto;
         }
 
         // Gap
@@ -841,15 +849,6 @@ $decorations: underline, overline, line-through, no-underline;
             .#{$prefix}gap-y-#{escape-number($space)} {
                 row-gap: #{$space * 0.25}rem;
             }
-        }
-        .#{$prefix}gap-px {
-            gap: 1px;
-        }
-        .#{$prefix}gap-x-px {
-            column-gap: 1px;
-        }
-        .#{$prefix}gap-y-px {
-            row-gap: 1px;
         }
     }
 }
@@ -1352,10 +1351,10 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .line-clamp-2 {
-    -webkit-box-orient: vertical;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
     overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 .transition-all {

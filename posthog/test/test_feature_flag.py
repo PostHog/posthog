@@ -3458,6 +3458,80 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
+    def test_cohort_filters_with_override_id_property(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(4):
+            # no local computation because cohort lookup is required
+            # no postgres person query required here to get the person, because email is sufficient
+            # property id override shouldn't confuse the matcher
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"id": "example_id", "email": "bzz"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(4):
+            # no postgres query required here to get the person
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"id": "second_id", "email": "neil@posthog.com"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # postgres query required here to get the person
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"id": "second_id"},
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
     @pytest.mark.skip("This case is not supported yet")
     def test_complex_cohort_filter_with_override_properties(self):
         # TODO: Currently we don't support this case for persons who haven't been ingested yet

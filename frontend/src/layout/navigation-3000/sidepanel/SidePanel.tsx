@@ -98,6 +98,8 @@ export function SidePanel(): JSX.Element | null {
                                 }
                                 data-attr={`sidepanel-tab-${tab}`}
                                 active={activeTab === tab}
+                                type="secondary"
+                                stealth={true}
                             >
                                 {label}
                             </LemonButton>

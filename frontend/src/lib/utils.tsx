@@ -1,54 +1,27 @@
 import { CSSProperties } from 'react'
-import api from './api'
 import {
-    ActionFilter,
     ActionType,
     ActorType,
-    AnyCohortCriteriaType,
-    AnyFilterLike,
-    AnyFilterType,
-    AnyPropertyFilter,
-    BehavioralCohortType,
-    BehavioralEventType,
-    ChartDisplayType,
-    CohortCriteriaGroupFilter,
-    CohortType,
     DateMappingOption,
-    EmptyPropertyFilter,
     EventType,
-    FilterLogicalOperator,
-    FunnelVizType,
     GroupActorType,
-    InsightType,
-    IntervalType,
-    PropertyFilterValue,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
-    TrendsFilterType,
 } from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/taxonomy'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-import {
-    isHogQLPropertyFilter,
-    isPropertyFilterWithOperator,
-    isValidPropertyFilter,
-} from './components/PropertyFilters/utils'
-import { IconCopy } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { urls } from 'scenes/urls'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
-import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+
+/**
+ * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+ * Preferably create a dedicated file in utils/..
+ */
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -180,38 +153,6 @@ export function percentage(
         maximumFractionDigits,
         minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
     })
-}
-
-export async function deleteWithUndo<T extends Record<string, any>>({
-    undo = false,
-    ...props
-}: {
-    undo?: boolean
-    endpoint: string
-    object: T
-    idField?: keyof T
-    callback?: (undo: boolean, object: T) => void
-}): Promise<void> {
-    await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-        ...props.object,
-        deleted: !undo,
-    })
-    props.callback?.(undo, props.object)
-    lemonToast[undo ? 'success' : 'info'](
-        <>
-            <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
-            {undo ? 'restored' : 'deleted'}
-        </>,
-        {
-            toastId: `delete-item-${props.object.id}-${undo}`,
-            button: undo
-                ? undefined
-                : {
-                      label: 'Undo',
-                      action: () => deleteWithUndo({ undo: true, ...props }),
-                  },
-        }
-    )
 }
 
 export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Partial<CSSProperties>> = {
@@ -363,50 +304,6 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
         operator
     )
-}
-
-export function formatPropertyLabel(
-    item: Record<string, any>,
-    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    keyMapping: KeyMappingInterface,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
-): string {
-    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
-        return extractExpressionComment(item.key)
-    }
-    const { value, key, operator, type } = item
-    return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
-        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
-              (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
-}
-
-/** Format a label that gets returned from the /insights api */
-export function formatLabel(label: string, action: ActionFilter): string {
-    if (action.math === 'dau') {
-        label += ` (Unique users) `
-    } else if (action.math === 'hogql') {
-        label += ` (${action.math_hogql})`
-    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
-        label += ` (${action.math} of ${action.math_property}) `
-    }
-    if (action.properties?.length) {
-        label += ` (${action.properties
-            .map(
-                (property) =>
-                    `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[
-                            (isPropertyFilterWithOperator(property) && property.operator) || 'exact'
-                        ].split(' ')[0]
-                    } ${property.value}`
-            )
-            .join(', ')})`
-    }
-    return label.trim()
 }
 
 /** Compare objects deeply. */
@@ -1068,38 +965,6 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
-export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
-    if (!navigator.clipboard) {
-        lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
-        return false
-    }
-
-    try {
-        await navigator.clipboard.writeText(value)
-        lemonToast.info(`Copied ${description} to clipboard`, {
-            icon: <IconCopy />,
-        })
-        return true
-    } catch (e) {
-        // If the Clipboard API fails, fallback to textarea method
-        try {
-            const textArea = document.createElement('textarea')
-            textArea.value = value
-            document.body.appendChild(textArea)
-            textArea.select()
-            document.execCommand('copy')
-            document.body.removeChild(textArea)
-            lemonToast.info(`Copied ${description} to clipboard`, {
-                icon: <IconCopy />,
-            })
-            return true
-        } catch (err) {
-            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
-            return false
-        }
-    }
-}
-
 export function clamp(value: number, min: number, max: number): number {
     return value > max ? max : value < min ? min : value
 }
@@ -1258,46 +1123,6 @@ export function midEllipsis(input: string, maxLength: number): string {
     return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
 }
 
-export const disableHourFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': false,
-    '-14d': false,
-    '-30d': false,
-    '-90d': true,
-    mStart: false,
-    '-1mStart': false,
-    yStart: true,
-    all: true,
-    other: false,
-}
-
-export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
-    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
-        // Non-time-series insights should not have an interval
-        return undefined
-    }
-    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
-        // Only trend funnels support intervals
-        return undefined
-    }
-    if (!filters.interval) {
-        return 'day'
-    }
-
-    // @ts-expect-error - Old legacy interval support
-    const minute_disabled = filters.interval === 'minute'
-    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
-
-    if (minute_disabled) {
-        return 'hour'
-    } else if (hour_disabled) {
-        return 'day'
-    } else {
-        return filters.interval
-    }
-}
-
 export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
@@ -1385,7 +1210,7 @@ export function humanTzOffset(timezone?: string): string {
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
 export function humanList(arr: readonly string[]): string {
-    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.at(-1) : arr.join(' and ')
 }
 
 export function resolveWebhookService(webhookUrl: string): string {
@@ -1426,6 +1251,11 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToRGBA(rgb: string, a: number): string {
+    const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()
@@ -1447,7 +1277,7 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-export function toString(input?: any | null): string {
+export function toString(input?: any): string {
     return input?.toString() || ''
 }
 
@@ -1542,64 +1372,6 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
-}
-
-export function isPropertyGroup(
-    properties:
-        | PropertyGroupFilter
-        | PropertyGroupFilterValue
-        | AnyPropertyFilter[]
-        | AnyPropertyFilter
-        | Record<string, any>
-        | null
-        | undefined
-): properties is PropertyGroupFilter {
-    return (
-        (properties as PropertyGroupFilter)?.type !== undefined &&
-        (properties as PropertyGroupFilter)?.values !== undefined
-    )
-}
-
-export function flattenPropertyGroup(
-    flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
-): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
-    Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k]
-    })
-    if (isValidPropertyFilter(obj)) {
-        flattenedProperties.push(obj)
-    }
-    if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
-    }
-    return flattenedProperties
-}
-
-export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
-): PropertyGroupFilter {
-    if (isPropertyGroup(properties)) {
-        return properties
-    }
-    if (properties && properties.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
-    }
-    return { type: FilterLogicalOperator.And, values: [] }
-}
-
-/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
-export function convertPropertyGroupToProperties(
-    properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): AnyPropertyFilter[] | undefined {
-    if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
-    }
-    if (properties) {
-        return properties.filter(isValidPropertyFilter)
-    }
-    return properties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
@@ -1711,41 +1483,6 @@ export function range(startOrEnd: number, end?: number): number[] {
     return Array.from({ length }, (_, i) => i + start)
 }
 
-export function processCohort(cohort: CohortType): CohortType {
-    return {
-        ...cohort,
-        ...{
-            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-            filters: {
-                properties: {
-                    ...cohort.filters.properties,
-                    values: (cohort.filters.properties?.values?.map((group) =>
-                        'values' in group
-                            ? {
-                                  ...group,
-                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      c.type &&
-                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                                      !('value_property' in c)
-                                          ? {
-                                                ...c,
-                                                value_property: c.value,
-                                                value:
-                                                    c.type === BehavioralFilterKey.Cohort
-                                                        ? BehavioralCohortType.InCohort
-                                                        : BehavioralEventType.HaveProperty,
-                                            }
-                                          : c
-                                  ),
-                              }
-                            : group
-                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                },
-            },
-        },
-    }
-}
-
 export function interleave(arr: any[], delimiter: any): any[] {
     return arr.flatMap((item, index, _arr) =>
         _arr.length - 1 !== index // check for the last item
@@ -1771,51 +1508,6 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
-}
-
-export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
-    if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
-        }
-    } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
-        }
-    }
-
-    return insightParams ? urls.insightNew(insightParams) : undefined
 }
 
 export function inStorybookTestRunner(): boolean {

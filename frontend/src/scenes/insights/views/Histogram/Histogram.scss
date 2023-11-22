@@ -61,13 +61,12 @@
          * Bars
          */
         g#bars {
-            fill: var(--funnel-default);
+            fill: var(--primary-3000);
         }
 
         g#labels {
             text.bar-label {
                 font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-
                 // same as chart-js
                 font-size: 12px;
                 font-weight: normal;

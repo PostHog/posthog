@@ -14,14 +14,21 @@
     background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, opacity 200ms ease;
 
     &:hover:not([aria-disabled='true']) {
-        border-color: var(--primary-light);
+        border-color: var(--primary-3000-hover);
+
+        .posthog-3000 & {
+            border-color: var(--border-bold);
+        }
     }
 
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
+
+        .posthog-3000 & {
+            border-color: var(--border-bold);
+        }
     }
 
     &.LemonInput--transparent-background {
@@ -67,7 +74,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 

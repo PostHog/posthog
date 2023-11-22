@@ -1,7 +1,7 @@
 import { kea, path, actions, connect, afterMount, selectors, listeners, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { BillingProductV2Type, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
 import { router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
@@ -12,8 +12,8 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
-import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -25,6 +25,8 @@ export interface BillingAlertConfig {
     contactSupport?: boolean
     buttonCTA?: string
     dismissKey?: string
+    action?: LemonBannerAction
+    pathName?: string
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -54,6 +56,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
+        setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => ({ productSpecificAlert }),
+        setScrollToProductKey: (scrollToProductKey: ProductKey | null) => ({ scrollToProductKey }),
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
@@ -67,6 +71,18 @@ export const billingLogic = kea<billingLogicType>([
         actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
     }),
     reducers({
+        scrollToProductKey: [
+            null as ProductKey | null,
+            {
+                setScrollToProductKey: (_, { scrollToProductKey }) => scrollToProductKey,
+            },
+        ],
+        productSpecificAlert: [
+            null as BillingAlertConfig | null,
+            {
+                setProductSpecificAlert: (_, { productSpecificAlert }) => productSpecificAlert,
+            },
+        ],
         showLicenseDirectInput: [
             false,
             {
@@ -77,9 +93,7 @@ export const billingLogic = kea<billingLogicType>([
             '' as string,
             {
                 setRedirectPath: () => {
-                    return window.location.pathname.includes('/ingestion')
-                        ? urls.ingestion() + '/billing'
-                        : window.location.pathname.includes('/onboarding')
+                    return window.location.pathname.includes('/onboarding')
                         ? window.location.pathname + window.location.search
                         : ''
                 },
@@ -88,7 +102,7 @@ export const billingLogic = kea<billingLogicType>([
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
+                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
     }),
@@ -147,8 +161,12 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         billingAlert: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
-            (billing, preflight, projectedTotalAmountUsd): BillingAlertConfig | undefined => {
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd, s.productSpecificAlert],
+            (billing, preflight, projectedTotalAmountUsd, productSpecificAlert): BillingAlertConfig | undefined => {
+                if (productSpecificAlert) {
+                    return productSpecificAlert
+                }
+
                 if (!billing || !preflight?.cloud) {
                     return
                 }
@@ -322,6 +340,10 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            }
+            if (_search.products) {
+                const products = _search.products.split(',')
+                actions.setScrollToProductKey(products[0])
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()

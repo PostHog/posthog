@@ -61,19 +61,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
 
     return (
         <>
-            {series && (
-                <div
-                    className={
-                        display !== ChartDisplayType.ActionsTable &&
-                        display !== ChartDisplayType.WorldMap &&
-                        display !== ChartDisplayType.BoldNumber
-                            ? 'trends-insights-container'
-                            : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
-                    }
-                >
-                    {renderViz()}
-                </div>
-            )}
+            {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
                 loadMoreBreakdownUrl && (

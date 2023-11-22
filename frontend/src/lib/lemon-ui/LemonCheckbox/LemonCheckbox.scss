@@ -21,6 +21,10 @@
         min-height: 1.5rem;
         cursor: pointer;
 
+        .posthog-3000 & {
+            --box-color: var(--primary-3000);
+        }
+
         > .LemonCheckbox__box {
             flex-shrink: 0;
             width: 1rem;
@@ -59,7 +63,7 @@
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {
-            --box-color: var(--primary-light);
+            --box-color: var(--primary-3000-hover);
 
             .LemonCheckbox__box {
                 border-color: var(--box-color);
@@ -68,7 +72,7 @@
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--primary-dark);
+        --box-color: var(--primary-3000-active);
     }
 
     &.LemonCheckbox--checked {

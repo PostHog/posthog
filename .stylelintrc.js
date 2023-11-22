@@ -10,6 +10,7 @@ module.exports = {
                 // CSS Color Module Level 3 says currentColor, Level 4 candidate says currentcolor
                 // Sticking to Level 3 for now
                 camelCaseSvgKeywords: true,
+                ignoreKeywords: ['BlinkMacSystemFont'], // BlinkMacSystemFont MUST have this particular casing
             },
         ],
         // Sadly Safari only started supporting the range syntax of media queries in 2023, so let's switch to that

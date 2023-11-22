@@ -26,7 +26,6 @@
         left: 0;
         width: 100%;
         height: 1px;
-
         // The bottom border
         content: '';
         background: var(--border);
@@ -38,7 +37,6 @@
         left: 0;
         width: var(--lemon-tabs-slider-width);
         height: 0.125rem;
-
         // The active tab slider
         content: '';
         background: var(--link);
@@ -64,7 +62,7 @@
     }
 
     &:active {
-        color: var(--primary-dark);
+        color: var(--primary-3000-active);
     }
 
     &.LemonTabs__tab--active {
@@ -74,7 +72,6 @@
 
     a {
         color: inherit;
-
         // Make tab labels that are links the same colors as regular tab labels
         text-decoration: none;
         transition: none;
@@ -85,5 +82,6 @@
     display: flex;
     align-items: center;
     padding: 0.75rem 0;
+    white-space: nowrap;
     cursor: pointer;
 }

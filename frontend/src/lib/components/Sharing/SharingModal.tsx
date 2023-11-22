@@ -3,7 +3,7 @@ import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
@@ -111,7 +111,7 @@ export function SharingModalContent({
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         size={'small'}
-                                        onClick={async () => await copyToClipboard(shareLink, 'link')}
+                                        onClick={() => void copyToClipboard(shareLink, 'link')}
                                         icon={<IconLink />}
                                     >
                                         Copy public link

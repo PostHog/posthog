@@ -1,19 +1,10 @@
-.insights-table.LemonTable--embedded {
-    border-top: 1px solid var(--border);
-}
-
-.InsightCard .insights-table {
-    min-height: 100%;
-    border-top: none;
-}
-
 .series-name-wrapper-col {
     display: flex;
     align-items: center;
 
     .edit-icon {
         font-size: 1rem;
-        color: var(--primary);
+        color: var(--primary-3000);
         cursor: pointer;
     }
 
@@ -23,7 +14,7 @@
 
             .EntityFilterInfo {
                 font-weight: 500;
-                color: var(--primary);
+                color: var(--primary-3000);
             }
         }
     }

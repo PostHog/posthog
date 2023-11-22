@@ -1,4 +1,4 @@
-import { AppMetricsTab } from './appMetricsSceneLogic'
+import { AppMetricsTab } from '~/types'
 
 interface Description {
     successes: string
@@ -44,6 +44,26 @@ export const DescriptionColumns: Record<string, Description> = {
         failures_tooltip: (
             <>
                 These events had errors when being processed by the <i>onEvent</i> app method.
+            </>
+        ),
+    },
+    [AppMetricsTab.ComposeWebhook]: {
+        successes: 'Events processed',
+        successes_tooltip: (
+            <>
+                These events were successfully processed by the <i>composeWebhook</i> app method on the first try.
+            </>
+        ),
+        successes_on_retry: 'Events processed on retry',
+        successes_on_retry_tooltip: (
+            <>
+                These events were successfully processed by the <i>composeWebhook</i> app method after being retried.
+            </>
+        ),
+        failures: 'Failed events',
+        failures_tooltip: (
+            <>
+                These events had errors when being processed by the <i>composeWebhook</i> app method.
             </>
         ),
     },

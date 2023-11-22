@@ -5,6 +5,8 @@ import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
+import './LemonButtonLegacy.scss'
+import './LemonButton3000.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { PopoverReferenceContext } from '../Popover'
 
@@ -63,6 +65,8 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
+    /** Hides the button chrome until hover. */
+    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -92,6 +96,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -169,6 +174,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
+                        stealth && 'LemonButton--is-stealth',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}
@@ -178,9 +184,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...linkDependentProps}
                     {...buttonProps}
                 >
-                    {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                    {children ? <span className="LemonButton__content">{children}</span> : null}
-                    {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                    <span>
+                        {icon ? <span className="LemonButton__icon">{icon}</span> : null}
+                        {children ? <span className="LemonButton__content">{children}</span> : null}
+                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                    </span>
                 </ButtonComponent>
             )
 

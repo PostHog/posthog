@@ -9,6 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { retentionLogic } from './retentionLogic'
 
 import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -117,7 +118,11 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
         aggregationGroupTypeIndex: [
             (s) => [s.querySource],
             (querySource) => {
-                return querySource?.aggregation_group_type_index ?? 'people'
+                return (
+                    (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? null
+                        : querySource?.aggregation_group_type_index) ?? 'people'
+                )
             },
         ],
     }),

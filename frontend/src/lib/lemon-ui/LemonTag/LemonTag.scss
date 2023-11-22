@@ -10,39 +10,90 @@
     background: var(--border);
     border-radius: var(--radius);
 
+    .posthog-3000 & {
+        padding: 0.075rem 0.25rem;
+        font-size: 0.688rem;
+        background: none;
+        border-style: solid;
+        border-width: 1px;
+        border-radius: calc(var(--radius) * 0.75);
+    }
+
     &.primary {
         color: #fff;
-        background-color: var(--primary);
+        background-color: var(--primary-3000);
+
+        .posthog-3000 & {
+            color: var(--primary-3000);
+            background: none;
+            border-color: var(--primary-3000);
+        }
     }
 
     &.highlight {
         color: var(--bg-charcoal);
         background-color: var(--mark);
+
+        .posthog-3000 & {
+            color: var(--mark);
+            background: none;
+            border-color: var(--mark);
+        }
     }
 
     &.warning {
         color: var(--bg-charcoal);
         background-color: var(--warning);
+
+        .posthog-3000 & {
+            color: var(--warning);
+            background: none;
+            border-color: var(--warning);
+        }
     }
 
     &.danger {
         color: #fff;
         background-color: var(--danger);
+
+        .posthog-3000 & {
+            color: var(--danger);
+            background: none;
+            border-color: var(--danger);
+        }
     }
 
     &.success {
         color: #fff;
         background-color: var(--success);
+
+        .posthog-3000 & {
+            color: var(--success);
+            background: none;
+            border-color: var(--success);
+        }
     }
 
     &.completion {
         color: var(--bg-charcoal);
         background-color: var(--purple-light);
+
+        .posthog-3000 & {
+            color: var(--purple-light);
+            background: none;
+            border-color: var(--purple-light);
+        }
     }
 
     &.caution {
         color: var(--bg-charcoal);
         background-color: var(--danger-lighter);
+
+        .posthog-3000 & {
+            color: var(--danger-lighter);
+            background: none;
+            border-color: var(--danger-lighter);
+        }
     }
 
     &.none {
@@ -61,7 +112,7 @@
     }
 
     .LemonTag__right-button {
-        min-height: 1.5rem;
+        min-height: 1.5rem !important;
         padding: 0.125rem !important;
         margin-left: 0.25rem;
     }

@@ -4,11 +4,9 @@ $label_position_offset: 8px;
 $series_container_width: 1.5rem;
 $glyph_height: 23px; // Based on .funnel-step-glyph
 
-.funnel-bar-graph {
+.FunnelBarGraph {
     min-height: 100%;
-    padding-right: 1.5rem;
-    padding-bottom: 1rem;
-    padding-left: 1.5rem;
+    padding: 1rem;
 
     .InsightCard & {
         padding-right: 1rem;
@@ -122,7 +120,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: var(--funnel-default);
+            background: var(--primary-3000);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
@@ -150,7 +148,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: var(--funnel-default);
+                    color: var(--primary-3000);
                 }
             }
         }

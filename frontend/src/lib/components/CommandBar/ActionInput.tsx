@@ -11,6 +11,7 @@ import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
 type PrefixIconProps = {
     activeFlow: CommandFlow | null
 }
+
 const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null => {
     if (activeFlow) {
         return <activeFlow.icon className="palette__icon" /> ?? <IconEdit className="palette__icon" />
@@ -19,19 +20,18 @@ const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null 
     }
 }
 
-const ActionInput = (): JSX.Element => {
+export const ActionInput = (): JSX.Element => {
     const { input, activeFlow } = useValues(actionBarLogic)
     const { setInput } = useActions(actionBarLogic)
 
     return (
         <div className="border-b">
             <LemonInput
-                size="small"
                 className="CommandBar__input"
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
-                suffix={<KeyboardShortcut escape muted />}
-                placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
+                suffix={<KeyboardShortcut escape />}
+                placeholder={activeFlow?.instruction ?? 'Run a command…'}
                 autoFocus
                 value={input}
                 onChange={setInput}
@@ -39,5 +39,3 @@ const ActionInput = (): JSX.Element => {
         </div>
     )
 }
-
-export default ActionInput

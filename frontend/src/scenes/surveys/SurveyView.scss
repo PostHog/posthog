@@ -11,14 +11,9 @@
 
 .masonry-item {
     box-sizing: border-box;
-    break-inside: avoid;
     display: grid;
     grid-template-rows: 1fr auto;
     margin: 0;
     margin-bottom: 10px;
-}
-
-.masonry-item-text {
-    max-height: 305px;
-    overflow-y: scroll;
+    break-inside: avoid;
 }

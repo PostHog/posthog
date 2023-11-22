@@ -6,9 +6,15 @@
     flex: 1;
     width: 100%;
     overflow: hidden;
-    background: var(--bg-light);
+    background: var(--bg-table);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    .posthog-3000 & {
+        --row-base-height: auto;
+
+        font-size: 13px;
+    }
 
     &.LemonTable--with-ribbon {
         --row-ribbon-width: 0.25rem;
@@ -90,6 +96,16 @@
         max-width: 30rem;
         font-size: 0.75rem;
     }
+
+    a.Link {
+        .posthog-3000 & {
+            color: var(--default);
+
+            &:not(:disabled):hover {
+                color: var(--primary-3000-hover);
+            }
+        }
+    }
 }
 
 .LemonTable__content > table {
@@ -105,10 +121,25 @@
         background: var(--mid);
         border-bottom: 1px solid var(--border);
 
+        .posthog-3000 & {
+            background: none;
+        }
+
         > tr {
             > th {
                 font-weight: 700;
                 text-align: left;
+
+                .posthog-3000 & {
+                    padding-top: 0.5rem;
+                    padding-bottom: 0.5rem;
+                }
+
+                .LemonButton {
+                    .posthog-3000 & {
+                        margin: -0.5rem 0;
+                    }
+                }
             }
 
             &.LemonTable__row--grouping {
@@ -138,6 +169,19 @@
             > td {
                 padding-top: 0.5rem;
                 padding-bottom: 0.5rem;
+                color: var(--text-secondary);
+
+                .posthog-3000 & {
+                    padding-top: 0.3rem;
+                    padding-bottom: 0.3rem;
+                }
+
+                .LemonButton {
+                    .posthog-3000 & {
+                        margin-top: -0.2rem;
+                        margin-bottom: -0.2rem;
+                    }
+                }
             }
         }
     }
@@ -179,7 +223,6 @@
 
                 &[colspan='0'] {
                     padding-right: 0 !important;
-
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
                 }
@@ -213,8 +256,22 @@
 .LemonTable__header {
     cursor: default;
 
+    .posthog-3000 & {
+        opacity: 0.4;
+    }
+
     &.LemonTable__header--actionable {
         cursor: pointer;
+
+        .posthog-3000 & {
+            &:hover {
+                opacity: 0.7;
+            }
+
+            &:active {
+                opacity: 0.9;
+            }
+        }
     }
 }
 
@@ -223,6 +280,12 @@
     align-items: center;
     justify-content: space-between;
     line-height: 1.5;
+
+    div {
+        .posthog-3000 & {
+            white-space: nowrap;
+        }
+    }
 }
 
 .LemonTable__footer {

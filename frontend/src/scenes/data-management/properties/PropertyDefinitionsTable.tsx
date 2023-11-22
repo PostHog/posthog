@@ -5,13 +5,11 @@ import { PropertyDefinition } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import {
-    EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    propertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =

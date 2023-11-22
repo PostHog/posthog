@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { appMetricsSceneLogic, AppMetricsTab } from 'scenes/apps/appMetricsSceneLogic'
+import { appMetricsSceneLogic } from 'scenes/apps/appMetricsSceneLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useValues, useActions } from 'kea'
 import { MetricsTab } from './MetricsTab'
@@ -15,6 +15,7 @@ import { AppLogsTab } from './AppLogsTab'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { AppMetricsTab } from '~/types'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -79,6 +80,11 @@ export function AppMetrics(): JSX.Element {
                             key: AppMetricsTab.OnEvent,
                             label: <>onEvent metrics</>,
                             content: <MetricsTab tab={AppMetricsTab.OnEvent} />,
+                        },
+                        showTab(AppMetricsTab.ComposeWebhook) && {
+                            key: AppMetricsTab.ComposeWebhook,
+                            label: <>composeWebhook metrics</>,
+                            content: <MetricsTab tab={AppMetricsTab.ComposeWebhook} />,
                         },
                         showTab(AppMetricsTab.ExportEvents) && {
                             key: AppMetricsTab.ExportEvents,

@@ -26,11 +26,11 @@
     font-weight: 500;
     line-height: 1.25rem;
     color: var(--bg-light);
-    background: var(--primary);
+    background: var(--primary-3000);
     border-radius: var(--radius);
 
     &::selection {
-        background: var(--primary-light); // Default selection background is invisible on primary
+        background: var(--primary-3000-hover); // Default selection background is invisible on primary
     }
 
     .Spinner {
@@ -54,7 +54,6 @@
 
     .LemonBadge:not(.LemonBadge--active) {
         background-clip: padding-box;
-
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
     }
@@ -78,7 +77,7 @@
     left: 0;
     width: calc(100% - var(--timeline-seekbar-arrow-width));
     height: var(--timeline-seekbar-thickness);
-    background: var(--primary);
+    background: var(--primary-3000);
 }
 
 .TimelineSeekbar__line-start,
@@ -92,7 +91,7 @@
         height: var(--timeline-seekbar-arrow-height);
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         content: '';
-        background: var(--primary);
+        background: var(--primary-3000);
     }
 }
 

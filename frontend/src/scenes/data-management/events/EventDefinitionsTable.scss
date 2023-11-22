@@ -2,13 +2,14 @@
     .LemonTable__content > table > tbody {
         td.definition-column-icon {
             width: 36px;
+            padding-right: 0.5rem;
 
             .definition-column-name-icon {
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 width: 30px;
-                font-size: 1.5rem;
+                font-size: 1.2rem;
 
                 svg.taxonomy-icon {
                     flex-shrink: 0;
@@ -38,15 +39,14 @@
 
                 .definition-column-name-content-title {
                     position: relative;
+                    display: flex;
+                    gap: 0.25rem;
+                    align-items: center;
                     overflow: visible;
                     font-weight: 600;
-                    cursor: pointer;
 
-                    &::before {
-                        position: absolute;
-                        inset: -5px -50px -5px -10px;
-                        height: 22px;
-                        content: '';
+                    svg {
+                        color: var(--success);
                     }
                 }
             }

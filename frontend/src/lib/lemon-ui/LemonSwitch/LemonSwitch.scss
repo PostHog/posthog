@@ -1,4 +1,7 @@
 .LemonSwitch {
+    --lemon-switch-height: 1.25rem;
+    --lemon-switch-width: 2.25rem;
+
     display: flex;
     gap: 0.5rem;
     align-items: center;
@@ -46,14 +49,19 @@
             cursor: not-allowed; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
         }
     }
+
+    .posthog-3000 & {
+        --lemon-switch-height: 1.125rem;
+        --lemon-switch-width: calc(11 / 6 * var(--lemon-switch-height)); // Same proportion as in IconToggle
+    }
 }
 
 .LemonSwitch__button {
     position: relative;
     display: inline-block;
     flex-shrink: 0;
-    width: 2.25rem;
-    height: 1.25rem;
+    width: var(--lemon-switch-width);
+    height: var(--lemon-switch-height);
     padding: 0;
     cursor: pointer;
     background: none;
@@ -75,8 +83,21 @@
     border-radius: 0.625rem;
     transition: background-color 100ms ease;
 
+    .posthog-3000 & {
+        top: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        background-color: var(--border-bold);
+        border-radius: var(--lemon-switch-height);
+    }
+
     .LemonSwitch--checked & {
         background-color: var(--primary-highlight);
+
+        .posthog-3000 & {
+            background-color: var(--primary-3000);
+        }
     }
 }
 
@@ -93,19 +114,51 @@
     background-color: #fff;
     border: 2px solid var(--border);
     border-radius: 0.625rem;
-    transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
+    transition: background-color 100ms ease, transform 100ms ease, width 100ms ease, border-color 100ms ease;
+
+    .posthog-3000 & {
+        --lemon-switch-handle-ratio: calc(3 / 4); // Same proportion as in IconToggle
+        --lemon-switch-handle-gutter: calc(var(--lemon-switch-height) * calc(1 - var(--lemon-switch-handle-ratio)) / 2);
+        --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio));
+        --lemon-switch-active-translate: translateX(
+            calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - var(--lemon-switch-handle-gutter) * 2)
+        );
+
+        top: var(--lemon-switch-handle-gutter);
+        left: var(--lemon-switch-handle-gutter);
+        width: var(--lemon-switch-handle-width);
+        height: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio));
+        pointer-events: none;
+        background-color: #fff;
+        border: none;
+    }
 
     .LemonSwitch--checked & {
         background-color: var(--primary);
         border-color: var(--primary);
         transform: translateX(1rem);
+
+        .posthog-3000 & {
+            background-color: #fff;
+            transform: var(--lemon-switch-active-translate);
+        }
     }
 
     .LemonSwitch--active & {
         transform: scale(1.1);
+
+        .posthog-3000 & {
+            --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio) * 1.2);
+
+            transform: none;
+        }
     }
 
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: translateX(1rem) scale(1.1);
+
+        .posthog-3000 & {
+            transform: var(--lemon-switch-active-translate);
+        }
     }
 }

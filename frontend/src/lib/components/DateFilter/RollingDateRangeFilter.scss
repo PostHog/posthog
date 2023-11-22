@@ -45,9 +45,15 @@
     border: 1px solid var(--border);
     border-radius: 0.25rem;
 
-    input {
+    .LemonInput {
         width: 3rem;
-        text-align: center;
+        min-height: 0;
+        padding: 0;
+        border: none;
+
+        input {
+            text-align: center;
+        }
     }
 
     .RollingDateRangeFilter__counter__step {

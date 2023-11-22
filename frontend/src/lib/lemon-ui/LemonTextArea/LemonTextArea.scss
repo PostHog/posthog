@@ -17,7 +17,7 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
 
     &:not(:disabled):hover {
-        border: 1px solid var(--primary-light);
+        border: 1px solid var(--primary-3000-hover);
     }
 
     &:disabled {
@@ -26,7 +26,7 @@
     }
 
     &:focus:not(:disabled) {
-        border: 1px solid var(--primary);
+        border: 1px solid var(--primary-3000);
     }
 
     .Field--error & {

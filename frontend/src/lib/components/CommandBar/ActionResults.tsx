@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
 import { actionBarLogic } from './actionBarLogic'
-import ActionResult from './ActionResult'
+import { ActionResult } from './ActionResult'
 import { getNameFromActionScope } from 'lib/components/CommandBar/utils'
 
 type ResultsGroupProps = {
@@ -15,7 +15,9 @@ type ResultsGroupProps = {
 const ResultsGroup = ({ scope, results, activeResultIndex }: ResultsGroupProps): JSX.Element => {
     return (
         <>
-            <div className="border-b pl-3 pr-2 pt-1 pb-1 bg-bg-3000-light">{getNameFromActionScope(scope)}</div>
+            <div className="border-b pl-3 pr-2 pt-1 pb-1 bg-bg-3000 text-xs font-bold text-muted-3000 uppercase">
+                {getNameFromActionScope(scope)}
+            </div>
             {results.map((result) => (
                 <ActionResult
                     key={`command_result_${result.index}`}
@@ -27,7 +29,7 @@ const ResultsGroup = ({ scope, results, activeResultIndex }: ResultsGroupProps):
     )
 }
 
-const ActionResults = (): JSX.Element => {
+export const ActionResults = (): JSX.Element => {
     const { commandSearchResultsGrouped, activeResultIndex } = useValues(actionBarLogic)
 
     return (
@@ -38,5 +40,3 @@ const ActionResults = (): JSX.Element => {
         </div>
     )
 }
-
-export default ActionResults

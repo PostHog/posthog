@@ -19,8 +19,8 @@
 }
 
 .react-grid-item.resizing {
-    will-change: width, height;
     z-index: 1;
+    will-change: width, height;
 }
 
 .react-grid-item.react-draggable {
@@ -42,9 +42,9 @@
     z-index: 2;
     max-width: 100%;
     user-select: none;
-    border: 1px solid var(--primary);
+    border: 1px solid var(--primary-3000);
     border-radius: var(--radius);
-    outline: 1px solid var(--primary);
+    outline: 1px solid var(--primary-3000);
     transition: 100ms ease;
 }
 
