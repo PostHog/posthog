@@ -1,14 +1,15 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { PlayerFrame } from '../PlayerFrame'
-import { BindLogic, useActions, useValues } from 'kea'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
 } from '../sessionRecordingPlayerLogic'
-import { useDebouncedCallback } from 'use-debounce'
-import useIsHovering from 'lib/hooks/useIsHovering'
 
 export type PlayerSeekbarPreviewProps = {
     minMs: number

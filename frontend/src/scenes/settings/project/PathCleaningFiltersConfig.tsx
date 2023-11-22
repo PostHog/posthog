@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Link } from '@posthog/lemon-ui'
-import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature, InsightType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, InsightType } from '~/types'
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)

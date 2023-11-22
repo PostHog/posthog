@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 interface PageHeaderProps {
     title: string | JSX.Element

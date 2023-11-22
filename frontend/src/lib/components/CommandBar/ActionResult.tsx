@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
 
-import { actionBarLogic } from './actionBarLogic'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
+import { actionBarLogic } from './actionBarLogic'
 
 type SearchResultProps = {
     result: CommandResultDisplayable

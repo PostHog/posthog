@@ -1,7 +1,8 @@
-import { mswDecorator } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
-import { PerformanceEvent } from '~/types'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+
+import { mswDecorator } from '~/mocks/browser'
+import { PerformanceEvent } from '~/types'
 
 const meta: Meta<typeof NetworkRequestTiming> = {
     title: 'Components/NetworkRequestTiming',

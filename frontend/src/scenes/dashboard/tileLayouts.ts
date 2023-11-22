@@ -1,7 +1,8 @@
 import { Layout } from 'react-grid-layout'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, FilterType } from '~/types'
-import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { BREAKPOINT_COLUMN_COUNTS, MIN_ITEM_HEIGHT_UNITS, MIN_ITEM_WIDTH_UNITS } from 'scenes/dashboard/dashboardLogic'
+import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, FilterType } from '~/types'
 
 export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
     return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {

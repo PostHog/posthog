@@ -1,27 +1,29 @@
+import './HedgehogBuddy.scss'
+
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useActions, useValues } from 'kea'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
+import { FlaggedFeature } from '../FlaggedFeature'
+import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    accessoryGroups,
+    AccessoryInfo,
+    baseSpriteAccessoriesPath,
+    baseSpritePath,
     SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    standardAnimations,
     standardAccessories,
-    AccessoryInfo,
-    accessoryGroups,
-    baseSpritePath,
-    baseSpriteAccessoriesPath,
+    standardAnimations,
 } from './sprites/sprites'
-import { FlaggedFeature } from '../FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { HedgehogBuddyAccessory } from './components/AccessoryButton'
-import './HedgehogBuddy.scss'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20

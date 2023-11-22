@@ -1,14 +1,15 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+
 import { useStorybookMocks } from '~/mocks/browser'
-import { useToolbarStyles } from '~/toolbar/Toolbar.stories'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { useToolbarStyles } from '~/toolbar/Toolbar.stories'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 interface StoryProps {
     contents: JSX.Element
     name: string

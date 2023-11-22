@@ -1,7 +1,6 @@
-import { kea, path, connect, afterMount, beforeUnmount } from 'kea'
+import { afterMount, beforeUnmount, connect, kea, path } from 'kea'
 
 import { commandBarLogic } from './commandBarLogic'
-
 import type { shortcutsLogicType } from './shortcutsLogicType'
 
 export const shortcutsLogic = kea<shortcutsLogicType>([

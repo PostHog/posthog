@@ -1,12 +1,12 @@
-import { kea, path, actions, reducers, selectors, listeners, connect, afterMount, beforeUnmount } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
-import { commandBarLogic } from './commandBarLogic'
 
+import { InsightShortId } from '~/types'
+
+import { commandBarLogic } from './commandBarLogic'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 

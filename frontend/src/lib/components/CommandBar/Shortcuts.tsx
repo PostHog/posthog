@@ -1,6 +1,7 @@
 import { useMountedLogic } from 'kea'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { shortcutsLogic } from './shortcutsLogic'
 
 export const Shortcuts = (): JSX.Element => {

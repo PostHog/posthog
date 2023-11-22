@@ -1,4 +1,5 @@
-.posthog-3000 {
+.posthog-3000.posthog-3000.posthog-3000 {
+    // The repetition is a specificity hack, so that we override .LemonButton
     --transition: opacity 200ms ease, transform 200ms ease;
 
     .LemonButton {

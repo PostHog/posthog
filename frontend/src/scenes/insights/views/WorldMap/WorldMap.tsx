@@ -1,18 +1,21 @@
-import { useValues, useActions } from 'kea'
-import React, { HTMLProps, useEffect, useRef } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
+
+import { useActions, useValues } from 'kea'
+import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import React, { HTMLProps, useEffect, useRef } from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
+import { groupsModel } from '~/models/groupsModel'
+import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
+
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { ensureTooltip } from '../LineGraph/LineGraph'
-import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
-import { groupsModel } from '~/models/groupsModel'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import { worldMapLogic } from './worldMapLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2

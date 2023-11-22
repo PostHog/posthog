@@ -1,15 +1,16 @@
 import './Elements.scss'
 
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { compactNumber } from 'lib/utils'
+import React from 'react'
+
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
-import { compactNumber } from 'lib/utils'
 
 export function Elements(): JSX.Element {
     const {

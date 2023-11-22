@@ -1,19 +1,20 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
-import { DashboardTemplateVariables } from './DashboardTemplateVariables'
-import { LemonButton } from '@posthog/lemon-ui'
-import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
-import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
-import { useState } from 'react'
-
-import { pluralize } from 'lib/utils'
-
-import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
-import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { pluralize } from 'lib/utils'
+import BlankDashboardHog from 'public/blank-dashboard-hog.png'
+import { useState } from 'react'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+
+import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
+
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
+import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 
 function TemplateItem({
     template,

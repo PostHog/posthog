@@ -1,16 +1,17 @@
-import { useLayoutEffect, useRef } from 'react'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef } from 'react'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { Node } from '~/queries/schema'
+import { FilterType } from '~/types'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { Node } from '~/queries/schema'
-import { FilterType } from '~/types'
 
 type SearchResultProps = {
     result: SearchResultType

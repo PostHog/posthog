@@ -1,9 +1,10 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { range } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { InsightShortId, SlackChannelType } from '~/types'
 import { IconMail, IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
 import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { range } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId, SlackChannelType } from '~/types'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number

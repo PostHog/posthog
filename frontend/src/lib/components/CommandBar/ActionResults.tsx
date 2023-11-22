@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
+import { getNameFromActionScope } from 'lib/components/CommandBar/utils'
 
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
-
 import { actionBarLogic } from './actionBarLogic'
 import { ActionResult } from './ActionResult'
-import { getNameFromActionScope } from 'lib/components/CommandBar/utils'
 
 type ResultsGroupProps = {
     scope: string

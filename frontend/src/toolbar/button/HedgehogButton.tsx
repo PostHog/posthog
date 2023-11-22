@@ -1,10 +1,12 @@
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
-import { toolbarLogic } from '../toolbarLogic'
 import { useEffect, useRef } from 'react'
+
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+
 import { heatmapLogic } from '../elements/heatmapLogic'
+import { toolbarLogic } from '../toolbarLogic'
 
 export function HedgehogButton(): JSX.Element {
     const { hedgehogMode, extensionPercentage } = useValues(toolbarButtonLogic)

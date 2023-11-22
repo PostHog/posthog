@@ -1,11 +1,9 @@
-import { kea, path, listeners, connect, afterMount, beforeUnmount } from 'kea'
+import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
-import { commandBarLogic } from './commandBarLogic'
-
-import { BarStatus } from './types'
-
 import type { actionBarLogicType } from './actionBarLogicType'
+import { commandBarLogic } from './commandBarLogic'
+import { BarStatus } from './types'
 
 export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),

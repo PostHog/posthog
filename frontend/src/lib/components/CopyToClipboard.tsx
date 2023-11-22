@@ -1,8 +1,8 @@
-import { HTMLProps } from 'react'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { HTMLProps } from 'react'
 
 interface InlinePropsBase extends HTMLProps<HTMLSpanElement> {
     description?: string

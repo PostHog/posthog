@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallAndroidInstructions } from '../sdk-install-instructions'
 
 function AndroidCaptureSnippet(): JSX.Element {

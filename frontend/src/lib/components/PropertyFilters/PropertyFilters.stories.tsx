@@ -1,7 +1,8 @@
 import { Meta } from '@storybook/react'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 const meta: Meta<typeof PropertyFilters> = {
     title: 'Filters/PropertyFilters',

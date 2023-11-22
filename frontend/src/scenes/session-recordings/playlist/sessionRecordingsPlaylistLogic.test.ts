@@ -1,15 +1,17 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
-    sessionRecordingsPlaylistLogic,
-    RECORDINGS_LIMIT,
     DEFAULT_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
+    RECORDINGS_LIMIT,
+    sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
-import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
-import { useMocks } from '~/mocks/jest'
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>

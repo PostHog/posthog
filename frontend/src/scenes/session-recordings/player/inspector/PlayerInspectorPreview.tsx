@@ -1,9 +1,11 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconGauge, IconTerminal, IconUnverifiedEvent, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconGauge, IconMagnifier, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+
 import { SessionRecordingPlayerTab } from '~/types'
+
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
-import clsx from 'clsx'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: IconMagnifier,

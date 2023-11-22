@@ -1,5 +1,5 @@
-.LemonButton {
-    position: relative;
+.LemonButton,
+.Link.LemonButton /* Make sure we override .Link's styles where needed, e.g. padding */ {
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
@@ -10,7 +10,7 @@
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.5rem;
-    text-align: left;
+    text-align: left; // Important as this gets overridden by Ant styles...
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;

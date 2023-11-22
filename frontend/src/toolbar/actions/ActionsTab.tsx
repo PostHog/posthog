@@ -1,12 +1,13 @@
 import './ActionsTab.scss'
 
+import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { urls } from 'scenes/urls'
+
 import { ActionsList } from '~/toolbar/actions/ActionsList'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
-import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)

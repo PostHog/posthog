@@ -1,11 +1,13 @@
 import './FloatingSuggestions.scss'
+
 import { Editor as TTEditor } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
-import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
-import { isCurrentNodeEmpty } from '../Notebook/utils'
-import { useEffect, useState } from 'react'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useEffect, useState } from 'react'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { isCurrentNodeEmpty } from '../Notebook/utils'
+import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 
 export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Element | null {
     const logic = insertionSuggestionsLogic()
