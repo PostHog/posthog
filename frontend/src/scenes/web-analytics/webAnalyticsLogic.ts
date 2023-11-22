@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isNotNil } from 'lib/utils'
-import psl from 'psl'
+import * as tldts from 'tldts'
 
 import {
     NodeKind,
@@ -766,8 +766,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const hosts: string[] = propertiesResponse.map((x) => x.name)
                 // at this point we have multiple hosts, pick the ones that are www or apex
                 const wwwOrApex = hosts.filter((host) => {
-                    const parsed = psl.parse(host)
-                    return !parsed.error && (parsed.subdomain == null || parsed.subdomain === 'www')
+                    const subdomain = tldts.getSubdomain(host)
+                    return subdomain === '' || subdomain === 'www'
                 })
                 if (wwwOrApex.length > 0 && wwwOrApex.length !== hosts.length) {
                     return [
