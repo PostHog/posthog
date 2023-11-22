@@ -5,6 +5,8 @@ import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 type SearchResultProps = {
     result: SearchResultType
@@ -109,7 +111,14 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
             <i>No description.</i>
         )
     } else if (type === 'notebook') {
-        return <span className="whitespace-pre">{extra_fields.text_content}</span>
+        return (
+            <Notebook
+                shortId={extra_fields.short_id as string}
+                mode="notebook"
+                editable={false}
+                initialContent={extra_fields.content as JSONContent}
+            />
+        )
     } else {
         return extra_fields.description ? <span>{extra_fields.description}</span> : <i>No description.</i>
     }
