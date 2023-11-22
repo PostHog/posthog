@@ -1,8 +1,10 @@
+import { buildStringMatcher } from '../../../src/config/config'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { OverflowWarningLimiter } from '../../../src/utils/token-bucket'
+import { ConfiguredLimiter, OverflowWarningLimiter } from '../../../src/utils/token-bucket'
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
@@ -10,7 +12,6 @@ jest.mock('./../../../src/worker/ingestion/utils')
 jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
     runEventPipeline: jest.fn().mockResolvedValue('default value'),
 }))
-import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 const captureEndpointEvent = {
     uuid: 'uuid1',
@@ -65,7 +66,8 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
 
         queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Consume)
+        const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
 
         expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
         expect(consume).toHaveBeenCalledWith(
@@ -90,7 +92,8 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
 
         queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Consume)
+        const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
 
         expect(consume).toHaveBeenCalledWith(
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
@@ -101,5 +104,20 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
 
         // Event is processed
         expect(runEventPipeline).toHaveBeenCalled()
+    })
+
+    it('does drop events from blocked tokens', async () => {
+        const now = Date.now()
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent], now)
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
+
+        const tokenBlockList = buildStringMatcher('mytoken,another_token', false)
+        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
+
+        // Event is dropped, none of that happens
+        expect(consume).not.toHaveBeenCalled()
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+        expect(runEventPipeline).not.toHaveBeenCalled()
     })
 })

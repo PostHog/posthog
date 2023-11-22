@@ -303,6 +303,7 @@ export function splitIngestionBatch(
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
         for (const message of kafkaMessages) {
+            // Drop based on a token blocklist
             const pluginEvent = formPipelineEvent(message)
             if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
                 eventDroppedCounter
@@ -315,12 +316,14 @@ export function splitIngestionBatch(
             }
             output.toProcess.push(new Array({ message: message, pluginEvent }))
         }
+        return output
     }
 
     const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
+            // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
             continue
         }
