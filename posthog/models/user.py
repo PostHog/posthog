@@ -275,6 +275,10 @@ class User(AbstractUser, UUIDClassicModel):
             .count()
         )
 
+        current_organization_membership = None
+        if self.organization:
+            current_organization_membership = self.organization.memberships.filter(user=self).first()
+
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
             project_setup_complete = True
@@ -293,6 +297,9 @@ class User(AbstractUser, UUIDClassicModel):
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "organization_id": str(self.organization.id) if self.organization else None,
+            "current_organization_membership_level": current_organization_membership.level
+            if current_organization_membership
+            else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,

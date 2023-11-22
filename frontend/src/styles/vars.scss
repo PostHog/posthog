@@ -125,6 +125,7 @@ $colors: (
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
     'bg-3000-light': #f3f4ef,
+    'bg-hover-3000-light': #f3f4ef,
     'border-3000-light': #dadbd2,
     'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
@@ -157,11 +158,12 @@ $colors: (
 
     'secondary-3000-dark': #1d1f27,
     'secondary-3000-hover-dark': #575d77,
-    'accent-3000-dark': #232429,
+    'accent-3000-dark': #21242b,
     'bg-3000-dark': #1d1f27,
-    'border-3000-dark': #4a4c52,
+    'bg-hover-3000-dark': #292b36,
+    'border-3000-dark': #35373e,
     'border-bold-3000-dark': #3f4046,
-    'glass-bg-3000-dark': #1d1f27b3,
+    'glass-bg-3000-dark': #21242bb3,
     'glass-border-3000-dark': var(--border-3000-dark),
     'link-3000-dark': #f1a82c,
 
@@ -189,10 +191,11 @@ $colors: (
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000),
+    'bg-hover-3000': var(--bg-hover-3000),
     'border-3000': var(--border-3000),
     'border-bold-3000': var(--border-bold-3000),
     'glass-bg-3000': var(--glass-bg-3000),
-    'glass-border-3000': var(--glass-border-3000),
+    'glass-border-3000': var(--border-3000),
     'link-3000': var(--link-3000),
     // 'bg-light': var(--accent-3000),
     'primary-3000-frame-bg': var(--primary-3000-frame-bg),
@@ -240,6 +243,8 @@ $_lifecycle_dormant: $_danger;
     --font-semibold: 600;
     --font-sans: -apple-system, blinkmacsystemfont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'MatterSQ', -apple-system, blinkmacsystemfont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
     // Dashboard item colors
