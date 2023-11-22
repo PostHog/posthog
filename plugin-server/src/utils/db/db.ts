@@ -158,8 +158,8 @@ export class DB {
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
-    /** Whether to write to clickhouse_person_unique_id topic */
-    writeToPersonUniqueId?: boolean
+    /** Default log level for plugins that don't specify it */
+    pluginsDefaultLogLevel: PluginLogLevel
 
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
@@ -170,6 +170,7 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
+        pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
@@ -177,6 +178,7 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
+        this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }
 
@@ -1076,7 +1078,7 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
-        const configuredLogLevel = pluginConfig.plugin?.log_level || PluginLogLevel.Log
+        const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
             return
