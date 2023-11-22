@@ -24,6 +24,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import { sanitizeHTML } from './utils'
+import { Scene } from 'scenes/sceneTypes'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -572,10 +573,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): Breadcrumb[] => [
                 {
+                    key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                ...(survey?.name ? [{ name: survey.name }] : []),
+                { key: survey?.id || 'new', name: survey.name },
             ],
         ],
         dataTableQuery: [

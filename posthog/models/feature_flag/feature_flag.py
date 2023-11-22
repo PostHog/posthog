@@ -37,7 +37,7 @@ class FeatureFlag(models.Model):
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
@@ -134,7 +134,7 @@ class FeatureFlag(models.Model):
     def transform_cohort_filters_for_easy_evaluation(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -168,18 +168,17 @@ class FeatureFlag(models.Model):
             for prop in props:
                 if prop.get("type") == "cohort":
                     cohort_condition = True
-                    cohort_id = prop.get("value")
+                    cohort_id = int(prop.get("value"))
                     if cohort_id:
                         if len(props) > 1:
                             # We cannot expand this cohort condition if it's not the only property in its group.
                             return self.conditions
                         try:
-                            parsed_cohort_id = str(cohort_id)
-                            if parsed_cohort_id in seen_cohorts_cache:
-                                cohort = seen_cohorts_cache[parsed_cohort_id]
+                            if cohort_id in seen_cohorts_cache:
+                                cohort = seen_cohorts_cache[cohort_id]
                             else:
                                 cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                                seen_cohorts_cache[parsed_cohort_id] = cohort
+                                seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
                             return self.conditions
             if not cohort_condition:
@@ -259,7 +258,7 @@ class FeatureFlag(models.Model):
     def get_cohort_ids(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[str, Cohort]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
         sort_by_topological_order=False,
     ) -> List[int]:
         from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
@@ -272,14 +271,13 @@ class FeatureFlag(models.Model):
             props = condition.get("properties", [])
             for prop in props:
                 if prop.get("type") == "cohort":
-                    cohort_id = prop.get("value")
+                    cohort_id = int(prop.get("value"))
                     try:
-                        parsed_cohort_id = str(cohort_id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort: Cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if cohort_id in seen_cohorts_cache:
+                            cohort: Cohort = seen_cohorts_cache[cohort_id]
                         else:
                             cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            seen_cohorts_cache[cohort_id] = cohort
 
                         cohort_ids.add(cohort.pk)
                         cohort_ids.update(

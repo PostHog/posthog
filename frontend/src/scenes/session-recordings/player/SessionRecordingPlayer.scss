@@ -83,6 +83,14 @@
             pointer-events: none;
             transition: opacity 0.2s ease-in-out;
         }
+
+        .LemonButton--tertiary {
+            .posthog-3000 & {
+                &:hover {
+                    color: var(--primary-3000);
+                }
+            }
+        }
     }
 
     &--inspector-focus {

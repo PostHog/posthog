@@ -166,12 +166,12 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <div className="overflow-hidden ph-no-capture flex-1">
-                        <div className="font-bold">
+                        <div>
                             {!sessionPerson || !startTime ? (
                                 <LemonSkeleton className="w-1/3 h-4 my-1" />
                             ) : (
                                 <div className="flex gap-1">
-                                    <span className="whitespace-nowrap truncate">
+                                    <span className="font-bold whitespace-nowrap truncate">
                                         <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
                                     </span>
                                     {'·'}

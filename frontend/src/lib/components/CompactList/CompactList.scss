@@ -31,4 +31,14 @@
         overflow: auto auto;
         padding: 0 0.5rem 0.5rem;
     }
+
+    .LemonButton {
+        font-family: var(--font-sans) !important;
+    }
+
+    .secondary-text {
+        .posthog-3000 & {
+            color: var(--text-secondary);
+        }
+    }
 }

@@ -1,5 +1,5 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import type { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
 import { userLogic } from './userLogic'
@@ -92,6 +92,11 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
+            if (currentOrganization) {
+                ApiConfig.setCurrentOrganizationId(currentOrganization.id)
+            }
+        },
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
         },

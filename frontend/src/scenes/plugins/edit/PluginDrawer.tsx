@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Switch } from 'antd'
+import { Form } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
@@ -18,7 +18,7 @@ import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { IconCode } from '@posthog/icons'
 
 window.process = MOCK_NODE_PROCESS
@@ -31,10 +31,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 

@@ -3,14 +3,17 @@ import {
     AnyPartialFilterType,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CohortType,
     EntityFilter,
     EntityTypes,
+    EventType,
     InsightModel,
     InsightShortId,
     InsightType,
     PathsFilterType,
     PathType,
+    TrendsFilterType,
 } from '~/types'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -295,4 +298,49 @@ export function concatWithPunctuation(phrases: string[]): string {
     } else {
         return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+}
+
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }

@@ -51,9 +51,9 @@ class TestFeatureFlagUtils(APIBaseTest):
 
         cohort_ids = {cohorts["a"].pk, cohorts["b"].pk, cohorts["c"].pk}
         seen_cohorts_cache = {
-            str(cohorts["a"].pk): cohorts["a"],
-            str(cohorts["b"].pk): cohorts["b"],
-            str(cohorts["c"].pk): cohorts["c"],
+            cohorts["a"].pk: cohorts["a"],
+            cohorts["b"].pk: cohorts["b"],
+            cohorts["c"].pk: cohorts["c"],
         }
 
         # (a)-->(c)-->(b)
@@ -68,6 +68,6 @@ class TestFeatureFlagUtils(APIBaseTest):
 
     def test_empty_cohorts_set(self):
         cohort_ids: Set[int] = set()
-        seen_cohorts_cache: Dict[str, Cohort] = {}
+        seen_cohorts_cache: Dict[int, Cohort] = {}
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
         self.assertEqual(topologically_sorted_cohort_ids, [])

@@ -10,6 +10,7 @@ import { DataTableNode } from '~/queries/schema'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export interface TableLogicProps {
     /** A UUID or 'new'. */
@@ -100,10 +101,12 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Warehouse`,
+                    key: Scene.DataWarehouse,
+                    name: `Data warehouse`,
                     path: urls.dataWarehouseExternal(),
                 },
                 {
+                    key: 'new',
                     name: 'New',
                 },
             ],

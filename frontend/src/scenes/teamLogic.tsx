@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
 import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
@@ -206,6 +206,11 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
         createTeamSuccess: () => {
             organizationLogic.actions.loadCurrentOrganization()
         },

@@ -182,7 +182,7 @@ export const filterNestedDataset = (
     })
 }
 
-function createPinstripePattern(color: string): CanvasPattern {
+function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8 // 0.5rem
     const stripeAngle = -22.5
 
@@ -197,8 +197,8 @@ function createPinstripePattern(color: string): CanvasPattern {
     ctx.fillStyle = color
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // overlay half-transparent white stripe
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    // overlay half-transparent black / white stripes
+    ctx.fillStyle = isDarkMode ? 'rgba(35, 36, 41, 0.5)' : 'rgba(255, 255, 255, 0.5)'
     ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
 
     // create a canvas pattern and rotate it
@@ -311,7 +311,7 @@ export function LineGraph_({
             : getSeriesColor(dataset.id, compare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
@@ -386,7 +386,9 @@ export function LineGraph_({
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
-            borderColor: colors.axisLine as string,
+            color: colors.axisLine as Color,
+            borderColor: colors.axisLine as Color,
+            tickColor: colors.axisLine as Color,
             borderDash: [4, 2],
         }
 
@@ -698,11 +700,19 @@ export function LineGraph_({
                         precision,
                         autoSkip: true,
                         callback: function _renderYLabel(_, i) {
-                            const labelDescriptors = [
-                                datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
-                                datasets?.[0]?.breakdownValues?.[i], // breakdown value
-                                datasets?.[0]?.compareLabels?.[i], // compare value
-                            ].filter((l) => !!l)
+                            const labelDescriptors = (
+                                datasets?.[0]?.labels?.[i]
+                                    ? [
+                                          // prefer to use the label over the action name if it exists
+                                          datasets?.[0]?.labels?.[i],
+                                          datasets?.[0]?.compareLabels?.[i],
+                                      ]
+                                    : [
+                                          datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
+                                          datasets?.[0]?.breakdownValues?.[i], // breakdown value
+                                          datasets?.[0]?.compareLabels?.[i], // compare value
+                                      ]
+                            ).filter((l) => !!l)
                             return labelDescriptors.join(' - ')
                         },
                     },

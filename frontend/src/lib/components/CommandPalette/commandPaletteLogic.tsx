@@ -6,7 +6,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
-import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import { isMobile, isURL, uniqueBy } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,38 +17,47 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import {
-    IconAction,
     IconApps,
-    IconBarChart,
-    IconCalculate,
-    IconCheckmark,
-    IconCohort,
-    IconComment,
-    IconCorporate,
-    IconCottage,
-    IconEmojiPeople,
-    IconFlag,
-    IconFunnelHorizontal,
-    IconGauge,
+    IconCalculator,
+    IconChat,
+    IconCheck,
+    IconCursor,
+    IconDashboard,
+    IconDatabase,
+    IconExternal,
+    IconFunnels,
+    IconGear,
     IconGithub,
+    IconGraph,
+    IconHogQL,
+    IconHome,
     IconKeyboard,
+    IconLeave,
+    IconLifecycle,
+    IconList,
     IconLive,
-    IconLockOpen,
-    IconLogout,
-    IconOpenInNew,
-    IconPerson,
-    IconPersonFilled,
-    IconRecording,
+    IconNotebook,
+    IconPageChart,
+    IconPeople,
+    IconPeopleFilled,
+    IconPieChart,
+    IconRetention,
+    IconRewindPlay,
+    IconRocket,
     IconServer,
-    IconSettings,
-    IconTableChart,
-    IconTools,
-    IconTrendingFlat,
-    IconTrendingUp,
-} from 'lib/lemon-ui/icons'
+    IconStickiness,
+    IconTestTube,
+    IconThoughtBubble,
+    IconToggle,
+    IconToolbar,
+    IconTrends,
+    IconUnlock,
+    IconUserPaths,
+} from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightTypeURL } from 'scenes/insights/utils'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -239,7 +249,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         key: 'custom_dashboards',
                         resolver: dashboards.map((dashboard: DashboardType) => ({
                             key: `dashboard_${dashboard.id}`,
-                            icon: IconTableChart,
+                            icon: IconPageChart,
                             display: `Go to dashboard: ${dashboard.name}`,
                             executor: () => {
                                 const { push } = router.actions
@@ -316,7 +326,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                    : fusableResults.slice(0, RESULTS_MAX)
                 return guaranteedResults.concat(fusedResults)
             },
         ],
@@ -394,7 +404,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         key: `person-${person.distinct_ids[0]}`,
                         resolver: [
                             {
-                                icon: IconPersonFilled,
+                                icon: IconPeopleFilled,
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
@@ -418,67 +428,128 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 prefixes: ['open', 'visit'],
                 resolver: [
                     {
-                        icon: IconGauge,
+                        icon: IconDashboard,
                         display: 'Go to Dashboards',
                         executor: () => {
                             push(urls.dashboards())
                         },
                     },
                     {
-                        icon: IconBarChart,
+                        icon: IconHome,
+                        display: 'Go to Project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
+                        icon: IconGraph,
                         display: 'Go to Insights',
                         executor: () => {
                             push(urls.savedInsights())
                         },
                     },
                     {
-                        icon: IconTrendingUp,
-                        display: 'Go to Trends',
+                        icon: IconTrends,
+                        display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
-                        icon: IconFunnelHorizontal,
-                        display: 'Go to Funnels',
+                        icon: IconFunnels,
+                        display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
-                        icon: IconTrendingFlat,
-                        display: 'Go to Retention',
+                        icon: IconRetention,
+                        display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
-                        icon: IconEmojiPeople,
-                        display: 'Go to Paths',
+                        icon: IconUserPaths,
+                        display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
                     {
+                        icon: IconStickiness,
+                        display: 'Create a new Stickiness insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.STICKINESS }))
+                        },
+                    },
+                    {
+                        icon: IconLifecycle,
+                        display: 'Create a new Lifecycle insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
+                        },
+                    },
+                    {
+                        icon: IconHogQL,
+                        display: 'Create a new HogQL insight',
+                        synonyms: ['hogql', 'sql'],
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(insightTypeURL[InsightType.SQL])
+                        },
+                    },
+                    {
+                        icon: IconNotebook,
+                        display: 'Go to Notebooks',
+                        executor: () => {
+                            push(urls.notebooks())
+                        },
+                    },
+                    {
                         icon: IconLive,
-                        display: 'Go to Events',
+                        display: 'Go to Events explorer',
                         executor: () => {
                             push(urls.events())
                         },
                     },
                     {
-                        icon: IconAction,
+                        icon: IconDatabase,
+                        display: 'Go to Data management',
+                        synonyms: ['events'],
+                        executor: () => {
+                            push(urls.eventDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconCursor,
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
                         },
                     },
                     {
-                        icon: IconPerson,
+                        icon: IconList,
+                        display: 'Go to Properties',
+                        executor: () => {
+                            push(urls.propertyDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconThoughtBubble,
+                        display: 'Go to Annotations',
+                        executor: () => {
+                            push(urls.annotations())
+                        },
+                    },
+                    {
+                        icon: IconPeople,
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
@@ -486,57 +557,67 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconCohort,
+                        icon: IconPeople,
                         display: 'Go to Cohorts',
                         executor: () => {
                             push(urls.cohorts())
                         },
                     },
+                    ...(values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
+                        ? [
+                              {
+                                  icon: IconPieChart,
+                                  display: 'Go to Web analytics',
+                                  executor: () => {
+                                      push(urls.webAnalytics())
+                                  },
+                              },
+                          ]
+                        : []),
+                    ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                        ? [
+                              {
+                                  icon: IconServer,
+                                  display: 'Go to Data warehouse',
+                                  executor: () => {
+                                      push(urls.dataWarehouse())
+                                  },
+                              },
+                          ]
+                        : []),
                     {
-                        icon: IconFlag,
-                        display: 'Go to Feature Flags',
-                        synonyms: ['feature flags', 'a/b tests'],
+                        display: 'Go to Session replay',
+                        icon: IconRewindPlay,
+                        executor: () => {
+                            push(urls.replay())
+                        },
+                    },
+                    {
+                        display: 'Go to Surveys',
+                        icon: IconChat,
+                        executor: () => {
+                            push(urls.surveys())
+                        },
+                    },
+                    {
+                        icon: IconToggle,
+                        display: 'Go to Feature flags',
                         executor: () => {
                             push(urls.featureFlags())
                         },
                     },
                     {
-                        icon: IconComment,
-                        display: 'Go to Annotations',
+                        icon: IconTestTube,
+                        display: 'Go to A/B testing',
                         executor: () => {
-                            push(urls.annotations())
+                            push(urls.experiments())
                         },
                     },
                     {
-                        icon: IconCorporate,
-                        display: 'Go to Team members',
-                        synonyms: ['organization', 'members', 'invites', 'teammates'],
+                        icon: IconRocket,
+                        display: 'Go to Early access features',
                         executor: () => {
-                            push(urls.settings('organization'))
-                        },
-                    },
-                    {
-                        icon: IconCottage,
-                        display: 'Go to project homepage',
-                        executor: () => {
-                            push(urls.projectHomepage())
-                        },
-                    },
-                    {
-                        icon: IconSettings,
-                        display: 'Go to Project settings',
-                        executor: () => {
-                            push(urls.settings('project'))
-                        },
-                    },
-                    {
-                        icon: () => (
-                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
-                        ),
-                        display: 'Go to My settings',
-                        synonyms: ['account'],
-                        executor: () => {
-                            push(urls.settings('user'))
+                            push(urls.earlyAccessFeatures())
                         },
                     },
                     {
@@ -548,15 +629,38 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconServer,
-                        display: 'Go to Instance status & settings',
-                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        icon: IconToolbar,
+                        display: 'Go to Toolbar',
                         executor: () => {
-                            push(urls.instanceStatus())
+                            push(urls.toolbarLaunch())
                         },
                     },
                     {
-                        icon: IconLogout,
+                        icon: IconGear,
+                        display: 'Go to Project settings',
+                        executor: () => {
+                            push(urls.settings('project'))
+                        },
+                    },
+                    {
+                        icon: IconGear,
+                        display: 'Go to Organization settings',
+                        executor: () => {
+                            push(urls.settings('organization'))
+                        },
+                    },
+                    {
+                        icon: () => (
+                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
+                        ),
+                        display: 'Go to User settings',
+                        synonyms: ['account', 'profile'],
+                        executor: () => {
+                            push(urls.settings('user'))
+                        },
+                    },
+                    {
+                        icon: IconLeave,
                         display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
@@ -574,7 +678,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     preflightLogic.values.preflight?.is_debug ||
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
-                              icon: IconTools,
+                              icon: IconDatabase,
                               display: 'Debug ClickHouse Queries',
                               executor: () => openCHQueriesDebugModal(),
                           }
@@ -585,7 +689,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'debug-copy-session-recording-url',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconRecording,
+                    icon: IconRewindPlay,
                     display: 'Debug: Copy the session recording link to clipboard',
                     executor: () => {
                         const url = posthog.get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
@@ -607,7 +711,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         return isNaN(result)
                             ? null
                             : {
-                                  icon: IconCalculate,
+                                  icon: IconCalculator,
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
@@ -627,7 +731,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 resolver: (argument) => {
                     const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                         (url: string) => ({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
@@ -637,7 +741,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     )
                     if (argument && isURL(argument)) {
                         results.push({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${argument}`,
                             synonyms: [`Visit ${argument}`],
                             executor: () => {
@@ -646,7 +750,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         })
                     }
                     results.push({
-                        icon: IconOpenInNew,
+                        icon: IconExternal,
                         display: 'Open PostHog Docs',
                         synonyms: ['technical documentation'],
                         executor: () => {
@@ -661,7 +765,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'create-personal-api-key',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconLockOpen,
+                    icon: IconUnlock,
                     display: 'Create Personal API Key',
                     executor: () => ({
                         instruction: 'Give your key a label',
@@ -670,7 +774,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconLockOpen,
+                                    icon: IconUnlock,
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
@@ -688,7 +792,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconGauge,
+                    icon: IconDashboard,
                     display: 'Create Dashboard',
                     executor: () => ({
                         instruction: 'Name your new dashboard',
@@ -697,7 +801,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconGauge,
+                                    icon: IconDashboard,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
                                         newDashboardLogic.actions.addDashboard({ name: argument })
@@ -714,7 +818,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'share-feedback',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconComment,
+                    icon: IconThoughtBubble,
                     display: 'Share Feedback',
                     synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
@@ -722,12 +826,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: [
                             {
                                 display: 'Send Message Directly to PostHog',
-                                icon: IconComment,
+                                icon: IconThoughtBubble,
                                 executor: () => ({
                                     instruction: "What's on your mind?",
-                                    icon: IconComment,
+                                    icon: IconThoughtBubble,
                                     resolver: (argument) => ({
-                                        icon: IconComment,
+                                        icon: IconThoughtBubble,
                                         display: 'Send',
                                         executor: !argument?.length
                                             ? undefined
@@ -735,7 +839,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                                   posthog.capture('palette feedback', { message: argument })
                                                   return {
                                                       resolver: {
-                                                          icon: IconCheckmark,
+                                                          icon: IconCheck,
                                                           display: 'Message Sent!',
                                                           executor: true,
                                                       },
