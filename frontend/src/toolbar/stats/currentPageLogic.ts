@@ -21,16 +21,9 @@ export const currentPageLogic = kea<currentPageLogicType>([
                     actions.setHref(window.location.href)
                 }
             }, 500)
-            cache.location = () => {
-                window.requestAnimationFrame(() => {
-                    actions.setHref(window.location.href)
-                })
-            }
-            window.addEventListener('popstate', cache.location)
         },
         beforeUnmount: () => {
             window.clearInterval(cache.interval)
-            window.removeEventListener('popstate', cache.location)
         },
     })),
 ])
