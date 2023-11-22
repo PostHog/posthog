@@ -52,9 +52,9 @@ export function AppsTable({
                         </LemonButton>
                     </span>
                 ) : searchTerm ? (
-                    'No apps matching your search criteria'
+                    'No connectors matching your search criteria'
                 ) : (
-                    'No apps found'
+                    'No connectors found'
                 )
             }
         />

@@ -29,13 +29,13 @@ export function AppsTab(): JSX.Element {
                 <BatchExportsAlternativeWarning />
 
                 <AppsTable
-                    title="Enabled Apps"
+                    title="Enabled connectors"
                     plugins={[...sortableEnabledPlugins, ...unsortableEnabledPlugins]}
                     loading={loading}
                     renderfn={renderfn}
                 />
                 <AppsTable
-                    title="Available Apps"
+                    title="Available connectors"
                     plugins={filteredDisabledPlugins}
                     loading={loading}
                     renderfn={renderfn}

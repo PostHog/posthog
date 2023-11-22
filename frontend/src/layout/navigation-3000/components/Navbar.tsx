@@ -1,4 +1,4 @@
-import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch } from '@posthog/icons'
+import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch, IconToolbar } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
@@ -87,6 +87,12 @@ export function Navbar(): JSX.Element {
                             title="Search"
                             onClick={toggleSearchBar}
                             keyboardShortcut={{ command: true, k: true }}
+                        />
+                        <NavbarButton
+                            icon={<IconToolbar />}
+                            identifier={Scene.ToolbarLaunch}
+                            title="Toolbar"
+                            to={urls.toolbarLaunch()}
                         />
                         <NavbarButton
                             icon={<ThemeIcon />}

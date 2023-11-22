@@ -56,7 +56,7 @@ export function AppsScene(): JSX.Element | null {
                 activeKey={pluginTab}
                 onChange={(newKey) => setPluginTab(newKey)}
                 tabs={[
-                    { key: PluginTab.Apps, label: 'Apps', content: <AppsTab /> },
+                    { key: PluginTab.Apps, label: 'Connectors', content: <AppsTab /> },
                     { key: PluginTab.BatchExports, label: 'Batch Exports', content: <BatchExportsTab /> },
                     {
                         key: PluginTab.History,
@@ -65,7 +65,7 @@ export function AppsScene(): JSX.Element | null {
                     },
                     canGloballyManagePlugins(user?.organization) && {
                         key: PluginTab.AppsManagement,
-                        label: 'Apps Management',
+                        label: 'Manage connectors',
                         content: <AppsManagementTab />,
                     },
                 ]}
