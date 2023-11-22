@@ -9,8 +9,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     actions({
-        toggleTheme: (state: boolean | null) => ({ state }),
-        overrideTheme: (darkModePreference: boolean) => ({ darkModePreference }),
+        toggleTheme: true,
+        overrideTheme: (darkModePreference: boolean | null) => ({ darkModePreference }),
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
     }),
     reducers({
