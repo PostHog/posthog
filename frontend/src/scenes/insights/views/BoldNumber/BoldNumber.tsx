@@ -96,7 +96,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
         <div className="BoldNumber">
             <div
                 className={clsx(
-                    'font-semibold cursor-pointer px-2 overflow-hidden w-full',
+                    'font-semibold cursor-pointer px-2 w-full',
                     showPersonsModal ? 'cursor-pointer' : 'cursor-default'
                 )}
                 onClick={
