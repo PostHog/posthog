@@ -19,7 +19,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 import './BoldNumber.scss'
 import { useEffect } from 'react'
-import Textfit from './Textfit'
+import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -94,29 +94,32 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit min={32} max={120}>
-                <div
-                    className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
-                    onClick={
-                        // != is intentional to catch undefined too
-                        showPersonsModal && resultSeries.aggregated_value != null
-                            ? () => {
-                                  if (resultSeries.persons?.url) {
-                                      openPersonsModal({
-                                          url: resultSeries.persons?.url,
-                                          title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
-                                      })
-                                  }
+            <div
+                className={clsx(
+                    'font-semibold cursor-pointer px-2 overflow-hidden w-full',
+                    showPersonsModal ? 'cursor-pointer' : 'cursor-default'
+                )}
+                onClick={
+                    // != is intentional to catch undefined too
+                    showPersonsModal && resultSeries.aggregated_value != null
+                        ? () => {
+                              if (resultSeries.persons?.url) {
+                                  openPersonsModal({
+                                      url: resultSeries.persons?.url,
+                                      title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
+                                  })
                               }
-                            : undefined
-                    }
-                    onMouseLeave={() => setIsTooltipShown(false)}
-                    ref={valueRef}
-                    onMouseEnter={() => setIsTooltipShown(true)}
-                >
+                          }
+                        : undefined
+                }
+                onMouseLeave={() => setIsTooltipShown(false)}
+                ref={valueRef}
+                onMouseEnter={() => setIsTooltipShown(true)}
+            >
+                <Textfit min={32} max={120}>
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
-                </div>
-            </Textfit>
+                </Textfit>
+            </div>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
         </div>
     ) : (
