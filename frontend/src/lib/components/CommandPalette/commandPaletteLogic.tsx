@@ -53,11 +53,16 @@ import {
     IconTrends,
     IconUnlock,
     IconUserPaths,
+    IconDay,
+    IconNight,
+    IconAsterisk,
 } from '@posthog/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
+import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -127,7 +132,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
+        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
@@ -860,6 +865,42 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const toggleTheme: Command = {
+                key: 'toggle-theme',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: ThemeIcon,
+                    display: 'Switch theme',
+                    synonyms: ['toggle theme', 'dark mode', 'light mode'],
+                    executor: () => ({
+                        scope: 'Switch theme',
+                        resolver: [
+                            {
+                                icon: IconDay,
+                                display: 'Light theme',
+                                executor: () => {
+                                    actions.overrideTheme(false)
+                                },
+                            },
+                            {
+                                icon: IconNight,
+                                display: 'Dark theme',
+                                executor: () => {
+                                    actions.overrideTheme(true)
+                                },
+                            },
+                            {
+                                icon: IconAsterisk,
+                                display: 'Sync with system settings',
+                                executor: () => {
+                                    actions.overrideTheme(null)
+                                },
+                            },
+                        ],
+                    }),
+                },
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -868,6 +909,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
+            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                actions.registerCommand(toggleTheme)
+            }
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -878,6 +922,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('create-dashboard')
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
+            actions.deregisterCommand('toggle-theme')
         },
     })),
 ])

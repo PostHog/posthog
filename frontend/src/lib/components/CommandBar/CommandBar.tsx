@@ -9,6 +9,7 @@ import { BarStatus } from './types'
 import './index.scss'
 import { SearchBar } from './SearchBar'
 import { ActionBar } from './ActionBar'
+import { Shortcuts } from './Shortcuts'
 
 interface CommandBarOverlayProps {
     barStatus: BarStatus
@@ -56,7 +57,9 @@ export function CommandBar(): JSX.Element | null {
 
     return (
         <CommandBarOverlay barStatus={barStatus}>
-            {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
+            {barStatus === BarStatus.SHOW_SEARCH && <SearchBar />}
+            {barStatus === BarStatus.SHOW_ACTIONS && <ActionBar />}
+            {barStatus === BarStatus.SHOW_SHORTCUTS && <Shortcuts />}
         </CommandBarOverlay>
     )
 }
