@@ -1,6 +1,6 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Generator, Optional, Union, Iterable
+from typing import Any, Dict, Optional, Union, Iterable
 
 import stripe
 from dlt.common import pendulum
@@ -8,9 +8,7 @@ from pendulum import DateTime
 from dlt.common.typing import TDataItem
 
 
-def pagination(
-    endpoint: str, start_date: Optional[Any] = None, end_date: Optional[Any] = None
-) -> Iterable[TDataItem]:
+def pagination(endpoint: str, start_date: Optional[Any] = None, end_date: Optional[Any] = None) -> Iterable[TDataItem]:
     """
     Retrieves data from an endpoint with pagination.
 
@@ -62,7 +60,5 @@ def stripe_get_data(
     if resource == "Subscription":
         kwargs.update({"status": "all"})
 
-    resource_dict = getattr(stripe, resource).list(
-        created={"gte": start_date, "lt": end_date}, limit=100, **kwargs
-    )
+    resource_dict = getattr(stripe, resource).list(created={"gte": start_date, "lt": end_date}, limit=100, **kwargs)
     return dict(resource_dict)
