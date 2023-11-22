@@ -98,16 +98,17 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                     groupType.name_singular || `${groupType.group_type} group`,
                                     groupType.name_plural || `${groupType.group_type} groups`,
                                 ],
-                                items: groups[groupType.group_type_index].results.map((group) => {
-                                    const { searchTerm } = values
-                                    const displayId = groupDisplayId(group.group_key, group.group_properties)
-                                    return {
-                                        key: group.group_key,
-                                        name: displayId,
-                                        url: urls.group(groupType.group_type_index, group.group_key),
-                                        searchMatch: findSearchTermInItemName(displayId, searchTerm),
-                                    } as BasicListItem
-                                }),
+                                items:
+                                    groups[groupType.group_type_index]?.results.map((group) => {
+                                        const { searchTerm } = values
+                                        const displayId = groupDisplayId(group.group_key, group.group_properties)
+                                        return {
+                                            key: group.group_key,
+                                            name: displayId,
+                                            url: urls.group(groupType.group_type_index, group.group_key),
+                                            searchMatch: findSearchTermInItemName(displayId, searchTerm),
+                                        } as BasicListItem
+                                    }) || [],
                                 loading: groupsLoading[groupType.group_type_index],
                                 // FIXME: Add remote
                             } as SidebarCategory)
