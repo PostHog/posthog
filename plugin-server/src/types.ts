@@ -451,9 +451,10 @@ export enum PluginLogEntryType {
 
 export enum PluginLogLevel {
     Full = 0, // all logs
-    Debug = 1, // all except log
-    Warn = 2, // all except log and info
-    Critical = 3, // only error type and system source
+    Log = 1, // all except debug
+    Info = 2, // all expect log and debug
+    Warn = 3, // all except log, debug and info
+    Critical = 4, // only error type and system source
 }
 
 export interface PluginLogEntry {

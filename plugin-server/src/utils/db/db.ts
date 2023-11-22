@@ -1076,10 +1076,9 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
+        const configuredLogLevel = pluginConfig.plugin?.log_level || PluginLogLevel.Log
 
-        const logLevel = pluginConfig.plugin?.log_level
-
-        if (!shouldStoreLog(logLevel || PluginLogLevel.Full, source, type)) {
+        if (!shouldStoreLog(configuredLogLevel, type)) {
             return
         }
 
