@@ -5,8 +5,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -31,13 +30,9 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element | null {
     const is3000 = useFeatureFlag('POSTHOG_3000')
     const { actionsContainer } = useValues(breadcrumbsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
 
     return (
         <>
-            {}
             {(!is3000 || description) && (
                 <div className="page-title-row flex justify-between" style={style}>
                     <div className="min-w-0">
@@ -54,10 +49,18 @@ export function PageHeader({
                     {!is3000 && <div className="page-buttons">{buttons}</div>}
                 </div>
             )}
-            {is3000 && buttons && actionsContainer && createPortal(buttons, actionsContainer)}
+            {is3000 &&
+                buttons &&
+                actionsContainer &&
+                createPortal(
+                    <Within3000PageHeaderContext.Provider value={is3000}>
+                        {buttons}
+                    </Within3000PageHeaderContext.Provider>,
+                    actionsContainer
+                )}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className={has3000 ? 'hidden' : 'my-4'} />}
+            {delimited && <LemonDivider className={is3000 ? 'hidden' : 'my-4'} />}
         </>
     )
 }
