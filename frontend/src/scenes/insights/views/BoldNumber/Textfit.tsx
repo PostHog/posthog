@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
-export type TextfitProps = React.HTMLAttributes<HTMLDivElement> & {
+export type TextfitProps = {
     min: number
     max: number
     children: string
@@ -10,7 +10,6 @@ export type TextfitProps = React.HTMLAttributes<HTMLDivElement> & {
 export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
     const parentRef = useRef<HTMLDivElement>(null)
     const childRef = useRef<HTMLDivElement>(null)
-
     const fontSizeRef = useRef<number>(min)
 
     let resizeTimer: NodeJS.Timeout

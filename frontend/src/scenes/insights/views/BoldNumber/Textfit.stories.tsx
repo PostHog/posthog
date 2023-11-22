@@ -1,6 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
-import { Textfit } from './Textfit2'
+import { Textfit } from './Textfit'
 
 type Story = StoryObj<typeof Textfit>
 const meta: Meta<typeof Textfit> = {
