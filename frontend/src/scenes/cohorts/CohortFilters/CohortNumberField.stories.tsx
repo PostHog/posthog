@@ -1,10 +1,11 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { CohortNumberField } from './CohortField'
+import { useMountedLogic } from 'kea'
+import { useState } from 'react'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { useMountedLogic } from 'kea'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+
+import { CohortNumberField } from './CohortField'
 
 type Story = StoryObj<typeof CohortNumberField>
 const meta: Meta<typeof CohortNumberField> = {

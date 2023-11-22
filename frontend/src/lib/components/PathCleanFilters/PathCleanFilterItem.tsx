@@ -1,9 +1,9 @@
-import { useState } from 'react'
-
-import { PathCleaningFilter } from '~/types'
 import { LemonSnack } from '@posthog/lemon-ui'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { midEllipsis } from 'lib/utils'
+import { useState } from 'react'
+
+import { PathCleaningFilter } from '~/types'
 
 import { PathRegexPopover } from './PathRegexPopover'
 

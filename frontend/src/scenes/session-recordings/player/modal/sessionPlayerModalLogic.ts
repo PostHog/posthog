@@ -1,6 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
-import { SessionRecordingId, SessionRecordingType } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { SessionRecordingId, SessionRecordingType } from '~/types'
 
 import type { sessionPlayerModalLogicType } from './sessionPlayerModalLogicType'
 

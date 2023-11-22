@@ -1,14 +1,15 @@
+import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { CodeSnippet, Language } from '../CodeSnippet'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { actions, afterMount, kea, reducers, selectors, useActions, useValues, path } from 'kea'
-import { loaders } from 'kea-loaders'
-import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+
+import { CodeSnippet, Language } from '../CodeSnippet'
+import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
 export function openCHQueriesDebugModal(): void {
     LemonDialog.open({

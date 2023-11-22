@@ -1,9 +1,9 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, ReplayTabs, SessionRecordingType } from '~/types'
-import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
-import { cohortsModel } from '~/models/cohortsModel'
+import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import {
     deletePlaylist,
     duplicatePlaylist,
@@ -11,13 +11,14 @@ import {
     summarizePlaylistFilters,
     updatePlaylist,
 } from 'scenes/session-recordings/playlist/playlistUtils'
-import { loaders } from 'kea-loaders'
+import { urls } from 'scenes/urls'
 
-import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
-import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
-import api from 'lib/api'
+import { cohortsModel } from '~/models/cohortsModel'
+import { Breadcrumb, RecordingFilters, ReplayTabs, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
-import { Scene } from 'scenes/sceneTypes'
+import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
+import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string

@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallFlutterInstructions } from '../sdk-install-instructions'
 
 function FlutterCaptureSnippet(): JSX.Element {

@@ -1,17 +1,19 @@
 import './CohortCriteriaGroups.scss'
-import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
-import clsx from 'clsx'
+import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useActions, useValues } from 'kea'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {

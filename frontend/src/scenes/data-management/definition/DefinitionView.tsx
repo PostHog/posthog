@@ -1,33 +1,35 @@
 import './Definition.scss'
+
+import { TZLabel } from '@posthog/apps-common'
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Divider } from 'antd'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { AvailableFeature, PropertyDefinition } from '~/types'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { combineUrl } from 'kea-router/lib/utils'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { NotFound } from 'lib/components/NotFound'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { getPropertyLabel } from 'lib/taxonomy'
+import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import {
     definitionLogic,
     DefinitionLogicProps,
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { getPropertyLabel } from 'lib/taxonomy'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { NotFound } from 'lib/components/NotFound'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { combineUrl } from 'kea-router/lib/utils'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { NodeKind } from '~/queries/schema'
-import { Query } from '~/queries/Query/Query'
+import { userLogic } from 'scenes/userLogic'
+
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { TZLabel } from '@posthog/apps-common'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { AvailableFeature, PropertyDefinition } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -192,7 +194,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                     />
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     <DefinitionPopover.Grid cols={2}>
                         {isEvent && (
                             <>
@@ -214,11 +216,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             />
                         )}
                     </DefinitionPopover.Grid>
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     {isEvent && definition.id !== 'new' && (
                         <>
                             <EventDefinitionProperties definition={definition} />
-                            <Divider />
+                            <LemonDivider className="my-6" />
                             <div className="definition-matching-events">
                                 <span className="definition-matching-events-header">Matching events</span>
                                 <p className="definition-matching-events-subtext">

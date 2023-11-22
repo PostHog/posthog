@@ -1,14 +1,16 @@
+import { eventWithTime } from '@rrweb/types'
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import type { playerMetaLogicType } from './playerMetaLogicType'
+import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
-    SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { eventWithTime } from '@rrweb/types'
+
 import { PersonType } from '~/types'
-import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
+import type { playerMetaLogicType } from './playerMetaLogicType'
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),

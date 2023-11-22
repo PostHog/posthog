@@ -1,12 +1,12 @@
-import { kea, connect, path, actions, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '../navigationLogic'
-import posthog from 'posthog-js'
 
+import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {

@@ -1,13 +1,14 @@
-import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
-import { useActions, useValues } from 'kea'
-import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { seekbarLogic } from './seekbarLogic'
+import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { dayjs } from 'lib/dayjs'
-import { TZLabel } from '@posthog/apps-common'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { seekbarLogic } from './seekbarLogic'
 
 export function Timestamp(): JSX.Element {
     const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =

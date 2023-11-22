@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconPlus } from 'lib/lemon-ui/icons'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)

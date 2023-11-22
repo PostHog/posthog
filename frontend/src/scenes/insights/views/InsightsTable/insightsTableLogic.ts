@@ -1,7 +1,9 @@
-import { kea, props, path, actions, reducers, selectors } from 'kea'
-import { ChartDisplayType, FilterType } from '~/types'
-import type { insightsTableLogicType } from './insightsTableLogicType'
+import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+
+import { ChartDisplayType, FilterType } from '~/types'
+
+import type { insightsTableLogicType } from './insightsTableLogicType'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 

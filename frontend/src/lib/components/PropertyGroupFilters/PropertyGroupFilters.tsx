@@ -1,17 +1,20 @@
-import { useValues, BindLogic, useActions } from 'kea'
-import { PropertyGroupFilter, PropertyGroupFilterValue, FilterType, AnyPropertyFilter } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import './PropertyGroupFilters.scss'
-import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
-import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
+
+import { BindLogic, useActions, useValues } from 'kea'
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import React from 'react'
-import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { AnyPropertyFilter, FilterType, PropertyGroupFilter, PropertyGroupFilterValue } from '~/types'
+
+import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
+import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 interface PropertyGroupFilters {
     value: PropertyGroupFilter

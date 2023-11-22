@@ -1,12 +1,14 @@
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { inAppPromptLogic, PromptConfig, PromptUserState } from './inAppPromptLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { useMocks } from '~/mocks/jest'
+import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
+import { inAppPromptLogic, PromptConfig, PromptUserState } from './inAppPromptLogic'
 
 const configProductTours: PromptConfig & { state: PromptUserState } = {
     sequences: [

@@ -1,14 +1,16 @@
-import { debugSceneLogic } from './debugSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
-import { stringifiedExamples } from '~/queries/examples'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { HogQLQuery } from '~/queries/schema'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { stringifiedExamples } from '~/queries/examples'
+import { Query } from '~/queries/Query/Query'
+import { HogQLQuery } from '~/queries/schema'
+
+import { debugSceneLogic } from './debugSceneLogic'
 
 interface QueryDebugProps {
     queryKey: string

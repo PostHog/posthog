@@ -1,29 +1,32 @@
-import { kea, path, props, key, connect, selectors, actions, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { BIN_COUNT_AUTO } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { average, percentage, sum } from 'lib/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { groupsModel, Noun } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema'
+import { isFunnelsQuery } from '~/queries/utils'
 import {
+    FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
+    FunnelConversionWindow,
+    FunnelConversionWindowTimeUnit,
     FunnelResultType,
-    FunnelVizType,
     FunnelStepReference,
+    FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
+    FunnelsTimeConversionBins,
+    FunnelTimeConversionMetrics,
+    FunnelVizType,
+    HistogramGraphDatum,
     InsightLogicProps,
     StepOrderValue,
-    FunnelStepWithConversionMetrics,
-    FlattenedFunnelStepByBreakdown,
-    FunnelsTimeConversionBins,
-    HistogramGraphDatum,
-    FunnelAPIResponse,
-    FunnelTimeConversionMetrics,
     TrendResult,
-    FunnelConversionWindowTimeUnit,
-    FunnelConversionWindow,
 } from '~/types'
-import { NodeKind } from '~/queries/schema'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { isFunnelsQuery } from '~/queries/utils'
-import { percentage, sum, average } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
 import {
     aggregateBreakdownResult,
     aggregationLabelForHogQL,
@@ -35,8 +38,6 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
-import { BIN_COUNT_AUTO } from 'lib/constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 

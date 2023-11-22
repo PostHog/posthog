@@ -1,19 +1,19 @@
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import {
-    IconShowChart,
-    IconCumulativeChart,
-    IconBarChart,
-    IconAreaChart,
     Icon123,
+    IconAreaChart,
+    IconBarChart,
+    IconCumulativeChart,
     IconPieChart,
-    IconTableChart,
     IconPublic,
+    IconShowChart,
+    IconTableChart,
 } from 'lib/lemon-ui/icons'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartDisplayType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function ChartFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

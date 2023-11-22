@@ -1,20 +1,22 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { actionsModel } from '~/models/actionsModel'
-import type { actionEditLogicType } from './actionEditLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import { beforeUnload, router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { Link } from 'lib/lemon-ui/Link'
-import { tagsModel } from '~/models/tagsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { actionsModel } from '~/models/actionsModel'
+import { tagsModel } from '~/models/tagsModel'
+import { ActionStepType, ActionType } from '~/types'
+
+import type { actionEditLogicType } from './actionEditLogicType'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>

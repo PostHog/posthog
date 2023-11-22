@@ -1,14 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from './trendsDataLogic'
 
-import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
-import { trendResult, trendPieResult, lifecycleResult } from './__mocks__/trendsDataLogicMocks'
+import { initKeaTests } from '~/test/init'
+import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
+
+import { lifecycleResult, trendPieResult, trendResult } from './__mocks__/trendsDataLogicMocks'
+import { trendsDataLogic } from './trendsDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>

@@ -144,6 +144,7 @@ jobs:
                   HOME: /root
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 

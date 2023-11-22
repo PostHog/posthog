@@ -1,8 +1,8 @@
-import { Select } from 'antd'
 // eslint-disable-next-line no-restricted-imports
 import { PercentageOutlined } from '@ant-design/icons'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionReferencePicker(): JSX.Element {
