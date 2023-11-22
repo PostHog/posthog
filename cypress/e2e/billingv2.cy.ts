@@ -8,7 +8,7 @@ describe('Billing', () => {
 
         cy.visit('/organization/billing')
 
-        cy.intercept('POST', '**/e/*').as('capture')
+        cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
     })
 
     it('Show and submit unsubscribe survey', () => {
