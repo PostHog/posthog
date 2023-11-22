@@ -71,6 +71,7 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
+            <h1>TESTING CHANGES</h1>
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
                 <div className="flex gap-2 items-center">
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
