@@ -87,8 +87,12 @@ const Filters = (): JSX.Element => {
     )
 }
 
-const Tiles = (): JSX.Element => {
+const Tiles = (): JSX.Element | null => {
     const { tiles } = useValues(webAnalyticsLogic)
+
+    if (!tiles) {
+        return null
+    }
 
     return (
         <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-10">

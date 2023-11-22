@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isNotNil } from 'lib/utils'
+import psl from 'psl'
 
 import {
     NodeKind,
@@ -123,10 +124,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
     reducers({
         webAnalyticsFilters: [
-            initialWebAnalyticsFilter,
+            null as WebAnalyticsPropertyFilters | null,
             {
+                loadInitialFiltersSuccess: (_, { initialFilters }) => {
+                    return initialFilters
+                },
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
+                    if (!oldPropertyFilters) {
+                        oldPropertyFilters = []
+                    }
                     const similarFilterExists = oldPropertyFilters.some(
                         (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
                     )
@@ -239,7 +246,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
-            ): WebDashboardTile[] => {
+            ): WebDashboardTile[] | null => {
+                if (!webAnalyticsFilters) {
+                    return null
+                }
+
                 const dateRange = {
                     date_from: dateFrom,
                     date_to: dateTo,
@@ -731,12 +742,54 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return !!geoIpPluginConfig && geoIpPluginConfig.enabled
             },
         },
+        initialFilters: {
+            _default: null as boolean | null,
+            loadInitialFilters: async (): Promise<WebAnalyticsPropertyFilters> => {
+                // This code guesses which is the marketing domain based on whether it's www or apex. We use this to set
+                // the $host filter's initial state. Later on we'll have this as config that people can set, but for now
+                // we try to do the smart thing without people needing to do anything
+                const params = new URLSearchParams([
+                    ['key', '$host'],
+                    ['event_name', '$pageview'],
+                    ['event_name', '$pageleave'],
+                    ['event_name', '$autocapture'],
+                ])
+                let propertiesResponse: unknown
+                try {
+                    propertiesResponse = await api.get(`api/event/values/?${params}`)
+                } catch {
+                    // ignore
+                }
+                if (!propertiesResponse || !Array.isArray(propertiesResponse) || propertiesResponse.length <= 1) {
+                    return []
+                }
+                const hosts: string[] = propertiesResponse.map((x) => x.name)
+                // at this point we have multiple hosts, pick the ones that are www or apex
+                const wwwOrApex = hosts.filter((host) => {
+                    const parsed = psl.parse(host)
+                    return !parsed.error && (parsed.subdomain == null || parsed.subdomain === 'www')
+                })
+                if (wwwOrApex.length > 0 && wwwOrApex.length !== hosts.length) {
+                    return [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$host',
+                            value: wwwOrApex,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ]
+                } else {
+                    return []
+                }
+            },
+        },
     })),
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
         actions.loadShouldShowGeographyTile()
+        actions.loadInitialFilters()
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
