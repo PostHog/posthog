@@ -236,8 +236,9 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         if node.select:
+            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
+            # each unique alias name. Then make the last hidden aliases visible.
             if self.dialect == "clickhouse":
-                # Gather all visible aliases. Make visible the last occurrence of each unique hidden alias.
                 visible_aliases = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
@@ -247,6 +248,7 @@ class _Printer(Visitor):
                 columns = []
                 for column in node.select:
                     if isinstance(column, ast.Alias):
+                        # It's either a visible alias, or the last hidden alias for this name.
                         if visible_aliases.get(column.alias) == column:
                             if column.hidden:
                                 if (
@@ -254,12 +256,19 @@ class _Printer(Visitor):
                                     and isinstance(column.expr.type, ast.FieldType)
                                     and column.expr.type.name == column.alias
                                 ):
-                                    # Unhide if really the same name for the field and the alias
+                                    # Hide the hidden alias only if it's a simple field,
+                                    # and we're using the same name for the field and the alias
+                                    # E.g. events.event AS event --> events.evnet.
                                     column = column.expr
                                 else:
+                                    # Make the hidden alias visible
                                     column = cast(ast.Alias, clone_expr(column))
                                     column.hidden = False
+                            else:
+                                # Always print visible aliases.
+                                pass
                         else:
+                            # This is not the alias for this unique alias name. Skip it.
                             column = column.expr
                     columns.append(self.visit(column))
             else:
@@ -842,6 +851,7 @@ class _Printer(Visitor):
         raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
+        # Skip hidden aliases completely.
         if node.hidden:
             return self.visit(node.expr)
         expr = node.expr

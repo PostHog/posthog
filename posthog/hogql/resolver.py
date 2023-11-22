@@ -127,7 +127,7 @@ class Resolver(CloningVisitor):
             else:
                 select_nodes.append(new_expr)
 
-        columns_with_explicit_alias = {}
+        columns_with_visible_alias = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
@@ -139,14 +139,14 @@ class Resolver(CloningVisitor):
                 alias = None
 
             if alias:
-                # Remember the first visible or last hidden expr for each alias
+                # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
-                    if alias not in node_type.columns or not columns_with_explicit_alias.get(alias, False):
+                    if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
                         node_type.columns[alias] = new_expr.type
-                        columns_with_explicit_alias[alias] = False
+                        columns_with_visible_alias[alias] = False
                 else:
                     node_type.columns[alias] = new_expr.type
-                    columns_with_explicit_alias[alias] = True
+                    columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
