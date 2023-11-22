@@ -105,7 +105,7 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
 
 // This is for actual Storybook users
 export const Library: LibraryType = LibraryTemplate.bind({})
-Library.parameters = { testOptions: { skip: true } }
+Library.tags = ['autodocs', 'test-skip']
 
 // These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
 // of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.

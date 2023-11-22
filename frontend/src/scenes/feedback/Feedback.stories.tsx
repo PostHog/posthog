@@ -12,11 +12,11 @@ import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Feedback',
+    tags: ['test-skip'], // FIXME: Use mockdate in this story
     parameters: {
         layout: 'fullscreen',
         testOptions: {
             excludeNavigationFromSnapshot: true,
-            skip: true, // FIXME: Use mockdate in this story
         },
         viewMode: 'story',
         // Might need to add a mockdate here, however when I do it breaks the page

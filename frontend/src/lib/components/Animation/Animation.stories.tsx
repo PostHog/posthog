@@ -12,7 +12,6 @@ const meta: Meta<typeof Animation> = {
                     'Animations are [LottieFiles.com](https://lottiefiles.com/) animations that we load asynchronously.',
             },
         },
-        testOptions: { skip: true }, // Animations aren't particularly snapshotable
     },
     argTypes: {
         size: {
@@ -25,7 +24,7 @@ const meta: Meta<typeof Animation> = {
             control: { type: 'radio' },
         },
     },
-    tags: ['autodocs'],
+    tags: ['autodocs', 'test-skip'], // Animations aren't particularly snapshotable
 }
 export default meta
 

@@ -1,4 +1,5 @@
 import './BoldNumber.scss'
+import './BoldNumber.scss'
 
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -8,6 +9,7 @@ import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'l
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
+import React from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -19,7 +21,7 @@ import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
 import { ensureTooltip } from '../LineGraph/LineGraph'
-import Textfit from './Textfit'
+import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -94,29 +96,29 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit min={32} max={120}>
-                <div
-                    className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
-                    onClick={
-                        // != is intentional to catch undefined too
-                        showPersonsModal && resultSeries.aggregated_value != null
-                            ? () => {
-                                  if (resultSeries.persons?.url) {
-                                      openPersonsModal({
-                                          url: resultSeries.persons?.url,
-                                          title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
-                                      })
-                                  }
+            <div
+                className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                onClick={
+                    // != is intentional to catch undefined too
+                    showPersonsModal && resultSeries.aggregated_value != null
+                        ? () => {
+                              if (resultSeries.persons?.url) {
+                                  openPersonsModal({
+                                      url: resultSeries.persons?.url,
+                                      title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
+                                  })
                               }
-                            : undefined
-                    }
-                    onMouseLeave={() => setIsTooltipShown(false)}
-                    ref={valueRef}
-                    onMouseEnter={() => setIsTooltipShown(true)}
-                >
+                          }
+                        : undefined
+                }
+                onMouseLeave={() => setIsTooltipShown(false)}
+                ref={valueRef}
+                onMouseEnter={() => setIsTooltipShown(true)}
+            >
+                <Textfit min={32} max={120}>
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
-                </div>
-            </Textfit>
+                </Textfit>
+            </div>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
         </div>
     ) : (

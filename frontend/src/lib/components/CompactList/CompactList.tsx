@@ -29,7 +29,7 @@ export function CompactList({
                 <h3>{title}</h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
-            <div className="spacer-container">
+            <div className="mx-2">
                 <LemonDivider />
             </div>
             <div className="scrollable-list">

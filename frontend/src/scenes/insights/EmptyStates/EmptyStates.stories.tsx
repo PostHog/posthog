@@ -14,10 +14,10 @@ import funnelOneStep from './funnelOneStep.json'
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Error states',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        testOptions: { skip: true }, // FIXME
     },
 }
 export default meta

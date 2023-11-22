@@ -245,11 +245,7 @@ export const SurveyView: StoryFn = () => {
     }, [])
     return <App />
 }
-SurveyView.parameters = {
-    testOptions: {
-        skip: true, // FIXME: Fix the mocked data so that survey results can actually load
-    },
-}
+SurveyView.tags = ['test-skip'] // FIXME: Fix the mocked data so that survey results can actually load
 
 export const SurveyTemplates: StoryFn = () => {
     useEffect(() => {
