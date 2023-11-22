@@ -14,11 +14,6 @@ declare module '@storybook/types' {
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
-             * Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that).
-             * @default false
-             */
-            skip?: boolean
-            /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              * @default true
              */
@@ -71,18 +66,19 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
-    async postRender(page, context) {
+    async postVisit(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
-        const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
+        const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
-        if (!skip) {
-            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
-            if (snapshotBrowsers.includes(currentBrowser)) {
-                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
-            }
+        const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
+        if (snapshotBrowsers.includes(currentBrowser)) {
+            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
+    },
+    tags: {
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 

@@ -1,14 +1,14 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
+import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { notificationsLogicType } from './notificationsLogicType'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 const MARK_READ_TIMEOUT = 2500
@@ -55,9 +55,9 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     clearTimeout(values.pollTimeout)
 
                     try {
-                        const response = (await api.get(
+                        const response = await api.get<ChangesResponse>(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
-                        )) as ChangesResponse
+                        )
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
@@ -115,14 +115,17 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         a.created_at.isAfter(b.created_at) ? a : b
                     ).created_at
                     actions.setMarkReadTimeout(
-                        window.setTimeout(async () => {
-                            await api.create(
-                                `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
-                                {
-                                    bookmark: bookmarkDate.toISOString(),
-                                }
-                            )
-                            actions.markAllAsRead(bookmarkDate.toISOString())
+                        window.setTimeout(() => {
+                            void api
+                                .create(
+                                    `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                                    {
+                                        bookmark: bookmarkDate.toISOString(),
+                                    }
+                                )
+                                .then(() => {
+                                    actions.markAllAsRead(bookmarkDate.toISOString())
+                                })
                         }, MARK_READ_TIMEOUT)
                     )
                 }

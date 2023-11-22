@@ -1,9 +1,11 @@
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { useMocks } from '~/mocks/jest'
-import { InsightShortId, SubscriptionType } from '~/types'
-import { subscriptionLogic } from './subscriptionLogic'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { InsightShortId, SubscriptionType } from '~/types'
+
+import { subscriptionLogic } from './subscriptionLogic'
 
 const Insight1 = '1' as InsightShortId
 

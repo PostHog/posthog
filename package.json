@@ -39,7 +39,7 @@
         "build:esbuild": "node frontend/build.mjs",
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/queries/schema.ts' --no-type-check > frontend/src/queries/schema.json && prettier --write frontend/src/queries/schema.json",
-        "schema:build:python": "datamodel-codegen --class-name='SchemaRoot' --collapse-root-models --disable-timestamp --use-one-literal-as-default --use-default-kwarg --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py --output-model-type pydantic_v2.BaseModel && ruff format posthog/schema.py",
+        "schema:build:python": "datamodel-codegen --class-name='SchemaRoot' --collapse-root-models --disable-timestamp --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py --output-model-type pydantic_v2.BaseModel && ruff format posthog/schema.py",
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
@@ -76,7 +76,7 @@
         "@medv/finder": "^2.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.2.0",
+        "@posthog/icons": "0.4.11",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "^2.0.0-alpha.11",
@@ -136,7 +136,7 @@
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.91.1",
+        "posthog-js": "1.92.1",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -151,7 +151,7 @@
         "react-dom": "^18.2.0",
         "react-draggable": "^4.2.0",
         "react-grid-layout": "^1.3.0",
-        "react-intersection-observer": "^9.4.3",
+        "react-intersection-observer": "^9.5.3",
         "react-markdown": "^5.0.3",
         "react-modal": "^3.15.1",
         "react-resizable": "^3.0.5",
@@ -197,7 +197,7 @@
         "@storybook/csf": "^0.1.1",
         "@storybook/react": "^7.5.1",
         "@storybook/react-webpack5": "^7.5.1",
-        "@storybook/test-runner": "^0.13.0",
+        "@storybook/test-runner": "^0.15.2",
         "@storybook/theming": "^7.5.1",
         "@storybook/types": "^7.5.1",
         "@sucrase/jest-plugin": "^3.0.0",
@@ -251,6 +251,7 @@
         "eslint-plugin-posthog": "link:./eslint-rules",
         "eslint-plugin-prettier": "^5.0.1",
         "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "file-loader": "^6.1.0",
         "givens": "^1.3.6",
@@ -311,7 +312,7 @@
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "ruff format",
-            "ruff check"
+            "ruff check --fix"
         ]
     },
     "browserslist": {

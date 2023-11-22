@@ -2,11 +2,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+
 import { verifyEmailLogic } from './verifyEmailLogic'
-import { SupportModal } from 'lib/components/Support/SupportModal'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
@@ -51,7 +52,7 @@ export function VerifyEmail(): JSX.Element {
     return (
         <div className="flex h-full flex-col">
             <div className="flex h-full">
-                <BridgePage view="verifyEmail" fixedWidth={false} className="VerifyEmailContent">
+                <BridgePage view="verifyEmail" fixedWidth={false}>
                     <div className="px-12 py-8 text-center flex flex-col items-center max-w-200">
                         {view === 'pending' ? (
                             <>

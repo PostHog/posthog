@@ -1,83 +1,77 @@
-// Adapted from https://github.com/malte-wessel/react-textfit
-// which is no longer maintained and does not support React 18
+import { useRef } from 'react'
+import useResizeObserver from 'use-resize-observer'
 
-import { useEffect, useRef, useState } from 'react'
-
-// Calculate width without padding.
-const innerWidth = (el: HTMLDivElement): number => {
-    const style = window.getComputedStyle(el, null)
-    // Hidden iframe in Firefox returns null, https://github.com/malte-wessel/react-textfit/pull/34
-    if (!style) {
-        return el.clientWidth
-    }
-
-    return (
-        el.clientWidth -
-        parseInt(style.getPropertyValue('padding-left'), 10) -
-        parseInt(style.getPropertyValue('padding-right'), 10)
-    )
+export type TextfitProps = {
+    min: number
+    max: number
+    children: string
 }
 
-const assertElementFitsWidth = (el: HTMLDivElement, width: number): boolean => el.scrollWidth - 1 <= width
-
-const Textfit = ({ min, max, children }: { min: number; max: number; children: React.ReactNode }): JSX.Element => {
+export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
     const parentRef = useRef<HTMLDivElement>(null)
     const childRef = useRef<HTMLDivElement>(null)
-
-    const [fontSize, setFontSize] = useState<number>()
+    const fontSizeRef = useRef<number>(min)
 
     let resizeTimer: NodeJS.Timeout
 
-    const handleWindowResize = (): void => {
-        clearTimeout(resizeTimer)
-        resizeTimer = setTimeout(() => {
-            const el = parentRef.current
-            const wrapper = childRef.current
-
-            if (el && wrapper) {
-                const originalWidth = innerWidth(el)
-
-                let mid
-                let low = min
-                let high = max
-
-                while (low <= high) {
-                    mid = Math.floor((low + high) / 2)
-                    setFontSize(mid)
-
-                    if (assertElementFitsWidth(wrapper, originalWidth)) {
-                        low = mid + 1
-                    } else {
-                        high = mid - 1
-                    }
-                }
-                mid = Math.min(low, high)
-
-                // Ensure we hit the user-supplied limits
-                mid = Math.max(mid, min)
-                mid = Math.min(mid, max)
-
-                setFontSize(mid)
-            }
-        }, 10)
+    const updateFontSize = (size: number): void => {
+        fontSizeRef.current = size
+        childRef.current!.style.fontSize = `${size}px`
     }
 
-    useEffect(() => {
-        window.addEventListener('resize', handleWindowResize)
-        return () => window.removeEventListener('resize', handleWindowResize)
-    }, [])
+    const handleResize = (): void => {
+        clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => {
+            const parent = parentRef.current
+            const child = childRef.current
 
-    useEffect(() => handleWindowResize(), [parentRef, childRef])
+            if (!parent || !child) {
+                return
+            }
+
+            let mid
+            let low = min
+            let high = max
+
+            while (low <= high) {
+                mid = Math.floor((low + high) / 2)
+                updateFontSize(mid)
+                const childRect = child.getBoundingClientRect()
+                const parentRect = parent.getBoundingClientRect()
+
+                const childFitsParent = childRect.width <= parentRect.width && childRect.height <= parentRect.height
+
+                if (childFitsParent) {
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            mid = Math.min(low, high)
+
+            // Ensure we hit the user-supplied limits
+            mid = Math.max(mid, min)
+            mid = Math.min(mid, max)
+
+            updateFontSize(mid)
+        }, 50)
+    }
+
+    useResizeObserver<HTMLDivElement>({
+        ref: parentRef,
+        onResize: () => handleResize(),
+    })
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div ref={parentRef} style={{ lineHeight: 1, fontSize: fontSize }}>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div ref={childRef} style={{ whiteSpace: 'nowrap', display: 'inline-block' }}>
+        <div
+            ref={parentRef}
+            className="w-full h-full flex items-center justify-center"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ lineHeight: 1, fontSize: fontSizeRef.current }}
+        >
+            <div ref={childRef} className="whitespace-nowrap">
                 {children}
             </div>
         </div>
     )
 }
-
-export default Textfit

@@ -1,19 +1,37 @@
+import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+
 import { navigation3000Logic } from '../navigationLogic'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
-import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { useRef } from 'react'
+
+export function ThemeIcon(): JSX.Element {
+    const { isDarkModeOn, isThemeSyncedWithSystem } = useValues(themeLogic)
+
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
+
+    return isThemeSyncedWithSystem ? (
+        <div className="relative">
+            {activeThemeIcon}
+            <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
+        </div>
+    ) : (
+        activeThemeIcon
+    )
+}
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -21,12 +39,10 @@ export function Navbar(): JSX.Element {
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed } = useActions(navigation3000Logic)
-    const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
-        useValues(themeLogic)
+    const { darkModeSavedPreference, darkModeSystemPreference } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
+    const { toggleSearchBar } = useActions(commandBarLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -66,16 +82,14 @@ export function Navbar(): JSX.Element {
                 <div className="Navbar3000__bottom">
                     <ul>
                         <NavbarButton
-                            icon={
-                                isThemeSyncedWithSystem ? (
-                                    <div className="relative">
-                                        {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
-                                    </div>
-                                ) : (
-                                    activeThemeIcon
-                                )
-                            }
+                            identifier="search-button"
+                            icon={<IconSearch />}
+                            title="Search"
+                            onClick={toggleSearchBar}
+                            keyboardShortcut={{ command: true, k: true }}
+                        />
+                        <NavbarButton
+                            icon={<ThemeIcon />}
                             identifier="theme-button"
                             title={
                                 darkModeSavedPreference === false
@@ -96,6 +110,7 @@ export function Navbar(): JSX.Element {
                             title="Project settings"
                             to={urls.settings('project')}
                         />
+
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}

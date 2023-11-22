@@ -1,8 +1,9 @@
+import { dayjs } from 'lib/dayjs'
+import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
-import { IconClose } from 'lib/lemon-ui/icons'
+
 import { Popover } from '../Popover'
 
 export interface LemonCalendarSelectProps {

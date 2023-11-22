@@ -1,9 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { pluralize } from 'lib/utils'
-import { PluginLogEntryType } from '../../../types'
-import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils'
+
+import { PluginLogEntryType } from '../../../types'
+import { pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
@@ -51,6 +53,7 @@ const columns: LemonTableColumns<Record<string, any>> = [
         title: 'Message',
         key: 'message',
         dataIndex: 'message',
+        render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
     },
 ]
 

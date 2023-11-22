@@ -1,4 +1,27 @@
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    HOGQL_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'scenes/trends/mathsLogic'
+
 import { Noun } from '~/models/groupsModel'
+import {
+    DataTableNode,
+    FunnelsQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TimeToSeeDataWaterfallNode,
+    TrendsQuery,
+} from '~/queries/schema'
 import {
     BaseMathType,
     CohortType,
@@ -12,28 +35,6 @@ import {
     RetentionFilterType,
     TrendsFilterType,
 } from '~/types'
-import {
-    BASE_MATH_DEFINITIONS,
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    HOGQL_MATH_DEFINITIONS,
-    MathCategory,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-} from 'scenes/trends/mathsLogic'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import {
-    DataTableNode,
-    FunnelsQuery,
-    InsightVizNode,
-    LifecycleQuery,
-    NodeKind,
-    PathsQuery,
-    RetentionQuery,
-    StickinessQuery,
-    TimeToSeeDataWaterfallNode,
-    TrendsQuery,
-} from '~/queries/schema'
-import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
 
 const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
     groupTypeIndex != undefined

@@ -1,10 +1,18 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors, connect } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
     PropertyFilterType,
@@ -14,15 +22,10 @@ import {
     SurveyQuestionType,
     SurveyUrlMatchType,
 } from '~/types'
-import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
-import { surveysLogic } from './surveysLogic'
-import { dayjs } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import type { surveyLogicType } from './surveyLogicType'
+import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
@@ -33,7 +36,8 @@ export enum SurveyEditSection {
     Targeting = 'targeting',
 }
 export interface SurveyLogicProps {
-    id: string | 'new'
+    /** Either a UUID or 'new'. */
+    id: string
 }
 
 export interface SurveyMetricsQueries {
@@ -418,7 +422,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             actions.reportSurveyResumed(survey)
         },
-        archiveSurvey: async () => {
+        archiveSurvey: () => {
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: () => {
@@ -571,10 +575,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): Breadcrumb[] => [
                 {
+                    key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                ...(survey?.name ? [{ name: survey.name }] : []),
+                { key: survey?.id || 'new', name: survey.name },
             ],
         ],
         dataTableQuery: [
@@ -682,7 +687,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // controlled using a PureField in the form
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
-            submit: async (surveyPayload) => {
+            submit: (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
                 if (values.hasTargetingFlag) {
@@ -721,12 +726,12 @@ export const surveyLogic = kea<surveyLogicType>([
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
-    afterMount(async ({ props, actions }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
-            await actions.loadSurvey()
+            actions.loadSurvey()
         }
         if (props.id === 'new') {
-            await actions.resetSurvey()
+            actions.resetSurvey()
         }
     }),
 ])

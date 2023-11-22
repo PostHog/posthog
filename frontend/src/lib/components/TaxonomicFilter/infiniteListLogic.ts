@@ -1,11 +1,9 @@
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
-import type { infiniteListLogicType } from './infiniteListLogicType'
-import { CohortType, EventDefinition } from '~/types'
-import Fuse from 'fuse.js'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     InfiniteListLogicProps,
     ListFuse,
@@ -15,11 +13,15 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { getKeyMapping } from 'lib/taxonomy'
+import { RenderedRows } from 'react-virtualized/dist/es/List'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+
+import { CohortType, EventDefinition } from '~/types'
+
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
  by default the pop-up starts open for the first item in the list

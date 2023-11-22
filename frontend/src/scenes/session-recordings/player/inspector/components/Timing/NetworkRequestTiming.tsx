@@ -1,12 +1,12 @@
-import { PerformanceEvent } from '~/types'
 import { getSeriesColor } from 'lib/colors'
-import { humanFriendlyMilliseconds } from 'lib/utils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useState } from 'react'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyMilliseconds } from 'lib/utils'
+import { useState } from 'react'
+import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
+
+import { PerformanceEvent } from '~/types'
 
 export interface EventPerformanceMeasure {
     start: number
@@ -67,6 +67,8 @@ function colorForSection(section: (typeof perfSections)[number]): string {
     }
 }
 
+type PerformanceMeasures = Record<string, EventPerformanceMeasure>
+
 /**
  * There are defined sections to performance measurement. We may have data for some or all of them
  *
@@ -109,83 +111,112 @@ function colorForSection(section: (typeof perfSections)[number]): string {
  *
  * see https://nicj.net/resourcetiming-in-practice/
  */
-function calculatePerformanceParts(perfEntry: PerformanceEvent): Record<string, EventPerformanceMeasure> {
+export function calculatePerformanceParts(perfEntry: PerformanceEvent): PerformanceMeasures {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
 
-    if (perfEntry.redirect_start && perfEntry.redirect_end) {
-        performanceParts['redirect'] = {
-            start: perfEntry.redirect_start,
-            end: perfEntry.redirect_end,
-            color: colorForSection('redirect'),
-        }
-    }
-
-    if (perfEntry.fetch_start && perfEntry.domain_lookup_start) {
-        performanceParts['app cache'] = {
-            start: perfEntry.fetch_start,
-            end: perfEntry.domain_lookup_start,
-            color: colorForSection('app cache'),
-        }
-    }
-
-    if (perfEntry.domain_lookup_end && perfEntry.domain_lookup_start) {
-        performanceParts['dns lookup'] = {
-            start: perfEntry.domain_lookup_start,
-            end: perfEntry.domain_lookup_end,
-            color: colorForSection('dns lookup'),
-        }
-    }
-
-    if (perfEntry.connect_end && perfEntry.connect_start) {
-        performanceParts['connection time'] = {
-            start: perfEntry.connect_start,
-            end: perfEntry.connect_end,
-            color: colorForSection('connection time'),
-        }
-
-        if (perfEntry.secure_connection_start) {
-            performanceParts['tls time'] = {
-                start: perfEntry.secure_connection_start,
-                end: perfEntry.connect_end,
-                color: colorForSection('tls time'),
-                reducedHeight: true,
+    if (isPresent(perfEntry.redirect_start) && isPresent(perfEntry.redirect_end)) {
+        if (perfEntry.redirect_end - perfEntry.redirect_start > 0) {
+            performanceParts['redirect'] = {
+                start: perfEntry.redirect_start,
+                end: perfEntry.redirect_end,
+                color: colorForSection('redirect'),
             }
         }
     }
 
-    if (perfEntry.connect_end && perfEntry.request_start && perfEntry.connect_end !== perfEntry.request_start) {
-        performanceParts['request queuing time'] = {
-            start: perfEntry.connect_end,
-            end: perfEntry.request_start,
-            color: colorForSection('request queuing time'),
+    if (isPresent(perfEntry.fetch_start) && isPresent(perfEntry.domain_lookup_start)) {
+        if (perfEntry.domain_lookup_start - perfEntry.fetch_start > 0) {
+            performanceParts['app cache'] = {
+                start: perfEntry.fetch_start,
+                end: perfEntry.domain_lookup_start,
+                color: colorForSection('app cache'),
+            }
         }
     }
 
-    if (perfEntry.response_start && perfEntry.request_start) {
-        performanceParts['waiting for first byte'] = {
-            start: perfEntry.request_start,
-            end: perfEntry.response_start,
-            color: colorForSection('waiting for first byte'),
+    if (isPresent(perfEntry.domain_lookup_end) && isPresent(perfEntry.domain_lookup_start)) {
+        if (perfEntry.domain_lookup_end - perfEntry.domain_lookup_start > 0) {
+            performanceParts['dns lookup'] = {
+                start: perfEntry.domain_lookup_start,
+                end: perfEntry.domain_lookup_end,
+                color: colorForSection('dns lookup'),
+            }
         }
     }
 
-    if (perfEntry.response_start && perfEntry.response_end) {
-        performanceParts['receiving response'] = {
-            start: perfEntry.response_start,
-            end: perfEntry.response_end,
-            color: colorForSection('receiving response'),
+    if (isPresent(perfEntry.connect_end) && isPresent(perfEntry.connect_start)) {
+        if (perfEntry.connect_end - perfEntry.connect_start > 0) {
+            performanceParts['connection time'] = {
+                start: perfEntry.connect_start,
+                end: perfEntry.connect_end,
+                color: colorForSection('connection time'),
+            }
+
+            if (isPresent(perfEntry.secure_connection_start) && perfEntry.secure_connection_start > 0) {
+                performanceParts['tls time'] = {
+                    start: perfEntry.secure_connection_start,
+                    end: perfEntry.connect_end,
+                    color: colorForSection('tls time'),
+                    reducedHeight: true,
+                }
+            }
         }
     }
 
-    if (perfEntry.response_end && perfEntry.load_event_end) {
-        performanceParts['document processing'] = {
-            start: perfEntry.response_end,
-            end: perfEntry.load_event_end,
-            color: colorForSection('document processing'),
+    if (
+        isPresent(perfEntry.connect_end) &&
+        isPresent(perfEntry.request_start) &&
+        perfEntry.connect_end !== perfEntry.request_start
+    ) {
+        if (perfEntry.request_start - perfEntry.connect_end > 0) {
+            performanceParts['request queuing time'] = {
+                start: perfEntry.connect_end,
+                end: perfEntry.request_start,
+                color: colorForSection('request queuing time'),
+            }
+        }
+    }
+
+    if (isPresent(perfEntry.response_start) && isPresent(perfEntry.request_start)) {
+        if (perfEntry.response_start - perfEntry.request_start > 0) {
+            performanceParts['waiting for first byte'] = {
+                start: perfEntry.request_start,
+                end: perfEntry.response_start,
+                color: colorForSection('waiting for first byte'),
+            }
+        }
+    }
+
+    if (isPresent(perfEntry.response_start) && isPresent(perfEntry.response_end)) {
+        if (perfEntry.response_end - perfEntry.response_start > 0) {
+            // if loading from disk cache then response_start is 0 but fetch_start is not
+            let start = perfEntry.response_start
+            if (perfEntry.response_start === 0 && isPresent(perfEntry.fetch_start)) {
+                start = perfEntry.fetch_start
+            }
+            performanceParts['receiving response'] = {
+                start: start,
+                end: perfEntry.response_end,
+                color: colorForSection('receiving response'),
+            }
+        }
+    }
+
+    if (isPresent(perfEntry.response_end) && isPresent(perfEntry.load_event_end)) {
+        if (perfEntry.load_event_end - perfEntry.response_end > 0) {
+            performanceParts['document processing'] = {
+                start: perfEntry.response_end,
+                end: perfEntry.load_event_end,
+                color: colorForSection('document processing'),
+            }
         }
     }
 
     return performanceParts
+}
+
+function percentage(partDuration: number, totalDuration: number, min: number): number {
+    return Math.min(Math.max(min, (partDuration / totalDuration) * 100), 100)
 }
 
 function percentagesWithinEventRange({
@@ -203,20 +234,20 @@ function percentagesWithinEventRange({
     const partStartRelativeToTimeline = partStart - rangeStart
     const partDuration = partEnd - partStart
 
-    const partPercentage = Math.max(0.1, (partDuration / totalDuration) * 100) //less than 0.1% is not visible
-    const partStartPercentage = (partStartRelativeToTimeline / totalDuration) * 100
+    const partPercentage = percentage(partDuration, totalDuration, 0.1)
+    const partStartPercentage = percentage(partStartRelativeToTimeline, totalDuration, 0)
     return { startPercentage: `${partStartPercentage}%`, widthPercentage: `${partPercentage}%` }
 }
 
-const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
+const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element | null => {
     const rangeStart = performanceEvent.start_time
-    const rangeEnd = performanceEvent.response_end
+    const rangeEnd = performanceEvent.load_event_end ? performanceEvent.load_event_end : performanceEvent.response_end
     if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
-        const performanceParts = calculatePerformanceParts(performanceEvent)
+        const timings = calculatePerformanceParts(performanceEvent)
         return (
             <div className={'font-semibold text-xs'}>
                 {perfSections.map((section) => {
-                    const matchedSection = performanceParts[section]
+                    const matchedSection = timings[section]
                     const start = matchedSection?.start
                     const end = matchedSection?.end
                     const partDuration = end - start
@@ -263,7 +294,7 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
             </div>
         )
     }
-    return <LemonBanner type={'warning'}>Cannot render performance timeline for this request</LemonBanner>
+    return null
 }
 
 const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
@@ -283,11 +314,15 @@ export const NetworkRequestTiming = ({
 }): JSX.Element | null => {
     const [timelineMode, setTimelineMode] = useState<boolean>(true)
 
+    // if timeline view renders null then we fall back to table view
+    const timelineView = timelineMode ? <TimeLineView performanceEvent={performanceEvent} /> : null
+
     return (
         <div className={'flex flex-col space-y-2'}>
             <div className={'flex flex-row justify-end'}>
                 <LemonButton
                     type={'secondary'}
+                    size={'xsmall'}
                     status={'stealth'}
                     onClick={() => setTimelineMode(!timelineMode)}
                     data-attr={`switch-timing-to-${timelineMode ? 'table' : 'timeline'}-view`}
@@ -296,11 +331,11 @@ export const NetworkRequestTiming = ({
                 </LemonButton>
             </div>
             <LemonDivider dashed={true} />
-            {timelineMode ? (
-                <TimeLineView performanceEvent={performanceEvent} />
-            ) : (
-                <TableView performanceEvent={performanceEvent} />
-            )}
+            {timelineMode && timelineView ? timelineView : <TableView performanceEvent={performanceEvent} />}
         </div>
     )
+}
+
+function isPresent(x: number | undefined): x is number {
+    return typeof x === 'number'
 }

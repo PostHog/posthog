@@ -1,12 +1,5 @@
-import {
-    EMPTY_BREAKDOWN_VALUES,
-    getBreakdownStepValues,
-    getIncompleteConversionWindowStartDate,
-    getMeanAndStandardDeviation,
-    getClampedStepRangeFilter,
-    getVisibilityKey,
-    parseDisplayNameForCorrelation,
-} from './funnelUtils'
+import { dayjs } from 'lib/dayjs'
+
 import {
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -15,7 +8,16 @@ import {
     FunnelCorrelationType,
     FunnelExclusion,
 } from '~/types'
-import { dayjs } from 'lib/dayjs'
+
+import {
+    EMPTY_BREAKDOWN_VALUES,
+    getBreakdownStepValues,
+    getClampedStepRangeFilter,
+    getIncompleteConversionWindowStartDate,
+    getMeanAndStandardDeviation,
+    getVisibilityKey,
+    parseDisplayNameForCorrelation,
+} from './funnelUtils'
 
 describe('getMeanAndStandardDeviation', () => {
     const arrayToExpectedValues: [number[], number[]][] = [

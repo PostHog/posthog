@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+
 import { EventType, RecordingEventType } from '~/types'
 
 const meta: Meta<typeof ErrorDisplay> = {

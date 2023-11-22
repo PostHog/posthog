@@ -1,6 +1,7 @@
-import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 import { Meta } from '@storybook/react'
 import { alphabet, range } from 'lib/utils'
+
+import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 
 const DUMMIES: ProfileBubblesProps['people'] = [
     { email: 'michael@posthog.com', name: 'Michael' },

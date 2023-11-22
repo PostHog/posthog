@@ -1,13 +1,13 @@
 // eslint-disable-next-line no-restricted-imports
 import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
-import LocalizedFormat from 'dayjs/plugin/localizedFormat'
-import relativeTime from 'dayjs/plugin/relativeTime'
+import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import quarterOfYear from 'dayjs/plugin/quarterOfYear'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
 import utc from 'dayjs/plugin/utc'
-import duration from 'dayjs/plugin/duration'
-import quarterOfYear from 'dayjs/plugin/quarterOfYear'
 
 // necessary for any localized date formatting to work
 dayjs.extend(LocalizedFormat)
@@ -21,7 +21,7 @@ dayjs.extend(quarterOfYear)
 
 const now = (): Dayjs => dayjs()
 
-export { dayjs, now, isDayjs }
+export { dayjs, isDayjs, now }
 
 /** Parse UTC datetime string using Day.js, taking into account time zone conversion edge cases. */
 export function dayjsUtcToTimezone(
@@ -61,7 +61,6 @@ export function dayjsLocalToTimezone(
 // We could only use types like "dayjs.OpUnitType", causing errors such as:
 // error TS2312: An interface can only extend an object type or intersection of object types with statically known members.
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Dayjs extends DayjsOriginal {}
 
 export type UnitTypeShort = 'd' | 'D' | 'M' | 'y' | 'h' | 'm' | 's' | 'ms'

@@ -1,8 +1,10 @@
-import { InsightLogicProps } from '~/types'
 import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
+
+import { InsightLogicProps } from '~/types'
+
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'

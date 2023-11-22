@@ -1,13 +1,15 @@
 import { useValues } from 'kea'
-import { PluginsSearch } from 'scenes/plugins/PluginsSearch'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
-import { BatchExportsAlternativeWarning } from './components'
-import { InstalledAppsReorderModal } from './InstalledAppsReorderModal'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginsSearch } from 'scenes/plugins/PluginsSearch'
+import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
+
+import { PluginType } from '~/types'
+
 import { AppsTable } from './AppsTable'
 import { AppView } from './AppView'
-import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
-import { PluginType } from '~/types'
+import { BatchExportsAlternativeWarning } from './components'
+import { InstalledAppsReorderModal } from './InstalledAppsReorderModal'
 
 export function AppsTab(): JSX.Element {
     const { sortableEnabledPlugins, unsortableEnabledPlugins, filteredDisabledPlugins, loading } =

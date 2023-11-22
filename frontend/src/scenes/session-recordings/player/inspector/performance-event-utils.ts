@@ -1,10 +1,10 @@
 import { eventWithTime } from '@rrweb/types'
-import posthog from 'posthog-js'
+import { CapturedNetworkRequest } from 'posthog-js'
+
 import { PerformanceEvent } from '~/types'
 
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
 const RRWEB_NETWORK_PLUGIN_NAME = 'rrweb/network@1'
-const IGNORED_POSTHOG_PATHS = ['/s/', '/e/', '/i/v0/e/']
 
 export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceEvent } = {
     // BASE_PERFORMANCE_EVENT_COLUMNS
@@ -58,8 +58,97 @@ export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceE
     40: 'timestamp',
 }
 
+export const RRWebPerformanceEventReverseMapping: Record<string, keyof PerformanceEvent> = {
+    // BASE_PERFORMANCE_EVENT_COLUMNS
+    entryType: 'entry_type',
+    timeOrigin: 'time_origin',
+    name: 'name',
+
+    // RESOURCE_EVENT_COLUMNS
+    startTime: 'start_time',
+    redirectStart: 'redirect_start',
+    redirectEnd: 'redirect_end',
+    workerStart: 'worker_start',
+    fetchStart: 'fetch_start',
+    domainLookupStart: 'domain_lookup_start',
+    domainLookupEnd: 'domain_lookup_end',
+    connectStart: 'connect_start',
+    secureConnectionStart: 'secure_connection_start',
+    connectEnd: 'connect_end',
+    requestStart: 'request_start',
+    responseStart: 'response_start',
+    responseEnd: 'response_end',
+    decodedBodySize: 'decoded_body_size',
+    encodedBodySize: 'encoded_body_size',
+    initiatorType: 'initiator_type',
+    nextHopProtocol: 'next_hop_protocol',
+    renderBlockingStatus: 'render_blocking_status',
+    responseStatus: 'response_status',
+    transferSize: 'transfer_size',
+
+    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
+    largestContentfulPaintElement: 'largest_contentful_paint_element',
+    largestContentfulPaintRenderTime: 'largest_contentful_paint_render_time',
+    largestContentfulPaintLoadTime: 'largest_contentful_paint_load_time',
+    largestContentfulPaintSize: 'largest_contentful_paint_size',
+    largestContentfulPaintId: 'largest_contentful_paint_id',
+    largestContentfulPaintUrl: 'largest_contentful_paint_url',
+
+    // NAVIGATION_EVENT_COLUMNS
+    domComplete: 'dom_complete',
+    domContentLoadedEvent: 'dom_content_loaded_event',
+    domInteractive: 'dom_interactive',
+    loadEventEnd: 'load_event_end',
+    loadEventStart: 'load_event_start',
+    redirectCount: 'redirect_count',
+    navigationType: 'navigation_type',
+    unloadEventEnd: 'unload_event_end',
+    unloadEventStart: 'unload_event_start',
+
+    // Added after v1
+    duration: 'duration',
+    timestamp: 'timestamp',
+
+    //rrweb/network@1
+    isInitial: 'is_initial',
+    requestHeaders: 'request_headers',
+    responseHeaders: 'response_headers',
+    requestBody: 'request_body',
+    responseBody: 'response_body',
+    method: 'method',
+}
+
+export function mapRRWebNetworkRequest(
+    capturedRequest: CapturedNetworkRequest,
+    windowId: string,
+    timestamp: PerformanceEvent['timestamp']
+): PerformanceEvent {
+    const data: Partial<PerformanceEvent> = {
+        timestamp: timestamp,
+        window_id: windowId,
+        raw: capturedRequest,
+    }
+
+    Object.entries(RRWebPerformanceEventReverseMapping).forEach(([key, value]) => {
+        if (key in capturedRequest) {
+            data[value] = capturedRequest[key]
+        }
+    })
+
+    // KLUDGE: this shouldn't be necessary but let's display correctly while we figure out why it is.
+    if (!data.name && 'url' in capturedRequest) {
+        data.name = capturedRequest.url as string | undefined
+    }
+
+    return data as PerformanceEvent
+}
+
 export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
-    const eventsMapping: Record<string, Record<number, PerformanceEvent[]>> = {}
+    // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
+    // apart from during testing, where we might have both
+    // if we have both, we only display posthog/network@1 events
+    const events: PerformanceEvent[] = []
+    const rrwebEvents: PerformanceEvent[] = []
 
     // we could do this in one pass, but it's easier to log missing events
     // when we have all the posthog/network@1 events first
@@ -83,93 +172,27 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                     }
                 })
 
-                // not all performance events have a URL, e.g. some are page events
-                // but, even so, they should have a name and a start time
-                const mappedData = data as PerformanceEvent
-
-                const startTime = Math.round(mappedData.start_time === undefined ? -1 : mappedData.start_time)
-                // we expect the event to always have a name... but we also don't completely trust the internet
-                const eventName = mappedData.name || 'unknown'
-
-                eventsMapping[eventName] = eventsMapping[eventName] || {}
-                eventsMapping[eventName][startTime] = eventsMapping[eventName][startTime] || []
-                eventsMapping[eventName][startTime].push(mappedData)
+                events.push(data as PerformanceEvent)
             }
-        })
-    })
 
-    // now we have all the posthog/network@1 events we can try to match any rrweb/network@1 events
-    Object.entries(snapshotsByWindowId).forEach((snapshotsByWindowId) => {
-        const snapshots = snapshotsByWindowId[1]
-        snapshots.forEach((snapshot: eventWithTime) => {
             if (
                 snapshot.type === 6 && // RRWeb plugin event type
                 snapshot.data.plugin === RRWEB_NETWORK_PLUGIN_NAME
             ) {
                 const payload = snapshot.data.payload as any
+
                 if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
                     return
                 }
 
                 payload.requests.forEach((capturedRequest: any) => {
-                    const matchedURL = eventsMapping[capturedRequest.url]
+                    const data: PerformanceEvent = mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
 
-                    const matchedStartTime = matchedURL ? matchedURL[capturedRequest.startTime] : null
-
-                    if (matchedStartTime && matchedStartTime.length === 1) {
-                        matchedStartTime[0].response_status = capturedRequest.status
-                        matchedStartTime[0].request_headers = capturedRequest.requestHeaders
-                        matchedStartTime[0].request_body = capturedRequest.requestBody
-                        matchedStartTime[0].response_headers = capturedRequest.responseHeaders
-                        matchedStartTime[0].response_body = capturedRequest.responseBody
-                        matchedStartTime[0].method = capturedRequest.method
-                    } else if (matchedStartTime && matchedStartTime.length > 1) {
-                        // find in eventsMapping[capturedRequest.url][capturedRequest.startTime] by matching capturedRequest.endTime and element.response_end
-                        const matchedEndTime = matchedStartTime.find(
-                            (x) =>
-                                typeof x.response_end === 'number' &&
-                                Math.round(x.response_end) === capturedRequest.endTime
-                        )
-                        if (matchedEndTime) {
-                            matchedEndTime.response_status = capturedRequest.status
-                            matchedEndTime.request_headers = capturedRequest.requestHeaders
-                            matchedEndTime.request_body = capturedRequest.requestBody
-                            matchedEndTime.response_headers = capturedRequest.responseHeaders
-                            matchedEndTime.response_body = capturedRequest.responseBody
-                            matchedEndTime.method = capturedRequest.method
-                        } else {
-                            const capturedURL = new URL(capturedRequest.url)
-                            const capturedPath = capturedURL.pathname
-
-                            if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
-                                posthog.capture('Had matches but still could not match rrweb/network@1 event', {
-                                    rrwebNetworkEvent: payload,
-                                    possibleMatches: matchedStartTime,
-                                    totalMatchedURLs: Object.keys(eventsMapping).length,
-                                })
-                            }
-                        }
-                    } else {
-                        const capturedURL = new URL(capturedRequest.url)
-                        const capturedPath = capturedURL.pathname
-                        if (!IGNORED_POSTHOG_PATHS.some((x) => capturedPath === x)) {
-                            posthog.capture('Could not match rrweb/network@1 event', {
-                                rrwebNetworkEvent: payload,
-                                possibleMatches: eventsMapping[capturedRequest.url],
-                                totalMatchedURLs: Object.keys(eventsMapping).length,
-                            })
-                        }
-                    }
+                    rrwebEvents.push(data)
                 })
             }
         })
     })
 
-    // now flatten the eventsMapping into a single array
-    return Object.values(eventsMapping).reduce((acc: PerformanceEvent[], eventsByURL) => {
-        Object.values(eventsByURL).forEach((eventsByTime) => {
-            acc.push(...eventsByTime)
-        })
-        return acc
-    }, [])
+    return events.length ? events : rrwebEvents
 }

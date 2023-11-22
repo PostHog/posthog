@@ -1,10 +1,11 @@
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { useValues, useActions } from 'kea'
-import { deadLetterQueueLogic, DeadLetterQueueTab } from './deadLetterQueueLogic'
-import { userLogic } from 'scenes/userLogic'
-import { MetricsTab } from './MetricsTab'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { deadLetterQueueLogic, DeadLetterQueueTab } from './deadLetterQueueLogic'
+import { MetricsTab } from './MetricsTab'
 
 export const scene: SceneExport = {
     component: DeadLetterQueue,

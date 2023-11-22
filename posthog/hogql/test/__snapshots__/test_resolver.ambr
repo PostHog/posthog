@@ -1,0 +1,2984 @@
+# name: TestResolver.test_asterisk_expander_from_subquery_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "uuid"
+        ]
+        type: {
+          name: "uuid"
+          table_type: {
+            aliases: {}
+            anonymous_tables: []
+            columns: {
+              $group_0: {
+                name: "$group_0"
+                table_type: {
+                  table: {
+                    fields: {
+                      $group_0: {},
+                      $group_1: {},
+                      $group_2: {},
+                      $group_3: {},
+                      $group_4: {},
+                      $session_id: {},
+                      created_at: {},
+                      distinct_id: {},
+                      elements_chain: {},
+                      event: {},
+                      goe_0: {},
+                      goe_1: {},
+                      goe_2: {},
+                      goe_3: {},
+                      goe_4: {},
+                      group_0: {},
+                      group_1: {},
+                      group_2: {},
+                      group_3: {},
+                      group_4: {},
+                      override: {},
+                      override_person_id: {},
+                      pdi: {},
+                      person: {},
+                      person_id: {},
+                      poe: {},
+                      properties: {},
+                      session: {},
+                      team_id: {},
+                      timestamp: {},
+                      uuid: {}
+                    }
+                  }
+                }
+              },
+              $group_1: {
+                name: "$group_1"
+                table_type: <recursion ...>
+              },
+              $group_2: {
+                name: "$group_2"
+                table_type: <recursion ...>
+              },
+              $group_3: {
+                name: "$group_3"
+                table_type: <recursion ...>
+              },
+              $group_4: {
+                name: "$group_4"
+                table_type: <recursion ...>
+              },
+              $session_id: {
+                name: "$session_id"
+                table_type: <recursion ...>
+              },
+              created_at: {
+                name: "created_at"
+                table_type: <recursion ...>
+              },
+              distinct_id: {
+                name: "distinct_id"
+                table_type: <recursion ...>
+              },
+              elements_chain: {
+                name: "elements_chain"
+                table_type: <recursion ...>
+              },
+              event: {
+                name: "event"
+                table_type: <recursion ...>
+              },
+              properties: {
+                name: "properties"
+                table_type: <recursion ...>
+              },
+              timestamp: {
+                name: "timestamp"
+                table_type: <recursion ...>
+              },
+              uuid: {
+                name: "uuid"
+                table_type: <recursion ...>
+              }
+            }
+            ctes: {}
+            tables: {
+              events: <recursion ...>
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "properties"
+        ]
+        type: {
+          name: "properties"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "distinct_id"
+        ]
+        type: {
+          name: "distinct_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "elements_chain"
+        ]
+        type: {
+          name: "elements_chain"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "created_at"
+        ]
+        type: {
+          name: "created_at"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$session_id"
+        ]
+        type: {
+          name: "$session_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_0"
+        ]
+        type: {
+          name: "$group_0"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_1"
+        ]
+        type: {
+          name: "$group_1"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_2"
+        ]
+        type: {
+          name: "$group_2"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_3"
+        ]
+        type: {
+          name: "$group_3"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_4"
+        ]
+        type: {
+          name: "$group_4"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        select: [
+          {
+            chain: [
+              "uuid"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "event"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "properties"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "timestamp"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "distinct_id"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "elements_chain"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "created_at"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$session_id"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$group_0"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$group_1"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$group_2"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$group_3"
+            ]
+            type: <recursion ...>
+          },
+          {
+            chain: [
+              "$group_4"
+            ]
+            type: <recursion ...>
+          }
+        ]
+        select_from: {
+          table: {
+            chain: [
+              "events"
+            ]
+            type: <recursion ...>
+          }
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: [
+        <recursion ...>
+      ]
+      columns: {
+        $group_0: <recursion ...>,
+        $group_1: <recursion ...>,
+        $group_2: <recursion ...>,
+        $group_3: <recursion ...>,
+        $group_4: <recursion ...>,
+        $session_id: <recursion ...>,
+        created_at: <recursion ...>,
+        distinct_id: <recursion ...>,
+        elements_chain: <recursion ...>,
+        event: <recursion ...>,
+        properties: <recursion ...>,
+        timestamp: <recursion ...>,
+        uuid: <recursion ...>
+      }
+      ctes: {}
+      tables: {}
+    }
+  }
+  '
+---
+# name: TestResolver.test_asterisk_expander_select_union
+  '
+  {
+    select: [
+      {
+        chain: [
+          "uuid"
+        ]
+        type: {
+          name: "uuid"
+          table_type: {
+            types: [
+              {
+                aliases: {}
+                anonymous_tables: []
+                columns: {
+                  $group_0: {
+                    name: "$group_0"
+                    table_type: {
+                      table: {
+                        fields: {
+                          $group_0: {},
+                          $group_1: {},
+                          $group_2: {},
+                          $group_3: {},
+                          $group_4: {},
+                          $session_id: {},
+                          created_at: {},
+                          distinct_id: {},
+                          elements_chain: {},
+                          event: {},
+                          goe_0: {},
+                          goe_1: {},
+                          goe_2: {},
+                          goe_3: {},
+                          goe_4: {},
+                          group_0: {},
+                          group_1: {},
+                          group_2: {},
+                          group_3: {},
+                          group_4: {},
+                          override: {},
+                          override_person_id: {},
+                          pdi: {},
+                          person: {},
+                          person_id: {},
+                          poe: {},
+                          properties: {},
+                          session: {},
+                          team_id: {},
+                          timestamp: {},
+                          uuid: {}
+                        }
+                      }
+                    }
+                  },
+                  $group_1: {
+                    name: "$group_1"
+                    table_type: <recursion ...>
+                  },
+                  $group_2: {
+                    name: "$group_2"
+                    table_type: <recursion ...>
+                  },
+                  $group_3: {
+                    name: "$group_3"
+                    table_type: <recursion ...>
+                  },
+                  $group_4: {
+                    name: "$group_4"
+                    table_type: <recursion ...>
+                  },
+                  $session_id: {
+                    name: "$session_id"
+                    table_type: <recursion ...>
+                  },
+                  created_at: {
+                    name: "created_at"
+                    table_type: <recursion ...>
+                  },
+                  distinct_id: {
+                    name: "distinct_id"
+                    table_type: <recursion ...>
+                  },
+                  elements_chain: {
+                    name: "elements_chain"
+                    table_type: <recursion ...>
+                  },
+                  event: {
+                    name: "event"
+                    table_type: <recursion ...>
+                  },
+                  properties: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  },
+                  timestamp: {
+                    name: "timestamp"
+                    table_type: <recursion ...>
+                  },
+                  uuid: {
+                    name: "uuid"
+                    table_type: <recursion ...>
+                  }
+                }
+                ctes: {}
+                tables: {
+                  events: <recursion ...>
+                }
+              },
+              {
+                aliases: {}
+                anonymous_tables: []
+                columns: {
+                  $group_0: {
+                    name: "$group_0"
+                    table_type: {
+                      table: {
+                        fields: {
+                          $group_0: {},
+                          $group_1: {},
+                          $group_2: {},
+                          $group_3: {},
+                          $group_4: {},
+                          $session_id: {},
+                          created_at: {},
+                          distinct_id: {},
+                          elements_chain: {},
+                          event: {},
+                          goe_0: {},
+                          goe_1: {},
+                          goe_2: {},
+                          goe_3: {},
+                          goe_4: {},
+                          group_0: {},
+                          group_1: {},
+                          group_2: {},
+                          group_3: {},
+                          group_4: {},
+                          override: {},
+                          override_person_id: {},
+                          pdi: {},
+                          person: {},
+                          person_id: {},
+                          poe: {},
+                          properties: {},
+                          session: {},
+                          team_id: {},
+                          timestamp: {},
+                          uuid: {}
+                        }
+                      }
+                    }
+                  },
+                  $group_1: {
+                    name: "$group_1"
+                    table_type: <recursion ...>
+                  },
+                  $group_2: {
+                    name: "$group_2"
+                    table_type: <recursion ...>
+                  },
+                  $group_3: {
+                    name: "$group_3"
+                    table_type: <recursion ...>
+                  },
+                  $group_4: {
+                    name: "$group_4"
+                    table_type: <recursion ...>
+                  },
+                  $session_id: {
+                    name: "$session_id"
+                    table_type: <recursion ...>
+                  },
+                  created_at: {
+                    name: "created_at"
+                    table_type: <recursion ...>
+                  },
+                  distinct_id: {
+                    name: "distinct_id"
+                    table_type: <recursion ...>
+                  },
+                  elements_chain: {
+                    name: "elements_chain"
+                    table_type: <recursion ...>
+                  },
+                  event: {
+                    name: "event"
+                    table_type: <recursion ...>
+                  },
+                  properties: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  },
+                  timestamp: {
+                    name: "timestamp"
+                    table_type: <recursion ...>
+                  },
+                  uuid: {
+                    name: "uuid"
+                    table_type: <recursion ...>
+                  }
+                }
+                ctes: {}
+                tables: {
+                  events: <recursion ...>
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "properties"
+        ]
+        type: {
+          name: "properties"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "distinct_id"
+        ]
+        type: {
+          name: "distinct_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "elements_chain"
+        ]
+        type: {
+          name: "elements_chain"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "created_at"
+        ]
+        type: {
+          name: "created_at"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$session_id"
+        ]
+        type: {
+          name: "$session_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_0"
+        ]
+        type: {
+          name: "$group_0"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_1"
+        ]
+        type: {
+          name: "$group_1"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_2"
+        ]
+        type: {
+          name: "$group_2"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_3"
+        ]
+        type: {
+          name: "$group_3"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_4"
+        ]
+        type: {
+          name: "$group_4"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        select_queries: [
+          {
+            select: [
+              {
+                chain: [
+                  "uuid"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "event"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "properties"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "timestamp"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "distinct_id"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "elements_chain"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "created_at"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$session_id"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_0"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_1"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_2"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_3"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_4"
+                ]
+                type: <recursion ...>
+              }
+            ]
+            select_from: {
+              table: {
+                chain: [
+                  "events"
+                ]
+                type: <recursion ...>
+              }
+              type: <recursion ...>
+            }
+            type: <recursion ...>
+          },
+          {
+            select: [
+              {
+                chain: [
+                  "uuid"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "event"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "properties"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "timestamp"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "distinct_id"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "elements_chain"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "created_at"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$session_id"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_0"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_1"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_2"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_3"
+                ]
+                type: <recursion ...>
+              },
+              {
+                chain: [
+                  "$group_4"
+                ]
+                type: <recursion ...>
+              }
+            ]
+            select_from: {
+              table: {
+                chain: [
+                  "events"
+                ]
+                type: <recursion ...>
+              }
+              type: <recursion ...>
+            }
+            type: <recursion ...>
+          }
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: [
+        <recursion ...>
+      ]
+      columns: {
+        $group_0: <recursion ...>,
+        $group_1: <recursion ...>,
+        $group_2: <recursion ...>,
+        $group_3: <recursion ...>,
+        $group_4: <recursion ...>,
+        $session_id: <recursion ...>,
+        created_at: <recursion ...>,
+        distinct_id: <recursion ...>,
+        elements_chain: <recursion ...>,
+        event: <recursion ...>,
+        properties: <recursion ...>,
+        timestamp: <recursion ...>,
+        uuid: <recursion ...>
+      }
+      ctes: {}
+      tables: {}
+    }
+  }
+  '
+---
+# name: TestResolver.test_asterisk_expander_subquery
+  '
+  {
+    select: [
+      {
+        chain: [
+          "a"
+        ]
+        type: {
+          name: "a"
+          table_type: {
+            aliases: {
+              a: {
+                alias: "a"
+                type: {
+                  data_type: "int"
+                }
+              },
+              b: {
+                alias: "b"
+                type: {
+                  data_type: "int"
+                }
+              }
+            }
+            anonymous_tables: []
+            columns: {
+              a: <recursion ...>,
+              b: <recursion ...>
+            }
+            ctes: {}
+            tables: {}
+          }
+        }
+      },
+      {
+        chain: [
+          "b"
+        ]
+        type: {
+          name: "b"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        select: [
+          {
+            alias: "a"
+            expr: {
+              type: <recursion ...>
+              value: 1
+            }
+            type: <recursion ...>
+          },
+          {
+            alias: "b"
+            expr: {
+              type: <recursion ...>
+              value: 2
+            }
+            type: <recursion ...>
+          }
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: [
+        <recursion ...>
+      ]
+      columns: {
+        a: <recursion ...>,
+        b: <recursion ...>
+      }
+      ctes: {}
+      tables: {}
+    }
+  }
+  '
+---
+# name: TestResolver.test_asterisk_expander_subquery_alias
+  '
+  {
+    select: [
+      {
+        chain: [
+          "a"
+        ]
+        type: {
+          name: "a"
+          table_type: {
+            alias: "x"
+            select_query_type: {
+              aliases: {
+                a: {
+                  alias: "a"
+                  type: {
+                    data_type: "int"
+                  }
+                },
+                b: {
+                  alias: "b"
+                  type: {
+                    data_type: "int"
+                  }
+                }
+              }
+              anonymous_tables: []
+              columns: {
+                a: <recursion ...>,
+                b: <recursion ...>
+              }
+              ctes: {}
+              tables: {}
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "b"
+        ]
+        type: {
+          name: "b"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "x"
+      table: {
+        select: [
+          {
+            alias: "a"
+            expr: {
+              type: <recursion ...>
+              value: 1
+            }
+            type: <recursion ...>
+          },
+          {
+            alias: "b"
+            expr: {
+              type: <recursion ...>
+              value: 2
+            }
+            type: <recursion ...>
+          }
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        a: <recursion ...>,
+        b: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        x: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_asterisk_expander_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "uuid"
+        ]
+        type: {
+          name: "uuid"
+          table_type: {
+            table: {
+              fields: {
+                $group_0: {},
+                $group_1: {},
+                $group_2: {},
+                $group_3: {},
+                $group_4: {},
+                $session_id: {},
+                created_at: {},
+                distinct_id: {},
+                elements_chain: {},
+                event: {},
+                goe_0: {},
+                goe_1: {},
+                goe_2: {},
+                goe_3: {},
+                goe_4: {},
+                group_0: {},
+                group_1: {},
+                group_2: {},
+                group_3: {},
+                group_4: {},
+                override: {},
+                override_person_id: {},
+                pdi: {},
+                person: {},
+                person_id: {},
+                poe: {},
+                properties: {},
+                session: {},
+                team_id: {},
+                timestamp: {},
+                uuid: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "properties"
+        ]
+        type: {
+          name: "properties"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "distinct_id"
+        ]
+        type: {
+          name: "distinct_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "elements_chain"
+        ]
+        type: {
+          name: "elements_chain"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "created_at"
+        ]
+        type: {
+          name: "created_at"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$session_id"
+        ]
+        type: {
+          name: "$session_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_0"
+        ]
+        type: {
+          name: "$group_0"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_1"
+        ]
+        type: {
+          name: "$group_1"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_2"
+        ]
+        type: {
+          name: "$group_2"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_3"
+        ]
+        type: {
+          name: "$group_3"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_4"
+        ]
+        type: {
+          name: "$group_4"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        $group_0: <recursion ...>,
+        $group_1: <recursion ...>,
+        $group_2: <recursion ...>,
+        $group_3: <recursion ...>,
+        $group_4: <recursion ...>,
+        $session_id: <recursion ...>,
+        created_at: <recursion ...>,
+        distinct_id: <recursion ...>,
+        elements_chain: <recursion ...>,
+        event: <recursion ...>,
+        properties: <recursion ...>,
+        timestamp: <recursion ...>,
+        uuid: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_asterisk_expander_table_alias
+  '
+  {
+    select: [
+      {
+        chain: [
+          "uuid"
+        ]
+        type: {
+          name: "uuid"
+          table_type: {
+            alias: "e"
+            table_type: {
+              table: {
+                fields: {
+                  $group_0: {},
+                  $group_1: {},
+                  $group_2: {},
+                  $group_3: {},
+                  $group_4: {},
+                  $session_id: {},
+                  created_at: {},
+                  distinct_id: {},
+                  elements_chain: {},
+                  event: {},
+                  goe_0: {},
+                  goe_1: {},
+                  goe_2: {},
+                  goe_3: {},
+                  goe_4: {},
+                  group_0: {},
+                  group_1: {},
+                  group_2: {},
+                  group_3: {},
+                  group_4: {},
+                  override: {},
+                  override_person_id: {},
+                  pdi: {},
+                  person: {},
+                  person_id: {},
+                  poe: {},
+                  properties: {},
+                  session: {},
+                  team_id: {},
+                  timestamp: {},
+                  uuid: {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "properties"
+        ]
+        type: {
+          name: "properties"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "distinct_id"
+        ]
+        type: {
+          name: "distinct_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "elements_chain"
+        ]
+        type: {
+          name: "elements_chain"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "created_at"
+        ]
+        type: {
+          name: "created_at"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$session_id"
+        ]
+        type: {
+          name: "$session_id"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_0"
+        ]
+        type: {
+          name: "$group_0"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_1"
+        ]
+        type: {
+          name: "$group_1"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_2"
+        ]
+        type: {
+          name: "$group_2"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_3"
+        ]
+        type: {
+          name: "$group_3"
+          table_type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "$group_4"
+        ]
+        type: {
+          name: "$group_4"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        $group_0: <recursion ...>,
+        $group_1: <recursion ...>,
+        $group_2: <recursion ...>,
+        $group_3: <recursion ...>,
+        $group_4: <recursion ...>,
+        $session_id: <recursion ...>,
+        created_at: <recursion ...>,
+        distinct_id: <recursion ...>,
+        elements_chain: <recursion ...>,
+        event: <recursion ...>,
+        properties: <recursion ...>,
+        timestamp: <recursion ...>,
+        uuid: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_call_type
+  '
+  {
+    select: [
+      {
+        args: [
+          {
+            chain: [
+              "timestamp"
+            ]
+            type: {
+              name: "timestamp"
+              table_type: {
+                table: {
+                  fields: {
+                    $group_0: {},
+                    $group_1: {},
+                    $group_2: {},
+                    $group_3: {},
+                    $group_4: {},
+                    $session_id: {},
+                    created_at: {},
+                    distinct_id: {},
+                    elements_chain: {},
+                    event: {},
+                    goe_0: {},
+                    goe_1: {},
+                    goe_2: {},
+                    goe_3: {},
+                    goe_4: {},
+                    group_0: {},
+                    group_1: {},
+                    group_2: {},
+                    group_3: {},
+                    group_4: {},
+                    override: {},
+                    override_person_id: {},
+                    pdi: {},
+                    person: {},
+                    person_id: {},
+                    poe: {},
+                    properties: {},
+                    session: {},
+                    team_id: {},
+                    timestamp: {},
+                    uuid: {}
+                  }
+                }
+              }
+            }
+          }
+        ]
+        distinct: False
+        name: "max"
+        type: {
+          arg_types: [
+            {
+              data_type: "datetime"
+            }
+          ]
+          name: "max"
+          return_type: {
+            data_type: "unknown"
+          }
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {}
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_boolean_operation_types
+  '
+  {
+    select: [
+      {
+        exprs: [
+          {
+            type: {
+              data_type: "int"
+            }
+            value: 1
+          },
+          {
+            type: {
+              data_type: "int"
+            }
+            value: 1
+          }
+        ]
+        type: {
+          data_type: "bool"
+        }
+      },
+      {
+        exprs: [
+          {
+            type: {
+              data_type: "int"
+            }
+            value: 1
+          },
+          {
+            type: {
+              data_type: "int"
+            }
+            value: 1
+          }
+        ]
+        type: {
+          data_type: "bool"
+        }
+      },
+      {
+        expr: {
+          type: {
+            data_type: "bool"
+          }
+          value: True
+        }
+        type: {
+          data_type: "bool"
+        }
+      }
+    ]
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {}
+      ctes: {}
+      tables: {}
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_constant_type
+  '
+  {
+    select: [
+      {
+        type: {
+          data_type: "int"
+        }
+        value: 1
+      },
+      {
+        type: {
+          data_type: "str"
+        }
+        value: "boo"
+      },
+      {
+        type: {
+          data_type: "bool"
+        }
+        value: True
+      },
+      {
+        type: {
+          data_type: "float"
+        }
+        value: 1.1232
+      },
+      {
+        type: {
+          data_type: "unknown"
+        }
+      },
+      {
+        type: {
+          data_type: "date"
+        }
+        value: 2020-01-10
+      },
+      {
+        type: {
+          data_type: "datetime"
+        }
+        value: 2020-01-10 00:00:00+00:00
+      },
+      {
+        type: {
+          data_type: "uuid"
+        }
+        value: 00000000-0000-4000-8000-000000000000
+      },
+      {
+        type: {
+          data_type: "array"
+          item_type: {
+            data_type: "unknown"
+          }
+        }
+        value: []
+      },
+      {
+        type: {
+          data_type: "array"
+          item_type: {
+            data_type: "int"
+          }
+        }
+        value: [
+          1,
+          2
+        ]
+      },
+      {
+        type: {
+          data_type: "tuple"
+          item_types: [
+            {
+              data_type: "int"
+            },
+            {
+              data_type: "int"
+            },
+            {
+              data_type: "int"
+            }
+          ]
+        }
+        value: (1, 2, 3)
+      }
+    ]
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {}
+      ctes: {}
+      tables: {}
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_events_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            table: {
+              fields: {
+                $group_0: {},
+                $group_1: {},
+                $group_2: {},
+                $group_3: {},
+                $group_4: {},
+                $session_id: {},
+                created_at: {},
+                distinct_id: {},
+                elements_chain: {},
+                event: {},
+                goe_0: {},
+                goe_1: {},
+                goe_2: {},
+                goe_3: {},
+                goe_4: {},
+                group_0: {},
+                group_1: {},
+                group_2: {},
+                group_3: {},
+                group_4: {},
+                override: {},
+                override_person_id: {},
+                pdi: {},
+                person: {},
+                person_id: {},
+                poe: {},
+                properties: {},
+                session: {},
+                team_id: {},
+                timestamp: {},
+                uuid: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "events",
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        timestamp: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+    where: {
+      left: {
+        chain: [
+          "events",
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      }
+      op: "=="
+      right: {
+        type: {
+          data_type: "str"
+        }
+        value: "test"
+      }
+      type: {
+        data_type: "bool"
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_events_table_alias
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            alias: "e"
+            table_type: {
+              table: {
+                fields: {
+                  $group_0: {},
+                  $group_1: {},
+                  $group_2: {},
+                  $group_3: {},
+                  $group_4: {},
+                  $session_id: {},
+                  created_at: {},
+                  distinct_id: {},
+                  elements_chain: {},
+                  event: {},
+                  goe_0: {},
+                  goe_1: {},
+                  goe_2: {},
+                  goe_3: {},
+                  goe_4: {},
+                  group_0: {},
+                  group_1: {},
+                  group_2: {},
+                  group_3: {},
+                  group_4: {},
+                  override: {},
+                  override_person_id: {},
+                  pdi: {},
+                  person: {},
+                  person_id: {},
+                  poe: {},
+                  properties: {},
+                  session: {},
+                  team_id: {},
+                  timestamp: {},
+                  uuid: {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "e",
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        timestamp: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+    where: {
+      left: {
+        chain: [
+          "e",
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      }
+      op: "=="
+      right: {
+        type: {
+          data_type: "str"
+        }
+        value: "test"
+      }
+      type: {
+        data_type: "bool"
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_events_table_column_alias
+  '
+  {
+    select: [
+      {
+        alias: "ee"
+        expr: {
+          chain: [
+            "event"
+          ]
+          type: {
+            name: "event"
+            table_type: {
+              alias: "e"
+              table_type: {
+                table: {
+                  fields: {
+                    $group_0: {},
+                    $group_1: {},
+                    $group_2: {},
+                    $group_3: {},
+                    $group_4: {},
+                    $session_id: {},
+                    created_at: {},
+                    distinct_id: {},
+                    elements_chain: {},
+                    event: {},
+                    goe_0: {},
+                    goe_1: {},
+                    goe_2: {},
+                    goe_3: {},
+                    goe_4: {},
+                    group_0: {},
+                    group_1: {},
+                    group_2: {},
+                    group_3: {},
+                    group_4: {},
+                    override: {},
+                    override_person_id: {},
+                    pdi: {},
+                    person: {},
+                    person_id: {},
+                    poe: {},
+                    properties: {},
+                    session: {},
+                    team_id: {},
+                    timestamp: {},
+                    uuid: {}
+                  }
+                }
+              }
+            }
+          }
+        }
+        type: {
+          alias: "ee"
+          type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "ee"
+        ]
+        type: <recursion ...>
+      },
+      {
+        alias: "e"
+        expr: {
+          chain: [
+            "ee"
+          ]
+          type: <recursion ...>
+        }
+        type: {
+          alias: "e"
+          type: <recursion ...>
+        }
+      },
+      {
+        chain: [
+          "e",
+          "timestamp"
+        ]
+        type: {
+          name: "timestamp"
+          table_type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {
+        e: <recursion ...>,
+        ee: <recursion ...>
+      }
+      anonymous_tables: []
+      columns: {
+        e: <recursion ...>,
+        ee: <recursion ...>,
+        timestamp: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+    where: {
+      left: {
+        chain: [
+          "e",
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: <recursion ...>
+        }
+      }
+      op: "=="
+      right: {
+        type: {
+          data_type: "str"
+        }
+        value: "test"
+      }
+      type: {
+        data_type: "bool"
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_events_table_column_alias_inside_subquery
+  '
+  {
+    select: [
+      {
+        chain: [
+          "b"
+        ]
+        type: {
+          name: "b"
+          table_type: {
+            alias: "e"
+            select_query_type: {
+              aliases: {
+                b: {
+                  alias: "b"
+                  type: {
+                    name: "event"
+                    table_type: {
+                      table: {
+                        fields: {
+                          $group_0: {},
+                          $group_1: {},
+                          $group_2: {},
+                          $group_3: {},
+                          $group_4: {},
+                          $session_id: {},
+                          created_at: {},
+                          distinct_id: {},
+                          elements_chain: {},
+                          event: {},
+                          goe_0: {},
+                          goe_1: {},
+                          goe_2: {},
+                          goe_3: {},
+                          goe_4: {},
+                          group_0: {},
+                          group_1: {},
+                          group_2: {},
+                          group_3: {},
+                          group_4: {},
+                          override: {},
+                          override_person_id: {},
+                          pdi: {},
+                          person: {},
+                          person_id: {},
+                          poe: {},
+                          properties: {},
+                          session: {},
+                          team_id: {},
+                          timestamp: {},
+                          uuid: {}
+                        }
+                      }
+                    }
+                  }
+                },
+                c: {
+                  alias: "c"
+                  type: {
+                    name: "timestamp"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              anonymous_tables: []
+              columns: {
+                b: <recursion ...>,
+                c: <recursion ...>
+              }
+              ctes: {}
+              tables: {
+                events: <recursion ...>
+              }
+            }
+          }
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        select: [
+          {
+            alias: "b"
+            expr: {
+              chain: [
+                "event"
+              ]
+              type: <recursion ...>
+            }
+            type: <recursion ...>
+          },
+          {
+            alias: "c"
+            expr: {
+              chain: [
+                "timestamp"
+              ]
+              type: <recursion ...>
+            }
+            type: <recursion ...>
+          }
+        ]
+        select_from: {
+          table: {
+            chain: [
+              "events"
+            ]
+            type: <recursion ...>
+          }
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        b: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+    where: {
+      left: {
+        chain: [
+          "e",
+          "b"
+        ]
+        type: {
+          name: "b"
+          table_type: <recursion ...>
+        }
+      }
+      op: "=="
+      right: {
+        type: {
+          data_type: "str"
+        }
+        value: "test"
+      }
+      type: {
+        data_type: "bool"
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_lazy_events_pdi_person_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            table: {
+              fields: {
+                $group_0: {},
+                $group_1: {},
+                $group_2: {},
+                $group_3: {},
+                $group_4: {},
+                $session_id: {},
+                created_at: {},
+                distinct_id: {},
+                elements_chain: {},
+                event: {},
+                goe_0: {},
+                goe_1: {},
+                goe_2: {},
+                goe_3: {},
+                goe_4: {},
+                group_0: {},
+                group_1: {},
+                group_2: {},
+                group_3: {},
+                group_4: {},
+                override: {},
+                override_person_id: {},
+                pdi: {},
+                person: {},
+                person_id: {},
+                poe: {},
+                properties: {},
+                session: {},
+                team_id: {},
+                timestamp: {},
+                uuid: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "pdi",
+          "person",
+          "id"
+        ]
+        type: {
+          name: "id"
+          table_type: {
+            field: "person"
+            lazy_join: {
+              from_field: "person_id",
+              join_function: <function>,
+              join_table: {
+                fields: {
+                  created_at: {},
+                  id: {},
+                  is_identified: {},
+                  pdi: {},
+                  properties: {},
+                  team_id: {}
+                }
+              }
+            }
+            table_type: {
+              field: "pdi"
+              lazy_join: {
+                from_field: "distinct_id",
+                join_function: <function>,
+                join_table: {
+                  fields: {
+                    distinct_id: {},
+                    person: {},
+                    person_id: {},
+                    team_id: {}
+                  }
+                }
+              }
+              table_type: <recursion ...>
+            }
+          }
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_lazy_events_pdi_person_table_aliased
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            alias: "e"
+            table_type: {
+              table: {
+                fields: {
+                  $group_0: {},
+                  $group_1: {},
+                  $group_2: {},
+                  $group_3: {},
+                  $group_4: {},
+                  $session_id: {},
+                  created_at: {},
+                  distinct_id: {},
+                  elements_chain: {},
+                  event: {},
+                  goe_0: {},
+                  goe_1: {},
+                  goe_2: {},
+                  goe_3: {},
+                  goe_4: {},
+                  group_0: {},
+                  group_1: {},
+                  group_2: {},
+                  group_3: {},
+                  group_4: {},
+                  override: {},
+                  override_person_id: {},
+                  pdi: {},
+                  person: {},
+                  person_id: {},
+                  poe: {},
+                  properties: {},
+                  session: {},
+                  team_id: {},
+                  timestamp: {},
+                  uuid: {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "e",
+          "pdi",
+          "person",
+          "id"
+        ]
+        type: {
+          name: "id"
+          table_type: {
+            field: "person"
+            lazy_join: {
+              from_field: "person_id",
+              join_function: <function>,
+              join_table: {
+                fields: {
+                  created_at: {},
+                  id: {},
+                  is_identified: {},
+                  pdi: {},
+                  properties: {},
+                  team_id: {}
+                }
+              }
+            }
+            table_type: {
+              field: "pdi"
+              lazy_join: {
+                from_field: "distinct_id",
+                join_function: <function>,
+                join_table: {
+                  fields: {
+                    distinct_id: {},
+                    person: {},
+                    person_id: {},
+                    team_id: {}
+                  }
+                }
+              }
+              table_type: <recursion ...>
+            }
+          }
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_lazy_events_pdi_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            table: {
+              fields: {
+                $group_0: {},
+                $group_1: {},
+                $group_2: {},
+                $group_3: {},
+                $group_4: {},
+                $session_id: {},
+                created_at: {},
+                distinct_id: {},
+                elements_chain: {},
+                event: {},
+                goe_0: {},
+                goe_1: {},
+                goe_2: {},
+                goe_3: {},
+                goe_4: {},
+                group_0: {},
+                group_1: {},
+                group_2: {},
+                group_3: {},
+                group_4: {},
+                override: {},
+                override_person_id: {},
+                pdi: {},
+                person: {},
+                person_id: {},
+                poe: {},
+                properties: {},
+                session: {},
+                team_id: {},
+                timestamp: {},
+                uuid: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "pdi",
+          "person_id"
+        ]
+        type: {
+          name: "person_id"
+          table_type: {
+            field: "pdi"
+            lazy_join: {
+              from_field: "distinct_id",
+              join_function: <function>,
+              join_table: {
+                fields: {
+                  distinct_id: {},
+                  person: {},
+                  person_id: {},
+                  team_id: {}
+                }
+              }
+            }
+            table_type: <recursion ...>
+          }
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        person_id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_lazy_events_pdi_table_aliased
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            alias: "e"
+            table_type: {
+              table: {
+                fields: {
+                  $group_0: {},
+                  $group_1: {},
+                  $group_2: {},
+                  $group_3: {},
+                  $group_4: {},
+                  $session_id: {},
+                  created_at: {},
+                  distinct_id: {},
+                  elements_chain: {},
+                  event: {},
+                  goe_0: {},
+                  goe_1: {},
+                  goe_2: {},
+                  goe_3: {},
+                  goe_4: {},
+                  group_0: {},
+                  group_1: {},
+                  group_2: {},
+                  group_3: {},
+                  group_4: {},
+                  override: {},
+                  override_person_id: {},
+                  pdi: {},
+                  person: {},
+                  person_id: {},
+                  poe: {},
+                  properties: {},
+                  session: {},
+                  team_id: {},
+                  timestamp: {},
+                  uuid: {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "e",
+          "pdi",
+          "person_id"
+        ]
+        type: {
+          name: "person_id"
+          table_type: {
+            field: "pdi"
+            lazy_join: {
+              from_field: "distinct_id",
+              join_function: <function>,
+              join_table: {
+                fields: {
+                  distinct_id: {},
+                  person: {},
+                  person_id: {},
+                  team_id: {}
+                }
+              }
+            }
+            table_type: <recursion ...>
+          }
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        person_id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_lazy_pdi_person_table
+  '
+  {
+    select: [
+      {
+        chain: [
+          "distinct_id"
+        ]
+        type: {
+          name: "distinct_id"
+          table_type: {
+            table: {
+              fields: {
+                distinct_id: {},
+                person: {},
+                person_id: {},
+                team_id: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "person",
+          "id"
+        ]
+        type: {
+          name: "id"
+          table_type: {
+            field: "person"
+            lazy_join: {
+              from_field: "person_id",
+              join_function: <function>,
+              join_table: {
+                fields: {
+                  created_at: {},
+                  id: {},
+                  is_identified: {},
+                  pdi: {},
+                  properties: {},
+                  team_id: {}
+                }
+              }
+            }
+            table_type: <recursion ...>
+          }
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "person_distinct_ids"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        distinct_id: <recursion ...>,
+        id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        person_distinct_ids: <recursion ...>
+      }
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_union_all
+  '
+  {
+    select_queries: [
+      {
+        select: [
+          {
+            chain: [
+              "event"
+            ]
+            type: {
+              name: "event"
+              table_type: {
+                table: {
+                  fields: {
+                    $group_0: {},
+                    $group_1: {},
+                    $group_2: {},
+                    $group_3: {},
+                    $group_4: {},
+                    $session_id: {},
+                    created_at: {},
+                    distinct_id: {},
+                    elements_chain: {},
+                    event: {},
+                    goe_0: {},
+                    goe_1: {},
+                    goe_2: {},
+                    goe_3: {},
+                    goe_4: {},
+                    group_0: {},
+                    group_1: {},
+                    group_2: {},
+                    group_3: {},
+                    group_4: {},
+                    override: {},
+                    override_person_id: {},
+                    pdi: {},
+                    person: {},
+                    person_id: {},
+                    poe: {},
+                    properties: {},
+                    session: {},
+                    team_id: {},
+                    timestamp: {},
+                    uuid: {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            chain: [
+              "timestamp"
+            ]
+            type: {
+              name: "timestamp"
+              table_type: <recursion ...>
+            }
+          }
+        ]
+        select_from: {
+          table: {
+            chain: [
+              "events"
+            ]
+            type: <recursion ...>
+          }
+          type: <recursion ...>
+        }
+        type: {
+          aliases: {}
+          anonymous_tables: []
+          columns: {
+            event: <recursion ...>,
+            timestamp: <recursion ...>
+          }
+          ctes: {}
+          tables: {
+            events: <recursion ...>
+          }
+        }
+      },
+      {
+        select: [
+          {
+            chain: [
+              "event"
+            ]
+            type: {
+              name: "event"
+              table_type: {
+                table: {
+                  fields: {
+                    $group_0: {},
+                    $group_1: {},
+                    $group_2: {},
+                    $group_3: {},
+                    $group_4: {},
+                    $session_id: {},
+                    created_at: {},
+                    distinct_id: {},
+                    elements_chain: {},
+                    event: {},
+                    goe_0: {},
+                    goe_1: {},
+                    goe_2: {},
+                    goe_3: {},
+                    goe_4: {},
+                    group_0: {},
+                    group_1: {},
+                    group_2: {},
+                    group_3: {},
+                    group_4: {},
+                    override: {},
+                    override_person_id: {},
+                    pdi: {},
+                    person: {},
+                    person_id: {},
+                    poe: {},
+                    properties: {},
+                    session: {},
+                    team_id: {},
+                    timestamp: {},
+                    uuid: {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            chain: [
+              "timestamp"
+            ]
+            type: {
+              name: "timestamp"
+              table_type: <recursion ...>
+            }
+          }
+        ]
+        select_from: {
+          table: {
+            chain: [
+              "events"
+            ]
+            type: <recursion ...>
+          }
+          type: <recursion ...>
+        }
+        type: {
+          aliases: {}
+          anonymous_tables: []
+          columns: {
+            event: <recursion ...>,
+            timestamp: <recursion ...>
+          }
+          ctes: {}
+          tables: {
+            events: <recursion ...>
+          }
+        }
+      }
+    ]
+    type: {
+      types: [
+        <recursion ...>,
+        <recursion ...>
+      ]
+    }
+  }
+  '
+---
+# name: TestResolver.test_resolve_virtual_events_poe
+  '
+  {
+    select: [
+      {
+        chain: [
+          "event"
+        ]
+        type: {
+          name: "event"
+          table_type: {
+            table: {
+              fields: {
+                $group_0: {},
+                $group_1: {},
+                $group_2: {},
+                $group_3: {},
+                $group_4: {},
+                $session_id: {},
+                created_at: {},
+                distinct_id: {},
+                elements_chain: {},
+                event: {},
+                goe_0: {},
+                goe_1: {},
+                goe_2: {},
+                goe_3: {},
+                goe_4: {},
+                group_0: {},
+                group_1: {},
+                group_2: {},
+                group_3: {},
+                group_4: {},
+                override: {},
+                override_person_id: {},
+                pdi: {},
+                person: {},
+                person_id: {},
+                poe: {},
+                properties: {},
+                session: {},
+                team_id: {},
+                timestamp: {},
+                uuid: {}
+              }
+            }
+          }
+        }
+      },
+      {
+        chain: [
+          "poe",
+          "id"
+        ]
+        type: {
+          name: "id"
+          table_type: {
+            field: "poe"
+            table_type: <recursion ...>
+            virtual_table: {
+              fields: {
+                created_at: {},
+                id: {},
+                properties: {}
+              }
+            }
+          }
+        }
+      }
+    ]
+    select_from: {
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        event: <recursion ...>,
+        id: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        events: <recursion ...>
+      }
+    }
+  }
+  '
+---

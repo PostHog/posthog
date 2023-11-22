@@ -1,6 +1,7 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionLogic`, etc
 
 import {
+    ChartDisplayType,
     FilterType,
     FunnelsFilterType,
     InsightLogicProps,
@@ -10,7 +11,6 @@ import {
     RetentionFilterType,
     StickinessFilterType,
     TrendsFilterType,
-    ChartDisplayType,
 } from '~/types'
 
 /**
@@ -45,7 +45,7 @@ export function filterTrendsClientSideParams(
     return newFilters
 }
 
-export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
+export function isTrendsInsight(insight?: InsightType): boolean {
     return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
 }
 

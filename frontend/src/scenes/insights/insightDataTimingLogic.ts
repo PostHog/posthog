@@ -1,12 +1,13 @@
-import { kea, props, key, path, connect, listeners, reducers, actions } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from './sharedUtils'
 
 import type { insightDataTimingLogicType } from './insightDataTimingLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { keyForInsightLogicProps } from './sharedUtils'
 
 export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
     props({} as InsightLogicProps),
@@ -51,8 +52,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -66,6 +66,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 insight: values.query.kind,
                 is_primary_interaction: true,
             })
+
             actions.removeQuery(payload.queryId)
         },
         loadDataFailure: ({ errorObject }) => {
@@ -75,8 +76,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[errorObject.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: errorObject.queryId,
@@ -90,12 +90,12 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 insight: values.query.kind,
                 is_primary_interaction: true,
             })
+
             actions.removeQuery(errorObject.queryId)
         },
         loadDataCancellation: (payload) => {
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-
-            captureTimeToSeeData(values.currentTeamId, {
+            void captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -107,6 +107,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 api_response_bytes: 0,
                 insight: values.query.kind,
             })
+
             actions.removeQuery(payload.queryId)
         },
     })),

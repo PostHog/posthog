@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
 import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
+import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
+
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrictionLevel> = [
     {

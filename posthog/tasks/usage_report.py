@@ -16,7 +16,6 @@ from typing import (
 )
 
 import requests
-from retry import retry
 import structlog
 from dateutil import parser
 from django.conf import settings
@@ -24,6 +23,7 @@ from django.db import connection
 from django.db.models import Count, Q
 from posthoganalytics.client import Client
 from psycopg2 import sql
+from retry import retry
 from sentry_sdk import capture_exception
 
 from posthog import version_requirement
@@ -604,7 +604,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List
         SELECT team, sum(rows_synced) FROM (
             SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced
             FROM events
-            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN %(begin)s AND %(end)s
+            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND parseDateTimeBestEffort(JSONExtractString(properties, 'startTime')) BETWEEN %(begin)s AND %(end)s
             GROUP BY job_id, team
         )
         GROUP BY team

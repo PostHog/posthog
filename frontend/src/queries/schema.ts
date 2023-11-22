@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -403,6 +404,10 @@ export interface VizSpecificOptions {
         hideSizeColumn?: boolean
         useSmallLayout?: boolean
     }
+    [ChartDisplayType.ActionsPie]?: {
+        disableHoverOffset?: boolean
+        hideAggregation?: boolean
+    }
 }
 
 export interface InsightVizNode extends Node, InsightVizNodeViewProps {
@@ -424,7 +429,6 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
-
     vizSpecificOptions?: VizSpecificOptions
 }
 
@@ -540,6 +544,28 @@ export interface QueryResponse {
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
+}
+
+export type QueryStatus = {
+    id: string
+    /**  @default true */
+    query_async: boolean
+    /**  @asType integer */
+    team_id: number
+    /**  @default false */
+    error: boolean
+    /**  @default false */
+    complete: boolean
+    /**  @default "" */
+    error_message: string
+    results?: any
+    /**  @format date-time */
+    start_time?: string
+    /**  @format date-time */
+    end_time?: string
+    /**  @format date-time */
+    expiration_time?: string
+    task_id?: string
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {

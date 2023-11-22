@@ -1,15 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { Select } from 'antd'
 // eslint-disable-next-line no-restricted-imports
 import { BarsOutlined } from '@ant-design/icons'
+import { Select } from 'antd'
+import { useActions, useValues } from 'kea'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
     label: string
