@@ -4,7 +4,7 @@ import './EmptyStates.scss'
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Button, Empty } from 'antd'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -315,17 +315,19 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <p className="empty-state__description">{description}</p>
                 )}
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Link to={urls.insightNew()}>
-                        <Button
-                            size="large"
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-insight-button"
-                        >
-                            New Insight
-                        </Button>
-                    </Link>
+                    <div className="flex justify-center">
+                        <Link to={urls.insightNew()}>
+                            <LemonButton
+                                size="large"
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<PlusCircleOutlined />}
+                                className="add-insight-button"
+                            >
+                                New Insight
+                            </LemonButton>
+                        </Link>
+                    </div>
                 )}
             </div>
         </div>

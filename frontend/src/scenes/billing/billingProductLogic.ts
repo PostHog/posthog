@@ -1,5 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
+import React from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
 
@@ -9,15 +10,27 @@ import type { billingProductLogicType } from './billingProductLogicType'
 
 const DEFAULT_BILLING_LIMIT = 500
 
+export interface BillingProductLogicProps {
+    product: BillingProductV2Type | BillingProductV2AddonType
+    billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
+}
+
 export const billingProductLogic = kea<billingProductLogicType>([
+    props({} as BillingProductLogicProps),
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug']],
-        actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess', 'deactivateProduct']],
-    }),
-    props({
-        product: {} as BillingProductV2Type | BillingProductV2AddonType,
+        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey']],
+        actions: [
+            billingLogic,
+            [
+                'loadBillingSuccess',
+                'updateBillingLimitsSuccess',
+                'deactivateProduct',
+                'setProductSpecificAlert',
+                'setScrollToProductKey',
+            ],
+        ],
     }),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
@@ -216,6 +229,41 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
+        },
+        setScrollToProductKey: ({ scrollToProductKey }) => {
+            if (scrollToProductKey && scrollToProductKey === props.product.type) {
+                const { currentPlan } = values.currentAndUpgradePlans
+
+                if (currentPlan.initial_billing_limit) {
+                    actions.setProductSpecificAlert({
+                        status: 'warning',
+                        title: 'Billing Limit Automatically Applied',
+                        pathName: '/organization/billing',
+                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
+                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
+                        action: {
+                            onClick: () => {
+                                actions.setIsEditingBillingLimit(true)
+                                setTimeout(() => {
+                                    if (props.billingLimitInputRef?.current) {
+                                        props.billingLimitInputRef?.current.focus()
+                                        props.billingLimitInputRef?.current.scrollIntoView({
+                                            behavior: 'smooth',
+                                            block: 'nearest',
+                                        })
+                                    }
+                                }, 0)
+                            },
+                            children: 'Update billing limit',
+                        },
+                    })
+                }
+            }
+        },
+    })),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            actions.setScrollToProductKey(values.scrollToProductKey)
         },
     })),
 ])

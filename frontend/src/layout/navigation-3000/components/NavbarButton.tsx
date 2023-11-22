@@ -14,6 +14,7 @@ import { navigation3000Logic } from '../navigationLogic'
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
+    sideIcon?: ReactElement
     title?: string
     shortTitle?: string
     tag?: 'alpha' | 'beta'

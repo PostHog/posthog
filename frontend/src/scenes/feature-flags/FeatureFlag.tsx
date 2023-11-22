@@ -16,6 +16,7 @@ import { Field } from 'lib/forms/Field'
 import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -60,7 +61,6 @@ import {
     Resource,
 } from '~/types'
 
-import { organizationLogic } from '../organizationLogic'
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -87,10 +87,17 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
-        useValues(featureFlagLogic)
+    const {
+        props,
+        featureFlag,
+        featureFlagLoading,
+        featureFlagMissing,
+        isEditingFlag,
+        recordingFilterForFlag,
+        newCohortLoading,
+    } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
         useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
@@ -99,8 +106,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
-
-    const { currentOrganization } = useValues(organizationLogic)
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -158,8 +163,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS]) {
         tabs.push({
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
@@ -530,6 +534,58 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                <More
+                                                    loading={newCohortLoading}
+                                                    overlay={
+                                                        <>
+                                                            <LemonButton
+                                                                to={urls.replay(
+                                                                    ReplayTabs.Recent,
+                                                                    recordingFilterForFlag
+                                                                )}
+                                                                fullWidth
+                                                            >
+                                                                View Recordings
+                                                            </LemonButton>
+                                                            {featureFlags[
+                                                                FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION
+                                                            ] && (
+                                                                <LemonButton
+                                                                    loading={newCohortLoading}
+                                                                    onClick={() => {
+                                                                        createStaticCohort()
+                                                                    }}
+                                                                    fullWidth
+                                                                >
+                                                                    Create Cohort
+                                                                </LemonButton>
+                                                            )}
+                                                            <LemonDivider />
+                                                            <LemonButton
+                                                                data-attr="delete-feature-flag"
+                                                                status="danger"
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    deleteFeatureFlag(featureFlag)
+                                                                }}
+                                                                disabledReason={
+                                                                    featureFlagLoading
+                                                                        ? 'Loading...'
+                                                                        : !featureFlag.can_edit
+                                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                                        : (featureFlag.features?.length || 0) > 0
+                                                                        ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                        : (featureFlag.experiment_set?.length || 0) > 0
+                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                        : null
+                                                                }
+                                                            >
+                                                                Delete feature flag
+                                                            </LemonButton>
+                                                        </>
+                                                    }
+                                                />
+                                                <LemonDivider vertical />
                                                 <NotebookSelectButton
                                                     resource={{
                                                         type: NotebookNodeType.FeatureFlag,
@@ -537,34 +593,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     }}
                                                     type="secondary"
                                                 />
-                                                <LemonButton
-                                                    to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
-                                                    type="secondary"
-                                                >
-                                                    View Recordings
-                                                </LemonButton>
-                                                <LemonDivider vertical />
-                                                <LemonButton
-                                                    data-attr="delete-feature-flag"
-                                                    status="danger"
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        deleteFeatureFlag(featureFlag)
-                                                    }}
-                                                    disabledReason={
-                                                        featureFlagLoading
-                                                            ? 'Loading...'
-                                                            : !featureFlag.can_edit
-                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                            : (featureFlag.features?.length || 0) > 0
-                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                            : (featureFlag.experiment_set?.length || 0) > 0
-                                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                            : null
-                                                    }
-                                                >
-                                                    Delete feature flag
-                                                </LemonButton>
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"

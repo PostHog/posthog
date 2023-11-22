@@ -51,8 +51,8 @@
     }
 
     .posthog-3000 & {
-        --lemon-switch-width: 1.5rem;
-        --lemon-switch-height: 0.75rem;
+        --lemon-switch-height: 1.125rem;
+        --lemon-switch-width: calc(11 / 6 * var(--lemon-switch-height)); // Same proportion as in IconToggle
     }
 }
 
@@ -117,7 +117,7 @@
     justify-content: center;
 
     .posthog-3000 & {
-        --lemon-switch-handle-ratio: calc(8 / 10);
+        --lemon-switch-handle-ratio: calc(3 / 4); // Same proportion as in IconToggle
         --lemon-switch-handle-gutter: calc(var(--lemon-switch-height) * calc(1 - var(--lemon-switch-handle-ratio)) / 2);
         --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio));
         --lemon-switch-active-translate: translateX(

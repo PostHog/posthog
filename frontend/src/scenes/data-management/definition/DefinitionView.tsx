@@ -1,7 +1,7 @@
 import './Definition.scss'
 
 import { TZLabel } from '@posthog/apps-common'
-import { Divider } from 'antd'
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router/lib/utils'
@@ -194,7 +194,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                     />
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     <DefinitionPopover.Grid cols={2}>
                         {isEvent && (
                             <>
@@ -216,11 +216,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             />
                         )}
                     </DefinitionPopover.Grid>
-                    <Divider />
+                    <LemonDivider className="my-6" />
                     {isEvent && definition.id !== 'new' && (
                         <>
                             <EventDefinitionProperties definition={definition} />
-                            <Divider />
+                            <LemonDivider className="my-6" />
                             <div className="definition-matching-events">
                                 <span className="definition-matching-events-header">Matching events</span>
                                 <p className="definition-matching-events-subtext">

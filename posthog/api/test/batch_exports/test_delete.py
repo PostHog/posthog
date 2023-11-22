@@ -241,3 +241,48 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient):
         # Make sure we can still get the export with the right user
         response = get_batch_export(client, team.pk, batch_export_id)
         assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db(transaction=True)
+def test_delete_batch_export_even_without_underlying_schedule(client: HttpClient):
+    """Test deleting a BatchExport completes even if underlying Schedule was already deleted."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+        batch_export_id = batch_export["id"]
+
+        handle = temporal.get_schedule_handle(batch_export_id)
+        async_to_sync(handle.delete)()
+
+        with pytest.raises(RPCError):
+            describe_schedule(temporal, batch_export_id)
+
+        delete_batch_export_ok(client, team.pk, batch_export_id)
+
+        response = get_batch_export(client, team.pk, batch_export_id)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    with pytest.raises(RPCError):
+        describe_schedule(temporal, batch_export_id)

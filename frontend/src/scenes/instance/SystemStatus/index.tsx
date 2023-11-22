@@ -1,7 +1,6 @@
 import './index.scss'
 
-import { Link } from '@posthog/lemon-ui'
-import { Alert } from 'antd'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -106,44 +105,35 @@ export function SystemStatus(): JSX.Element {
                     </>
                 }
             />
-            {error && (
-                <Alert
-                    message="Something went wrong"
-                    description={error || <span>An unknown error occurred. Please try again or contact us.</span>}
-                    type="error"
-                    showIcon
-                />
-            )}
-            {siteUrlMisconfigured && (
-                <Alert
-                    message="Misconfiguration detected"
-                    description={
-                        <>
-                            Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
-                            <code>SITE_URL</code> is set to{' '}
-                            <b>
-                                <code>{preflight?.site_url}</code>
-                            </b>{' '}
-                            but you're currently browsing this page from{' '}
-                            <b>
-                                <code>{window.location.origin}</code>
-                            </b>
-                            . In order for PostHog to work properly, please set this to the origin where your instance
-                            is hosted.{' '}
-                            <Link
-                                target="_blank"
-                                targetBlankIcon
-                                to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
-                            >
-                                Learn more
-                            </Link>
-                        </>
-                    }
-                    showIcon
-                    type="warning"
-                    style={{ marginBottom: 32 }}
-                />
-            )}
+            <div className="space-y-2">
+                {error && (
+                    <LemonBanner type="error">
+                        <div>Something went wrong</div>
+                        <div>{error || 'An unknown error occurred. Please try again or contact us.'}</div>
+                    </LemonBanner>
+                )}
+                {siteUrlMisconfigured && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Learn more',
+                            to: 'https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig',
+                        }}
+                    >
+                        Your <code>SITE_URL</code> environment variable seems misconfigured. Your <code>SITE_URL</code>{' '}
+                        is set to{' '}
+                        <b>
+                            <code>{preflight?.site_url}</code>
+                        </b>{' '}
+                        but you're currently browsing this page from{' '}
+                        <b>
+                            <code>{window.location.origin}</code>
+                        </b>
+                        . In order for PostHog to work properly, please set this to the origin where your instance is
+                        hosted.
+                    </LemonBanner>
+                )}
+            </div>
 
             <LemonTabs activeKey={tab} onChange={setTab} tabs={tabs} />
         </div>

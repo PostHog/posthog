@@ -460,6 +460,13 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
+            query = re.sub(
+                r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+                r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
+                query,
+            )
+
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
@@ -467,6 +474,9 @@ class QueryMatchingTest:
         # feature flag conditions use primary keys as columns in queries, so replace those always
         query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+        # replace django cursors
+        query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
         # hog ql checks team ids differently
         query = re.sub(

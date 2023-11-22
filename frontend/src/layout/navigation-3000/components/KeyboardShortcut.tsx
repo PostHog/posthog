@@ -36,11 +36,11 @@ export function KeyboardShortcut({ muted, ...keys }: KeyboardShortcutProps): JSX
     ) as HotKeyOrModifier[]
 
     return (
-        <span className={clsx('KeyboardShortcut', muted && 'KeyboardShortcut--muted')}>
+        <span
+            className={clsx('KeyboardShortcut KeyboardShortcut__key space-x-0.5', muted && 'KeyboardShortcut--muted')}
+        >
             {sortedKeys.map((key) => (
-                <span key={key} className="KeyboardShortcut__key">
-                    {KEY_TO_SYMBOL[key] || key}
-                </span>
+                <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}
         </span>
     )

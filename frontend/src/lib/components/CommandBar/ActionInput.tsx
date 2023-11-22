@@ -11,6 +11,7 @@ import { actionBarLogic } from './actionBarLogic'
 type PrefixIconProps = {
     activeFlow: CommandFlow | null
 }
+
 const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null => {
     if (activeFlow) {
         return <activeFlow.icon className="palette__icon" /> ?? <IconEdit className="palette__icon" />
@@ -26,12 +27,11 @@ export const ActionInput = (): JSX.Element => {
     return (
         <div className="border-b">
             <LemonInput
-                size="small"
                 className="CommandBar__input"
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
-                suffix={<KeyboardShortcut escape muted />}
-                placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
+                suffix={<KeyboardShortcut escape />}
+                placeholder={activeFlow?.instruction ?? 'Run a command…'}
                 autoFocus
                 value={input}
                 onChange={setInput}

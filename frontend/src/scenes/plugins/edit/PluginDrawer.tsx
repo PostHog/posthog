@@ -1,7 +1,7 @@
 import { IconCode } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { Form, Switch } from 'antd'
+import { Form } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
@@ -32,10 +32,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 

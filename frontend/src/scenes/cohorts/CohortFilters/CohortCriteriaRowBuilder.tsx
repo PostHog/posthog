@@ -1,6 +1,6 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { Col, Divider } from 'antd'
+import { Divider } from 'antd'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
@@ -40,7 +40,7 @@ export function CohortCriteriaRowBuilder({
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
-            <Col key={_field.fieldKey ?? i}>
+            <div key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
@@ -48,7 +48,7 @@ export function CohortCriteriaRowBuilder({
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
                 } as CohortFieldProps)}
-            </Col>
+            </div>
         )
     }
 
@@ -97,7 +97,7 @@ export function CohortCriteriaRowBuilder({
                             }}
                         >
                             <>
-                                <Col>
+                                <div>
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
@@ -106,7 +106,7 @@ export function CohortCriteriaRowBuilder({
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
                                     })}
-                                </Col>
+                                </div>
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />

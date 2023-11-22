@@ -6,6 +6,8 @@ import {
     IconHogQL,
     IconLifecycle,
     IconRetention,
+    IconStar,
+    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
@@ -29,8 +31,6 @@ import {
     IconPerson,
     IconPlusMini,
     IconSelectEvents,
-    IconStarFilled,
-    IconStarOutline,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
@@ -431,10 +431,10 @@ export function SavedInsights(): JSX.Element {
                                     insight.favorited ? (
                                         <IconStarFilled className="text-warning" />
                                     ) : (
-                                        <IconStarOutline className="text-muted" />
+                                        <IconStar className="text-muted" />
                                     )
                                 }
-                                tooltip={`${insight.favorited ? 'Add to' : 'Remove from'} favorite insights`}
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (

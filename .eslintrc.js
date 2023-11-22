@@ -42,7 +42,7 @@ module.exports = {
         },
         ecmaVersion: 2018,
         sourceType: 'module',
-        project: 'tsconfig.json'
+        project: 'tsconfig.json',
     },
     plugins: [
         'prettier',
@@ -123,6 +123,11 @@ module.exports = {
                         name: 'antd',
                         importNames: ['Tooltip'],
                         message: 'Please use Tooltip from @posthog/lemon-ui instead.',
+                    },
+                    {
+                        name: 'antd',
+                        importNames: ['Alert'],
+                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
                     },
                 ],
             },
@@ -243,6 +248,10 @@ module.exports = {
                         element: 'a',
                         message: 'use <Link> instead',
                     },
+                    {
+                        element: 'Alert',
+                        message: 'use <LemonBanner> instead',
+                    },
                 ],
             },
         ],
@@ -266,7 +275,7 @@ module.exports = {
             rules: {
                 // The below complains needlessly about expect(api.createInvite).toHaveBeenCalledWith(...)
                 '@typescript-eslint/unbound-method': 'off',
-            }
+            },
         },
         {
             files: ['*Type.ts', '*Type.tsx'], // Kea typegen output

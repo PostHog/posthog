@@ -26,6 +26,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     Breadcrumb,
+    CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
     FeatureFlagGroupType,
@@ -582,6 +583,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        newCohort: [
+            null as CohortType | null,
+            {
+                createStaticCohort: async () => {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                        return (await api.featureFlags.createStaticCohort(props.id)).cohort
+                    }
+                    return null
+                },
+            },
+        ],
         projectsWithCurrentFlag: {
             __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
@@ -791,6 +803,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
+        },
+        createStaticCohortSuccess: ({ newCohort }) => {
+            if (newCohort) {
+                lemonToast.success('Static cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(newCohort.id)),
+                    },
+                })
+            }
         },
     })),
     selectors({

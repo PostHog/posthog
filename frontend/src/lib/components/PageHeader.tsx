@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
@@ -30,6 +32,9 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element | null {
     const is3000 = useFeatureFlag('POSTHOG_3000')
     const { actionsContainer } = useValues(breadcrumbsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
 
     return (
         <>
@@ -53,7 +58,7 @@ export function PageHeader({
             {is3000 && buttons && actionsContainer && createPortal(buttons, actionsContainer)}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className="my-4" />}
+            {delimited && <LemonDivider className={has3000 ? 'hidden' : 'my-4'} />}
         </>
     )
 }
