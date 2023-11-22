@@ -588,6 +588,10 @@ class FeatureFlagMatcher:
                 self.cache.group_type_index_to_name[group_type_index], {}
             )
         for property in properties:
+            # can't locally compute if property is a cohort
+            # need to atleast fetch the cohort
+            if property.type == "cohort":
+                return False
             if property.key not in target_properties:
                 return False
             if property.operator == "is_not_set":
