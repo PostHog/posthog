@@ -1323,6 +1323,14 @@ $decorations: underline, overline, line-through, no-underline;
     visibility: hidden;
 }
 
+.resize {
+    resize: both;
+}
+
+.resize-x {
+    resize: horizontal;
+}
+
 .resize-y {
     resize: vertical;
 }
