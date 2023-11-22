@@ -1,5 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import useIsHovering from 'lib/hooks/useIsHovering'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -10,6 +12,8 @@ import {
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
 } from '../sessionRecordingPlayerLogic'
+
+const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
 
 export type PlayerSeekbarPreviewProps = {
     minMs: number
@@ -68,6 +72,10 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbar
 
     const isHovering = useIsHovering(seekBarRef)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const alwaysShowSeekbarPreview = featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
+    const canShowPreview = alwaysShowSeekbarPreview || maxMs < TWENTY_MINUTES_IN_MS
+
     useEffect(() => {
         if (!seekBarRef?.current) {
             return
@@ -103,12 +111,14 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbar
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <PlayerSeekbarPreviewFrame
-                        minMs={minMs}
-                        maxMs={maxMs}
-                        percentage={percentage}
-                        isVisible={isHovering}
-                    />
+                    {canShowPreview && (
+                        <PlayerSeekbarPreviewFrame
+                            minMs={minMs}
+                            maxMs={maxMs}
+                            percentage={percentage}
+                            isVisible={isHovering}
+                        />
+                    )}
                     <div className="text-center p-2">{content}</div>
                 </div>
             </div>
