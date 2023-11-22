@@ -132,8 +132,6 @@ class SelectQueryType(Type):
 
     # all aliases a select query has access to in its scope
     aliases: Dict[str, FieldAliasType] = field(default_factory=dict)
-    # # fields that may be converted to expressions
-    # expression_fields: Dict[str, "ExpressionFieldType"] = field(default_factory=dict)
     # all types a select query exports
     columns: Dict[str, Type] = field(default_factory=dict)
     # all from and join, tables and subqueries with aliases
