@@ -10,8 +10,9 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
+from posthog.models.filters.mixins.retention import RetentionDateDerivedMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.retention.types import CohortKey
 from posthog.queries.util import correct_result_for_sampling
@@ -19,6 +20,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RetentionQuery,
     RetentionQueryResponse,
+    IntervalType,
 )
 
 
@@ -44,8 +46,11 @@ class RetentionQueryRunner(QueryRunner):
                                              FROM events e
                                              WHERE e.event = '$pageview'
                                                AND notEmpty(e.person_id)
+                                               AND e.timestamp >= {date_from}
+                                               AND e.timestamp <= {date_to}
                                              GROUP BY target, event_date
-            """
+            """,
+            placeholders=self.query_date_range.to_placeholders(),
         )
 
     def target_event_query(self) -> ast.SelectQuery:
@@ -64,6 +69,8 @@ class RetentionQueryRunner(QueryRunner):
                                              WHERE e.event = '$pageview'
                                                AND notEmpty(e.person_id)
                                              GROUP BY target
+                                             HAVING event_date >= {date_from}
+                                                AND event_date <= {date_to}
             """,
             placeholders=self.query_date_range.to_placeholders(),
         )
@@ -138,11 +145,11 @@ class RetentionQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
+        return QueryDateRangeWithIntervals(
+            total_intervals=self.query.retentionFilter.total_intervals,
             team=self.team,
-            interval=None,
-            now=datetime.now(),
+            interval=IntervalType(self.query.retentionFilter.period.lower()),
+            now=datetime.utcnow(),
         )
 
     def _is_stale(self, cached_result_package):
@@ -194,9 +201,9 @@ class RetentionQueryRunner(QueryRunner):
                     result_dict.get(CohortKey((first_day,), day), {"count": 0, "people": []})
                     for day in range(self.query.retentionFilter.total_intervals - first_day)
                 ],
-                "label": "{} {}".format(self.query.retentionFilter.period, first_day),
-                "date": self.query_date_range.date_from(),
-                # + RetentionFilter.determine_time_delta(first_day, filter.period)[0],
+                "label": f"{self.query.retentionFilter.period} {first_day}",
+                "date": self.query_date_range.date_from()
+                + RetentionDateDerivedMixin.determine_time_delta(first_day, self.query.retentionFilter.period)[0],
                 "people_url": "",  # TODO: URL
             }
             for first_day in range(self.query.retentionFilter.total_intervals)

@@ -1,10 +1,11 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Optional, Dict, List
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
+from pydantic_core._pydantic_core import ValidationError
 
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.parser import ast
@@ -179,3 +180,45 @@ class QueryDateRange:
                 right=self.date_to_as_hogql(),
             ),
         ]
+
+
+class QueryDateRangeWithIntervals(QueryDateRange):
+    def __init__(
+        self,
+        total_intervals: int,
+        team: Team,
+        interval: Optional[IntervalType],
+        now: datetime,
+    ) -> None:
+        self._total_intervals = total_intervals
+        self._now_without_timezone = now
+        super().__init__(None, team, interval, now)
+
+    @staticmethod
+    def determine_time_delta(total_intervals: int, period: str) -> timedelta:
+        period_map = {
+            "hour": timedelta(hours=1),
+            "day": timedelta(days=1),
+            "week": timedelta(weeks=1),
+            "month": relativedelta(months=1),
+        }
+
+        if period.lower() not in period_map:
+            raise ValidationError(f"Period {period} is unsupported.")
+
+        return period_map[period.lower()] * total_intervals
+
+    def date_from(self) -> datetime:
+        delta = self.determine_time_delta(self._total_intervals, self._interval.name)
+        date_from = self.now_with_timezone - delta
+        if self.is_hourly:
+            return date_from
+        return date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def date_to(self) -> datetime:
+        delta = self.determine_time_delta(1, self._interval.name)
+        date_to = self.now_with_timezone + delta
+
+        if self.is_hourly:
+            return date_to
+        return date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
