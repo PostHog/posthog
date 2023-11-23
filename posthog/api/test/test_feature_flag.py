@@ -3883,7 +3883,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(14):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -3974,8 +3974,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
-            # need to evaluate flags for person3 using db, because is_set operator can't have defaults added.
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+            # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
         cohort2.refresh_from_db()
