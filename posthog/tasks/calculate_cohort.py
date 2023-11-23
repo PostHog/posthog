@@ -77,4 +77,4 @@ def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
 
-    get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id)
+    get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
