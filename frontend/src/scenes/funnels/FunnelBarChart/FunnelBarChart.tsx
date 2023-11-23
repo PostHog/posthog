@@ -68,7 +68,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
 
     const stepLegendRows = showTime ? 4 : 3
 
-    // rows * (row height + gap between rows) - gap for first row + padding top and bottom
+    // rows * (row height + gap between rows) - no gap for first row + padding top and bottom
     const stepLegendHeightRem = stepLegendRows * (1.5 + 0.25) - 0.25 + 2 * 0.75
     const borderHeightPx = 1
 
