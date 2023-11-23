@@ -19,6 +19,7 @@ export type PlayerSeekbarPreviewProps = {
     minMs: number
     maxMs: number
     seekBarRef: MutableRefObject<HTMLDivElement | null>
+    activeMs: number | null
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -26,7 +27,10 @@ const PlayerSeekbarPreviewFrame = ({
     minMs,
     maxMs,
     isVisible,
-}: { percentage: number; isVisible: boolean } & Omit<PlayerSeekbarPreviewProps, 'seekBarRef'>): JSX.Element => {
+}: { percentage: number; isVisible: boolean } & Omit<
+    PlayerSeekbarPreviewProps,
+    'seekBarRef' | 'activeMs'
+>): JSX.Element => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const seekPlayerLogicProps: SessionRecordingPlayerLogicProps = {
@@ -64,7 +68,7 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbarPreviewProps): JSX.Element {
+export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
@@ -73,8 +77,8 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbar
     const isHovering = useIsHovering(seekBarRef)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const alwaysShowSeekbarPreview = featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
-    const canShowPreview = alwaysShowSeekbarPreview || maxMs < TWENTY_MINUTES_IN_MS
+    const alwaysShowSeekbarPreview = !!featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
+    const canShowPreview = alwaysShowSeekbarPreview || (typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS)
 
     useEffect(() => {
         if (!seekBarRef?.current) {
