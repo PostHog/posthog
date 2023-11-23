@@ -587,7 +587,7 @@ body {
             }
 
             ::-webkit-scrollbar-thumb {
-                border-radius: 0.25rem;
+                border-radius: var(--radius);
                 background: var(--trace-3000);
 
                 &:hover {

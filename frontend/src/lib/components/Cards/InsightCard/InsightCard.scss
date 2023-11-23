@@ -158,7 +158,7 @@
             flex-shrink: 0;
             text-align: center;
             width: 1rem;
-            border-radius: 0.25rem;
+            border-radius: var(--radius);
             margin-right: 0.25rem;
             background: var(--primary-3000);
             color: var(--bg-light);

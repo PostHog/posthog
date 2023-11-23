@@ -155,7 +155,7 @@
             background-color: var(--tick-color);
             padding: 0.25rem 0.5rem;
             font-size: 0.8rem;
-            border-radius: 0.25rem;
+            border-radius: var(--radius);
             transform: translateX(-50%);
             white-space: nowrap;
             color: #fff;

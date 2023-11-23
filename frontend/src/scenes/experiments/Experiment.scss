@@ -67,7 +67,7 @@
             flex-direction: row;
             justify-content: center;
             align-items: center;
-            border-radius: 4px;
+            border-radius: var(--radius);
             color: #fff;
             min-width: 52px;
             padding: 2px 6px;
@@ -150,10 +150,10 @@
         }
 
         .ant-progress-inner {
-            border-radius: 4px;
+            border-radius: var(--radius);
 
             .ant-progress-bg {
-                border-radius: 4px;
+                border-radius: var(--radius);
             }
         }
     }
@@ -199,7 +199,7 @@
 
 .metric-name {
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
     flex: 1;

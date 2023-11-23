@@ -38,7 +38,7 @@
     .RetentionTable__Tab {
         padding: 0.5rem;
         margin: 2px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius);
         text-align: right;
         min-height: 2rem;
         transition: transform 200ms ease-out;

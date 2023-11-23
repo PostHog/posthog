@@ -37,7 +37,7 @@
     margin: 0;
     height: 2rem;
     border: 1px solid var(--border);
-    border-radius: 0.25rem;
+    border-radius: var(--radius);
     background-color: var(--bg-light);
     box-sizing: border-box;
     margin-right: 0.25rem;

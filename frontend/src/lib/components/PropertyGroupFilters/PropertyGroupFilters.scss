@@ -2,7 +2,7 @@
     .property-group {
         background-color: var(--side);
         padding: 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--radius);
     }
 
     .property-group-and-or-separator {
@@ -57,7 +57,7 @@
         margin-right: 12px;
         justify-content: center;
         align-items: center;
-        border-radius: 4px;
+        border-radius: var(--radius);
         background-color: var(--mid);
         color: var(--primary-alt);
         font-size: 12px;
@@ -73,7 +73,7 @@
         padding: 0.5rem;
         margin-left: 0.5rem;
         margin-right: 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--radius);
     }
 
     .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
