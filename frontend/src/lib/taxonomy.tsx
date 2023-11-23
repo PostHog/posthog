@@ -661,6 +661,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'GeoIP Disabled',
             description: `Whether to skip GeoIP processing for the event.`,
         },
+        $el_text: {
+            label: 'Element Text',
+            description: `The text of the element that was clicked. Only sent with Autocapture events.`,
+            examples: ['Click here!'],
+        },
         // NOTE: This is a hack. $session_duration is a session property, not an event property
         // but we don't do a good job of tracking property types, so making it a session property
         // would require a large refactor, and this works (because all properties are treated as
