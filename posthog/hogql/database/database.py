@@ -152,15 +152,15 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
-        database.events.fields["old_person_id"] = StringDatabaseField(name="person_id")
+        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["override"] = LazyJoin(
-            from_field="old_person_id",
+            from_field="event_person_id",
             join_table=PersonOverridesTable(),
             join_function=join_with_person_overrides_table,
         )
         database.events.fields["person_id"] = ExpressionField(
             name="person_id",
-            expr=parse_expr("ifNull(override_person_id, old_person_id)", start=None),
+            expr=parse_expr("ifNull(override.override_person_id, event_person_id)", start=None),
             return_type=UUIDType(),
         )
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
