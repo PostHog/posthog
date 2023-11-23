@@ -147,7 +147,7 @@ export function Login(): JSX.Element {
                             htmlType="submit"
                             data-attr="password-login"
                             fullWidth
-                            type="primary"
+                            type="cta"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
                             {...buttonStyles}

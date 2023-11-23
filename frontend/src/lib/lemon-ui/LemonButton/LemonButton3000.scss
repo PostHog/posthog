@@ -3,7 +3,9 @@
     --transition: opacity 200ms ease, transform 200ms ease;
 
     .LemonButton {
-        border-width: 0;
+        --lemon-button-border-width: 0;
+
+        border-width: var(--lemon-button-border-width);
         border-style: solid;
         border-color: transparent;
         min-height: 2.125rem;
@@ -15,7 +17,6 @@
         cursor: pointer;
 
         .LemonButton__chrome {
-            border-radius: 6px;
             font-size: 0.875rem;
             display: flex;
             flex-direction: row;
@@ -23,8 +24,10 @@
             align-items: center;
             justify-content: flex-start;
             background: none;
+            border-radius: 6px;
             border-style: solid;
             border-color: transparent;
+            border-width: var(--lemon-button-border-width);
             font-weight: 500;
             gap: 0.5rem;
             line-height: 1.5rem;
@@ -129,11 +132,9 @@
         }
 
         &:not(.LemonButton--tertiary) {
-            border-width: 1px;
             padding-bottom: 1px;
 
             .LemonButton__chrome {
-                border-width: 1px;
                 margin: 0 -1px;
                 top: -1px;
             }
@@ -152,7 +153,23 @@
             }
         }
 
+        &.LemonButton--cta {
+            --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
+
+            background: #cd8407;
+            border-color: var(--primary-3000-button-border);
+
+            .LemonButton__chrome {
+                background-color: var(--primary-3000-frame-bg-light);
+                border-color: var(--primary-3000-button-border);
+                color: #111;
+                font-weight: 600;
+            }
+        }
+
         &.LemonButton--primary {
+            --lemon-button-border-width: 1px;
+
             background: var(--primary-3000-frame-bg);
             border-color: var(--primary-3000-frame-border);
 
@@ -170,6 +187,8 @@
         }
 
         &.LemonButton--secondary {
+            --lemon-button-border-width: 1px;
+
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
 
