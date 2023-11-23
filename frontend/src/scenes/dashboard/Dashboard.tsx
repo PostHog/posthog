@@ -1,26 +1,29 @@
-import { useEffect } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import './Dashboard.scss'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { EmptyDashboardComponent } from './EmptyDashboardComponent'
-import { NotFound } from 'lib/components/NotFound'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
-import { SceneExport } from 'scenes/sceneTypes'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
-import { DashboardHeader } from './DashboardHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsModel } from '../../models/groupsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { urls } from 'scenes/urls'
+
 import { IconCalendar } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { NotFound } from 'lib/components/NotFound'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useEffect } from 'react'
+import { DashboardItems } from 'scenes/dashboard/DashboardItems'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
+import { groupsModel } from '../../models/groupsModel'
+import { DashboardHeader } from './DashboardHeader'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
@@ -118,22 +121,20 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) && (
-                            <div className="flex space-x-4">
-                                <div className="flex shrink-0 items-center h-8">
-                                    <DateFilter
-                                        showCustom
-                                        dateFrom={dashboardFilters?.date_from ?? undefined}
-                                        dateTo={dashboardFilters?.date_to ?? undefined}
-                                        onChange={setDates}
-                                        disabled={!canEditDashboard}
-                                        makeLabel={(key) => (
-                                            <>
-                                                <IconCalendar />
-                                                <span className="hide-when-small"> {key}</span>
-                                            </>
-                                        )}
-                                    />
-                                </div>
+                            <div className="flex space-x-4 items-center">
+                                <DateFilter
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from ?? undefined}
+                                    dateTo={dashboardFilters?.date_to ?? undefined}
+                                    onChange={setDates}
+                                    disabled={!canEditDashboard}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <IconCalendar />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
                                 <PropertyFilters
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}

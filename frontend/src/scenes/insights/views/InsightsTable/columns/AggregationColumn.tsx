@@ -1,19 +1,18 @@
-import { useValues, useActions } from 'kea'
-import { Dropdown, Menu } from 'antd'
 // eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
-
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-
+import { Dropdown, Menu } from 'antd'
+import { useActions, useValues } from 'kea'
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { formatAggregationValue } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationValue } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { CalcColumnState } from '../insightsTableLogic'
-import { TrendsFilterType } from '~/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilterType } from '~/types'
+
+import { CalcColumnState } from '../insightsTableLogic'
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',

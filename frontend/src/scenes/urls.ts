@@ -1,19 +1,21 @@
+import { combineUrl } from 'kea-router'
+import { toParams } from 'lib/utils'
+
+import { ExportOptions } from '~/exporter/types'
 import {
     ActionType,
     AnnotationType,
     AnyPartialFilterType,
+    AppMetricsUrlParams,
     DashboardType,
     FilterType,
     InsightShortId,
-    ReplayTabs,
-    PipelineTabs,
-    AppMetricsUrlParams,
     PipelineAppTabs,
+    PipelineTabs,
+    ReplayTabs,
 } from '~/types'
-import { combineUrl } from 'kea-router'
-import { ExportOptions } from '~/exporter/types'
+
 import { PluginTab } from './plugins/types'
-import { toParams } from 'lib/utils'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**

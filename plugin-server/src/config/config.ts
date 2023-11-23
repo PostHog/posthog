@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -72,6 +72,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
+        PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
@@ -131,6 +132,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+        DROP_EVENTS_BY_TOKEN: '',
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
 
@@ -240,6 +242,21 @@ export function buildIntegerMatcher(config: string | undefined, allowStar: boole
                 .filter((num) => !isNaN(num))
         )
         return (v: number) => {
+            return values.has(v)
+        }
+    }
+}
+
+export function buildStringMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<string> {
+    // Builds a ValueMatcher on a comma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config || config.trim().length == 0) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(config.split(','))
+        return (v: string) => {
             return values.has(v)
         }
     }

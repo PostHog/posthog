@@ -1,4 +1,11 @@
+import * as Sentry from '@sentry/react'
+import equal from 'fast-deep-equal'
+import { tagColors } from 'lib/colors'
+import { WEBHOOK_SERVICES } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { AlignType } from 'rc-trigger/lib/interface'
 import { CSSProperties } from 'react'
+
 import {
     ActionType,
     ActorType,
@@ -9,14 +16,9 @@ import {
     PropertyType,
     TimeUnitType,
 } from '~/types'
-import * as Sentry from '@sentry/react'
-import equal from 'fast-deep-equal'
-import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
-import { AlignType } from 'rc-trigger/lib/interface'
-import { dayjs } from 'lib/dayjs'
-import { getAppContext } from './utils/getAppContext'
+
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+import { getAppContext } from './utils/getAppContext'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports

@@ -1,18 +1,20 @@
-import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
-import { useMountedLogic, useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
-import { Breadcrumbs } from './components/Breadcrumbs'
-import { Navbar } from './components/Navbar'
-import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
-import { themeLogic } from './themeLogic'
-import { navigation3000Logic } from './navigationLogic'
+
 import clsx from 'clsx'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { useMountedLogic, useValues } from 'kea'
+import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SidePanel } from './sidepanel/SidePanel'
+import { ReactNode, useEffect } from 'react'
+import { SceneConfig } from 'scenes/sceneTypes'
+
+import { Breadcrumbs } from './components/Breadcrumbs'
 import { MinimalNavigation } from './components/MinimalNavigation'
+import { Navbar } from './components/Navbar'
+import { Sidebar } from './components/Sidebar'
+import { navigation3000Logic } from './navigationLogic'
+import { SidePanel } from './sidepanel/SidePanel'
+import { themeLogic } from './themeLogic'
 
 export function Navigation({
     children,

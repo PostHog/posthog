@@ -1,16 +1,18 @@
-import { DurationType, SessionRecordingType } from '~/types'
-import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
+
+import { DurationType, SessionRecordingType } from '~/types'
+
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export interface SessionRecordingPreviewProps {

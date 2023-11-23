@@ -1,7 +1,9 @@
+import './LEGACY_InsightTooltip.scss'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { IconHandClick } from 'lib/lemon-ui/icons'
+
 import { IntervalType } from '~/types'
-import './LEGACY_InsightTooltip.scss'
 
 interface BodyLine {
     id?: string | number

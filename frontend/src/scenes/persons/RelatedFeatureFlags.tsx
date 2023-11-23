@@ -1,13 +1,15 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
+
 import { FeatureFlagReleaseType } from '~/types'
-import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
+import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
     distinctId: string

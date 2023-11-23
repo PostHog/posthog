@@ -1,18 +1,21 @@
 import '~/styles'
 import './Exporter.scss'
-import { useEffect } from 'react'
-import { ExportedData, ExportType } from '~/exporter/types'
-import { DashboardPlacement } from '~/types'
-import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
-import { Logo } from '~/toolbar/assets/Logo'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { Link } from 'lib/lemon-ui/Link'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { Link } from 'lib/lemon-ui/Link'
+import { useEffect } from 'react'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
+import { ExportedData, ExportType } from '~/exporter/types'
+import { Logo } from '~/toolbar/assets/Logo'
+import { DashboardPlacement } from '~/types'
+
 import { exporterViewLogic } from './exporterViewLogic'
 
 export function Exporter(props: ExportedData): JSX.Element {

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
+
 import { PaginationAuto, PaginationManual, PaginationState } from './types'
 
 export function usePagination<T>(

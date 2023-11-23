@@ -125,6 +125,7 @@ $colors: (
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
     'bg-3000-light': #f3f4ef,
+    'bg-hover-3000-light': #f3f4ef,
     'border-3000-light': #dadbd2,
     'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
@@ -157,11 +158,12 @@ $colors: (
 
     'secondary-3000-dark': #1d1f27,
     'secondary-3000-hover-dark': #575d77,
-    'accent-3000-dark': #232429,
+    'accent-3000-dark': #21242b,
     'bg-3000-dark': #1d1f27,
-    'border-3000-dark': #4a4c52,
+    'bg-hover-3000-dark': #292b36,
+    'border-3000-dark': #35373e,
     'border-bold-3000-dark': #3f4046,
-    'glass-bg-3000-dark': #1d1f27b3,
+    'glass-bg-3000-dark': #21242bb3,
     'glass-border-3000-dark': var(--border-3000-dark),
     'link-3000-dark': #f1a82c,
 
@@ -189,10 +191,11 @@ $colors: (
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000),
+    'bg-hover-3000': var(--bg-hover-3000),
     'border-3000': var(--border-3000),
     'border-bold-3000': var(--border-bold-3000),
     'glass-bg-3000': var(--glass-bg-3000),
-    'glass-border-3000': var(--glass-border-3000),
+    'glass-border-3000': var(--border-3000),
     'link-3000': var(--link-3000),
     // 'bg-light': var(--accent-3000),
     'primary-3000-frame-bg': var(--primary-3000-frame-bg),
@@ -238,8 +241,10 @@ $_lifecycle_dormant: $_danger;
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans: -apple-system, blinkmacsystemfont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
     // Dashboard item colors
@@ -371,4 +376,97 @@ $_lifecycle_dormant: $_danger;
     --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
     --notebook-column-left-width: 27rem;
     --notebook-column-right-width: 20rem;
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin light-mode-3000-variables {
+    --text-3000: var(--text-3000-light);
+    --text-secondary-3000: var(--text-secondary-3000-light);
+    --muted-3000: var(--muted-3000-light);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary-3000-light);
+    --primary-3000-highlight: var(--primary-3000-highlight-light);
+    --primary-3000-hover: var(--primary-3000-hover-light);
+    --primary-3000-active: var(--primary-3000-active-light);
+    --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --accent-3000: var(--accent-3000-light);
+    --bg-3000: var(--bg-3000-light);
+    --border-3000: var(--border-3000-light);
+    --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: var(--glass-border-3000-light);
+    --bg-light: #fff;
+    --bg-table: #f9faf7;
+    --link: var(--link-3000-light);
+    --shadow-elevation-3000: var(--shadow-elevation-3000-light);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+    --primary-3000-frame-border: var(--primary-3000-frame-border-light);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin dark-mode-3000-variables {
+    --text-3000: var(--text-3000-dark);
+    --text-secondary-3000: var(--text-secondary-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-3000-highlight: var(--primary-3000-highlight-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --primary-3000-active: var(--primary-3000-active-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --accent-3000: var(--accent-3000-dark);
+    --bg-3000: var(--bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --bg-light: var(--accent-3000);
+    --bg-table: #232429;
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+    --link: var(--link-3000-dark);
+    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+    --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+    --primary-3000-button-border: var(--primary-3000-button-border-dark);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
+    --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
+    --data-color-2: #7f26d9;
+    --data-color-3: #3e7a76;
+    --data-color-4: #bf0d6c;
+    --data-color-5: #f0474f;
+    --data-color-6: #b36114;
+    --data-color-10: #6576b3;
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin posthog-3000-variables {
+    --default: var(--text-3000);
+    --text-secondary: var(--text-secondary-3000);
+    --muted: var(--muted-3000);
+    --muted-alt: var(--muted-3000);
+    --primary-alt: var(--text-3000);
+    --border: var(--border-3000);
+    --border-bold: var(--border-bold-3000);
+    --mid: var(--bg-3000);
+    --side: var(--bg-3000);
+    --primary-alt-highlight: var(--primary-alt-highlight-3000);
+    --data-color-1: #1d4aff;
+    --data-color-10: #35416b;
 }

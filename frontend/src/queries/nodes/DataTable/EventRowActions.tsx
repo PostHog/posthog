@@ -1,16 +1,17 @@
-import { EventType } from '~/types'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
-import { urls } from 'scenes/urls'
-import { getCurrentTeamId } from 'lib/utils/logics'
-import { teamLogic } from 'scenes/teamLogic'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { dayjs } from 'lib/dayjs'
+import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getCurrentTeamId } from 'lib/utils/logics'
+import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { EventType } from '~/types'
 
 interface EventActionProps {
     event: EventType

@@ -1,7 +1,8 @@
-import { useState } from 'react'
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonModal, LemonModalProps } from './LemonModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { LemonModal, LemonModalProps } from './LemonModal'
 
 const meta: Meta<typeof LemonModal> = {
     title: 'Lemon UI/Lemon Modal',

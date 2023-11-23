@@ -37,7 +37,7 @@
 
 .Breadcrumbs3000__crumbs {
     height: 1rem;
-    margin-top: 0.25rem;
+    margin-top: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate)));
     display: flex;
     align-items: center;
     overflow: visible;
@@ -54,6 +54,7 @@
     overflow: hidden;
     height: calc(1.2em * (1 - var(--breadcrumbs-compaction-rate)));
     box-sizing: content-box;
+    font-family: var(--font-sans) !important;
 
     > * {
         position: absolute;

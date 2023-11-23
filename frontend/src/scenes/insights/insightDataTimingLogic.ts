@@ -1,12 +1,13 @@
-import { kea, props, key, path, connect, listeners, reducers, actions } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from './sharedUtils'
 
 import type { insightDataTimingLogicType } from './insightDataTimingLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { keyForInsightLogicProps } from './sharedUtils'
 
 export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
     props({} as InsightLogicProps),

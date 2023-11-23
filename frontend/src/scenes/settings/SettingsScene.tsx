@@ -1,9 +1,10 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
-import { settingsSceneLogic } from './settingsSceneLogic'
-import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
+import { useAnchor } from 'lib/hooks/useAnchor'
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { Settings } from './Settings'
+import { settingsSceneLogic } from './settingsSceneLogic'
 
 export const scene: SceneExport = {
     component: SettingsScene,

@@ -1,12 +1,11 @@
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-
+import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EditorFilterProps } from '~/types'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))

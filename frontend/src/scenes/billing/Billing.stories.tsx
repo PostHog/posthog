@@ -1,9 +1,11 @@
 import { Meta } from '@storybook/react'
-import { Billing } from './Billing'
-import { useStorybookMocks, mswDecorator } from '~/mocks/browser'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_v2_with_discount.json'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+
+import { Billing } from './Billing'
 
 const meta: Meta = {
     title: 'Scenes-Other/Billing v2',

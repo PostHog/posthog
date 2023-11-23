@@ -33,8 +33,8 @@ jobs:
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here. 
-                        - 'bin/*'
-                        - frontend/*
+                        - 'bin/**'
+                        - 'frontend/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files

@@ -5,9 +5,14 @@
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
 
-        &.icon-column .LemonSkeleton {
-            height: 2rem;
-            width: 2rem;
+        &.icon-column {
+            font-size: 1.5rem;
+            color: var(--muted);
+
+            .LemonSkeleton {
+                height: 2rem;
+                width: 2rem;
+            }
         }
     }
 
