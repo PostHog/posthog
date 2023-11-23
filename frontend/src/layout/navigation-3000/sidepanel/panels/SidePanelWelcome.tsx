@@ -1,9 +1,9 @@
 import { IconInfo, IconNight, IconNotebook, IconSearch } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { useActions } from 'kea'
 
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
@@ -55,7 +55,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </li>
             </ul>
 
-            <LemonButton size="large" type="primary" className="mt-8" onClick={closeSidePanel}>
+            <LemonButton size="large" type="primary" className="mt-8" onClick={() => closeSidePanel()}>
                 Get started
             </LemonButton>
         </div>

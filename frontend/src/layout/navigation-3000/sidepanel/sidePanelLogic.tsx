@@ -20,17 +20,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             activationLogic,
             ['isReady', 'hasCompletedAllTasks'],
         ],
-    }),
-
-    actions({
-        setWelcomeAnnouncementAcknowledged: true,
+        actions: [sidePanelStateLogic, ['closeSidePanel']],
     }),
 
     reducers(() => ({
         welcomeAnnouncementAcknowledged: [
             false,
+            { persist: true },
             {
-                setWelcomeAnnouncementAcknowledged: () => true,
+                closeSidePanel: () => true,
             },
         ],
     })),
