@@ -1,3 +1,4 @@
+import posthogEE from '@posthog/ee/exports'
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
@@ -25,6 +26,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import type { appLogicType } from './AppType'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { teamLogic } from './teamLogic'
+
+console.log(posthogEE)
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),

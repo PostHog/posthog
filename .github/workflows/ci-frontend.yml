@@ -157,4 +157,3 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
-                  TEST_SEGMENT: ${{ matrix.segment }}

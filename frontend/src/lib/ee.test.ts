@@ -1,5 +1,8 @@
-export const ifEeIt = process.env.TEST_SEGMENT !== 'FOSS' ? it : it.skip
-export const ifFossIt = process.env.TEST_SEGMENT !== 'EE' ? it : it.skip
+import fs from 'fs'
+
+const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
+export const ifEeIt = eeFolderExists ? it : it.skip
+export const ifFossIt = !eeFolderExists ? it : it.skip
 
 import posthogEE from '@posthog/ee/exports'
 
