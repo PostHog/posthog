@@ -6,7 +6,6 @@ import pytest
 from django.test import override_settings
 from parameterized import parameterized
 
-from posthog.hogql.ast import IntegerType
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.database.models import FieldTraverser, StringDatabaseField, ExpressionField
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -88,12 +87,8 @@ class TestDatabase(BaseTest):
 
     def test_database_expression_fields(self):
         db = create_hogql_database(team_id=self.team.pk)
-        db.numbers.fields["expression"] = ExpressionField(
-            name="expression", expr=parse_expr("1 + 1"), return_type=IntegerType()
-        )
-        db.numbers.fields["double"] = ExpressionField(
-            name="double", expr=parse_expr("number * 2"), return_type=IntegerType()
-        )
+        db.numbers.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
+        db.numbers.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,

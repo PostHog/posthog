@@ -70,7 +70,7 @@ class BaseTableType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr, return_type=field.return_type)
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -290,10 +290,6 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
-    return_type: Optional[ConstantType]
-
-    def resolve_constant_type(self) -> Optional["ConstantType"]:
-        return self.return_type or super().resolve_constant_type()
 
 
 @dataclass(kw_only=True)

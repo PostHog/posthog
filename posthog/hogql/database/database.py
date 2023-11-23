@@ -123,7 +123,6 @@ class Database(BaseModel):
 def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
     from posthog.models import Team
     from posthog.hogql.query import create_default_modifiers_for_team
-    from posthog.hogql.ast import UUIDType
     from posthog.warehouse.models import (
         DataWarehouseTable,
         DataWarehouseSavedQuery,
@@ -161,7 +160,6 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         database.events.fields["person_id"] = ExpressionField(
             name="person_id",
             expr=parse_expr("ifNull(override.override_person_id, event_person_id)", start=None),
-            return_type=UUIDType(),
         )
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
