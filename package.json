@@ -64,8 +64,8 @@
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "prepare": "husky install",
-        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out schema/web/rr-web-schema.json && prettier --write schema/web/rr-web-schema.json",
-        "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'src/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out schema/mobile/rr-mobile-schema.json && prettier --write schema/mobile/rr-mobile-schema.json",
+        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/web/rr-web-schema.json && prettier --write ee/frontend/mobile-replay/schema/web/rr-web-schema.json",
+        "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'ee/frontend/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
     },
     "dependencies": {
