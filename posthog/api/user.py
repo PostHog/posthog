@@ -418,7 +418,14 @@ class UserViewSet(
 
 @authenticate_secondarily
 def redirect_to_site(request):
-    team = request.user.team
+    team = cast(User, request.user).team
+
+    if request.GET.get("token"):
+        team = cast(User, request.user).get_team_from_token(request.GET["token"])
+
+    if not team:
+        return HttpResponse("Access denied", status=403)
+
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:

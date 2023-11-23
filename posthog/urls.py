@@ -97,14 +97,10 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     team = cast(User, request.user).team
 
     if request.GET.get("token"):
-        token = request.GET["token"]
+        team = cast(User, request.user).get_team_from_token(request.GET["token"])
 
-        if team.api_token != token:
-            try:
-                # Try and find the appropriate team - if missing or not allowed, return 403
-                team = cast(User, request.user).teams.get(api_token=token)
-            except Team.DoesNotExist:
-                return HttpResponse("Access denied", status=403)
+    if not team:
+        return HttpResponse("Access denied", status=403)
 
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])

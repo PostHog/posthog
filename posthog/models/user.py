@@ -267,6 +267,15 @@ class User(AbstractUser, UUIDClassicModel):
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
 
+    def get_team_from_token(self, token: str) -> Optional[Team]:
+        if self.team.api_token == token:
+            return self.team
+        try:
+            # Try and find the appropriate team - if missing or not allowed, return 403
+            return self.teams.get(api_token=token)
+        except Team.DoesNotExist:
+            return None
+
     def get_analytics_metadata(self):
         team_member_count_all: int = (
             OrganizationMembership.objects.filter(organization__in=self.organizations.all())
