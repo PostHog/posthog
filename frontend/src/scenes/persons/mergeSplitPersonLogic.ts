@@ -1,10 +1,12 @@
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, listeners, events } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { PersonType } from '~/types'
+
 import type { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
 import { personsLogic } from './personsLogic'
 

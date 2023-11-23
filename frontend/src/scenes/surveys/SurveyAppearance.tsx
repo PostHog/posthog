@@ -1,13 +1,21 @@
 import './SurveyAppearance.scss'
+
 import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import React, { useEffect, useRef, useState } from 'react'
+
 import {
+    AvailableFeature,
+    BasicSurveyQuestion,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
-    RatingSurveyQuestion,
     SurveyQuestionType,
-    MultipleSurveyQuestion,
-    AvailableFeature,
 } from '~/types'
+
 import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
@@ -21,18 +29,12 @@ import {
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
-import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
-    question: string
     appearance: SurveyAppearanceType
     surveyQuestionItem: SurveyQuestion
-    description?: string | null
-    link?: string | null
     preview?: boolean
 }
 
@@ -87,11 +89,8 @@ const Button = ({
 
 export function SurveyAppearance({
     type,
-    question,
     appearance,
     surveyQuestionItem,
-    description,
-    link,
     preview,
 }: SurveyAppearanceProps): JSX.Element {
     return (
@@ -101,8 +100,6 @@ export function SurveyAppearance({
                     preview={preview}
                     ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
                     appearance={appearance}
-                    question={question}
-                    description={description}
                     onSubmit={() => undefined}
                 />
             )}
@@ -110,10 +107,8 @@ export function SurveyAppearance({
                 surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
                 <SurveyMultipleChoiceAppearance
                     preview={preview}
-                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    multipleChoiceQuestion={surveyQuestionItem}
                     appearance={appearance}
-                    question={question}
-                    description={description}
                     onSubmit={() => undefined}
                 />
             )}
@@ -121,11 +116,8 @@ export function SurveyAppearance({
                 surveyQuestionItem.type === SurveyQuestionType.Link) && (
                 <BaseAppearance
                     preview={preview}
-                    type={type}
-                    question={question}
-                    description={description}
+                    question={surveyQuestionItem}
                     appearance={appearance}
-                    link={link}
                     onSubmit={() => undefined}
                 />
             )}
@@ -143,11 +135,6 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     <></>
                 </PayGateMini>
             )}
-            <div className="mt-2">Button text</div>
-            <LemonInput
-                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-            />
             <div className="mt-2">Background color</div>
             <LemonInput
                 value={appearance?.backgroundColor}
@@ -234,20 +221,14 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
 
 // This should be synced to the UI of the surveys app plugin
 export function BaseAppearance({
-    type,
     question,
     appearance,
     onSubmit,
-    description,
-    link,
     preview,
 }: {
-    type: SurveyQuestionType
-    question: string
+    question: BasicSurveyQuestion | LinkSurveyQuestion
     appearance: SurveyAppearanceType
     onSubmit: () => void
-    description?: string | null
-    link?: string | null
     preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
@@ -284,14 +265,20 @@ export function BaseAppearance({
                     </div>
                 )}
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
+                    <div
+                        className="survey-question"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(question.question) }}
+                    />
                     {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
                     They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
                     you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
-                    {description && (
-                        <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
+                    {question.description && (
+                        <div
+                            className="description"
+                            dangerouslySetInnerHTML={{ __html: sanitizeHTML(question.description) }}
+                        />
                     )}
-                    {type === SurveyQuestionType.Open && (
+                    {question.type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
                             style={{
@@ -310,11 +297,11 @@ export function BaseAppearance({
                         <Button
                             {...(preview ? { tabIndex: -1 } : null)}
                             appearance={appearance}
-                            link={link}
+                            link={question.type === SurveyQuestionType.Link ? question.link : null}
                             onSubmit={onSubmit}
-                            type={type}
+                            type={question.type}
                         >
-                            {appearance.submitButtonText}
+                            {question.buttonText || appearance.submitButtonText}
                         </Button>
                     </div>
 
@@ -446,16 +433,12 @@ const EmojiRating = ({
 export function SurveyRatingAppearance({
     ratingSurveyQuestion,
     appearance,
-    question,
     onSubmit,
-    description,
     preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
-    question: string
     onSubmit: () => void
-    description?: string | null
     preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
@@ -491,9 +474,15 @@ export function SurveyRatingAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
-                {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
+                <div
+                    className="survey-question"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(ratingSurveyQuestion.question) }}
+                />
+                {ratingSurveyQuestion.description && (
+                    <div
+                        className="description"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(ratingSurveyQuestion.description) }}
+                    />
                 )}
                 <div className="rating-section">
                     <div className="rating-options">
@@ -524,7 +513,7 @@ export function SurveyRatingAppearance({
                                 appearance={appearance}
                                 onSubmit={onSubmit}
                             >
-                                {appearance.submitButtonText}
+                                {ratingSurveyQuestion.buttonText || appearance.submitButtonText}
                             </Button>
                         </div>
 
@@ -540,20 +529,74 @@ export function SurveyRatingAppearance({
     )
 }
 
+const OpenEndedChoice = ({
+    label,
+    initialChecked,
+    inputType,
+    index,
+}: {
+    label: string
+    initialChecked: boolean
+    inputType: string
+    textColor: string
+    index: number
+}): JSX.Element => {
+    const textRef = useRef<HTMLInputElement | null>(null)
+    const checkRef = useRef<HTMLInputElement | null>(null)
+
+    return (
+        <div
+            className="choice-option choice-option-open"
+            onClick={() => {
+                if (checkRef.current?.checked || checkRef.current?.disabled) {
+                    textRef.current?.focus()
+                }
+            }}
+        >
+            <input
+                id={`${label}-${index}`}
+                ref={checkRef}
+                type={inputType}
+                disabled={!initialChecked || !checkRef.current?.value}
+                defaultChecked={initialChecked}
+                name="choice"
+            />
+            <label htmlFor={`${label}-${index}`}>
+                <span>{label}:</span>
+                <input
+                    ref={textRef}
+                    type="text"
+                    maxLength={100}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                        if (checkRef.current) {
+                            checkRef.current.value = e.target.value
+                            if (e.target.value) {
+                                checkRef.current.disabled = false
+                                checkRef.current.checked = true
+                            } else {
+                                checkRef.current.disabled = true
+                                checkRef.current.checked = false
+                            }
+                        }
+                    }}
+                />
+            </label>
+            <span className="choice-check">{check}</span>
+        </div>
+    )
+}
+
 export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
-    question,
     onSubmit,
-    description,
     preview,
     initialChecked,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
-    question: string
     onSubmit: () => void
-    description?: string | null
     preview?: boolean
     initialChecked?: number[]
 }): JSX.Element {
@@ -591,28 +634,45 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitizeHTML(question) }} />
-                {description && (
-                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitizeHTML(description) }} />
+                <div
+                    className="survey-question"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.question) }}
+                />
+                {multipleChoiceQuestion.description && (
+                    <div
+                        className="description"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(multipleChoiceQuestion.description) }}
+                    />
                 )}
                 <div className="multiple-choice-options">
-                    {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
-                        <div className="choice-option" key={idx}>
-                            <input
-                                {...(initialChecked ? { checked: initialChecked.includes(idx) } : null)}
-                                type={inputType}
-                                name="choice"
-                                value={choice}
+                    {(multipleChoiceQuestion.choices || []).map((choice, idx) =>
+                        multipleChoiceQuestion?.hasOpenChoice && idx === multipleChoiceQuestion.choices?.length - 1 ? (
+                            <OpenEndedChoice
+                                key={idx}
+                                index={idx}
+                                initialChecked={!!initialChecked?.includes(idx)}
+                                inputType={inputType}
+                                label={choice}
+                                textColor={textColor}
                             />
-                            <label>{choice}</label>
-                            <span className="choice-check">{check}</span>
-                        </div>
-                    ))}
+                        ) : (
+                            <div className="choice-option" key={idx}>
+                                <input
+                                    {...(initialChecked ? { defaultChecked: initialChecked.includes(idx) } : null)}
+                                    type={inputType}
+                                    name="choice"
+                                    value={choice}
+                                />
+                                <label>{choice}</label>
+                                <span className="choice-check">{check}</span>
+                            </div>
+                        )
+                    )}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
                         <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
-                            {appearance.submitButtonText}
+                            {multipleChoiceQuestion.buttonText || appearance.submitButtonText}
                         </Button>
                     </div>
 

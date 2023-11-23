@@ -7,18 +7,20 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.client import connect
 from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
+from posthog.temporal.sentry import SentryInterceptor
 
 
 async def start_worker(
     host,
     port,
+    metrics_port,
     namespace,
     task_queue,
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,
 ):
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:8596")))
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
     client = await connect(
         host,
         port,
@@ -35,6 +37,7 @@ async def start_worker(
         activities=ACTIVITIES,
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
+        interceptors=[SentryInterceptor()],
     )
 
     # catch the TERM signal, and stop the worker gracefully

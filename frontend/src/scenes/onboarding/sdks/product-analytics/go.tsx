@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallGoInstructions } from '../sdk-install-instructions'
 
 function GoCaptureSnippet(): JSX.Element {

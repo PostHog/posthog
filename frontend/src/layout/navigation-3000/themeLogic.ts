@@ -1,16 +1,19 @@
-import { actions, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { themeLogicType } from './themeLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     actions({
         toggleTheme: true,
-        overrideTheme: (darkModePreference: boolean) => ({ darkModePreference }),
+        overrideTheme: (darkModePreference: boolean | null) => ({ darkModePreference }),
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
     }),
     reducers({
@@ -36,12 +39,16 @@ export const themeLogic = kea<themeLogicType>([
             (s) => [
                 s.darkModeSavedPreference,
                 s.darkModeSystemPreference,
-                featureFlagLogic.selectors.featureFlags,
+                s.featureFlags,
                 sceneLogic.selectors.sceneConfig,
             ],
             (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
-                if (sceneConfig?.layout === 'plain' || sceneConfig?.allowUnauthenticated) {
+                if (
+                    sceneConfig?.layout === 'plain' ||
+                    sceneConfig?.allowUnauthenticated ||
+                    sceneConfig?.onlyUnauthenticated
+                ) {
                     return false
                 }
                 // Dark mode is a PostHog 3000 feature

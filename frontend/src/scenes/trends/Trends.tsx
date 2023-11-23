@@ -1,14 +1,16 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { ChartDisplayType, InsightType, ItemMode } from '~/types'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { LemonButton } from '@posthog/lemon-ui'
-import { trendsDataLogic } from './trendsDataLogic'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
+
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, InsightType, ItemMode } from '~/types'
+
+import { trendsDataLogic } from './trendsDataLogic'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 
 interface Props {
     view: InsightType
@@ -61,19 +63,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
 
     return (
         <>
-            {series && (
-                <div
-                    className={
-                        display !== ChartDisplayType.ActionsTable &&
-                        display !== ChartDisplayType.WorldMap &&
-                        display !== ChartDisplayType.BoldNumber
-                            ? 'trends-insights-container'
-                            : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
-                    }
-                >
-                    {renderViz()}
-                </div>
-            )}
+            {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
                 loadMoreBreakdownUrl && (

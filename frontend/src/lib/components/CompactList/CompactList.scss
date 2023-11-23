@@ -1,7 +1,7 @@
 .compact-list {
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    height: calc(19.5rem + 1px);
+    height: calc(19.25rem);
     background: var(--bg-light);
     box-sizing: content-box;
     display: flex;
@@ -13,6 +13,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+
         h3 {
             margin-bottom: 0;
             font-weight: 600;
@@ -21,14 +22,13 @@
         }
     }
 
-    .spacer-container {
-        padding: 0 1rem;
-    }
-
     .scrollable-list {
         flex: 1;
-        overflow-y: auto;
-        overflow-x: auto;
-        padding: 0 0.5rem 0.5rem;
+        overflow: auto;
+        padding: 0 0.5rem;
+    }
+
+    .LemonButton {
+        font-family: var(--font-sans) !important;
     }
 }

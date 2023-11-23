@@ -1,14 +1,15 @@
-import { PluginType } from '~/types'
 import { LemonTag, Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginRepositoryEntry, PluginTab } from 'scenes/plugins/types'
 import { useValues } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
-import { copyToClipboard } from 'lib/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginRepositoryEntry, PluginTab } from 'scenes/plugins/types'
 import { urls } from 'scenes/urls'
+
+import { PluginType } from '~/types'
 
 export function RepositoryTag({ plugin }: { plugin: PluginType | PluginRepositoryEntry }): JSX.Element | null {
     const { pluginUrlToMaintainer } = useValues(pluginsLogic)
@@ -23,7 +24,7 @@ export function RepositoryTag({ plugin }: { plugin: PluginType | PluginRepositor
 
         if (plugin.plugin_type === 'local' && plugin.url) {
             return (
-                <LemonTag type="completion" onClick={async () => await copyToClipboard(plugin.url?.substring(5) || '')}>
+                <LemonTag type="completion" onClick={() => void copyToClipboard(plugin.url?.substring(5) || '')}>
                     Installed Locally
                 </LemonTag>
             )

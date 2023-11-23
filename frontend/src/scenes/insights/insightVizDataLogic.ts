@@ -1,21 +1,46 @@
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import {
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+} from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
-import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import {
+    getBreakdown,
+    getCompare,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    getShowLabelsOnSeries,
+    getShowLegend,
+    getShowPercentStackView,
+    getShowValueOnSeries,
+} from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     DateRange,
+    FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
-    InsightVizNode,
     Node,
     NodeKind,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
-
-import { insightLogic } from './insightLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -30,31 +55,18 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import {
-    getBreakdown,
-    getCompare,
-    getDisplay,
-    getFormula,
-    getInterval,
-    getSeries,
-    getShowLegend,
-    getShowPercentStackView,
-    getShowValueOnSeries,
-} from '~/queries/nodes/InsightViz/utils'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
-import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+    BaseMathType,
+    ChartDisplayType,
+    FilterType,
+    FunnelExclusion,
+    InsightLogicProps,
+    IntervalType,
+    TrendsFilterType,
+} from '~/types'
 
-import { sceneLogic } from 'scenes/sceneLogic'
-
+import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
-import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
-import { lemonToast } from '@posthog/lemon-ui'
-import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -118,12 +130,30 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
-        supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsCompare: [
+            (s) => [s.querySource, s.display, s.dateRange],
+            (q, display, dateRange) =>
+                (isTrendsQuery(q) || isStickinessQuery(q)) &&
+                display !== ChartDisplayType.WorldMap &&
+                dateRange?.date_from !== 'all',
+        ],
         supportsPercentStackView: [
             (s) => [s.querySource, s.display],
             (q, display) =>
                 isTrendsQuery(q) &&
                 PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
+        supportsValueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) => {
+                if (isTrends || isStickiness) {
+                    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
+                } else if (isLifecycle) {
+                    return true
+                } else {
+                    return false
+                }
+            },
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
@@ -137,8 +167,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
-
+        vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
@@ -185,6 +216,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.isTrends, s.formula, s.series, s.breakdown],
             (isTrends, formula, series, breakdown): boolean => {
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            },
+        ],
+
+        valueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
+            (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
+                return !!(
+                    ((isTrends || isStickiness || isLifecycle) &&
+                        (insightFilter as TrendsFilterType)?.show_values_on_series) ||
+                    // pie charts have value checked by default
+                    (isTrends &&
+                        (insightFilter as TrendsFilterType)?.display === ChartDisplayType.ActionsPie &&
+                        (insightFilter as TrendsFilterType)?.show_values_on_series === undefined)
+                )
             },
         ],
 
@@ -237,6 +282,37 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
+
+        /*
+         * Funnels
+         */
+        isFunnelWithEnoughSteps: [
+            (s) => [s.series],
+            (series) => {
+                return (series?.length || 0) > 1
+            },
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
+                funnel_from_step: 0,
+                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FilterType => ({
+                events: funnelsFilter?.exclusions,
+            }),
+        ],
+        areExclusionFiltersValid: [
+            (s) => [s.insightDataError],
+            (insightDataError): boolean => {
+                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -267,7 +343,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (props.setQuery) {
-                    props.setQuery(query as InsightVizNode)
+                    props.setQuery(query)
                 }
 
                 const querySource = query.source

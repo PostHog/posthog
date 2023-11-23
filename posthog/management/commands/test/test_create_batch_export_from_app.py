@@ -84,6 +84,18 @@ def postgres_plugin(organization) -> typing.Generator[Plugin, None, None]:
     plugin.delete()
 
 
+@pytest.fixture
+def redshift_plugin(organization) -> typing.Generator[Plugin, None, None]:
+    plugin = Plugin.objects.create(
+        name="Redshift Export Plugin",
+        url="https://github.com/PostHog/postgres-plugin",
+        plugin_type="custom",
+        organization=organization,
+    )
+    yield plugin
+    plugin.delete()
+
+
 test_snowflake_config = {
     "account": "snowflake-account",
     "username": "test-user",
@@ -142,6 +154,16 @@ test_postgres_config_with_database_url = {
     "eventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
     "hasSelfSignedCert": "Yes",
 }
+test_redshift_config = {
+    "clusterHost": "localhost",
+    "clusterPort": "5439",
+    "dbName": "dev",
+    "tableName": "posthog_event",
+    "dbPassword": "password",
+    "dbUsername": "username",
+    "eventsToIgnore": "$feature_flag_called",
+    "propertiesDataType": "super",
+}
 
 PluginConfigParams = collections.namedtuple(
     "PluginConfigParams", ("plugin_type", "disabled", "database_url"), defaults=(False, False)
@@ -168,13 +190,15 @@ def config(request) -> dict[str, str]:
                 return test_postgres_config_with_database_url
             else:
                 return test_postgres_config
+        case "Redshift":
+            return test_redshift_config
         case _:
             raise ValueError(f"Unsupported plugin: {request.param}")
 
 
 @pytest.fixture
 def plugin_config(
-    request, bigquery_plugin, postgres_plugin, s3_plugin, snowflake_plugin, team
+    request, bigquery_plugin, postgres_plugin, s3_plugin, snowflake_plugin, team, redshift_plugin
 ) -> typing.Generator[PluginConfig, None, None]:
     """Manage a PluginConfig for testing.
 
@@ -214,6 +238,10 @@ def plugin_config(
                 config = test_postgres_config_with_database_url
             else:
                 config = test_postgres_config
+
+        case "Redshift":
+            plugin = redshift_plugin
+            config = test_redshift_config
 
         case _:
             raise ValueError(f"Unsupported plugin: {params.plugin_type}")
@@ -258,6 +286,7 @@ def plugin_config(
         ("BigQuery", "BigQuery", "BigQuery"),
         ("Postgres", "Postgres", "Postgres"),
         (("Postgres", False, True), ("Postgres", False, True), "Postgres"),
+        ("Redshift", "Redshift", "Redshift"),
     ],
     indirect=["plugin_config", "config"],
 )
@@ -277,7 +306,7 @@ def test_map_plugin_config_to_destination(plugin_config, config, expected_type):
             assert (value == "Yes") == export_config["has_self_signed_cert"]
             continue
 
-        if key == "port":
+        if key in ("port", "clusterPort"):
             value = int(value)
 
         if key in (
@@ -293,7 +322,7 @@ def test_map_plugin_config_to_destination(plugin_config, config, expected_type):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "plugin_config",
-    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True)),
+    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True), "Redshift"),
     indirect=True,
 )
 def test_create_batch_export_from_app_fails_with_mismatched_team_id(plugin_config):
@@ -311,7 +340,7 @@ def test_create_batch_export_from_app_fails_with_mismatched_team_id(plugin_confi
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "plugin_config",
-    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True)),
+    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True), "Redshift"),
     indirect=True,
 )
 def test_create_batch_export_from_app_dry_run(plugin_config):
@@ -340,7 +369,14 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
 @pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
     "plugin_config",
-    (("S3", False), ("Snowflake", False), ("BigQuery", False), ("Postgres", False), ("Postgres", False, True)),
+    (
+        ("S3", False),
+        ("Snowflake", False),
+        ("BigQuery", False),
+        ("Redshift", False),
+        ("Postgres", False),
+        ("Postgres", False, True),
+    ),
     indirect=True,
 )
 @pytest.mark.parametrize("disable_plugin_config", (True, False))
@@ -399,7 +435,14 @@ def test_create_batch_export_from_app(
 @pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
     "plugin_config",
-    (("S3", True), ("Snowflake", True), ("BigQuery", True), ("Postgres", True), ("Postgres", True, True)),
+    (
+        ("S3", True),
+        ("Snowflake", True),
+        ("BigQuery", True),
+        ("Redshift", True),
+        ("Postgres", True),
+        ("Postgres", True, True),
+    ),
     indirect=True,
 )
 @pytest.mark.parametrize("migrate_disabled_plugin_config", (True, False))
@@ -484,7 +527,14 @@ async def wait_for_workflow_executions(
 @pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
     "plugin_config",
-    (("S3", False), ("Snowflake", False), ("BigQuery", False), ("Postgres", False), ("Postgres", False, True)),
+    (
+        ("S3", False),
+        ("Snowflake", False),
+        ("BigQuery", False),
+        ("Redshift", False),
+        ("Postgres", False),
+        ("Postgres", False, True),
+    ),
     indirect=True,
 )
 def test_create_batch_export_from_app_with_backfill(interval, plugin_config):

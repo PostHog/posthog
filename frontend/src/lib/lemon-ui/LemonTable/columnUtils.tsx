@@ -1,8 +1,10 @@
 import { TZLabel } from 'lib/components/TZLabel'
+import { Dayjs, dayjs } from 'lib/dayjs'
+
+import { UserBasicType } from '~/types'
+
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
-import { UserBasicType } from '~/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
 
 export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
@@ -40,5 +42,23 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                 b.created_by?.first_name || b.created_by?.email || ''
             ),
+    }
+}
+
+export function updatedAtColumn<T extends { updated_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'updated_at'> {
+    return {
+        title: 'Updated',
+        dataIndex: 'updated_at',
+        render: function RenderCreatedAt(updated_at) {
+            return updated_at ? (
+                <div className="whitespace-nowrap text-right">
+                    <TZLabel time={updated_at} />
+                </div>
+            ) : (
+                <span className="text-muted">—</span>
+            )
+        },
+        align: 'right',
+        sorter: (a, b) => dayjs(a.updated_at || 0).diff(b.updated_at || 0),
     }
 }

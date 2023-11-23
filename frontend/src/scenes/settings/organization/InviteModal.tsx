@@ -1,17 +1,20 @@
-import { useActions, useValues } from 'kea'
 import './InviteModal.scss'
+
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from './inviteLogic'
-import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTextArea, LemonInput, Link } from '@posthog/lemon-ui'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
+import { OrganizationInviteType } from '~/types'
+
+import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(

@@ -1,38 +1,26 @@
 import csv
-import dataclasses
 import datetime as dt
 import io
 import json
-import logging
 import operator
-import random
-import string
-import uuid
 from random import randint
-from unittest.mock import patch
 
 import pytest
-from freezegun import freeze_time
-from temporalio import activity, workflow
+from django.test import override_settings
 
-from posthog.clickhouse.log_entries import (
-    KAFKA_LOG_ENTRIES,
-)
 from posthog.temporal.tests.utils.datetimes import (
     to_isoformat,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
-    KafkaLoggingHandler,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
     json_dumps_bytes,
 )
 
-pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 async def test_get_rows_count(clickhouse_client):
@@ -140,6 +128,48 @@ async def test_get_rows_count_can_include_events(clickhouse_client):
         include_events=include_events,
     )
     assert row_count == 2500
+
+
+async def test_get_rows_count_ignores_timestamp_predicates(clickhouse_client):
+    """Test the count of rows returned by get_rows_count can ignore timestamp predicates."""
+    team_id = randint(1, 1000000)
+
+    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = inserted_at + dt.timedelta(hours=1)
+
+    # Insert some data with timestamps a couple of years before inserted_at
+    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
+    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=timestamp_start,
+        end_time=timestamp_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        inserted_at=inserted_at,
+    )
+
+    row_count = await get_rows_count(
+        clickhouse_client,
+        team_id,
+        inserted_at.isoformat(),
+        data_interval_end.isoformat(),
+    )
+    # All events are outside timestamp bounds (a year difference with inserted_at)
+    assert row_count == 0
+
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
+        row_count = await get_rows_count(
+            clickhouse_client,
+            team_id,
+            inserted_at.isoformat(),
+            data_interval_end.isoformat(),
+        )
+    assert row_count == 10
 
 
 @pytest.mark.parametrize("include_person_properties", (False, True))
@@ -320,6 +350,72 @@ async def test_get_results_iterator_can_include_events(clickhouse_client, includ
     rows = [row for row in iter_]
 
     all_expected = sorted(events[5000:], key=operator.itemgetter("event"))
+    all_result = sorted(rows, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_result)
+    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
+
+    for expected, result in zip(all_expected, all_result):
+        for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
+            # Some keys will be missing from result, so let's only check the ones we have.
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator_ignores_timestamp_predicates(clickhouse_client, include_person_properties):
+    """Test the rows returned by get_results_iterator ignores timestamp predicates when configured."""
+    team_id = randint(1, 1000000)
+
+    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = inserted_at + dt.timedelta(hours=1)
+
+    # Insert some data with timestamps a couple of years before inserted_at
+    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
+    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=timestamp_start,
+        end_time=timestamp_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        inserted_at=inserted_at,
+    )
+
+    iter_ = get_results_iterator(
+        clickhouse_client,
+        team_id,
+        inserted_at.isoformat(),
+        data_interval_end.isoformat(),
+        include_person_properties=include_person_properties,
+    )
+    rows = [row for row in iter_]
+
+    assert len(rows) == 0
+
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
+        iter_ = get_results_iterator(
+            clickhouse_client,
+            team_id,
+            inserted_at.isoformat(),
+            data_interval_end.isoformat(),
+            include_person_properties=include_person_properties,
+        )
+        rows = [row for row in iter_]
+
+    all_expected = sorted(events, key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_result)
@@ -540,104 +636,3 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
         assert be_file.bytes_since_last_reset == 0
         assert be_file.records_total == len(records)
         assert be_file.records_since_last_reset == 0
-
-
-def test_kafka_logging_handler_produces_to_kafka(caplog):
-    """Test a mocked call to Kafka produce from the KafkaLoggingHandler."""
-    logger_name = "test-logger"
-    logger = logging.getLogger(logger_name)
-    handler = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
-    handler.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-
-    team_id = random.randint(1, 10000)
-    batch_export_id = str(uuid.uuid4())
-    run_id = str(uuid.uuid4())
-    timestamp = "2023-09-21 00:01:01.000001"
-
-    expected_tuples = []
-    expected_kafka_produce_calls_kwargs = []
-
-    with patch("posthog.kafka_client.client._KafkaProducer.produce") as produce:
-        with caplog.at_level(logging.DEBUG):
-            with freeze_time(timestamp):
-                for level in (10, 20, 30, 40, 50):
-                    random_message = "".join(random.choice(string.ascii_letters) for _ in range(30))
-
-                    logger.log(
-                        level,
-                        random_message,
-                        extra={
-                            "team_id": team_id,
-                            "batch_export_id": batch_export_id,
-                            "workflow_run_id": run_id,
-                        },
-                    )
-
-                    expected_tuples.append(
-                        (
-                            logger_name,
-                            level,
-                            random_message,
-                        )
-                    )
-                    data = {
-                        "message": random_message,
-                        "team_id": team_id,
-                        "log_source": "batch_exports",
-                        "log_source_id": batch_export_id,
-                        "instance_id": run_id,
-                        "timestamp": timestamp,
-                        "level": logging.getLevelName(level),
-                    }
-                    expected_kafka_produce_calls_kwargs.append({"topic": KAFKA_LOG_ENTRIES, "data": data, "key": None})
-
-        assert caplog.record_tuples == expected_tuples
-
-        kafka_produce_calls_kwargs = [call.kwargs for call in produce.call_args_list]
-        assert kafka_produce_calls_kwargs == expected_kafka_produce_calls_kwargs
-
-
-@dataclasses.dataclass
-class TestInputs:
-    team_id: int
-    data_interval_end: str | None = None
-    interval: str = "hour"
-    batch_export_id: str = ""
-
-
-@dataclasses.dataclass
-class TestInfo:
-    workflow_id: str
-    run_id: str
-    workflow_run_id: str
-    attempt: int
-
-
-@pytest.mark.parametrize("context", [activity.__name__, workflow.__name__])
-def test_batch_export_logger_adapter(context, caplog):
-    """Test BatchExportLoggerAdapter sets the appropiate context variables."""
-    team_id = random.randint(1, 10000)
-    inputs = TestInputs(team_id=team_id)
-    logger = get_batch_exports_logger(inputs=inputs)
-
-    batch_export_id = str(uuid.uuid4())
-    run_id = str(uuid.uuid4())
-    attempt = random.randint(1, 10)
-    info = TestInfo(
-        workflow_id=f"{batch_export_id}-{dt.datetime.utcnow().isoformat()}",
-        run_id=run_id,
-        workflow_run_id=run_id,
-        attempt=attempt,
-    )
-
-    with patch("posthog.kafka_client.client._KafkaProducer.produce"):
-        with patch(context + ".info", return_value=info):
-            for level in (10, 20, 30, 40, 50):
-                logger.log(level, "test")
-
-    records = caplog.get_records("call")
-    assert all(record.team_id == team_id for record in records)
-    assert all(record.batch_export_id == batch_export_id for record in records)
-    assert all(record.workflow_run_id == run_id for record in records)
-    assert all(record.attempt == attempt for record in records)

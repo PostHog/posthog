@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { IconClose } from 'lib/lemon-ui/icons'
+
+import { ElementInfo } from '~/toolbar/elements/ElementInfo'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function InfoWindow(): JSX.Element | null {
     const {

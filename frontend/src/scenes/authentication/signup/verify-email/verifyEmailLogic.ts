@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
 export interface ResponseType {

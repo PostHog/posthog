@@ -1,9 +1,10 @@
 import { LemonButton, LemonDivider, LemonModal, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { useActions, useValues, useAsyncActions } from 'kea'
+import clsx from 'clsx'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
+
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
-import clsx from 'clsx'
 
 export function FeaturePreviewsModal({
     inline,
@@ -120,9 +121,10 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     />
                     <LemonButton
                         type="primary"
-                        onClick={async () => {
-                            await submitEarlyAccessFeatureFeedback(feedback)
-                            setFeedback('')
+                        onClick={() => {
+                            void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+                                setFeedback('')
+                            })
                         }}
                         loading={activeFeedbackFlagKeyLoading}
                         fullWidth

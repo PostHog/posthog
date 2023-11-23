@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -163,6 +164,14 @@ class BatchExportServiceRPCError(BatchExportServiceError):
     """Exception raised when the underlying Temporal RPC fails."""
 
 
+class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
+    """Exception raised when the underlying Temporal RPC fails because a schedule was not found."""
+
+    def __init__(self, schedule_id: str):
+        self.schedule_id = schedule_id
+        super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
+
+
 def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
     """Pause this BatchExport.
 
@@ -250,7 +259,14 @@ async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None 
 async def delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
-    await handle.delete()
+
+    try:
+        await handle.delete()
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise BatchExportServiceScheduleNotFound(schedule_id)
+        else:
+            raise BatchExportServiceRPCError() from e
 
 
 @async_to_sync
@@ -341,7 +357,7 @@ def create_batch_export_run(
     data_interval_start: str,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
-):
+) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
     In a first approach, this method is intended to be called only by Temporal Workflows,
@@ -364,15 +380,19 @@ def create_batch_export_run(
     return run
 
 
-def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None):
+def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None) -> BatchExportRun:
     """Update the status of an BatchExportRun with given id.
 
     Arguments:
         id: The id of the BatchExportRun to update.
     """
-    updated = BatchExportRun.objects.filter(id=run_id).update(status=status, latest_error=latest_error)
+    model = BatchExportRun.objects.filter(id=run_id)
+    updated = model.update(status=status, latest_error=latest_error)
+
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
+
+    return model.get()
 
 
 def sync_batch_export(batch_export: BatchExport, created: bool):
@@ -447,7 +467,7 @@ def create_batch_export_backfill(
     start_at: str,
     end_at: str,
     status: str = BatchExportRun.Status.RUNNING,
-):
+) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
 
 
@@ -470,13 +490,17 @@ def create_batch_export_backfill(
     return backfill
 
 
-def update_batch_export_backfill_status(backfill_id: UUID, status: str):
+def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
     """Update the status of an BatchExportBackfill with given id.
 
     Arguments:
         id: The id of the BatchExportBackfill to update.
         status: The new status to assign to the BatchExportBackfill.
     """
-    updated = BatchExportBackfill.objects.filter(id=backfill_id).update(status=status)
+    model = BatchExportBackfill.objects.filter(id=backfill_id)
+    updated = model.update(status=status)
+
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
+
+    return model.get()

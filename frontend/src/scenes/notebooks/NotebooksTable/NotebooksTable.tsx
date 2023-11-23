@@ -1,18 +1,20 @@
-import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { NotebookListItemType } from '~/types'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { notebooksModel } from '~/models/notebooksModel'
-import { useEffect } from 'react'
+import { useActions, useValues } from 'kea'
+import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Link } from 'lib/lemon-ui/Link'
+import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { urls } from 'scenes/urls'
+
+import { notebooksModel } from '~/models/notebooksModel'
+import { NotebookListItemType } from '~/types'
+
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
 function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
@@ -97,7 +99,7 @@ export function NotebooksTable(): JSX.Element {
                 dismissKey="notebooks-preview-banner"
             >
                 <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
-                PostHog prodcuts together into one place.
+                PostHog products together into one place.
             </LemonBanner>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
@@ -115,7 +117,7 @@ export function NotebooksTable(): JSX.Element {
                         <span>Created by:</span>
                         <LemonSelect
                             options={[
-                                { value: DEFAULT_FILTERS.createdBy as string, label: DEFAULT_FILTERS.createdBy },
+                                { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
                                 ...meFirstMembers.map((x) => ({
                                     value: x.user.uuid,
                                     label: x.user.first_name,

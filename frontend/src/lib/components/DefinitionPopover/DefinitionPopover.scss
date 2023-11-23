@@ -1,6 +1,6 @@
 .definition-popover {
     width: 20rem;
-    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
+    padding: 0.5rem 0.75rem 0.75rem;
 
     .definition-popover-header {
         display: flex;
@@ -62,7 +62,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--primary);
+                    color: var(--primary-3000);
                 }
             }
         }
@@ -94,6 +94,7 @@
         .definition-popover-timemeta-user {
             display: inline-flex;
         }
+
         .definition-popover-timemeta-spacer {
             margin-right: 0.5rem;
         }
@@ -145,15 +146,6 @@
 
         .definition-popover-edit-form-value {
             margin-bottom: 1rem;
-
-            &.definition-popover-owner-select {
-                .ant-select-selector {
-                    .ant-select-selection-placeholder {
-                        color: black;
-                        font-weight: normal;
-                    }
-                }
-            }
         }
     }
 }

@@ -1,14 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { FlagSelector } from 'lib/components/FlagSelector'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -70,22 +70,90 @@ export function ReplayGeneral(): JSX.Element {
                 </p>
             </div>
             <div className="space-y-2">
-                <LemonSwitch
-                    data-attr="opt-in-capture-performance-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({ capture_performance_opt_in: checked })
-                    }}
-                    label="Capture network performance"
-                    bordered
-                    checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
-                    disabled={!currentTeam?.session_recording_opt_in}
-                />
-                <p>
-                    This setting controls if performance and network information will be captured alongside recordings.
-                    The network requests and timings will be shown in the recording player to help you debug any issues.
-                </p>
+                <NetworkCaptureSettings />
             </div>
         </div>
+    )
+}
+
+function NetworkCaptureSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <>
+            <h4>Network capture</h4>
+            <LemonSwitch
+                data-attr="opt-in-capture-performance-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ capture_performance_opt_in: checked })
+                }}
+                label="Capture network performance"
+                bordered
+                checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
+                disabled={!currentTeam?.session_recording_opt_in}
+            />
+            <p>
+                This setting controls if performance and network information will be captured alongside recordings. The
+                network requests and timings will be shown in the recording player to help you debug any issues.
+            </p>
+            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                <h5>Network payloads</h5>
+                <div className={'flex flex-row space-x-2'}>
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-headers-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordHeaders: checked,
+                                },
+                            })
+                        }}
+                        label="Capture headers"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-body-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordBody: checked,
+                                },
+                            })
+                        }}
+                        label="Capture body"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
+                </div>
+                <p>
+                    When network capture is enabled, we always captured network timings. Use these switches to choose
+                    whether to capture headers and payloads of requests
+                </p>
+            </FlaggedFeature>
+        </>
     )
 }
 
@@ -123,7 +191,7 @@ export function ReplayCostControl(): JSX.Element {
                     </Link>
                 </p>
                 <LemonBanner className="mb-4" type={'info'}>
-                    Requires posthog-js version 1.85.0 or greater
+                    Requires posthog-js version 1.88.2 or greater
                 </LemonBanner>
                 <div className={'flex flex-row justify-between'}>
                     <LemonLabel className="text-base">Sampling</LemonLabel>

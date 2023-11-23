@@ -1,10 +1,12 @@
+import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, listeners, events } from 'kea'
 import api from 'lib/api'
-import { PersonalAPIKeyType } from '~/types'
-import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-import { copyToClipboard } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { PersonalAPIKeyType } from '~/types'
+
+import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
@@ -24,7 +26,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 },
                 deleteKey: async (key: PersonalAPIKeyType) => {
                     await api.delete(`api/personal_api_keys/${key.id}/`)
-                    return (values.keys as PersonalAPIKeyType[]).filter((filteredKey) => filteredKey.id != key.id)
+                    return values.keys.filter((filteredKey) => filteredKey.id != key.id)
                 },
             },
         ],
@@ -36,8 +38,5 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: [actions.loadKeys],
     })),
 ])

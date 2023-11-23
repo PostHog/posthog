@@ -1,6 +1,7 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import {
-    BuiltLogic,
     actions,
+    BuiltLogic,
     connect,
     kea,
     key,
@@ -11,25 +12,25 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
-
-// NOTE: Annoyingly, if we import this then kea logic type-gen generates
-// two imports and fails so, we reimport it from a utils file
-import { EditorRange, JSONContent, NotebookEditor } from './utils'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
-import { lemonToast } from '@posthog/lemon-ui'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import posthog from 'posthog-js'
 import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
-import { router, urlToAction } from 'kea-router'
+
+import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
+import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
+
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
+import type { notebookLogicType } from './notebookLogicType'
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from a utils file
+import { EditorRange, JSONContent, NotebookEditor } from './utils'
 
 const SYNC_DELAY = 1000
 
@@ -80,6 +81,7 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        renameNotebook: (title: string) => ({ title }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
@@ -213,12 +215,18 @@ export const notebookLogic = kea<notebookLogicType>([
                     } else if (props.shortId.startsWith('template-')) {
                         response =
                             values.notebookTemplates.find((template) => template.short_id === props.shortId) || null
+                        if (!response) {
+                            return null
+                        }
                     } else {
-                        response = await api.notebooks.get(props.shortId)
-                    }
-
-                    if (!response) {
-                        throw new Error('Notebook not found')
+                        try {
+                            response = await api.notebooks.get(props.shortId)
+                        } catch (e: any) {
+                            if (e.status === 404) {
+                                return null
+                            }
+                            throw e
+                        }
                     }
 
                     const notebook = migrate(response)
@@ -258,6 +266,13 @@ export const notebookLogic = kea<notebookLogicType>([
                             throw error
                         }
                     }
+                },
+                renameNotebook: async ({ title }) => {
+                    if (!values.notebook) {
+                        return values.notebook
+                    }
+                    const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    return response
                 },
             },
         ],

@@ -1,16 +1,18 @@
-import { DurationType, SessionRecordingType } from '~/types'
-import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
+
+import { DurationType, SessionRecordingType } from '~/types'
+
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export interface SessionRecordingPreviewProps {
@@ -110,7 +112,7 @@ function ActivityIndicators({
                     )
                 })
             ) : (
-                <LemonSkeleton className="w-18 my-1" />
+                <LemonSkeleton className="w-18 h-4 my-1" />
             )}
         </div>
     )
@@ -162,7 +164,7 @@ function PinnedIndicator(): JSX.Element | null {
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
         <Tooltip title={'Indicates the recording has not been watched yet'}>
-            <div className="w-2 h-2 m-1 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+            <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
 }
@@ -236,8 +238,8 @@ export function SessionRecordingPreview({
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
         <div className="p-4 space-y-2">
-            <LemonSkeleton className="w-1/2" />
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton className="w-1/3 h-4" />
         </div>
     )
 }

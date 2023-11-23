@@ -1,29 +1,32 @@
-import { LemonSelectOptions, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import {
-    IconChevronRight,
-    IconCheckmark,
-    IconExpandMore,
-    IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconCheckmark,
+    IconChevronRight,
+    IconExpandMore,
     IconInfo,
+    IconPlus,
 } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
-import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
-import { BillingLimitInput } from './BillingLimitInput'
-import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductPricingModal } from './ProductPricingModal'
+import { getProductIcon } from 'scenes/products/Products'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+
+import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { BillingGauge } from './BillingGauge'
+import { BillingLimitInput } from './BillingLimitInput'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 import { PlanComparisonModal } from './PlanComparison'
+import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
@@ -60,9 +63,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
-                    {addon.image_url ? (
-                        <img className="w-10 h-10" alt={`Logo for PostHog ${addon.name}`} src={addon.image_url} />
-                    ) : null}
+                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
@@ -294,13 +295,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-border rounded w-full bg-bg-light">
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {product.image_url ? (
-                            <img
-                                className="w-10 h-10"
-                                alt={`Logo for PostHog ${product.name}`}
-                                src={product.image_url}
-                            />
-                        ) : null}
+                        {getProductIcon(product.icon_key, 'text-2xl')}
                         <div>
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>

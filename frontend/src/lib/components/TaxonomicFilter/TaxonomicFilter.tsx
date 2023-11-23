@@ -1,17 +1,19 @@
 import './TaxonomicFilter.scss'
-import { useEffect, useMemo, useRef } from 'react'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconKeyboard } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 

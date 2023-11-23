@@ -1,3 +1,6 @@
+import apiReal from 'lib/api'
+import { PluginInstallationType } from 'scenes/plugins/types'
+
 import {
     CohortType,
     FilterLogicalOperator,
@@ -14,9 +17,8 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
+
 import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
-import apiReal from 'lib/api'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
 export const MOCK_TEAM_ID: TeamType['id'] = 997
@@ -70,6 +72,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
+    session_recording_network_payload_capture_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
     autocapture_exceptions_opt_in: false,

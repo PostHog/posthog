@@ -1,36 +1,38 @@
 import {
     LemonButton,
+    LemonButtonWithSideAction,
     LemonDivider,
     LemonInput,
     LemonSelect,
     LemonTable,
-    Link,
     LemonTag,
     LemonTagType,
+    Link,
     Spinner,
-    LemonButtonWithSideAction,
 } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import stringWithWBR from 'lib/utils/stringWithWBR'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { getSurveyStatus, surveysLogic } from './surveysLogic'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey, ProgressStatus, Survey } from '~/types'
-import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { useState } from 'react'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { userLogic } from 'scenes/userLogic'
-import { dayjs } from 'lib/dayjs'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { dayjs } from 'lib/dayjs'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { openSurveysSettingsDialog } from './SurveySettings'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useState } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { ProductKey, ProgressStatus, Survey } from '~/types'
+
 import { SurveyQuestionLabel } from './constants'
+import { openSurveysSettingsDialog } from './SurveySettings'
+import { getSurveyStatus, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -117,7 +119,7 @@ export function Surveys(): JSX.Element {
                 ]}
             />
             <div className="space-y-2">
-                <VersionCheckerBanner />
+                <VersionCheckerBanner minVersionAccepted="1.83.0" />
 
                 {showSurveysDisabledBanner ? (
                     <LemonBanner
