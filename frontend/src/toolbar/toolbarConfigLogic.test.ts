@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -12,11 +12,11 @@ global.fetch = jest.fn(() =>
 )
 
 describe('toolbar toolbarLogic', () => {
-    let logic: ReturnType<typeof toolbarLogic.build>
+    let logic: ReturnType<typeof toolbarConfigLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = toolbarLogic({ apiURL: 'http://localhost' })
+        logic = toolbarConfigLogic({ apiURL: 'http://localhost' })
         logic.mount()
     })
 

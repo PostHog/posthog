@@ -1,59 +1,57 @@
-import './featureFlags.scss'
-
-import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
-export function FeatureFlags(): JSX.Element {
+export const FlagsToolbarMenu = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
-    const { setOverriddenUserFlag, deleteOverriddenUserFlag, setSearchTerm } = useActions(featureFlagsLogic)
-    const { apiURL } = useValues(toolbarLogic)
-
+    const { setSearchTerm, setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
+    const { apiURL } = useValues(toolbarConfigLogic)
     return (
-        <div className="toolbar-block px-2">
-            <div className="local-feature-flag-override-note rounded border p-2 my-2">
-                Note, overriding feature flags below will only affect this browser.
-            </div>
-            <>
+        <ToolbarMenu>
+            <ToolbarMenu.Header>
                 <LemonInput
                     autoFocus
                     placeholder="Search"
                     fullWidth
                     type={'search'}
                     value={searchTerm}
-                    className={'feature-flag-row'}
                     onChange={(s) => setSearchTerm(s)}
                 />
-                <div className={'flex flex-col w-full space-y-1 py-2'}>
+            </ToolbarMenu.Header>
+
+            <ToolbarMenu.Body>
+                <div className="space-y-px">
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
-                            <div className={'feature-flag-row'} key={feature_flag.key}>
-                                <div
-                                    className={clsx(
-                                        'feature-flag-row-header flex flex-row items-center rounded',
-                                        hasOverride && 'overridden'
-                                    )}
-                                >
-                                    <div className="feature-flag-title flex-1 font-bold truncate">
-                                        {feature_flag.key}
+                            <div className={clsx('p-1 rounded', hasOverride && 'bg-mark')} key={feature_flag.key}>
+                                <div className={clsx('flex flex-row items-center')}>
+                                    <div className="flex-1 truncate">
+                                        <Link
+                                            className="font-medium"
+                                            to={`${apiURL}${
+                                                feature_flag.id
+                                                    ? urls.featureFlag(feature_flag.id)
+                                                    : urls.featureFlags()
+                                            }`}
+                                            subtle
+                                            target="_blank"
+                                        >
+                                            {feature_flag.key}
+                                            <IconOpenInNew />
+                                        </Link>
                                     </div>
-                                    <Link
-                                        className="feature-flag-external-link"
-                                        to={`${apiURL}${
-                                            feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
-                                        }`}
-                                        target="_blank"
-                                        targetBlankIcon
-                                    />
+
                                     <LemonSwitch
                                         checked={!!currentValue}
                                         onChange={(checked) => {
@@ -71,12 +69,7 @@ export function FeatureFlags(): JSX.Element {
                                 </div>
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
-                                    <div
-                                        className={clsx(
-                                            'variant-radio-group flex flex-col w-full px-4 py-2 ml-8',
-                                            hasOverride && 'overridden'
-                                        )}
-                                    >
+                                    <div className={clsx('flex flex-col px-2 ml-2', hasOverride && 'overridden')}>
                                         {feature_flag.filters?.multivariate?.variants.map((variant) => (
                                             <LemonCheckbox
                                                 key={variant.key}
@@ -105,14 +98,20 @@ export function FeatureFlags(): JSX.Element {
                     ) : (
                         <div className={'flex flex-row items-center px-2 py-1'}>
                             {userFlagsLoading ? (
-                                <Spinner className={'text-2xl'} />
+                                <span className="flex-1 flex justify-center items-center p-4">
+                                    <Spinner className="text-2xl" />
+                                </span>
                             ) : (
                                 `No ${searchTerm.length ? 'matching ' : ''}feature flags found.`
                             )}
                         </div>
                     )}
                 </div>
-            </>
-        </div>
+            </ToolbarMenu.Body>
+
+            <ToolbarMenu.Footer>
+                <span className="text-xs">Note: overriding feature flags will only affect this browser.</span>
+            </ToolbarMenu.Footer>
+        </ToolbarMenu>
     )
 }
