@@ -63,7 +63,10 @@
         "build-storybook": "storybook build",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
-        "prepare": "husky install"
+        "prepare": "husky install",
+        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out schema/web/rr-web-schema.json && prettier --write schema/web/rr-web-schema.json",
+        "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'src/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out schema/mobile/rr-mobile-schema.json && prettier --write schema/mobile/rr-mobile-schema.json",
+        "mobile-replay:schema:build:json": "pnpm web:schema:build:json && pnpm mobile:schema:build:json"
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",
@@ -95,6 +98,7 @@
         "@types/md5": "^2.3.0",
         "@types/react-transition-group": "^4.4.5",
         "@types/react-virtualized": "^9.21.23",
+        "ajv": "^8.12.0",
         "antd": "^4.17.1",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",

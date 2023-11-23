@@ -35,7 +35,7 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. 
                         - 'bin/**'
                         - 'frontend/**'
-                        - 'ee/frontend/**'
+                        - 'ee/frontend/**'  
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
@@ -106,6 +106,10 @@ jobs:
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm schema:build:json && git diff --exit-code
+
+            - name: Check if mobile replay "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm mobile-replay:schema:build:json && git diff --exit-code
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
