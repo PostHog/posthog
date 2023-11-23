@@ -1,6 +1,6 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from '@storybook/test-runner'
+import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/types'
 
@@ -110,8 +110,7 @@ async function expectStoryToMatchSnapshot(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    // Wait for story to load
-    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
+    await waitForPageReady(page)
     await page.evaluate(() => {
         // Stop all animations for consistent snapshots
         document.body.classList.add('storybook-test-runner')
@@ -123,7 +122,7 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(waitForSelector)
     }
 
-    await page.waitForTimeout(400) // Wait for animations to finish
+    await page.waitForTimeout(400) // Wait for effects to finish
 
     // Wait for all images to load
     await page.waitForFunction(() =>

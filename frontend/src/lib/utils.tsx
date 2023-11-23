@@ -391,8 +391,16 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
-export function delay(ms: number): Promise<number> {
-    return new Promise((resolve) => window.setTimeout(resolve, ms))
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(resolve, ms)
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId)
+                reject(new DOMException('Aborted', 'AbortError'))
+            })
+        }
+    })
 }
 
 export function clearDOMTextSelection(): void {
