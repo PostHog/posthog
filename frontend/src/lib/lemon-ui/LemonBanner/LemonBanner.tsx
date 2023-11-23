@@ -2,12 +2,12 @@ import './LemonBanner.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconClose, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton/LemonButton'
 
 import { lemonBannerLogic } from './lemonBannerLogic'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export type LemonBannerAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
