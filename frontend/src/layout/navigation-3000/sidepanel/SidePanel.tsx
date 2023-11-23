@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
@@ -15,6 +16,7 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanel
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -44,6 +46,11 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         label: 'Settings',
         Icon: IconGear,
         Content: SidePanelSettings,
+    },
+    [SidePanelTab.Welcome]: {
+        label: 'Welcome',
+        Icon: IconFlare,
+        Content: SidePanelWelcome,
     },
 }
 

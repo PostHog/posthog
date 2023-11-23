@@ -3447,4 +3447,5 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
+    Welcome = 'welcome',
 }
