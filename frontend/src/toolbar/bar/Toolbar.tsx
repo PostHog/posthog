@@ -1,3 +1,5 @@
+import './Toolbar.scss'
+
 import {
     IconBolt,
     IconCursorClick,
@@ -8,22 +10,22 @@ import {
     IconToggle,
     IconX,
 } from '@posthog/icons'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu, IconTarget } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { getToolbarContainer } from '~/toolbar/utils'
-import { useActions, useValues } from 'kea'
-import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useEffect, useRef } from 'react'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import clsx from 'clsx'
+
+import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
-import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
-import { ToolbarButton } from './ToolbarButton'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { getToolbarContainer } from '~/toolbar/utils'
 
-import './Toolbar.scss'
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
+import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
