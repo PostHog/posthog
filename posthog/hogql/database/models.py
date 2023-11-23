@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import ConfigDict, BaseModel
 
-from posthog.hogql.base import Expr
+from posthog.hogql.base import Expr, ConstantType
 from posthog.hogql.errors import HogQLException, NotImplementedException
 from posthog.schema import HogQLQueryModifiers
 
@@ -60,6 +60,8 @@ class BooleanDatabaseField(DatabaseField):
 
 class ExpressionField(DatabaseField):
     expr: Expr
+    # we should calculate this automatically, eventually... for now we need to help the compiler
+    return_type: Optional[ConstantType] = None
 
 
 class FieldTraverser(FieldOrTable):

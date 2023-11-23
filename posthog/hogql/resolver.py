@@ -459,7 +459,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            return self.visit(ast.Alias(alias=node.type.name, expr=node.type.expr, hidden=True))
+            new_node = ast.Alias(alias=node.type.name, expr=clone_expr(node.type.expr), hidden=True)
+            new_node = self.visit(new_node)
+            return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
