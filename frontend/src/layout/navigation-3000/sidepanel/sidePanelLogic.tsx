@@ -64,6 +64,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Welcome)
                 tabs.push(SidePanelTab.Activation)
 
                 return tabs
@@ -85,7 +86,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     // Hide certain tabs unless they are selected
-                    if ([SidePanelTab.Settings].includes(tab)) {
+                    if ([SidePanelTab.Settings, SidePanelTab.Welcome].includes(tab)) {
                         return false
                     }
 
