@@ -325,19 +325,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconLive />,
                             to: urls.events(),
                         },
-                        {
-                            identifier: Scene.DataManagement,
-                            label: 'Data',
-                            icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                        },
+
                         {
                             identifier: Scene.PersonsManagement,
                             label: 'People',
                             icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
+                        },
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                     ],
                     [
