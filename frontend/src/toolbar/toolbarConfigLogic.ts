@@ -43,7 +43,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ values }) => ({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
