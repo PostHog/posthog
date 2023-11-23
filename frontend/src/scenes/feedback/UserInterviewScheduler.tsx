@@ -1,16 +1,15 @@
-import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import './UserInterviewScheduler.scss'
 
 import { urls } from '@posthog/apps-common'
+import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-
-import { IconHelpOutline } from 'lib/lemon-ui/icons'
-import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
-import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
 import { Form } from 'kea-forms'
-
-import './UserInterviewScheduler.scss'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Field } from 'lib/forms/Field'
+import { IconHelpOutline } from 'lib/lemon-ui/icons'
+import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
+
+import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',

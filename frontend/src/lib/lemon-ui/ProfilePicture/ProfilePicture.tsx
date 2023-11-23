@@ -1,12 +1,14 @@
+import './ProfilePicture.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
-import './ProfilePicture.scss'
-import { inStorybookTestRunner } from 'lib/utils'
 
 export interface ProfilePictureProps {
     name?: string
@@ -47,7 +49,7 @@ export function ProfilePicture({
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
             // The image will be cached, so it's best to do GET request check before trying to render it
-            fetch(tentativeUrl).then((response) => {
+            void fetch(tentativeUrl).then((response) => {
                 if (response.status === 200) {
                     setGravatarUrl(tentativeUrl)
                 }

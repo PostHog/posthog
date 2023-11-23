@@ -1,27 +1,25 @@
+import './HedgehogBuddy.scss'
+import './HedgehogBuddy.scss'
+
+import { useValues } from 'kea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { range, sampleOne } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useActions, useValues } from 'kea'
+import { HedgehogAccessories } from './HedgehogAccessories'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    AccessoryInfo,
+    baseSpriteAccessoriesPath,
+    baseSpritePath,
     SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    standardAnimations,
     standardAccessories,
-    AccessoryInfo,
-    accessoryGroups,
-    baseSpritePath,
-    baseSpriteAccessoriesPath,
+    standardAnimations,
 } from './sprites/sprites'
-import { FlaggedFeature } from '../FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { HedgehogBuddyAccessory } from './components/AccessoryButton'
-import './HedgehogBuddy.scss'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -316,7 +314,10 @@ export class HedgehogActor {
             <div
                 className="HedgehogBuddy"
                 data-content={preloadContent}
-                onMouseDown={() => {
+                onMouseDown={(e) => {
+                    if (e.button !== 0) {
+                        return
+                    }
                     let moved = false
                     const onMouseMove = (e: any): void => {
                         moved = true
@@ -397,7 +398,7 @@ export function HedgehogBuddy({
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
-    // passed in because toolbar needs to check this differently than the app
+    // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
     isDarkModeOn: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -476,48 +477,8 @@ export function HedgehogBuddy({
             overlay={
                 popoverOverlay || (
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <h3>Hi, I'm Max!</h3>
-                        <p>
-                            Don't mind me. I'm just here to keep you company.
-                            <br />
-                            You can move me around by clicking and dragging or control me with WASD / arrow keys.
-                        </p>
+                        <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
 
-                        {accessoryGroups.map((group) => (
-                            <div key={group}>
-                                <h4>{capitalizeFirstLetter(group)}</h4>
-
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAccessories)
-                                        .filter((acc) => standardAccessories[acc].group === group)
-                                        .map((acc) => (
-                                            <HedgehogBuddyAccessory
-                                                key={acc}
-                                                accessoryKey={acc}
-                                                accessory={standardAccessories[acc]}
-                                            />
-                                        ))}
-                                </div>
-                            </div>
-                        ))}
-
-                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG}>
-                            <>
-                                <LemonDivider />
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAnimations).map((x) => (
-                                        <LemonButton
-                                            key={x}
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => actor.setAnimation(x)}
-                                        >
-                                            {capitalizeFirstLetter(x)}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            </>
-                        </FlaggedFeature>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
                             <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
@@ -533,17 +494,5 @@ export function HedgehogBuddy({
         >
             {actor.render({ onClick })}
         </Popover>
-    )
-}
-
-export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    return hedgehogModeEnabled ? (
-        <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} isDarkModeOn={isDarkModeOn} />
-    ) : (
-        <></>
     )
 }

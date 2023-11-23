@@ -238,7 +238,7 @@ class Cohort(models.Model):
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
-        Items can be distinct_id or email
+        Items is a list of distinct_ids
         """
 
         batchsize = 1000
@@ -298,9 +298,8 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: List[str]) -> None:
-        batchsize = 1000
-        from posthog.models.cohort.util import get_static_cohort_size
+    def insert_users_list_by_uuid(self, items: List[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+        from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
             cursor = connection.cursor()
@@ -309,6 +308,12 @@ class Cohort(models.Model):
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
                 )
+                if insert_in_clickhouse:
+                    insert_static_cohort(
+                        [p for p in persons_query.values_list("uuid", flat=True)],
+                        self.pk,
+                        self.team,
+                    )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,

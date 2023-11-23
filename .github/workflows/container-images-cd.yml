@@ -102,6 +102,7 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
+                        "image_tag_unit": "${{ steps.build-unit.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
 

@@ -30,7 +30,7 @@ describe('Insights', () => {
         describe('opening a new insight directly', () => {
             it('can open a new trends insight', () => {
                 insight.newInsight('TRENDS')
-                cy.get('.trends-insights-container canvas').should('exist')
+                cy.get('.TrendsInsight canvas').should('exist')
                 cy.get('tr').should('have.length.gte', 2)
             })
 
@@ -52,12 +52,12 @@ describe('Insights', () => {
 
             it('can open a new stickiness insight', () => {
                 insight.newInsight('STICKINESS')
-                cy.get('.trends-insights-container canvas').should('exist')
+                cy.get('.TrendsInsight canvas').should('exist')
             })
 
             it('can open a new lifecycle insight', () => {
                 insight.newInsight('LIFECYCLE')
-                cy.get('.trends-insights-container canvas').should('exist')
+                cy.get('.TrendsInsight canvas').should('exist')
             })
 
             it('can open a new SQL insight', () => {

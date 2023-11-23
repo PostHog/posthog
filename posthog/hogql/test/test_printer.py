@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField
+from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -964,10 +964,36 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_equals(self):
-        generated_sql_statements = self._select(
-            "SELECT min_first_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_replay_events"
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "min_first_timestamp = toStartOfMonth(now()), "
+            "now() = now(), "
+            "1 = now(), "
+            "now() = 1, "
+            "1 = 1, "
+            "click_count = 1, "
+            "1 = click_count, "
+            "click_count = keypress_count, "
+            "click_count = null, "
+            "null = click_count "
+            "FROM session_replay_events"
         )
-        assert generated_sql_statements == (
+        generated_sql_statements2 = self._select(
+            "SELECT "
+            "equals(min_first_timestamp, toStartOfMonth(now())), "
+            "equals(now(), now()), "
+            "equals(1, now()), "
+            "equals(now(), 1), "
+            "equals(1, 1), "
+            "equals(click_count, 1), "
+            "equals(1, click_count), "
+            "equals(click_count, keypress_count), "
+            "equals(click_count, null), "
+            "equals(null, click_count) "
+            "FROM session_replay_events"
+        )
+        assert generated_sql_statements1 == generated_sql_statements2
+        assert generated_sql_statements1 == (
             f"SELECT "
             # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
@@ -996,12 +1022,18 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_not_equals(self):
-        generated_sql = self._select(
+        generated_sql1 = self._select(
             "SELECT min_first_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
             "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
             "FROM session_replay_events"
         )
-        assert generated_sql == (
+        generated_sql2 = self._select(
+            "SELECT notEquals(min_first_timestamp, toStartOfMonth(now())), notEquals(now(), now()), notEquals(1, now()), notEquals(now(), 1), notEquals(1, 1), "
+            "notEquals(click_count, 1), notEquals(1, click_count), notEquals(click_count, keypress_count), notEquals(click_count, null), notEquals(null, click_count) "
+            "FROM session_replay_events"
+        )
+        assert generated_sql1 == generated_sql2
+        assert generated_sql1 == (
             f"SELECT "
             # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
@@ -1027,6 +1059,98 @@ class TestPrinter(BaseTest):
             f"isNotNull(session_replay_events.click_count) "
             # ...
             f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
+        )
+
+    def test_field_nullable_like(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "nullable_field like 'a', "
+            "nullable_field like null, "
+            "null like nullable_field, "
+            "null like 'a', "
+            "'a' like nullable_field, "
+            "'a' like null "
+            "FROM events",
+            context,
+        )
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        generated_sql_statements2 = self._select(
+            "SELECT "
+            "like(nullable_field, 'a'), "
+            "like(nullable_field, null), "
+            "like(null, nullable_field), "
+            "like(null, 'a'), "
+            "like('a', nullable_field), "
+            "like('a', null) "
+            "FROM events",
+            context,
+        )
+        assert generated_sql_statements1 == generated_sql_statements2
+        assert generated_sql_statements1 == (
+            f"SELECT "
+            # event like 'a',
+            "ifNull(like(events.nullable_field, %(hogql_val_0)s), 0), "
+            # event like null,
+            "isNull(events.nullable_field), "
+            # null like event,
+            "isNull(events.nullable_field), "
+            # null like 'a',
+            "ifNull(like(NULL, %(hogql_val_1)s), 0), "
+            # 'a' like event,
+            "ifNull(like(%(hogql_val_2)s, events.nullable_field), 0), "
+            # 'a' like null
+            "isNull(%(hogql_val_3)s) "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
+        )
+
+    def test_field_nullable_not_like(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "nullable_field not like 'a', "
+            "nullable_field not like null, "
+            "null not like nullable_field, "
+            "null not like 'a', "
+            "'a' not like nullable_field, "
+            "'a' not like null "
+            "FROM events",
+            context,
+        )
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        generated_sql_statements2 = self._select(
+            "SELECT "
+            "notLike(nullable_field, 'a'), "
+            "notLike(nullable_field, null), "
+            "notLike(null, nullable_field), "
+            "notLike(null, 'a'), "
+            "notLike('a', nullable_field), "
+            "notLike('a', null) "
+            "FROM events",
+            context,
+        )
+        assert generated_sql_statements1 == generated_sql_statements2
+        assert generated_sql_statements1 == (
+            f"SELECT "
+            # event like 'a',
+            "ifNull(notLike(events.nullable_field, %(hogql_val_0)s), 1), "
+            # event like null,
+            "isNotNull(events.nullable_field), "
+            # null like event,
+            "isNotNull(events.nullable_field), "
+            # null like 'a',
+            "ifNull(notLike(NULL, %(hogql_val_1)s), 1), "
+            # 'a' like event,
+            "ifNull(notLike(%(hogql_val_2)s, events.nullable_field), 1), "
+            # 'a' like null
+            "isNotNull(%(hogql_val_3)s) "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
 
     def test_print_global_settings(self):

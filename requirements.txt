@@ -4,11 +4,13 @@
 #
 #    pip-compile requirements.in
 #
-aioboto3==11.1
+aioboto3==11.1.0
     # via -r requirements.in
 aiobotocore[boto3]==2.5.0
-    # via aioboto3
-aiohttp==3.8.5
+    # via
+    #   aioboto3
+    #   aiobotocore
+aiohttp==3.8.6
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -223,6 +225,7 @@ geoip2==4.6.0
     # via -r requirements.in
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0

@@ -17,13 +17,13 @@
 
     input::-webkit-outer-spin-button,
     input::-webkit-inner-spin-button {
-        -webkit-appearance: none;
+        appearance: none;
         margin: 0;
     }
 
     /* Firefox */
     input[type='number'] {
-        -moz-appearance: textfield;
+        appearance: textfield;
     }
 }
 
@@ -40,22 +40,27 @@
     border-radius: 0.25rem;
     background-color: var(--bg-light);
     box-sizing: border-box;
-    -moz-box-sizing: border-box;
-    -webkit-box-sizing: border-box;
     margin-right: 0.25rem;
     margin-left: 0.25rem;
     line-height: 1.25rem;
     align-items: center;
 
-    input {
+    .LemonInput {
         width: 3rem;
-        text-align: center;
+        min-height: 0;
+        padding: 0;
+        border: none;
+
+        input {
+            text-align: center;
+        }
     }
 
     .RollingDateRangeFilter__counter__step {
         margin: 0 0.25rem;
         border-radius: var(--radius);
         padding: 0.25rem;
+
         &:hover {
             background-color: var(--primary-highlight);
         }

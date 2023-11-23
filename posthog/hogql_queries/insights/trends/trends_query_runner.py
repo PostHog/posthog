@@ -35,6 +35,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     TrendsQuery,
     TrendsQueryResponse,
+    HogQLQueryModifiers,
 )
 
 
@@ -48,9 +49,10 @@ class TrendsQueryRunner(QueryRunner):
         query: TrendsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
+        modifiers: Optional[HogQLQueryModifiers] = None,
         in_export_context: Optional[bool] = None,
     ):
-        super().__init__(query, team, timings, in_export_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -129,11 +131,12 @@ class TrendsQueryRunner(QueryRunner):
                 query=query,
                 team=self.team,
                 timings=self.timings,
+                modifiers=self.modifiers,
             )
 
             timings.extend(response.timings)
 
-            res.extend(self.build_series_response(response, series_with_extra))
+            res.extend(self.build_series_response(response, series_with_extra, len(queries)))
 
         if (
             self.query.trendsFilter is not None
@@ -144,7 +147,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsQueryResponse(results=res, timings=timings)
 
-    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
+    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
             return []
 
@@ -243,7 +246,13 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
                     series_object["breakdown_value"] = get_value("breakdown_value", val)
                 else:
-                    series_object["label"] = "{} - {}".format(series_object["label"], get_value("breakdown_value", val))
+                    # If there's multiple series, include the object label in the series label
+                    if series_count > 1:
+                        series_object["label"] = "{} - {}".format(
+                            series_object["label"], get_value("breakdown_value", val)
+                        )
+                    else:
+                        series_object["label"] = get_value("breakdown_value", val)
                     series_object["breakdown_value"] = get_value("breakdown_value", val)
 
             res.append(series_object)

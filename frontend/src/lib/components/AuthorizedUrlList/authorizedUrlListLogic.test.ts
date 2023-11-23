@@ -1,3 +1,11 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     appEditorUrl,
     authorizedUrlListLogic,
@@ -5,12 +13,6 @@ import {
     filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
-import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
-import { useMocks } from '~/mocks/jest'
-import { urls } from 'scenes/urls'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 
 describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>

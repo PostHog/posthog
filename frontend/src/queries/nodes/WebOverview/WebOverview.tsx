@@ -1,13 +1,15 @@
-import { useState } from 'react'
-import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
 import { useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
-import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { getColorVar } from 'lib/colors'
-import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
+import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
+import { useState } from 'react'
+
+import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
+import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+
+import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 let uniqueNode = 0
 export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {

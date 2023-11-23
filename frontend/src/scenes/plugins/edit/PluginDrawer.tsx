@@ -1,25 +1,26 @@
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Switch } from 'antd'
-import { userLogic } from 'scenes/userLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { Drawer } from 'lib/components/Drawer'
-import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import { PluginSource } from '../source/PluginSource'
-import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from 'lib/utils'
-import { canGloballyManagePlugins } from '../access'
-import { capabilitiesInfo } from './CapabilitiesInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
-import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { PluginTags } from '../tabs/apps/components'
-import { IconLock } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { Form } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Drawer } from 'lib/components/Drawer'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { IconLock } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { endWithPunctation } from 'lib/utils'
+import React, { useEffect, useState } from 'react'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { canGloballyManagePlugins } from '../access'
+import { PluginSource } from '../source/PluginSource'
+import { PluginTags } from '../tabs/apps/components'
+import { capabilitiesInfo } from './CapabilitiesInfo'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -31,10 +32,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 

@@ -1,10 +1,13 @@
-import { Query } from '~/queries/Query/Query'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { NodeKind, QuerySchema } from '~/queries/schema'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import {
     webAnalyticsDataTableQueryContext,
@@ -12,11 +15,9 @@ import {
     WebStatsTrendTile,
 } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import clsx from 'clsx'
-import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+
+import { Query } from '~/queries/Query/Query'
+import { NodeKind, QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
@@ -97,9 +98,11 @@ const Tiles = (): JSX.Element => {
                     return (
                         <div
                             key={i}
-                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                layout.rowSpan ?? 1
-                            }  flex flex-col`}
+                            className={clsx(
+                                'col-span-1 row-span-1 flex flex-col',
+                                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                                layout.className
+                            )}
                         >
                             {title && <h2 className="m-0 mb-3">{title}</h2>}
                             <WebQuery query={query} />
@@ -120,7 +123,11 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 
     return (
         <WebTabs
-            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`}
+            className={clsx(
+                'col-span-1 row-span-1',
+                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                layout.className
+            )}
             activeTabId={tile.activeTabId}
             setActiveTabId={tile.setTabId}
             tabs={tile.tabs.map((tab) => ({
@@ -146,7 +153,7 @@ const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="w-full flex flex-col pt-2">
+        <div className="WebAnalyticsDashboard w-full flex flex-col pt-2">
             <WebAnalyticsNotice />
             <Filters />
             <WebAnalyticsHealthCheck />

@@ -1,18 +1,17 @@
-import { useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { InputNumber } from 'antd'
-
-import { AvailableFeature, PathEdgeParameters, EditorFilterProps } from '~/types'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { InputNumber } from 'antd'
+import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { useState } from 'react'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { urls } from 'scenes/urls'
 
 export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))

@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
 import { Tooltip as AntdTooltip } from 'antd'
 import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
+import React, { useState } from 'react'
 import { useDebounce } from 'use-debounce'
 
 const DEFAULT_DELAY_MS = 500

@@ -1,6 +1,7 @@
 import api from 'lib/api'
-import { PropertyFilterType, PropertyOperator } from '~/types'
 import posthog from 'posthog-js'
+
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('API helper', () => {
     let fakeFetch: jest.Mock<any, any>

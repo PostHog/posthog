@@ -1,8 +1,8 @@
 import { Meta } from '@storybook/react'
-
-import { LemonSkeleton } from './LemonSkeleton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { LemonSkeleton } from './LemonSkeleton'
 
 const meta: Meta<typeof LemonSkeleton> = {
     title: 'Lemon UI/Lemon Skeleton',
@@ -54,7 +54,7 @@ export function Presets(): JSX.Element {
                 }
             >
                 <div className="space-y-2">
-                    <LemonSkeleton className="w-1/2" />
+                    <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             </LemonModal>

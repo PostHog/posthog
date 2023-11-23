@@ -15,6 +15,12 @@
         min-width: 0;
         overflow: auto;
     }
+
+    .BridgePage {
+        background: none;
+        height: 100%;
+        overflow: visible;
+    }
 }
 
 .Navigation3000__scene {
@@ -22,9 +28,11 @@
     position: relative;
     margin: var(--scene-padding-y) var(--scene-padding-x);
     min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding-y) * 2);
+
     &.Navigation3000__scene--raw {
         --scene-padding-y: 0px;
         --scene-padding-x: 0px;
+
         display: flex;
         flex-direction: column;
     }
@@ -49,8 +57,10 @@
         z-index: var(--z-main-nav);
 
         .LemonButton {
-            min-height: 2.25rem !important; // Reduce minimum height
-            padding: 0.375rem !important; // Use a custom padding for the navbar only
+            .LemonButton__chrome {
+                padding: 0.25rem !important;
+                font-size: 0.8125rem;
+            }
         }
 
         ul {
@@ -62,16 +72,18 @@
         }
 
         li + li {
-            margin-top: 1px;
+            margin-top: -1px;
         }
     }
 }
 
 .NavbarButton {
     position: relative;
+
     .LemonButton__icon {
         transition: color 100ms ease, transform 100ms ease;
     }
+
     &.NavbarButton--here {
         &::after {
             content: '•';
@@ -84,6 +96,7 @@
             line-height: 0.5625rem;
             color: var(--default);
         }
+
         .LemonButton__icon {
             color: var(--default);
             transform: translateY(-0.25rem);
@@ -98,7 +111,9 @@
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2rem;
     --sidebar-background: var(--bg-3000);
+
     position: relative;
+
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
@@ -122,23 +137,27 @@
         margin: 0;
         line-height: inherit;
     }
+
     h3 {
         font-weight: 600;
         line-height: 2rem;
         font-size: 0.75rem;
     }
+
     h4 {
         font-weight: 600;
         line-height: 1.75rem;
         font-size: 0.6875rem;
         flex-grow: 1;
     }
+
     h5 {
         font-weight: 400;
         font-size: 0.75rem;
         text-transform: none;
         letter-spacing: normal;
     }
+
     b {
         font-weight: 700;
     }
@@ -164,6 +183,7 @@
     white-space: nowrap;
     overflow: hidden;
     background: var(--sidebar-background);
+
     // Extend the border into viewport overscroll
     border-right: min(1px, var(--sidebar-width)) solid var(--border);
 
@@ -182,8 +202,7 @@
     flex-direction: column;
     align-items: stretch;
     flex-grow: 1;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden auto;
 }
 
 .Sidebar3000__hint {
@@ -206,6 +225,7 @@
     right: calc(
         -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
     ); // Center around the original sidebar border
+
     width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
@@ -222,23 +242,28 @@
         width: 1px;
         pointer-events: none;
     }
+
     &::before {
         transition: 100ms ease transform;
         background: var(--border);
     }
+
     &::after {
         transition: 100ms ease transform;
         background: var(--text-3000);
         opacity: 0;
     }
+
     &:hover::after,
     .Sidebar3000--resizing &::after {
         opacity: 0.25;
     }
+
     .Sidebar3000--resizing &::before,
     .Sidebar3000--resizing &::after {
         transform: scaleX(3);
     }
+
     .Sidebar3000[aria-hidden='true'] & {
         cursor: e-resize;
     }
@@ -260,20 +285,25 @@
     --accordion-inset-expandable: 1.25rem;
     --accordion-header-background: var(--accent-3000);
     --accordion-inset: 0rem;
+
     min-height: var(--accordion-row-height);
     flex-shrink: 0;
     flex-basis: 0;
     display: flex;
     flex-direction: column;
+
     [theme='dark'] & {
         --accordion-header-background: var(--bg-3000);
     }
+
     &[aria-expanded] {
         // This means: if accordion is expandable
         --accordion-inset: var(--accordion-inset-expandable);
     }
+
     &:not([aria-expanded='false']) {
         flex-grow: 1;
+
         &:not(:last-child) {
             border-bottom-width: 1px;
         }
@@ -283,10 +313,12 @@
 .Accordion[aria-disabled='true'] {
     .Accordion__header {
         cursor: default;
+
         &:hover {
             background: var(--accordion-header-background);
         }
     }
+
     &:not([aria-busy='true']) .Accordion__header .LemonIcon {
         visibility: hidden;
     }
@@ -302,14 +334,17 @@
     border-bottom-width: 1px;
     cursor: pointer;
     user-select: none;
+
     &:hover {
         background: var(--border-3000);
     }
+
     > .LemonIcon {
         transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+
         .Accordion[aria-expanded='true'] & {
             transform: rotate(90deg);
         }
@@ -321,6 +356,7 @@
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
+
     position: relative;
     color: var(--muted);
     line-height: 1.125rem;
@@ -333,8 +369,10 @@
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
         opacity: 1;
+
         --sidebar-list-item-background: var(--border-3000);
     }
+
     &:hover,
     &:focus-within,
     &[aria-current='page'],
@@ -343,14 +381,17 @@
         .SidebarListItem__actions {
             display: flex;
         }
+
         // Accommodate menu button by moving stuff out of the way
         &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
             padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
         }
+
         &.SidebarListItem--has-menu.SidebarListItem--extended {
             &::after {
                 content: '';
                 position: absolute;
+
                 // Position 1px away so that the :focus-visible border isn't overlaid
                 top: 1px;
                 right: 1px;
@@ -377,6 +418,7 @@
             z-index: 1;
         }
     }
+
     &.SidebarListItem--marker-fold {
         &::before {
             width: 0;
@@ -385,23 +427,29 @@
             border-bottom: var(--sidebar-list-item-fold-size) solid transparent;
         }
     }
+
     &.SidebarListItem--marker-ribbon {
         --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
+
         &::before {
             width: var(--sidebar-list-item-ribbon-width);
             height: 100%;
             background: var(--sidebar-list-item-status-color);
         }
     }
+
     &.SidebarListItem--marker-status-success {
         --sidebar-list-item-status-color: var(--success);
     }
+
     &.SidebarListItem--marker-status-warning {
         --sidebar-list-item-status-color: var(--warning);
     }
+
     &.SidebarListItem--marker-status-danger {
         --sidebar-list-item-status-color: var(--danger);
     }
+
     &.SidebarListItem--marker-status-completion {
         --sidebar-list-item-status-color: var(--purple);
     }
@@ -412,6 +460,7 @@
     --sidebar-list-item-inset: calc(
         var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) + var(--sidebar-list-item-marker-offset, 0px)
     );
+
     position: relative;
     display: flex;
     flex-direction: column;
@@ -419,13 +468,11 @@
     width: 100%;
     height: 100%;
     color: inherit;
+
     &:focus-visible::after {
         content: '';
         position: absolute;
-        top: 0;
-        left: 0;
-        bottom: -1px;
-        right: 0;
+        inset: 0 0 -1px;
         border: 1px solid var(--default);
         pointer-events: none;
     }
@@ -443,6 +490,7 @@
 .SidebarListItem__rename {
     // Pseudo-elements don't work on inputs, so we use a wrapper div
     background: var(--bg-light);
+
     input {
         outline: none;
         height: 100%;
@@ -452,15 +500,14 @@
         padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
         background: none;
     }
+
     &::after {
         content: '';
         position: absolute;
-        top: 0;
-        left: 0;
-        bottom: -1px;
-        right: 0;
+        inset: 0 0 -1px;
         border: 1px solid var(--default);
         pointer-events: none;
+
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);
         }
@@ -477,6 +524,7 @@
     background: var(--danger);
     color: #fff;
     white-space: normal;
+
     &::before {
         display: block;
         content: '';

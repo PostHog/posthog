@@ -1,16 +1,18 @@
-import { useRef, useState } from 'react'
-import { ActionFilter, ActionFilterProps } from './ActionFilter'
-import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { useMountedLogic, useValues } from 'kea'
-import { FilterType, InsightType } from '~/types'
-import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { groupsModel } from '~/models/groupsModel'
-import { alphabet, uuid } from 'lib/utils'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useMountedLogic, useValues } from 'kea'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { alphabet, uuid } from 'lib/utils'
+import { useRef, useState } from 'react'
 import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { FilterType, InsightType } from '~/types'
+
+import { ActionFilter, ActionFilterProps } from './ActionFilter'
+import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 
 type Story = StoryObj<typeof ActionFilter>
 const meta: Meta<typeof ActionFilter> = {

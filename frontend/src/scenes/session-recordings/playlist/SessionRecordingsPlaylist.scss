@@ -5,7 +5,6 @@
     display: flex;
     flex-direction: row;
     justify-content: flex-start;
-
     align-items: flex-start;
     overflow: hidden;
     border: 1px solid var(--border);
@@ -21,6 +20,12 @@
         width: 25%;
         overflow: hidden;
         height: 100%;
+
+        .text-link {
+            .posthog-3000 & {
+                color: var(--default);
+            }
+        }
     }
 
     .SessionRecordingsPlaylist__player {
@@ -53,6 +58,10 @@
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
     height: calc(100vh - 15rem);
     min-height: 41rem;
+
+    .posthog-3000 & {
+        height: calc(100vh - 9rem);
+    }
 }
 
 .SessionRecordingPreview {
@@ -65,11 +74,11 @@
     transition: background-color 200ms ease, border 200ms ease;
 
     &--active {
-        border-left-color: var(--primary);
+        border-left-color: var(--primary-3000);
     }
 
     &:hover {
-        background-color: var(--primary-highlight);
+        background-color: var(--primary-3000-highlight);
     }
 
     .SessionRecordingPreview__property-icon:hover {

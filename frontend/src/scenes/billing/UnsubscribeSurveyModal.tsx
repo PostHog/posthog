@@ -1,15 +1,17 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { billingProductLogic } from './billingProductLogic'
 import { useActions, useValues } from 'kea'
+
 import { BillingProductV2Type } from '~/types'
+
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
 
-    const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     return (
         <LemonModal
             onClose={() => {

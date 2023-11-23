@@ -1,13 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { InsightLogicProps } from '~/types'
-import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery } from '~/queries/schema'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { InsightLogicProps } from '~/types'
 
 function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
     if (groupIndex !== undefined) {
@@ -51,7 +52,9 @@ export function AggregationSelect({
     }
 
     const value = getHogQLValue(
-        querySource.aggregation_group_type_index,
+        isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+            ? undefined
+            : querySource.aggregation_group_type_index,
         isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
     )
     const onChange = (value: string): void => {

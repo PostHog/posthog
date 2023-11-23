@@ -1,4 +1,4 @@
-import { kea, key, path, props, afterMount } from 'kea'
+import { afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { query } from '~/queries/query'

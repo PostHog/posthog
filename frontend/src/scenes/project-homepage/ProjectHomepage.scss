@@ -1,11 +1,13 @@
-.project-homepage {
-    .homepage-dashboard-header {
+.ProjectHomepage {
+    container-type: inline-size;
+
+    .ProjectHomepage__dashboardheader {
         margin-top: 1rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
 
-        .dashboard-title-container {
+        .ProjectHomepage__dashboardheader__title {
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -17,31 +19,25 @@
                     margin: 0;
                 }
             }
-        }
-    }
 
-    .top-list-container-horizontal {
-        display: flex;
-
-        .top-list {
-            margin-bottom: 1.5rem;
             .posthog-3000 & {
-                margin-bottom: 0px;
+                a {
+                    color: var(--default);
+
+                    &:hover {
+                        color: var(--primary-3000);
+                    }
+                }
             }
-
-            width: 33%;
-        }
-
-        .spacer {
-            width: 1rem;
         }
     }
 
-    .top-list-container-vertical {
-        margin-bottom: 1.5rem;
+    .ProjectHomepage__lists {
+        display: flex;
+        gap: 1rem;
 
-        .spacer {
-            height: 1rem;
+        @container (max-width: 800px) {
+            flex-direction: column;
         }
     }
 

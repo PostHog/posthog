@@ -1,14 +1,15 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { userLogicType } from './userLogicType'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
-import posthog from 'posthog-js'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
+
+import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -17,9 +18,6 @@ export interface UserDetailsFormType {
 
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),

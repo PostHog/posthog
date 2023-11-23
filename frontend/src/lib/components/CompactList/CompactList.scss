@@ -1,34 +1,34 @@
-.compact-list {
+.CompactList {
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    height: calc(19.5rem + 1px);
     background: var(--bg-light);
     box-sizing: content-box;
     display: flex;
     flex-direction: column;
     flex: 1;
+    overflow: hidden;
 
-    .compact-list-header {
-        padding: 0.5rem 1rem 0;
+    .CompactList__header {
+        padding: 0.5rem;
         display: flex;
         align-items: center;
         justify-content: space-between;
+
         h3 {
             margin-bottom: 0;
             font-weight: 600;
-            font-size: 1rem;
+            font-size: 0.9rem;
             line-height: 1.4;
         }
     }
 
-    .spacer-container {
-        padding: 0 1rem;
+    .CompactList__content {
+        overflow-y: auto;
+        height: 16rem;
+        padding: 0.5rem;
     }
 
-    .scrollable-list {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: auto;
-        padding: 0 0.5rem 0.5rem;
+    .LemonButton {
+        font-family: var(--font-sans) !important;
     }
 }

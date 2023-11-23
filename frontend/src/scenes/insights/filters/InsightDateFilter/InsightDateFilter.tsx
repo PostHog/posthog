@@ -1,8 +1,8 @@
-import { useValues, useActions } from 'kea'
+import { IconCalendar, IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Tooltip } from 'antd'
-import { IconCalendar, IconInfo } from '@posthog/icons'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type InsightDateFilterProps = {

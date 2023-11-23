@@ -1,20 +1,33 @@
-import { dayjs } from 'lib/dayjs'
+import clsx from 'clsx'
+import equal from 'fast-deep-equal'
 import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
     kea,
+    key,
+    listeners,
     path,
     props,
-    key,
-    afterMount,
-    selectors,
     propsChanged,
     reducers,
-    actions,
-    beforeUnmount,
-    listeners,
-    connect,
+    selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import type { dataNodeLogicType } from './dataNodeLogicType'
+import { subscriptions } from 'kea-subscriptions'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { query } from '~/queries/query'
 import {
     AnyResponseType,
     DataNode,
@@ -26,27 +39,16 @@ import {
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import { query } from '~/queries/query'
 import {
-    isInsightQueryNode,
     isEventsQuery,
+    isInsightQueryNode,
     isPersonsNode,
-    isQueryWithHogQLSupport,
     isPersonsQuery,
+    isQueryWithHogQLSupport,
 } from '~/queries/utils'
-import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
-import clsx from 'clsx'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { userLogic } from 'scenes/userLogic'
-import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import equal from 'fast-deep-equal'
+
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
     key: string
@@ -131,7 +133,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        return props.cachedResults
+                        if (
+                            props.cachedResults['result'] ||
+                            props.cachedResults['results'] ||
+                            !isInsightQueryNode(props.query)
+                        ) {
+                            return props.cachedResults
+                        }
                     }
 
                     if (!values.currentTeamId) {
@@ -471,7 +479,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

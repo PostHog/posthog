@@ -1,10 +1,11 @@
 import { Tag } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void

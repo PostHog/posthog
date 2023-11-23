@@ -2843,7 +2843,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_fires_with_survey_linked_and_targeting_flags(self, *args):
+    def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
         ff = FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -2905,7 +2905,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_fire_for_survey_targeting_flags(self, *args):
+    def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -2960,10 +2960,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"1"},
-            )
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_new_capture_activation(self, *args):
@@ -2993,6 +2990,34 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
             self.assertFalse("analytics" in response.json())
+
+        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={"0", "*"}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("analytics" in response.json())
+            self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
+
+        with self.settings(
+            NEW_ANALYTICS_CAPTURE_TEAM_IDS={"*"},
+            NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS={str(self.team.id)},
+            NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0,
+        ):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse("analytics" in response.json())
+
+    def test_decide_element_chain_as_string(self, *args):
+        self.client.logout()
+        with self.settings(ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("elementsChainAsString" in response.json())
+            self.assertTrue(response.json()["elementsChainAsString"])
+
+        with self.settings(ELEMENT_CHAIN_AS_STRING_TEAMS={"0"}):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse("elementsChainAsString" in response.json())
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):

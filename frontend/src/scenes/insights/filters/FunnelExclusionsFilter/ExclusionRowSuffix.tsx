@@ -1,14 +1,15 @@
-import { Select } from 'antd'
-import { useActions, useValues } from 'kea'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { FunnelExclusion, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/lemon-ui/icons'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
-import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
+import { Select } from 'antd'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { FunnelsQuery } from '~/queries/schema'
+import { ActionFilter as ActionFilterType, FunnelExclusion, FunnelsFilterType } from '~/types'
 
 type ExclusionRowSuffixComponentBaseProps = {
     filter: ActionFilterType | FunnelExclusion
@@ -24,10 +25,10 @@ export function ExclusionRowSuffix({
     isVertical,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, insightFilter, exclusionDefaultStepRange, isFunnelWithEnoughSteps, series } = useValues(
-        funnelDataLogic(insightProps)
+    const { querySource, insightFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+        insightVizDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const setOneEventExclusionFilter = (eventFilter: FunnelExclusion, index: number): void => {
         const exclusions = ((insightFilter as FunnelsFilterType)?.exclusions || []).map((e, e_i) =>

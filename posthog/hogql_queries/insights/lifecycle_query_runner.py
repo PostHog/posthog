@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict, List
+from typing import Optional, List
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -14,9 +14,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team, Action
+from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -30,15 +29,6 @@ from posthog.schema import (
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     query_type = LifecycleQuery
-
-    def __init__(
-        self,
-        query: LifecycleQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:
@@ -139,6 +129,7 @@ class LifecycleQueryRunner(QueryRunner):
             query=query,
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap

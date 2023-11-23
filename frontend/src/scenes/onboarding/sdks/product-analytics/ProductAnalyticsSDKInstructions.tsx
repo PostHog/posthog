@@ -1,8 +1,9 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
+
 import {
     JSWebInstructions,
-    ProductAnalyticsAPIInstructions,
     ProductAnalyticsAndroidInstructions,
+    ProductAnalyticsAPIInstructions,
     ProductAnalyticsElixirInstructions,
     ProductAnalyticsFlutterInstructions,
     ProductAnalyticsGoInstructions,
