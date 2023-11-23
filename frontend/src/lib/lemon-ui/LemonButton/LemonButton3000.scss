@@ -153,16 +153,16 @@
             }
         }
 
-        &.LemonButton--cta {
+        &.LemonButton--onboarding {
             --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
 
-            background: #cd8407;
+            background: var(--primary-3000-button-bg-dark);
             border-color: var(--primary-3000-button-border);
 
             .LemonButton__chrome {
                 background-color: var(--primary-3000-frame-bg-light);
                 border-color: var(--primary-3000-button-border);
-                color: #111;
+                color: var(--text-3000-light);
                 font-weight: 600;
             }
         }
