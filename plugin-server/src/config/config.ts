@@ -132,6 +132,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+        DROP_EVENTS_BY_TOKEN: '',
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
 
@@ -241,6 +242,21 @@ export function buildIntegerMatcher(config: string | undefined, allowStar: boole
                 .filter((num) => !isNaN(num))
         )
         return (v: number) => {
+            return values.has(v)
+        }
+    }
+}
+
+export function buildStringMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<string> {
+    // Builds a ValueMatcher on a comma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config || config.trim().length == 0) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(config.split(','))
+        return (v: string) => {
             return values.has(v)
         }
     }
