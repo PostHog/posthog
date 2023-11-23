@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +20,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             activationLogic,
             ['isReady', 'hasCompletedAllTasks'],
+            sidePanelStateLogic,
+            ['selectedTab'],
         ],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     }),
 
     selectors({
@@ -72,4 +76,38 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
     }),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, _search, hashParams) => {
+            // Legacy supportModal param
+
+            const panel = hashParams['panel'] as string | undefined
+
+            if (panel) {
+                const [kind, ...options] = panel.split(':')
+
+                if (values.enabledTabs.includes(kind as SidePanelTab)) {
+                    actions.openSidePanel(kind as SidePanelTab)
+                }
+            } else if ('supportModal' in hashParams) {
+                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                delete hashParams['supportModal'] // legacy value
+                hashParams['panel'] = `support:${kind || ''}:${area}`
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        openSidePanel: () => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                {
+                    ...router.values.hashParams,
+                    panel: values.selectedTab,
+                },
+            ]
+        },
+    })),
 ])
