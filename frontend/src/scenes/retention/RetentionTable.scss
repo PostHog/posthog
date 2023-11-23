@@ -1,17 +1,17 @@
 .RetentionTable {
     --retention-table-color: var(--primary-3000);
 
-    font-weight: 500;
     width: 100%;
+    font-weight: 500;
 
     th {
-        white-space: nowrap;
-        font-weight: 500;
-        border-left: 1px solid var(--border);
         padding: 0 0.5rem;
+        font-weight: 500;
+        text-align: left;
+        white-space: nowrap;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
-        text-align: left;
+        border-left: 1px solid var(--border);
 
         &:first-of-type {
             border-left: none;
@@ -36,13 +36,13 @@
     }
 
     .RetentionTable__Tab {
+        min-height: 2rem;
         padding: 0.5rem;
         margin: 2px;
-        border-radius: 0.25rem;
         text-align: right;
-        min-height: 2rem;
-        transition: transform 200ms ease-out;
         background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        border-radius: 0.25rem;
+        transition: transform 200ms ease-out;
 
         &:hover {
             transform: scale(1.05);
@@ -76,18 +76,18 @@
         line-height: 1rem;
 
         th {
-            padding-left: 0.25rem;
             padding-right: 0.25rem;
+            padding-left: 0.25rem;
         }
 
         .RetentionTable__TextTab {
-            padding-left: 0.25rem;
             padding-right: 0.25rem;
+            padding-left: 0.25rem;
         }
 
         .RetentionTable__Tab {
-            margin: 0;
             padding: 0.5rem 0.25rem;
+            margin: 0;
         }
     }
 }

@@ -1,17 +1,16 @@
 .ColumnConfiguratorModal {
     .Columns {
-        width: 700px;
         display: flex;
         column-gap: 1rem;
+        width: 700px;
+        padding: 0.5rem;
+        background-color: var(--side);
+        border-radius: 0.25rem;
 
         @media (max-width: 960px) {
             display: block;
             width: auto;
         }
-
-        background-color: var(--side);
-        border-radius: 0.25rem;
-        padding: 0.5rem;
     }
 
     .HalfColumn {
@@ -27,10 +26,10 @@
         align-items: center;
         justify-content: flex-start;
         padding: 0 0.5rem;
-        overflow: hidden;
-        border-radius: var(--radius);
         margin: calc(var(--radius) / 2) 0;
+        overflow: hidden;
         background-color: var(--primary-bg-hover);
+        border-radius: var(--radius);
     }
 
     .selected-column-col {
@@ -39,10 +38,10 @@
     }
 
     .drag-handle {
-        cursor: move;
-        color: var(--default);
-        font-size: 1.2em;
         padding-right: 0.25rem;
+        font-size: 1.2em;
+        color: var(--default);
+        cursor: move;
 
         svg {
             transform: rotate(90deg);

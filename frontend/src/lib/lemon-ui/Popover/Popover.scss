@@ -26,16 +26,16 @@
 
 .Popover__box {
     position: relative; // For arrow
-    transition: opacity 50ms ease, transform 50ms ease;
-    transform-origin: top;
-    box-shadow: var(--shadow-elevation);
-    background: var(--bg-light);
     flex-grow: 1;
     max-width: 100%;
     padding: 0.5rem;
-    border-radius: var(--radius);
+    background: var(--bg-light);
     border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation);
     opacity: 0;
+    transition: opacity 50ms ease, transform 50ms ease;
+    transform-origin: top;
 
     .Popover--actionable & {
         border-color: var(--primary-3000);
@@ -45,9 +45,9 @@
     // the reference and the floating element. This makes hover-based popovers possible
 
     .Popover[data-placement^='bottom'] & {
-        transform-origin: top;
         margin-top: 0.25rem;
         transform: rotateX(-6deg);
+        transform-origin: top;
     }
 
     .Popover[data-placement^='bottom'].Popover--with-arrow & {
@@ -55,9 +55,9 @@
     }
 
     .Popover[data-placement^='top'] & {
-        transform-origin: bottom;
         margin-bottom: 0.25rem;
         transform: rotateX(6deg);
+        transform-origin: bottom;
     }
 
     .Popover[data-placement^='top'].Popover--with-arrow & {
@@ -65,9 +65,9 @@
     }
 
     .Popover[data-placement^='left'] & {
-        transform-origin: right;
         margin-right: 0.25rem;
         transform: rotateY(-6deg);
+        transform-origin: right;
     }
 
     .Popover[data-placement^='left'].Popover--with-arrow & {
@@ -75,9 +75,9 @@
     }
 
     .Popover[data-placement^='right'] & {
-        transform-origin: left;
         margin-left: 0.25rem;
         transform: rotateY(6deg);
+        transform-origin: left;
     }
 
     .Popover[data-placement^='right'].Popover--with-arrow & {
@@ -95,8 +95,8 @@
     }
 
     .posthog-3000 & {
-        background: var(--bg-light);
         padding: 0.25rem;
+        background: var(--bg-light);
     }
 
     .posthog-3000 .Popover--actionable & {
@@ -108,8 +108,8 @@
     position: absolute;
     width: 0.5rem;
     height: 0.5rem;
-    transform: rotate(45deg);
     background: var(--bg-3000);
+    transform: rotate(45deg);
 
     [data-placement^='bottom'] & {
         top: -0.25rem;
@@ -119,8 +119,8 @@
 
     [data-placement^='top'] & {
         bottom: -0.25rem;
-        border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
     }
 
     [data-placement^='left'] & {
@@ -141,6 +141,6 @@
 }
 
 .Popover__content {
-    overflow-y: auto;
     max-height: 100%;
+    overflow-y: auto;
 }
