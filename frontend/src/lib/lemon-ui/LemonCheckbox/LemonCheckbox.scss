@@ -35,7 +35,7 @@
             flex-shrink: 0;
 
             &.posthog-3000 {
-                border-radius: 0.25rem;
+                border-radius: 0.25rem; // Intentionally a bit smaller than --radius
             }
 
             path {
