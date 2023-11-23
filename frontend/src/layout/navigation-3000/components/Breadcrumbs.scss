@@ -39,7 +39,7 @@
     display: flex;
     align-items: center;
     height: 1rem;
-    margin-top: 0.25rem;
+    margin-top: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate)));
     overflow: visible;
 }
 

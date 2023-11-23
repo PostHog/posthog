@@ -35,7 +35,7 @@ import {
     isTimeToSeeDataSessionsQuery,
 } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
@@ -115,14 +115,8 @@ async function executeQuery<N extends DataNode = DataNode>(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await delay(currentDelay)
+        await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-
-        if (methodOptions?.signal?.aborted) {
-            const customAbortError = new Error('Query aborted')
-            customAbortError.name = 'AbortError'
-            throw customAbortError
-        }
 
         const statusResponse = await api.queryStatus.get(response.id)
 

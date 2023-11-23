@@ -24,15 +24,15 @@ export function CompactList({
     renderRow,
 }: CompactListProps): JSX.Element {
     return (
-        <div className="compact-list border">
-            <div className="compact-list-header">
-                <h3>{title}</h3>
+        <div className="CompactList">
+            <div className="CompactList__header">
+                <h3 className="px-2 truncate" title={title}>
+                    {title}
+                </h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
-            <div className="spacer-container">
-                <LemonDivider />
-            </div>
-            <div className="scrollable-list">
+            <LemonDivider className="my-0 mx-2" />
+            <div className="CompactList__content">
                 {loading ? (
                     <div className="p-2 space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (

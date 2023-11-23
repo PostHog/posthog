@@ -172,14 +172,14 @@
                 color: var(--text-secondary);
 
                 .posthog-3000 & {
-                    padding-top: 0.3rem;
-                    padding-bottom: 0.3rem;
+                    padding-top: 0.3125rem;
+                    padding-bottom: 0.3125rem;
                 }
 
                 .LemonButton {
                     .posthog-3000 & {
-                        margin-top: -0.2rem;
-                        margin-bottom: -0.2rem;
+                        margin-top: -0.25rem;
+                        margin-bottom: -0.25rem;
                     }
                 }
             }
@@ -223,6 +223,7 @@
 
                 &[colspan='0'] {
                     padding-right: 0 !important;
+
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
                 }

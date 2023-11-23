@@ -215,7 +215,7 @@ export function NotebookSelectPopover({
             }
             {...props}
         >
-            <span onClick={() => setShowPopover(true)}>{children}</span>
+            <span onClick={() => setShowPopover(!showPopover)}>{children}</span>
         </Popover>
     )
 }

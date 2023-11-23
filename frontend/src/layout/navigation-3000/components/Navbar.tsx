@@ -3,7 +3,6 @@ import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { themeLogic } from '../themeLogic'
@@ -47,7 +45,6 @@ export function Navbar(): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     return (
         <nav className="Navbar3000" ref={containerRef}>
@@ -89,15 +86,7 @@ export function Navbar(): JSX.Element {
                             icon={<IconSearch />}
                             title="Search"
                             onClick={toggleSearchBar}
-                            sideIcon={
-                                !isUsingNewNav ? (
-                                    <span className="text-xs">
-                                        <KeyboardShortcut shift k />
-                                    </span>
-                                ) : (
-                                    <></>
-                                )
-                            }
+                            keyboardShortcut={{ command: true, k: true }}
                         />
                         <NavbarButton
                             icon={<ThemeIcon />}

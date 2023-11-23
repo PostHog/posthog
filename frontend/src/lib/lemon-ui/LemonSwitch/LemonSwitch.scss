@@ -134,8 +134,8 @@
     }
 
     .LemonSwitch--checked & {
-        background-color: var(--primary);
-        border-color: var(--primary);
+        background-color: var(--primary-3000);
+        border-color: var(--primary-3000);
         transform: translateX(1rem);
 
         .posthog-3000 & {

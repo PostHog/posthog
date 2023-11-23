@@ -123,8 +123,8 @@
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--brand-blue);
-                border: 1px solid var(--brand-blue);
+                background: var(--primary-3000);
+                border: 1px solid var(--primary-3000);
 
                 & .Backlink__label,
                 & svg {
@@ -217,6 +217,7 @@
     &--editable {
         .NotebookEditor .ProseMirror {
             flex: 1;
+
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
         }

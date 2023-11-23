@@ -54,6 +54,7 @@
 
     .LemonBadge:not(.LemonBadge--active) {
         background-clip: padding-box;
+
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
     }

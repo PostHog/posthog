@@ -1,16 +1,19 @@
 .LemonButton,
-.Link.LemonButton /* Make sure we override .Link's styles where needed, e.g. padding */ {
+.Link.LemonButton {
+    position: relative;
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
     gap: 0.5rem;
+
+    // Make sure we override .Link's styles where needed, e.g. padding
     align-items: center;
     justify-content: flex-start;
     padding: 0.25rem 0.75rem;
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.5rem;
-    text-align: left; // Important as this gets overridden by Ant styles...
+    text-align: left;
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;
@@ -98,8 +101,7 @@
         }
     }
 
-    &.LemonButton--small,
-    .Breadcrumbs3000 & {
+    &.LemonButton--small {
         gap: 0.25rem;
 
         > span {
