@@ -1,6 +1,6 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/types'
 
