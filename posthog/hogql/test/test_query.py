@@ -397,7 +397,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][3], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_select_person_with_poe_without_joins(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
@@ -473,7 +473,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
-            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,

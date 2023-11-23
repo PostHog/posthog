@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast
+from typing import List, Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -56,20 +56,27 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 def resolve_types(
     node: ast.Expr,
     context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
-    return Resolver(scopes=scopes, context=context).visit(node)
+    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        scopes: Optional[List[ast.SelectQueryType]] = None,
+    ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
+        self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
 
@@ -461,10 +468,12 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            new_expr = clone_expr(node.type.expr)
-            new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
-            new_node = self.visit(new_node)
-            return new_node
+            # only swap out expression fields in ClickHouse
+            if self.dialect == "clickhouse":
+                new_expr = clone_expr(node.type.expr)
+                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node = self.visit(new_node)
+                return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(

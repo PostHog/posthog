@@ -159,7 +159,10 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         )
         database.events.fields["person_id"] = ExpressionField(
             name="person_id",
-            expr=parse_expr("ifNull(override.override_person_id, event_person_id)", start=None),
+            expr=parse_expr(
+                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
+                start=None,
+            ),
         )
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])

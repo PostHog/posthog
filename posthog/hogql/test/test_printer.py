@@ -774,7 +774,7 @@ class TestPrinter(BaseTest):
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
