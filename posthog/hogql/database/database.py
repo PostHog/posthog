@@ -1,4 +1,5 @@
 from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from sentry_sdk import capture_exception
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 
@@ -155,24 +156,27 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
-        table = database.get_table(view.table)
+    try:
+        for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
+            table = database.get_table(view.table)
 
-        # Saved query names are unique to team
-        table.fields[view.saved_query.name] = LazyJoin(
-            from_field=view.from_join_key,
-            join_table=view.saved_query.hogql_definition(),
-            join_function=view.join_function,
-        )
+            # Saved query names are unique to team
+            table.fields[view.saved_query.name] = LazyJoin(
+                from_field=view.from_join_key,
+                join_table=view.saved_query.hogql_definition(),
+                join_function=view.join_function,
+            )
 
-    tables = {}
-    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+        tables = {}
+        for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
+            tables[table.name] = table.hogql_definition()
 
-    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+        for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+            tables[table.name] = table.hogql_definition()
 
-    database.add_warehouse_tables(**tables)
+        database.add_warehouse_tables(**tables)
+    except Exception as e:
+        capture_exception(e)
 
     return database
 
