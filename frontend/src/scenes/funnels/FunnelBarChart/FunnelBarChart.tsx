@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useScrollable } from 'lib/hooks/useScrollable'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
@@ -30,6 +30,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height } = useResizeObserver({ ref: vizRef })
+    const [scrollbarAdjustment, setScrollbarAdjustment] = useState(0)
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -55,57 +56,29 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
             ? 96
             : 192
 
-    const table = useMemo(() => {
-        /** Average conversion time is only shown if it's known for at least one step. */
-        // != is intentional to catch undefined too
-        const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
-        const barRowHeight = `calc(${height}px - 17px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
+    useLayoutEffect(() => {
+        if (scrollRef.current) {
+            setScrollbarAdjustment(scrollRef.current.offsetHeight - scrollRef.current.clientHeight)
+        }
+    }, [height])
 
-        return (
-            <table
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={
-                    {
-                        '--bar-width': `${barWidthPx}px`,
-                        '--bar-row-height': barRowHeight,
-                    } as FunnelBarChartCSSProperties
-                }
-            >
-                <colgroup>
-                    {visibleStepsWithConversionMetrics.map((_, i) => (
-                        <col key={i} width={0} />
-                    ))}
-                    <col width="100%" />
-                    {/* The last column is meant to fill up leftover space. */}
-                </colgroup>
-                <tbody>
-                    <tr>
-                        <td>
-                            <StepBarLabels />
-                        </td>
-                        {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                            <td key={stepIndex}>
-                                <StepBars step={step} stepIndex={stepIndex} showPersonsModal={showPersonsModal} />
-                            </td>
-                        ))}
-                    </tr>
-                    <tr>
-                        <td />
-                        {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                            <td key={stepIndex}>
-                                <StepLegend
-                                    step={step}
-                                    stepIndex={stepIndex}
-                                    showTime={showTime}
-                                    showPersonsModal={showPersonsModal}
-                                />
-                            </td>
-                        ))}
-                    </tr>
-                </tbody>
-            </table>
-        )
-    }, [visibleStepsWithConversionMetrics, height])
+    /** Average conversion time is only shown if it's known for at least one step. */
+    // != is intentional to catch undefined too
+    const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
+
+    const stepLegendRows = showTime ? 4 : 3
+    const stepLegendRowHeightRem = 1.5
+    const stepLegendRowGapRem = 0.25
+    const stepLegendPaddingRem = 2 * 0.75
+    const stepLegendHeightRem =
+        stepLegendRows * (stepLegendRowHeightRem + stepLegendRowGapRem) - stepLegendRowGapRem + stepLegendPaddingRem
+
+    const availableHeight = height
+    const borderHeightPx = 1
+
+    const scrollbarHeightPx = scrollbarAdjustment
+
+    const barRowHeight = `calc(${availableHeight}px - ${stepLegendHeightRem}rem - ${borderHeightPx}px - ${scrollbarHeightPx}px)`
 
     return (
         <div
@@ -118,7 +91,48 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
             data-attr="funnel-bar-graph"
         >
             <div className="scrollable__inner" ref={scrollRef}>
-                {table}
+                <table
+                    /* eslint-disable-next-line react/forbid-dom-props */
+                    style={
+                        {
+                            '--bar-width': `${barWidthPx}px`,
+                            '--bar-row-height': barRowHeight,
+                        } as FunnelBarChartCSSProperties
+                    }
+                >
+                    <colgroup>
+                        {visibleStepsWithConversionMetrics.map((_, i) => (
+                            <col key={i} width={0} />
+                        ))}
+                        <col width="100%" />
+                        {/* The last column is meant to fill up leftover space. */}
+                    </colgroup>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <StepBarLabels />
+                            </td>
+                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                <td key={stepIndex}>
+                                    <StepBars step={step} stepIndex={stepIndex} showPersonsModal={showPersonsModal} />
+                                </td>
+                            ))}
+                        </tr>
+                        <tr>
+                            <td />
+                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                <td key={stepIndex}>
+                                    <StepLegend
+                                        step={step}
+                                        stepIndex={stepIndex}
+                                        showTime={showTime}
+                                        showPersonsModal={showPersonsModal}
+                                    />
+                                </td>
+                            ))}
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     )
