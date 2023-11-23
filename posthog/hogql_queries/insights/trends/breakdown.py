@@ -108,12 +108,6 @@ class Breakdown:
 
         return ast.Or(exprs=compare_ops)
 
-        # return ast.CompareOperation(
-        #     left=left,
-        #     op=ast.CompareOperationOp.In,
-        #     right=self._breakdown_values_ast,
-        # )
-
     @cached_property
     def _breakdown_buckets_ast(self) -> ast.Array:
         buckets = self._get_breakdown_histogram_buckets()
