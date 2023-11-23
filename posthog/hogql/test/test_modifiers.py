@@ -70,7 +70,7 @@ class TestModifiers(BaseTest):
             (
                 PersonsOnEventsMode.v2_enabled,
                 "events.event",
-                "events.person_id",
+                "ifNull(events__override.override_person_id, events.person_id) AS id",
                 "events.person_properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),

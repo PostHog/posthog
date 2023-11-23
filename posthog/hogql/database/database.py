@@ -161,6 +161,7 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
             name="person_id",
             expr=parse_expr("ifNull(override.override_person_id, event_person_id)", start=None),
         )
+        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     for mapping in GroupTypeMapping.objects.filter(team=team):

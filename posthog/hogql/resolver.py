@@ -461,7 +461,6 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            # TODO: make sure new_expr is of type node.type.return_type
             new_expr = clone_expr(node.type.expr)
             new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
             new_node = self.visit(new_node)
