@@ -325,7 +325,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconLive />,
                             to: urls.events(),
                         },
-
                         {
                             identifier: Scene.PersonsManagement,
                             label: 'People',
