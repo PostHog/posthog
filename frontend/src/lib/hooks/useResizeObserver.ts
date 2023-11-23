@@ -1,5 +1,6 @@
 import { RefCallback, RefObject, useMemo, useState } from 'react'
 import ResizeObserver from 'resize-observer-polyfill'
+import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserverImport from 'use-resize-observer'
 
 // Use polyfill only if needed
@@ -7,7 +8,30 @@ if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
 }
 
-export const useResizeObserver = useResizeObserverImport
+export type ResizeResponse = {
+    width?: number
+    height?: number
+}
+
+export function useResizeObserver<T extends HTMLElement>(opts?: {
+    ref?: RefObject<T> | T | null | undefined
+    onResize?: (response: ResizeResponse) => void
+    debounceMs?: number
+}): { ref: RefCallback<T> | RefObject<T> } & ResizeResponse {
+    const [size, setSize] = useState<ResizeResponse>({})
+
+    const setSizeDebounced = useDebouncedCallback((value: ResizeResponse) => setSize(value), opts?.debounceMs ?? 100)
+
+    const { ref } = useResizeObserverImport({
+        ref: opts?.ref,
+        onResize: (size) => {
+            opts?.onResize?.(size)
+            setSizeDebounced(size)
+        },
+    })
+
+    return { ref, ...size }
+}
 
 export function useResizeBreakpoints<T>(
     breakpoints: { [key: number]: T },
