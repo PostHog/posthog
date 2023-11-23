@@ -10,7 +10,7 @@
     padding: 0.125rem 0.25rem;
     white-space: nowrap;
 
-    .posthog-3000 & {
+    .posthog-3000 &:not(.breakdown) {
         background: none;
         border-radius: calc(var(--radius) * 0.75);
         border-style: solid;
@@ -98,6 +98,17 @@
 
     &.none {
         background: none;
+    }
+
+    &.breakdown {
+        vertical-align: bottom;
+        padding: 8px 12px;
+        line-height: 16px;
+        color: var(--primary-alt);
+        background-color: var(--primary-bg-hover);
+        border-radius: 40px;
+        font-weight: 400;
+        font-size: 14px;
     }
 
     &.LemonTag--size-small {
