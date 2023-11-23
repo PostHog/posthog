@@ -23,6 +23,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     genericOperatorMap,
+    getDefaultInterval,
     getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
@@ -379,6 +380,28 @@ describe('dateStringToDayJs', () => {
 
         expect(dateStringToDayJs('0yStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
         expect(dateStringToDayJs('0yEnd')?.utc(true).toISOString()).toEqual('2012-12-31T23:59:59.999Z')
+    })
+})
+
+describe('getDefaultInterval', () => {
+    it('should return days for last 7 days', () => {
+        expect(getDefaultInterval('-7d', null)).toEqual('day')
+    })
+
+    it('should return hours for last 24 hours', () => {
+        expect(getDefaultInterval('-24h', null)).toEqual('hour')
+    })
+
+    it('should return days for month to date', () => {
+        expect(getDefaultInterval('-mStart', null)).toEqual('day')
+    })
+
+    it('should return month for year to date', () => {
+        expect(getDefaultInterval('yStart', null)).toEqual('month')
+    })
+
+    it('should return month for all time', () => {
+        expect(getDefaultInterval('all', null)).toEqual('month')
     })
 })
 

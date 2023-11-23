@@ -4,7 +4,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { isNotNil } from 'lib/utils'
+import { getDefaultInterval, isNotNil } from 'lib/utils'
 
 import {
     NodeKind,
@@ -96,6 +96,9 @@ export const GEOIP_PLUGIN_URLS = [
 ]
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
+const initialDateFrom = '-7d' as string | null
+const initialDateTo = null as string | null
+const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
@@ -207,15 +210,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         dateFrom: [
-            '-7d' as string | null,
+            initialDateFrom,
             {
                 setDates: (_, { dateFrom }) => dateFrom,
             },
         ],
         dateTo: [
-            null as string | null,
+            initialDateTo,
             {
                 setDates: (_, { dateTo }) => dateTo,
+            },
+        ],
+        interval: [
+            initialInterval,
+            {
+                setDates: (_, { dateTo, dateFrom }) => getDefaultInterval(dateFrom, dateTo),
             },
         ],
     }),
@@ -230,6 +239,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.geographyTab,
                 s.dateFrom,
                 s.dateTo,
+                s.interval,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
@@ -242,6 +252,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 geographyTab,
                 dateFrom,
                 dateTo,
+                interval,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -276,7 +287,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -304,7 +315,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -332,7 +343,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',

@@ -12,6 +12,7 @@ import {
     DateMappingOption,
     EventType,
     GroupActorType,
+    IntervalType,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -974,6 +975,54 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
         return response.startOf('day')
     }
     return response
+}
+
+export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
+    // use the default mapping if we can
+    for (const mapping of dateMapping) {
+        const mappingFrom = mapping.values[0] ?? null
+        const mappingTo = mapping.values[1] ?? null
+        if (mappingFrom === dateFrom && mappingTo === dateTo && mapping.defaultInterval) {
+            return mapping.defaultInterval
+        }
+    }
+
+    if (dateFrom?.endsWith('h') || dateTo?.endsWith('h')) {
+        return 'hour'
+    }
+
+    if (
+        dateFrom === 'mStart' ||
+        dateFrom?.endsWith('d') ||
+        dateFrom?.endsWith('dStart') ||
+        dateFrom?.endsWith('dEnd') ||
+        dateTo?.endsWith('d') ||
+        dateTo?.endsWith('dStart') ||
+        dateTo?.endsWith('dEnd')
+    ) {
+        return 'day'
+    }
+
+    if (
+        dateFrom === 'all' ||
+        dateFrom === 'yStart' ||
+        dateFrom?.endsWith('m') ||
+        dateFrom?.endsWith('mStart') ||
+        dateFrom?.endsWith('mEnd') ||
+        dateFrom?.endsWith('y') ||
+        dateFrom?.endsWith('yStart') ||
+        dateFrom?.endsWith('yEnd') ||
+        dateTo?.endsWith('m') ||
+        dateTo?.endsWith('mStart') ||
+        dateTo?.endsWith('mEnd') ||
+        dateTo?.endsWith('y') ||
+        dateTo?.endsWith('yStart') ||
+        dateTo?.endsWith('yEnd')
+    ) {
+        return 'month'
+    }
+
+    return 'day'
 }
 
 export function clamp(value: number, min: number, max: number): number {
