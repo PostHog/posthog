@@ -43,6 +43,7 @@ from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
+from posthog.models.team.team import Team
 from .utils import render_template
 from .views import (
     health,
@@ -93,11 +94,22 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.META.get("HTTP_REFERER"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
-    current_team = cast(User, request.user).team
+    team = cast(User, request.user).team
+
+    if request.GET.get("token"):
+        token = request.GET["token"]
+
+        if team.api_token != token:
+            try:
+                # Try and find the appropriate team - if missing or not allowed, return 403
+                team = cast(User, request.user).teams.get(api_token=token)
+            except Team.DoesNotExist:
+                return HttpResponse("Access denied", status=403)
+
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
+    if not team or not hostname_in_allowed_url_list(team.app_urls, redirect_url.hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -124,6 +136,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         context={
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
+            "token": request.GET.get("token"),
         },
     )
 
