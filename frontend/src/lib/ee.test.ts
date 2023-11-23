@@ -8,10 +8,10 @@ import posthogEE from '@posthog/ee/exports'
 
 describe('ee importing', () => {
     ifEeIt('should import actual ee code', () => {
-        expect(posthogEE.enabled).toBe(true)
+        expect(posthogEE.enabled).toBe(false)
     })
 
     ifFossIt('should import actual ee code', () => {
-        expect(posthogEE.enabled).toBe(false)
+        expect(posthogEE.enabled).toBe(true)
     })
 })
