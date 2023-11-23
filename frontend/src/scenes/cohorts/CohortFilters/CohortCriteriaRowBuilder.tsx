@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import { Field as KeaField } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
-import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
+import { cleanCriteria, useIsReadonlyCohort } from 'scenes/cohorts/cohortUtils'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 export interface CohortCriteriaRowBuilderProps {
@@ -35,11 +35,13 @@ export function CohortCriteriaRowBuilder({
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
     const rowShape = ROWS[type]
+    const readOnly = useIsReadonlyCohort({ id })
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
             <Col key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
+                    cohortId: id,
                     fieldKey: _field.fieldKey,
                     criteria,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
@@ -97,6 +99,7 @@ export function CohortCriteriaRowBuilder({
                             <>
                                 <Col>
                                     {renderField[FilterType.Behavioral]({
+                                        cohortId: id,
                                         fieldKey: 'value',
                                         criteria,
                                         onChange: (newCriteria) => {
@@ -108,17 +111,21 @@ export function CohortCriteriaRowBuilder({
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />
-                        <LemonButton
-                            icon={<IconCopy />}
-                            status="primary-alt"
-                            onClick={() => duplicateFilter(groupIndex, index)}
-                        />
-                        {!hideDeleteIcon && (
-                            <LemonButton
-                                icon={<IconDelete />}
-                                status="primary-alt"
-                                onClick={() => removeFilter(groupIndex, index)}
-                            />
+                        {!readOnly && (
+                            <>
+                                <LemonButton
+                                    icon={<IconCopy />}
+                                    status="primary-alt"
+                                    onClick={() => duplicateFilter(groupIndex, index)}
+                                />
+                                {!hideDeleteIcon && (
+                                    <LemonButton
+                                        icon={<IconDelete />}
+                                        status="primary-alt"
+                                        onClick={() => removeFilter(groupIndex, index)}
+                                    />
+                                )}
+                            </>
                         )}
                     </div>
                     <div className="flex">

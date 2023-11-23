@@ -49,6 +49,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         setCohortMissing: true,
+        setEditCohort: (editing: boolean) => ({ editing }),
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
@@ -157,6 +158,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setCohortMissing: () => true,
             },
         ],
+        isEditingCohort: [
+            false,
+            {
+                setEditCohort: (_, { editing }) => editing,
+            },
+        ],
         pollTimeout: [
             null as number | null,
             {
@@ -240,6 +247,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
                         }
+                        actions.setEditCohort(false)
                     } catch (error: any) {
                         breakpoint()
                         lemonToast.error(error.detail || 'Failed to save cohort')

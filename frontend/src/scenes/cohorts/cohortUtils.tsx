@@ -24,6 +24,8 @@ import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { CohortLogicProps, cohortEditLogic } from './cohortEditLogic'
+import { useValues } from 'kea'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -474,4 +476,11 @@ export const COHORT_MATCHING_DAYS = {
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
+}
+
+export function useIsReadonlyCohort(logicProps: CohortLogicProps): boolean {
+    const logic = cohortEditLogic(logicProps)
+    const { cohort, isEditingCohort } = useValues(logic)
+    const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    return !isNewCohort && !isEditingCohort
 }

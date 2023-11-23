@@ -8,6 +8,7 @@ import {
 } from '~/types'
 import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CohortLogicProps } from '../cohortEditLogic'
 
 export enum FilterType {
     Behavioral = 'behavioral',
@@ -85,6 +86,7 @@ export interface Row {
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
+    cohortId: CohortLogicProps['id']
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {

@@ -1,5 +1,5 @@
 import './CohortCriteriaGroups.scss'
-import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+import { criteriaToBehavioralFilterType, isCohortCriteriaGroup, useIsReadonlyCohort } from 'scenes/cohorts/cohortUtils'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
 import clsx from 'clsx'
@@ -18,6 +18,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
     const logic = cohortEditLogic(logicProps)
     const { cohort } = useValues(logic)
     const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(logic)
+    const readOnly = useIsReadonlyCohort(logicProps)
 
     return (
         <>
@@ -46,19 +47,24 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 suffix={['criterion', 'criteria']}
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
+                                                readOnly={readOnly}
                                             />
                                             <div className="flex-1 min-w-2" />
-                                            <LemonButton
-                                                icon={<IconCopy />}
-                                                status="primary-alt"
-                                                onClick={() => duplicateFilter(groupIndex)}
-                                            />
-                                            {cohort.filters.properties.values.length > 1 && (
-                                                <LemonButton
-                                                    icon={<IconDelete />}
-                                                    status="primary-alt"
-                                                    onClick={() => removeFilter(groupIndex)}
-                                                />
+                                            {!readOnly && (
+                                                <>
+                                                    <LemonButton
+                                                        icon={<IconCopy />}
+                                                        status="primary-alt"
+                                                        onClick={() => duplicateFilter(groupIndex)}
+                                                    />
+                                                    {cohort.filters.properties.values.length > 1 && (
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            status="primary-alt"
+                                                            onClick={() => removeFilter(groupIndex)}
+                                                        />
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                         <LemonDivider className="my-4" />
@@ -85,7 +91,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 type={criteriaToBehavioralFilterType(criteria)}
                                                 hideDeleteIcon={group.values.length <= 1}
                                             />
-                                            {criteriaIndex === group.values.length - 1 && (
+                                            {!readOnly && criteriaIndex === group.values.length - 1 && (
                                                 <div className="m-3">
                                                     <LemonButton
                                                         data-attr={'cohort-add-filter-group-criteria'}
@@ -105,16 +111,18 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                     </Group>
                 ) : null
             )}
-            <LemonButton
-                data-attr={`cohort-add-filter-group`}
-                className="mb-4 mt-4"
-                type="secondary"
-                onClick={() => addFilter()}
-                icon={<IconPlusMini color="var(--primary)" />}
-                fullWidth
-            >
-                Add criteria group
-            </LemonButton>
+            {!readOnly && (
+                <LemonButton
+                    data-attr={`cohort-add-filter-group`}
+                    className="mb-4 mt-4"
+                    type="secondary"
+                    onClick={() => addFilter()}
+                    icon={<IconPlusMini color="var(--primary)" />}
+                    fullWidth
+                >
+                    Add criteria group
+                </LemonButton>
+            )}
         </>
     )
 }
