@@ -43,7 +43,6 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
-    "Decimal": IntegerDatabaseField,
 }
 
 ExtractErrors = {
