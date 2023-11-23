@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useScrollable } from 'lib/hooks/useScrollable'
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
@@ -29,8 +29,8 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     const vizRef = useFunnelTooltip(showPersonsModal)
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
-    const { height } = useResizeObserver({ ref: vizRef })
-    const [scrollbarAdjustment, setScrollbarAdjustment] = useState(0)
+    const { height: availableHeight } = useResizeObserver({ ref: vizRef })
+    const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -58,27 +58,22 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
 
     useLayoutEffect(() => {
         if (scrollRef.current) {
-            setScrollbarAdjustment(scrollRef.current.offsetHeight - scrollRef.current.clientHeight)
+            setScrollbarHeightPx(scrollRef.current.offsetHeight - scrollRef.current.clientHeight)
         }
-    }, [height])
+    }, [availableHeight])
 
     /** Average conversion time is only shown if it's known for at least one step. */
     // != is intentional to catch undefined too
     const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
 
     const stepLegendRows = showTime ? 4 : 3
-    const stepLegendRowHeightRem = 1.5
-    const stepLegendRowGapRem = 0.25
-    const stepLegendPaddingRem = 2 * 0.75
-    const stepLegendHeightRem =
-        stepLegendRows * (stepLegendRowHeightRem + stepLegendRowGapRem) - stepLegendRowGapRem + stepLegendPaddingRem
 
-    const availableHeight = height
+    // rows * (row height + gap between rows) - gap for first row + padding top and bottom
+    const stepLegendHeightRem = stepLegendRows * (1.5 + 0.25) - 0.25 + 2 * 0.75
     const borderHeightPx = 1
 
-    const scrollbarHeightPx = scrollbarAdjustment
-
-    const barRowHeight = `calc(${availableHeight}px - ${stepLegendHeightRem}rem - ${borderHeightPx}px - ${scrollbarHeightPx}px)`
+    // available height - border - legend - (maybe) scrollbar
+    const barRowHeight = `calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendHeightRem}rem  - ${scrollbarHeightPx}px)`
 
     return (
         <div
