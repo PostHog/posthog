@@ -1,14 +1,16 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
+
 import { AccessLevel, RoleType } from '~/types'
+
 import { CreateRoleModal } from './CreateRoleModal'
 import { rolesLogic } from './rolesLogic'
-import { useState } from 'react'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { roles, rolesLoading } = useValues(rolesLogic)

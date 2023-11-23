@@ -1,14 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { FlagSelector } from 'lib/components/FlagSelector'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)

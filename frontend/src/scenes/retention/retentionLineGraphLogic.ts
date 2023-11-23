@@ -1,15 +1,15 @@
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs, QUnitType } from 'lib/dayjs'
-import { kea, props, key, path, connect, selectors } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTrendPayload } from 'scenes/retention/types'
-import { InsightLogicProps, RetentionPeriod } from '~/types'
-import { dateOptionToTimeIntervalMap } from './constants'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { retentionLogic } from './retentionLogic'
-
-import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { InsightLogicProps, RetentionPeriod } from '~/types'
+
+import { dateOptionToTimeIntervalMap } from './constants'
+import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
+import { retentionLogic } from './retentionLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 

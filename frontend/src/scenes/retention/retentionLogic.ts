@@ -1,7 +1,8 @@
-import { kea, props, key, path, connect, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
+
 import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 

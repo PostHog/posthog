@@ -1,13 +1,15 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+
 import { AccessLevel, Resource, RoleType } from '~/types'
+
 import {
     FormattedResourceLevel,
     permissionsLogic,

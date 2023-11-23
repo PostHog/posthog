@@ -1,22 +1,11 @@
-import posthog from 'posthog-js'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
-import {
-    isInsightQueryNode,
-    isEventsQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    isTimeToSeeDataQuery,
-    isDataTableNode,
-    isTimeToSeeDataSessionsNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isQueryWithHogQLSupport,
-    isPersonsQuery,
-    isLifecycleQuery,
-} from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
+import { currentSessionId } from 'lib/internalMetrics'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay, flattenObject, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -26,14 +15,27 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { flattenObject, delay, toParams } from 'lib/utils'
-import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+
+import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import {
+    isDataTableNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPersonsNode,
+    isPersonsQuery,
+    isQueryWithHogQLSupport,
+    isTimeToSeeDataQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
+} from './utils'
+
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
@@ -113,14 +115,8 @@ async function executeQuery<N extends DataNode = DataNode>(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await delay(currentDelay)
+        await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-
-        if (methodOptions?.signal?.aborted) {
-            const customAbortError = new Error('Query aborted')
-            customAbortError.name = 'AbortError'
-            throw customAbortError
-        }
 
         const statusResponse = await api.queryStatus.get(response.id)
 

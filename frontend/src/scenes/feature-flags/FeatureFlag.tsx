@@ -1,72 +1,75 @@
-import { useEffect, useState } from 'react'
-import { Form, Group } from 'kea-forms'
-import { Radio, Popconfirm, Skeleton, Card } from 'antd'
-import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { featureFlagLogic } from './featureFlagLogic'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
+
+import { Card, Popconfirm, Radio, Skeleton } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { NotFound } from 'lib/components/NotFound'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Field } from 'lib/forms/Field'
 import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SceneExport } from 'scenes/sceneTypes'
-import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { PostHogFeature } from 'posthog-js/react'
+import { useEffect, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
+import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { concatWithPunctuation } from 'scenes/insights/utils'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { ResourcePermission } from 'scenes/ResourcePermissionModal'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { tagsModel } from '~/models/tagsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
+    FeatureFlagGroupType,
+    FeatureFlagType,
+    NotebookNodeType,
     PropertyFilterType,
     PropertyOperator,
-    Resource,
-    FeatureFlagType,
     ReplayTabs,
-    FeatureFlagGroupType,
-    NotebookNodeType,
+    Resource,
 } from '~/types'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Field } from 'lib/forms/Field'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { urls } from 'scenes/urls'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { router } from 'kea-router'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
-import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { NotFound } from 'lib/components/NotFound'
-import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { ResourcePermission } from 'scenes/ResourcePermissionModal'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { tagsModel } from '~/models/tagsModel'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
-import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from '../organizationLogic'
+
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
-import { NodeKind } from '~/queries/schema'
-import { Query } from '~/queries/Query/Query'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { PostHogFeature } from 'posthog-js/react'
-import { concatWithPunctuation } from 'scenes/insights/utils'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
+import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
+import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
+import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -84,10 +87,17 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
-        useValues(featureFlagLogic)
+    const {
+        props,
+        featureFlag,
+        featureFlagLoading,
+        featureFlagMissing,
+        isEditingFlag,
+        recordingFilterForFlag,
+        newCohortLoading,
+    } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
         useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
@@ -96,8 +106,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
-
-    const { currentOrganization } = useValues(organizationLogic)
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -155,8 +163,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS]) {
         tabs.push({
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
@@ -527,6 +534,58 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                <More
+                                                    loading={newCohortLoading}
+                                                    overlay={
+                                                        <>
+                                                            <LemonButton
+                                                                to={urls.replay(
+                                                                    ReplayTabs.Recent,
+                                                                    recordingFilterForFlag
+                                                                )}
+                                                                fullWidth
+                                                            >
+                                                                View Recordings
+                                                            </LemonButton>
+                                                            {featureFlags[
+                                                                FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION
+                                                            ] && (
+                                                                <LemonButton
+                                                                    loading={newCohortLoading}
+                                                                    onClick={() => {
+                                                                        createStaticCohort()
+                                                                    }}
+                                                                    fullWidth
+                                                                >
+                                                                    Create Cohort
+                                                                </LemonButton>
+                                                            )}
+                                                            <LemonDivider />
+                                                            <LemonButton
+                                                                data-attr="delete-feature-flag"
+                                                                status="danger"
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    deleteFeatureFlag(featureFlag)
+                                                                }}
+                                                                disabledReason={
+                                                                    featureFlagLoading
+                                                                        ? 'Loading...'
+                                                                        : !featureFlag.can_edit
+                                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                                        : (featureFlag.features?.length || 0) > 0
+                                                                        ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                        : (featureFlag.experiment_set?.length || 0) > 0
+                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                        : null
+                                                                }
+                                                            >
+                                                                Delete feature flag
+                                                            </LemonButton>
+                                                        </>
+                                                    }
+                                                />
+                                                <LemonDivider vertical />
                                                 <NotebookSelectButton
                                                     resource={{
                                                         type: NotebookNodeType.FeatureFlag,
@@ -534,34 +593,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     }}
                                                     type="secondary"
                                                 />
-                                                <LemonButton
-                                                    to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
-                                                    type="secondary"
-                                                >
-                                                    View Recordings
-                                                </LemonButton>
-                                                <LemonDivider vertical />
-                                                <LemonButton
-                                                    data-attr="delete-feature-flag"
-                                                    status="danger"
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        deleteFeatureFlag(featureFlag)
-                                                    }}
-                                                    disabledReason={
-                                                        featureFlagLoading
-                                                            ? 'Loading...'
-                                                            : !featureFlag.can_edit
-                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                            : (featureFlag.features?.length || 0) > 0
-                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                            : (featureFlag.experiment_set?.length || 0) > 0
-                                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                            : null
-                                                    }
-                                                >
-                                                    Delete feature flag
-                                                </LemonButton>
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"

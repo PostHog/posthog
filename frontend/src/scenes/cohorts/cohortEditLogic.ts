@@ -1,7 +1,26 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+import {
+    applyAllCriteriaGroup,
+    applyAllNestedCriteria,
+    cleanCriteria,
+    createCohortFormData,
+    isCohortCriteriaGroup,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
@@ -11,25 +30,8 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
 } from '~/types'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { urls } from 'scenes/urls'
-import { actionToUrl, router } from 'kea-router'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import {
-    applyAllCriteriaGroup,
-    applyAllNestedCriteria,
-    cleanCriteria,
-    createCohortFormData,
-    isCohortCriteriaGroup,
-    validateGroup,
-} from 'scenes/cohorts/cohortUtils'
-import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
-import { isDataTableNode } from '~/queries/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']

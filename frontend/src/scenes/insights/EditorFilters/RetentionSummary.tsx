@@ -1,21 +1,23 @@
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
-import { FilterType, EditorFilterProps, RetentionType } from '~/types'
-import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+
 import { groupsModel } from '~/models/groupsModel'
+import { EditorFilterProps, FilterType, RetentionType } from '~/types'
+
+import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { IconInfo } from '@posthog/icons'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)

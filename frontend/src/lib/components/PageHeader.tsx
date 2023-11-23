@@ -1,9 +1,11 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
@@ -32,7 +34,6 @@ export function PageHeader({
 
     return (
         <>
-            {}
             {(!is3000 || description) && (
                 <div className="page-title-row flex justify-between" style={style}>
                     <div className="min-w-0">
@@ -49,10 +50,18 @@ export function PageHeader({
                     {!is3000 && <div className="page-buttons">{buttons}</div>}
                 </div>
             )}
-            {is3000 && buttons && actionsContainer && createPortal(buttons, actionsContainer)}
+            {is3000 &&
+                buttons &&
+                actionsContainer &&
+                createPortal(
+                    <Within3000PageHeaderContext.Provider value={is3000}>
+                        {buttons}
+                    </Within3000PageHeaderContext.Provider>,
+                    actionsContainer
+                )}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className="my-4" />}
+            {delimited && <LemonDivider className={is3000 ? 'hidden' : 'my-4'} />}
         </>
     )
 }

@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-
-import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { ExternalDataStripeSource, Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, ExternalDataStripeSource } from '~/types'
+
+import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 export interface DataWarehouseSource {}
 

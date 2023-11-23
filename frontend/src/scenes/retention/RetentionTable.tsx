@@ -1,13 +1,13 @@
-import { useActions, useValues } from 'kea'
-import clsx from 'clsx'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionTableLogic } from './retentionTableLogic'
-import { retentionModalLogic } from './retentionModalLogic'
-
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import './RetentionTable.scss'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { retentionModalLogic } from './retentionModalLogic'
+import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

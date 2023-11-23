@@ -1,24 +1,23 @@
-import { BindLogic, useValues } from 'kea'
-import clsx from 'clsx'
+import './InsightViz.scss'
 
+import clsx from 'clsx'
+import { BindLogic, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isFunnelsQuery } from '~/queries/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { InsightVizNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-
-import { InsightVizDisplay } from './InsightVizDisplay'
-import { EditorFilters } from './EditorFilters'
+import { isFunnelsQuery } from '~/queries/utils'
 import { InsightLogicProps, ItemMode } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getCachedResults } from './utils'
-import { useState } from 'react'
 
-import './InsightViz.scss'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { EditorFilters } from './EditorFilters'
+import { InsightVizDisplay } from './InsightVizDisplay'
+import { getCachedResults } from './utils'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {

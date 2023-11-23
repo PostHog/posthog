@@ -1,19 +1,19 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { LemonTab } from 'lib/lemon-ui/LemonTabs'
-import { Breadcrumb } from '~/types'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-
-import { groupsModel } from '~/models/groupsModel'
-import { Persons } from './tabs/Persons'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
 import { Groups } from 'scenes/groups/Groups'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { Breadcrumb } from '~/types'
+
+import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
+import { Persons } from './tabs/Persons'
 
 export type PersonsManagementTab = {
     key: string
@@ -95,7 +95,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     ...(showGroupsIntroductionPage
                         ? [
                               {
-                                  key: 'groups-intro',
+                                  key: 'groups-0',
                                   label: 'Groups',
                                   url: urls.groups(0),
                                   content: <Groups groupTypeIndex={0} />,

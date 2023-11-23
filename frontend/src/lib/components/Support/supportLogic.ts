@@ -1,18 +1,19 @@
+import { captureException } from '@sentry/react'
+import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-
-import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import * as Sentry from '@sentry/react'
+import { userLogic } from 'scenes/userLogic'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+
+import type { supportLogicType } from './supportLogicType'
 
 function getSessionReplayLink(): string {
     const link = posthog

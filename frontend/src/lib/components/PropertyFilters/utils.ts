@@ -1,3 +1,8 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { BreakdownFilter } from '~/queries/schema'
 import {
     AnyFilterLike,
     AnyPropertyFilter,
@@ -22,10 +27,6 @@ import {
     RecordingDurationFilter,
     SessionPropertyFilter,
 } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
-import { BreakdownFilter } from '~/queries/schema'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export function isPropertyGroup(
     properties:

@@ -1,6 +1,27 @@
-import React, { useEffect, useRef } from 'react'
+import './SessionRecordingsPlaylist.scss'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
-import { SessionRecordingType, ReplayTabs } from '~/types'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import React, { useEffect, useRef } from 'react'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { urls } from 'scenes/urls'
+
+import { ReplayTabs, SessionRecordingType } from '~/types'
+
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
+import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
@@ -8,26 +29,8 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import './SessionRecordingsPlaylist.scss'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
-import { urls } from 'scenes/urls'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { range } from 'd3'
-import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 
 const SCROLL_TRIGGER_OFFSET = 100
 

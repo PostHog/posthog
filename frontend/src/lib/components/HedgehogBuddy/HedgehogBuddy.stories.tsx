@@ -1,12 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { HedgehogBuddy } from './HedgehogBuddy'
 
 const meta: Meta<typeof HedgehogBuddy> = {
     title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
-    parameters: {
-        testOptions: { skip: true }, // Hedgehogs aren't particularly snapshotable
-    },
+    tags: ['test-skip'], // Hedgehogs aren't particularly snapshotable
 }
 export default meta
 
