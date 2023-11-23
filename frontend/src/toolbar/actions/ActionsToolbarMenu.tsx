@@ -1,16 +1,17 @@
-import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { useActions, useValues } from 'kea'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { urls } from 'scenes/urls'
 import { IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
-import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
+
+import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 const ActionsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)

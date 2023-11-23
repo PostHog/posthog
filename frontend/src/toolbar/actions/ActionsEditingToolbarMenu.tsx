@@ -1,16 +1,16 @@
-import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-
-import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { Field, Form, Group } from 'kea-forms'
+import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { StepField } from '~/toolbar/actions/StepField'
+import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 import { posthog } from '~/toolbar/posthog'
-import { Field, Form, Group } from 'kea-forms'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { StepField } from '~/toolbar/actions/StepField'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
     const {

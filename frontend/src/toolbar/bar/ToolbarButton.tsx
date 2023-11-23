@@ -1,12 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { MenuState, toolbarLogic } from './toolbarLogic'
+import './ToolbarButton.scss'
+
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
-
-import './ToolbarButton.scss'
 import { FunctionComponent, useEffect } from 'react'
 import React from 'react'
+
+import { MenuState, toolbarLogic } from './toolbarLogic'
 
 export type ToolbarButtonProps = {
     icon: React.ReactElement | null
