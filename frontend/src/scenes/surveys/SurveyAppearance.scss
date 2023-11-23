@@ -31,7 +31,7 @@
     padding-left: 10px;
     padding-right: 10px;
     padding-top: 10px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     margin-top: 14px;
 }
 
@@ -52,7 +52,7 @@
     touch-action: manipulation;
     padding: 12px;
     font-size: 14px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     outline: 0;
     text-shadow: 0 -1px 0 rgb(0 0 0 / 12%);
     box-shadow: 0 2px 0 rgb(0 0 0 / 4.5%);
@@ -140,7 +140,7 @@
 
 .rating-options-buttons {
     display: grid;
-    border-radius: 6px;
+    border-radius: var(--radius);
     overflow: hidden;
 }
 

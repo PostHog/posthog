@@ -11,11 +11,11 @@
         position: relative;
         outline: none;
         transition: var(--transition);
-        border-radius: 6px;
+        border-radius: var(--radius);
         cursor: pointer;
 
         .LemonButton__chrome {
-            border-radius: 6px;
+            border-radius: var(--radius);
             font-size: 0.875rem;
             display: flex;
             flex-direction: row;
