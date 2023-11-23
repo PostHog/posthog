@@ -9,7 +9,11 @@
     min-height: 3rem;
     padding: 0.5rem 0.75rem;
     text-align: left;
-    container-type: inline-size;
+
+    &.LemonBanner--compact {
+        flex-direction: column;
+        padding: 0.5rem;
+    }
 
     &.LemonBanner--info {
         background-color: var(--primary-alt-highlight);
@@ -30,41 +34,12 @@
         color: var(--success-dark);
     }
 
-    .LemonBanner__content {
-        display: flex;
-        flex: 1;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
-
-        .LemonBanner__content__row {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            justify-content: space-between;
-
-            p {
-                margin-bottom: 0.25em;
-            }
-
-            > .LemonIcon {
-                line-height: 0;
-                flex-shrink: 0;
-                font-size: 1.5rem;
-            }
-        }
+    .LemonBanner__icon {
+        line-height: 0;
+        flex-shrink: 0;
+        font-size: 1.5rem;
     }
-
-    @container (max-width: 30rem) {
-        .LemonBanner__content {
-            flex-direction: column;
-            align-items: stretch;
-
-            .LemonBanner__content__row {
-                > .LemonIcon {
-                    display: none;
-                }
-            }
-        }
+    p {
+        margin-bottom: 0.25em;
     }
 }

@@ -7,6 +7,7 @@ import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton/LemonButton'
 
 import { lemonBannerLogic } from './lemonBannerLogic'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export type LemonBannerAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
@@ -46,26 +47,39 @@ export function LemonBanner({
         return <></>
     }
 
+    const { ref: wrapperRef, size } = useResizeBreakpoints({
+        0: 'compact',
+        400: 'normal',
+    })
+
+    const isCompact = size === 'compact'
+
     return (
-        <div className={clsx('LemonBanner', `LemonBanner--${type}`, className)}>
-            <div className="LemonBanner__content">
-                <div className="LemonBanner__content__row flex-1">
-                    {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
-                    <div className="flex-1">{children}</div>
-                </div>
-                <div className="LemonBanner__content__row ">
-                    {action && <LemonButton type="secondary" {...action} />}
-                    {showCloseButton && (
-                        <LemonButton
-                            status="primary-alt"
-                            size="small"
-                            icon={<IconClose />}
-                            onClick={_onClose}
-                            aria-label="close"
-                        />
-                    )}
-                </div>
+        <div
+            className={clsx('LemonBanner', `LemonBanner--${type}`, isCompact && 'LemonBanner--compact', className)}
+            ref={wrapperRef}
+        >
+            <div className="flex items-center gap-2 grow-1">
+                {!isCompact ? (
+                    type === 'warning' || type === 'error' ? (
+                        <IconWarning className="LemonBanner__icon" />
+                    ) : (
+                        <IconInfo className="LemonBanner__icon" />
+                    )
+                ) : null}
+                <div className="grow">{children}</div>
+                {!isCompact && action && <LemonButton type="secondary" {...action} />}
+                {showCloseButton && (
+                    <LemonButton
+                        status="primary-alt"
+                        size="small"
+                        icon={<IconClose />}
+                        onClick={_onClose}
+                        aria-label="close"
+                    />
+                )}
             </div>
+            {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}
         </div>
     )
 }
