@@ -59,7 +59,7 @@ export function LemonBanner({
             className={clsx('LemonBanner', `LemonBanner--${type}`, isCompact && 'LemonBanner--compact', className)}
             ref={wrapperRef}
         >
-            <div className="flex items-center gap-2 grow-1">
+            <div className="flex items-center gap-2 grow">
                 {!isCompact ? (
                     type === 'warning' || type === 'error' ? (
                         <IconWarning className="LemonBanner__icon" />
