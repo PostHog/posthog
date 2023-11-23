@@ -30,7 +30,7 @@ class TestWhereClauseExtractor(BaseTest):
             """
                 SELECT event
                 FROM events
-                WHERE event = '$pageview'
+                WHERE team_id = 1
             """
         )
 
@@ -38,9 +38,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]),
+            left=ast.Field(chain=["team_id"]),
             op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value="$pageview"),
+            right=ast.Constant(value=1),
         )
 
     def test_with_timestamps(self):
@@ -66,7 +66,7 @@ class TestWhereClauseExtractor(BaseTest):
             """
                 SELECT e.event
                 FROM events e
-                WHERE e.event = '$pageview'
+                WHERE e.team_id = 1
             """
         )
 
@@ -74,9 +74,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]),
+            left=ast.Field(chain=["team_id"]),
             op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value="$pageview"),
+            right=ast.Constant(value=1),
         )
 
     def test_with_multiple_clauses(self):
@@ -84,7 +84,7 @@ class TestWhereClauseExtractor(BaseTest):
             """
                 SELECT event
                 FROM events
-                WHERE event = '$pageview' AND timestamp > '2023-01-01'
+                WHERE team_id = 1 AND timestamp > '2023-01-01'
             """
         )
 
@@ -92,9 +92,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 2
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]),
+            left=ast.Field(chain=["team_id"]),
             op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value="$pageview"),
+            right=ast.Constant(value=1),
         )
         assert compare_operators[1] == ast.CompareOperation(
             left=ast.Field(chain=["timestamp"]),
@@ -109,7 +109,7 @@ class TestWhereClauseExtractor(BaseTest):
                 FROM events e
                 LEFT JOIN persons p
                 ON e.person_id = p.id
-                WHERE e.event = '$pageview' and p.is_identified = 0
+                WHERE e.team_id = 1 and p.is_identified = 0
             """
         )
 
@@ -117,9 +117,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]),
+            left=ast.Field(chain=["team_id"]),
             op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value="$pageview"),
+            right=ast.Constant(value=1),
         )
 
     def test_with_ignoring_ors(self):
@@ -127,7 +127,7 @@ class TestWhereClauseExtractor(BaseTest):
             """
                 SELECT event
                 FROM events
-                WHERE event = '$pageleave' OR event = '$pageview'
+                WHERE team_id = 1 OR team_id = 2
             """
         )
 

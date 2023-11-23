@@ -604,14 +604,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[0]["label"], "none")
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-        self.assertEqual(response[1]["label"], "sign up - value")
+        self.assertEqual(response[1]["label"], "value")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-        self.assertEqual(response[2]["label"], "sign up - other_value")
+        self.assertEqual(response[2]["label"], "other_value")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
 
     def test_trends_single_aggregate_dau(self):
@@ -4103,7 +4103,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         for response in event_response:
             if response["breakdown_value"] == "person1":
                 self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "watched movie - person1")
+                self.assertEqual(response["label"], "person1")
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -4144,7 +4144,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         for response in event_response:
             if response["breakdown_value"] == "person1":
                 self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "watched movie - person1")
+                self.assertEqual(response["label"], "person1")
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -4211,7 +4211,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         for response in event_response:
             if response["breakdown_value"] == "person1":
                 self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "watched movie - person1")
+                self.assertEqual(response["label"], "person1")
             if response["breakdown_value"] == "person2":
                 self.assertEqual(response["count"], 3)
             if response["breakdown_value"] == "person3":
@@ -4602,9 +4602,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
             self.assertEqual(daily_response[0]["data"][0], 2)
-            self.assertEqual(daily_response[0]["label"], "sign up - some_val")
+            self.assertEqual(daily_response[0]["label"], "some_val")
             self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], "sign up - none")
+            self.assertEqual(daily_response[1]["label"], "none")
 
             # MAU
             with freeze_time("2019-12-31T13:00:03Z"):
@@ -4811,9 +4811,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "sign up - none")
-        self.assertEqual(response[1]["label"], "sign up - test@gmail.com")
-        self.assertEqual(response[2]["label"], "sign up - test@posthog.com")
+        self.assertEqual(response[0]["label"], "none")
+        self.assertEqual(response[1]["label"], "test@gmail.com")
+        self.assertEqual(response[2]["label"], "test@posthog.com")
 
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["count"], 1)
@@ -4869,9 +4869,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "sign up - none")
-        self.assertEqual(response[1]["label"], "sign up - test@gmail.com")
-        self.assertEqual(response[2]["label"], "sign up - test@posthog.com")
+        self.assertEqual(response[0]["label"], "none")
+        self.assertEqual(response[1]["label"], "test@gmail.com")
+        self.assertEqual(response[2]["label"], "test@posthog.com")
 
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["count"], 1)
@@ -4945,8 +4945,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "sign up - first url")
-        self.assertEqual(response[1]["label"], "sign up - second url")
+        self.assertEqual(response[0]["label"], "first url")
+        self.assertEqual(response[1]["label"], "second url")
 
         self.assertEqual(sum(response[0]["data"]), 1)
         self.assertEqual(response[0]["breakdown_value"], "first url")
@@ -5028,7 +5028,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "sign up - second url")
+        self.assertEqual(response[0]["label"], "second url")
 
         self.assertEqual(sum(response[0]["data"]), 1)
         self.assertEqual(response[0]["breakdown_value"], "second url")
@@ -5112,8 +5112,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "sign up - some_val")
-        self.assertEqual(event_response[1]["label"], "sign up - some_val2")
+        self.assertEqual(event_response[0]["label"], "some_val")
+        self.assertEqual(event_response[1]["label"], "some_val2")
 
         self.assertEqual(sum(event_response[0]["data"]), 3)
         self.assertEqual(event_response[0]["data"][5], 1)
@@ -5153,8 +5153,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
-        self.assertEqual(event_response[2]["label"], "sign up - value")
+        self.assertEqual(event_response[1]["label"], "other_value")
+        self.assertEqual(event_response[2]["label"], "value")
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
         self.assertEqual(event_response[1]["data"][5], 1)
@@ -5198,8 +5198,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
-        self.assertEqual(event_response[2]["label"], "sign up - value")
+        self.assertEqual(event_response[1]["label"], "other_value")
+        self.assertEqual(event_response[2]["label"], "value")
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
         self.assertEqual(event_response[1]["data"][5], 1)
@@ -5243,7 +5243,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "sign up - other_value")
+        self.assertEqual(event_response[0]["label"], "other_value")
 
         self.assertEqual(sum(event_response[0]["data"]), 1)
         self.assertEqual(event_response[0]["data"][5], 1)  # property not defined

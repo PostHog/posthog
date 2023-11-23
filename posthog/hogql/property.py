@@ -122,6 +122,15 @@ def property_to_expr(
             )
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
+
+        if property.type == "person" and scope != "person":
+            chain = ["person", "properties"]
+        elif property.type == "group":
+            chain = [f"group_{property.group_type_index}", "properties"]
+        else:
+            chain = ["properties"]
+        field = ast.Field(chain=chain + [property.key])
+
         if isinstance(value, list):
             if len(value) == 0:
                 return ast.Constant(value=True)
@@ -137,7 +146,7 @@ def property_to_expr(
 
                     return ast.CompareOperation(
                         op=op,
-                        left=ast.Field(chain=["properties", property.key]),
+                        left=field,
                         right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
                     )
                 else:
@@ -158,14 +167,6 @@ def property_to_expr(
                         return ast.And(exprs=exprs)
                     return ast.Or(exprs=exprs)
 
-        if property.type == "person":
-            chain = ["person", "properties"]
-        elif property.type == "group":
-            chain = [f"group_{property.group_type_index}", "properties"]
-        else:
-            chain = ["properties"]
-
-        field = ast.Field(chain=chain + [property.key])
         properties_field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:

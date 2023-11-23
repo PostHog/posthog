@@ -86,6 +86,7 @@ class TestQueryAlternator:
         ["hogql", None],
     ],
 )
+@pytest.mark.django_db
 def test_all_cases_return(
     math: Union[
         BaseMathType,
