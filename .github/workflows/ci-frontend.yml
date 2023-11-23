@@ -123,11 +123,16 @@ jobs:
             # If one test fails, still run the others
             fail-fast: false
             matrix:
+                segment: ['FOSS', 'EE']
                 chunk: [1, 2, 3]
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
+
+            - name: Remove ee
+              if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'
+              run: rm -rf ee
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -152,3 +157,4 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
+                  TEST_SEGMENT: ${{ matrix.segment }}
