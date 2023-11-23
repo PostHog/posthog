@@ -121,22 +121,20 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) && (
-                            <div className="flex space-x-4">
-                                <div className="flex shrink-0 items-center h-8">
-                                    <DateFilter
-                                        showCustom
-                                        dateFrom={dashboardFilters?.date_from ?? undefined}
-                                        dateTo={dashboardFilters?.date_to ?? undefined}
-                                        onChange={setDates}
-                                        disabled={!canEditDashboard}
-                                        makeLabel={(key) => (
-                                            <>
-                                                <IconCalendar />
-                                                <span className="hide-when-small"> {key}</span>
-                                            </>
-                                        )}
-                                    />
-                                </div>
+                            <div className="flex space-x-4 items-center">
+                                <DateFilter
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from ?? undefined}
+                                    dateTo={dashboardFilters?.date_to ?? undefined}
+                                    onChange={setDates}
+                                    disabled={!canEditDashboard}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <IconCalendar />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
                                 <PropertyFilters
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}

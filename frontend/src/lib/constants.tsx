@@ -178,6 +178,7 @@ export const FEATURE_FLAGS = {
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
+    SURVEYS_OPEN_CHOICE: 'surveys-open-choice', // owner: @ssoonmi, #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
