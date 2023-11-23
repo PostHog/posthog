@@ -30,6 +30,9 @@ const meta: Meta<typeof LemonButton> = {
             type: 'function',
         },
     },
+    parameters: {
+        testOptions: { include3000: true },
+    },
 }
 export default meta
 const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {

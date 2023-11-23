@@ -548,93 +548,15 @@ body {
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
-        --text-3000: var(--text-3000-light);
-        --text-secondary-3000: var(--text-secondary-3000-light);
-        --muted-3000: var(--muted-3000-light);
-        --trace-3000: var(--trace-3000-light);
-        --primary-3000: var(--primary-3000-light);
-        --primary-3000-highlight: var(--primary-3000-highlight-light);
-        --primary-3000-hover: var(--primary-3000-hover-light);
-        --primary-3000-active: var(--primary-3000-active-light);
-        --secondary-3000: var(--secondary-3000-light);
-        --secondary-3000-hover: var(--secondary-3000-hover-light);
-        --accent-3000: var(--accent-3000-light);
-        --bg-3000: var(--bg-3000-light);
-        --border-3000: var(--border-3000-light);
-        --border-bold-3000: var(--border-bold-3000-light);
-        --glass-bg-3000: var(--glass-bg-3000-light);
-        --glass-border-3000: var(--glass-border-3000-light);
-        --bg-light: #fff;
-        --bg-table: #f9faf7;
-        --link: var(--link-3000-light);
-        --shadow-elevation-3000: var(--shadow-elevation-3000-light);
-        --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-        --primary-3000-frame-border: var(--primary-3000-frame-border-light);
-        --primary-3000-button-bg: var(--primary-3000-button-bg-light);
-        --primary-3000-button-border: var(--primary-3000-button-border-light);
-        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
-        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
-        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
-        --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
-        --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
-        --secondary-3000-button-border: var(--secondary-3000-button-border-light);
-        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+        @include light-mode-3000-variables;
     }
 
     &.posthog-3000[theme='dark'] {
-        --text-3000: var(--text-3000-dark);
-        --text-secondary-3000: var(--text-secondary-3000-dark);
-        --muted-3000: var(--muted-3000-dark);
-        --trace-3000: var(--trace-3000-dark);
-        --primary-3000: var(--primary-3000-dark);
-        --primary-3000-highlight: var(--primary-3000-highlight-dark);
-        --primary-3000-hover: var(--primary-3000-hover-dark);
-        --primary-3000-active: var(--primary-3000-active-dark);
-        --secondary-3000: var(--secondary-3000-dark);
-        --secondary-3000-hover: var(--secondary-3000-hover-dark);
-        --accent-3000: var(--accent-3000-dark);
-        --bg-3000: var(--bg-3000-dark);
-        --border-3000: var(--border-3000-dark);
-        --border-bold-3000: var(--border-bold-3000-dark);
-        --glass-bg-3000: var(--glass-bg-3000-dark);
-        --glass-border-3000: var(--glass-border-3000-dark);
-        --bg-light: var(--accent-3000);
-        --bg-table: #232429;
-        --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-        --link: var(--link-3000-dark);
-        --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
-        --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-        --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
-        --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
-        --primary-3000-button-border: var(--primary-3000-button-border-dark);
-        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
-        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
-        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
-        --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
-        --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
-        --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
-        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
-        --data-color-2: #7f26d9;
-        --data-color-3: #3e7a76;
-        --data-color-4: #bf0d6c;
-        --data-color-5: #f0474f;
-        --data-color-6: #b36114;
-        --data-color-10: #6576b3;
+        @include dark-mode-3000-variables;
     }
 
     &.posthog-3000 {
-        --default: var(--text-3000);
-        --text-secondary: var(--text-secondary-3000);
-        --muted: var(--muted-3000);
-        --muted-alt: var(--muted-3000);
-        --primary-alt: var(--text-3000);
-        --border: var(--border-3000);
-        --border-bold: var(--border-bold-3000);
-        --mid: var(--bg-3000);
-        --side: var(--bg-3000);
-        --primary-alt-highlight: var(--primary-alt-highlight-3000);
-        --data-color-1: #1d4aff;
-        --data-color-10: #35416b;
+        @include posthog-3000-variables;
 
         background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
@@ -833,7 +755,7 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
+    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
     .LemonTabs__bar::after, // Active tab slider
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
