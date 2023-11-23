@@ -25,6 +25,7 @@ interface BarProps {
     wrapperWidth: number
 }
 type LabelPosition = 'inside' | 'outside'
+
 export function Bar({
     percentage: conversionPercentage,
     name,
