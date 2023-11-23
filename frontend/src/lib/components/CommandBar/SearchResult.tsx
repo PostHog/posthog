@@ -1,6 +1,9 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useLayoutEffect, useRef } from 'react'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -11,9 +14,6 @@ import { FilterType } from '~/types'
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 type SearchResultProps = {
     result: SearchResultType
