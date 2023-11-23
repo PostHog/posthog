@@ -1,4 +1,5 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
+import { shouldIgnoreInput } from 'lib/utils'
 
 import type { commandBarLogicType } from './commandBarLogicType'
 import { BarStatus } from './types'
@@ -34,6 +35,9 @@ export const commandBarLogic = kea<commandBarLogicType>([
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
+            if (shouldIgnoreInput(e)) {
+                return
+            }
             if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
                 event.preventDefault()
                 if (event.shiftKey) {

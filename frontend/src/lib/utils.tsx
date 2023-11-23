@@ -1553,3 +1553,12 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
     }
     return toReturn
 }
+
+export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
+}
