@@ -246,6 +246,12 @@ class TrendsQueryRunner(QueryRunner):
                 if self._is_breakdown_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
 
+                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                        # Skip the "none" series if it doesn't have any data
+                        if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
+                            continue
+                        remapped_label = "none"
+
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdown.breakdown_type == "cohort":
@@ -407,7 +413,7 @@ class TrendsQueryRunner(QueryRunner):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
-        bool_map = {1: "true", 0: "false", "": ""}
+        bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 
     def _event_property(
