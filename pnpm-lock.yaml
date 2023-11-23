@@ -13137,7 +13137,7 @@ packages:
       jest-process-manager: 0.3.1
       jest-runner: 29.7.0
       nyc: 15.1.0
-      playwright-core: 1.29.2
+      playwright-core: 1.32.2
       rimraf: 3.0.2
       uuid: 8.3.2
     transitivePeerDependencies:
