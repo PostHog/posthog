@@ -68,7 +68,7 @@ export function SignupPanel1(): JSX.Element | null {
                 )}
                 <LemonButton
                     fullWidth
-                    type="primary"
+                    type="cta"
                     center
                     htmlType="submit"
                     data-attr="signup-start"
