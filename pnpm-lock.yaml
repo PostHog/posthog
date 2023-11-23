@@ -216,8 +216,8 @@ dependencies:
     specifier: ^2.11.0
     version: 2.11.0
   posthog-js:
-    specifier: 1.93.1
-    version: 1.93.1
+    specifier: 1.93.2
+    version: 1.93.2
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -4950,6 +4950,12 @@ packages:
       type-fest: 2.19.0
     dev: true
 
+  /@storybook/csf@0.1.2:
+    resolution: {integrity: sha512-ePrvE/pS1vsKR9Xr+o+YwdqNgHUyXvg+1Xjx0h9LrVx7Zq4zNe06pd63F5EvzTbCbJsHj7GHr9tkiaqm7U8WRA==}
+    dependencies:
+      type-fest: 2.19.0
+    dev: true
+
   /@storybook/docs-mdx@0.1.0:
     resolution: {integrity: sha512-JDaBR9lwVY4eSH5W8EGHrhODjygPd6QImRbwjAuJNEnY0Vw4ie3bPkeGfnacB3OBW6u/agqPv2aRlR46JcAQLg==}
     dev: true
@@ -5006,7 +5012,7 @@ packages:
       '@storybook/channels': 7.5.3
       '@storybook/client-logger': 7.5.3
       '@storybook/core-events': 7.5.3
-      '@storybook/csf': 0.1.1
+      '@storybook/csf': 0.1.2
       '@storybook/global': 5.0.0
       '@storybook/router': 7.5.3(react-dom@18.2.0)(react@18.2.0)
       '@storybook/theming': 7.5.3(react-dom@18.2.0)(react@18.2.0)
@@ -15874,8 +15880,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.93.1:
-    resolution: {integrity: sha512-tbzxNN86zqC/D/HEMi4dJgW4GmiUHmUbBJ+zHFKABXxeS53SVzuJKkQxeNL9GdfpS9304i2D7ALsXoJ8pszAvw==}
+  /posthog-js@1.93.2:
+    resolution: {integrity: sha512-0e2kqlb4kB1/Q9poLFlMF+SUrW+DCzNBHTJuUKl177euE4LChkJipSjy2vpq98qtJ2K3Hxw7ylHf2C+dZCx4RA==}
     dependencies:
       fflate: 0.4.8
     dev: false
