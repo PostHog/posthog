@@ -43,7 +43,6 @@ from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
-from posthog.models.team.team import Team
 from .utils import render_template
 from .views import (
     health,
