@@ -45,3 +45,15 @@ Dismissable.args = {
     dismissKey: 'storybook-banner',
     onClose: () => alert('👋'),
 }
+
+export const Small: Story = Template.bind({})
+Small.args = {
+    type: 'info',
+    children: 'This is a one-time message. Acknowledge it and move on with your life.',
+    onClose: () => alert('👋'),
+    action: {
+        children: 'Acknowledge',
+        onClick: () => alert('👋'),
+    },
+    className: 'w-50 resize-x overflow-hidden',
+}

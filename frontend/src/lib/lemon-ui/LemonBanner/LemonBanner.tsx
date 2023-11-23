@@ -48,18 +48,24 @@ export function LemonBanner({
 
     return (
         <div className={clsx('LemonBanner', `LemonBanner--${type}`, className)}>
-            {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
-            <div className="flex-1">{children}</div>
-            {action && <LemonButton type="secondary" {...action} />}
-            {showCloseButton && (
-                <LemonButton
-                    status="primary-alt"
-                    size="small"
-                    icon={<IconClose />}
-                    onClick={_onClose}
-                    aria-label="close"
-                />
-            )}
+            <div className="LemonBanner__content">
+                <div className="LemonBanner__content__row flex-1">
+                    {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
+                    <div className="flex-1">{children}</div>
+                </div>
+                <div className="LemonBanner__content__row ">
+                    {action && <LemonButton type="secondary" {...action} />}
+                    {showCloseButton && (
+                        <LemonButton
+                            status="primary-alt"
+                            size="small"
+                            icon={<IconClose />}
+                            onClick={_onClose}
+                            aria-label="close"
+                        />
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
