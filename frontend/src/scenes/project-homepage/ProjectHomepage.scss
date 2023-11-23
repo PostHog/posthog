@@ -1,11 +1,13 @@
-.project-homepage {
-    .HomepageDashboardHeader {
+.ProjectHomepage {
+    container-type: inline-size;
+
+    .ProjectHomepage__dashboardheader {
         margin-top: 1rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
 
-        .HomepageDashboardHeader__title {
+        .ProjectHomepage__dashboardheader__title {
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -30,29 +32,12 @@
         }
     }
 
-    .top-list-container-horizontal {
+    .ProjectHomepage__lists {
         display: flex;
+        gap: 1rem;
 
-        .top-list {
-            margin-bottom: 1.5rem;
-
-            .posthog-3000 & {
-                margin-bottom: 0;
-            }
-
-            width: 33%;
-        }
-
-        .spacer {
-            width: 1rem;
-        }
-    }
-
-    .top-list-container-vertical {
-        margin-bottom: 1.5rem;
-
-        .spacer {
-            height: 1rem;
+        @container (max-width: 800px) {
+            flex-direction: column;
         }
     }
 
