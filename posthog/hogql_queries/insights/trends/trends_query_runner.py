@@ -264,9 +264,7 @@ class TrendsQueryRunner(QueryRunner):
 
                     # If there's multiple series, include the object label in the series label
                     if series_count > 1:
-                        series_object["label"] = "{} - {}".format(
-                            series_object["label"], remapped_label
-                        )
+                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     else:
                         series_object["label"] = remapped_label
 
