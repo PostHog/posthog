@@ -137,6 +137,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
+    KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
