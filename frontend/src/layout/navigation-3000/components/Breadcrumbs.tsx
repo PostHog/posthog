@@ -12,7 +12,8 @@ import React, { useLayoutEffect, useState } from 'react'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FinalizedBreadcrumb } from '~/types'
 
-const COMPACTION_DISTANCE = 44
+/** Sync with --breadcrumbs-height-compact. */
+export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
 /**
  * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
@@ -27,8 +28,15 @@ export function Breadcrumbs(): JSX.Element | null {
 
     useLayoutEffect(() => {
         function handleScroll(): void {
-            const scrollTop = document.getElementsByTagName('main')[0].scrollTop
-            const newCompactionRate = Math.min(scrollTop / COMPACTION_DISTANCE, 1)
+            const mainElement = document.getElementsByTagName('main')[0]
+            const mainScrollTop = mainElement.scrollTop
+            const compactionDistance = Math.min(
+                // This ensure that scrolling to the bottom of the scene will always result in the compact top bar state
+                // even if there's just a few pixels of scroll room. Otherwise the top bar would be halfway-compact then
+                mainElement.scrollHeight - mainElement.clientHeight,
+                BREADCRUMBS_HEIGHT_COMPACT
+            )
+            const newCompactionRate = compactionDistance > 0 ? Math.min(mainScrollTop / compactionDistance, 1) : 0
             setCompactionRate(newCompactionRate)
             if (
                 renameState &&
