@@ -131,7 +131,7 @@ class WhereClauseExtractor:
                 if field.chain[-1] == "event":
                     return False
 
-                # Ignroe if there's a lazy join involved
+                # Ignore if there's a lazy join involved
                 if ContainsLazyJoinType(expression).contains_lazy_join:
                     return False
 
