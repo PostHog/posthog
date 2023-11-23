@@ -17,7 +17,7 @@ export function useResizeObserver<T extends HTMLElement>(opts?: {
     ref?: RefObject<T> | T | null | undefined
     onResize?: (response: ResizeResponse) => void
     debounceMs?: number
-}): { ref: RefCallback<T> | RefObject<T> } & ResizeResponse {
+}): { ref: RefCallback<T> } & ResizeResponse {
     const [size, setSize] = useState<ResizeResponse>({})
 
     const setSizeDebounced = useDebouncedCallback((value: ResizeResponse) => setSize(value), opts?.debounceMs ?? 100)
