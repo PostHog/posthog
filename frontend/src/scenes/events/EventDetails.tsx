@@ -1,9 +1,9 @@
 import './EventDetails.scss'
 
-import ReactJson from '@microlink/react-json-view'
 import { Properties } from '@posthog/plugin-scaffold'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -71,14 +71,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'JSON',
             content: (
                 <div className="px-4 py-4">
-                    <ReactJson
-                        theme={'railscasts'}
-                        src={event}
-                        name={'event'}
-                        collapsed={1}
-                        collapseStringsAfterLength={80}
-                        sortKeys
-                    />
+                    <JSONViewer src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },
