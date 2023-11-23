@@ -7,7 +7,7 @@ export function JSONViewer(props: ReactJsonViewProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     return (
-        <ReactJson
+        <ReactJson // eslint-disable-line react/forbid-elements
             style={{ background: 'transparent' }}
             theme={isDarkModeOn ? 'railscasts' : 'rjv-default'}
             {...props}
