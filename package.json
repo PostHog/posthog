@@ -295,6 +295,11 @@
     "optionalDependencies": {
         "fsevents": "^2.3.2"
     },
+    "pnpm": {
+        "overrides": {
+            "playwright": "1.32.2"
+        }
+    },
     "lint-staged": {
         "*.{json,yaml,yml}": "prettier --write",
         "*.{css,scss}": [
