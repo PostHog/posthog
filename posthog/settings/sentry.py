@@ -114,6 +114,14 @@ def traces_sampler(sampling_context: dict) -> float:
         else:
             # Default sample rate for Celery tasks
             return 0.001  # 0.1%
+    elif op == "queue.task.celery":
+        task = sampling_context.get("celery_job", {}).get("task")
+        if task == "posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag":
+            # sample all cohort calculations via feature flag
+            return 1
+        # Default sample rate
+        return 0.01
+
     else:
         # Default sample rate for everything else
         return 0.01  # 1%
