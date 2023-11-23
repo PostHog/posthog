@@ -1,11 +1,15 @@
 import './CohortField.scss'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { useMemo } from 'react'
-import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { useMemo } from 'react'
+import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -14,9 +18,7 @@ import {
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import clsx from 'clsx'
-import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+
 import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0

@@ -1,6 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-
-import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import { loaders } from 'kea-loaders'
+import { windowValues } from 'kea-window-values'
+import api from 'lib/api'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { isNotNil } from 'lib/utils'
 
 import {
     NodeKind,
@@ -20,12 +24,8 @@ import {
     PropertyOperator,
     RetentionPeriod,
 } from '~/types'
-import { isNotNil } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
-import { windowValues } from 'kea-window-values'
+
+import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -89,6 +89,11 @@ export interface WebAnalyticsStatusCheck {
     shouldWarnAboutNoPageviews: boolean
     shouldWarnAboutNoPageleaves: boolean
 }
+
+export const GEOIP_PLUGIN_URLS = [
+    'https://github.com/PostHog/posthog-plugin-geoip',
+    'https://www.npmjs.com/package/@posthog/geoip-plugin',
+]
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
@@ -718,9 +723,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const geoIpPlugin =
                     pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find(
-                        (plugin) => plugin.url === 'https://www.npmjs.com/package/@posthog/geoip-plugin'
-                    )
+                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
                 const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
 
                 const geoIpPluginConfig =

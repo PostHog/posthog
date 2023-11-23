@@ -1,11 +1,12 @@
+import './TimelineSeekbar.scss'
+
 import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
-import { AlignType } from 'rc-trigger/lib/interface'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import './TimelineSeekbar.scss'
+import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { AlignType } from 'rc-trigger/lib/interface'
 
 export interface TimelinePoint {
     timestamp: Dayjs

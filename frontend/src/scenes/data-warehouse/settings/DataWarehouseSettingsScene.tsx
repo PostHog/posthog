@@ -1,13 +1,14 @@
 import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { useActions, useValues } from 'kea'
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
-import SourceModal from '../external/SourceModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import SourceModal from '../external/SourceModal'
+import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,

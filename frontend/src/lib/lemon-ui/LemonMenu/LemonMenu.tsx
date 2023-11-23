@@ -1,13 +1,15 @@
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { TooltipProps } from '../Tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { TooltipProps } from '../Tooltip'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
@@ -76,6 +78,7 @@ export interface LemonMenuProps
             | 'closeParentPopoverOnClickInside'
             | 'className'
             | 'onClickOutside'
+            | 'getPopupContainer'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */

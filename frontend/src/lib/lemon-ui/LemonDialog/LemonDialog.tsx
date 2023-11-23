@@ -1,9 +1,9 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { createRoot } from 'react-dom/client'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 
 export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline'> & {
     primaryButton?: LemonButtonProps | null

@@ -1,10 +1,11 @@
-import { dayjs } from 'lib/dayjs'
-import { useEffect, useState } from 'react'
-import { isOperatorDate } from 'lib/utils'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { PropertyOperator } from '~/types'
-import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { DatePicker } from 'lib/components/DatePicker'
+import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { dayjs } from 'lib/dayjs'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { isOperatorDate } from 'lib/utils'
+import { useEffect, useState } from 'react'
+
+import { PropertyOperator } from '~/types'
 
 const dayJSMightParse = (
     candidateDateTimeValue: string | number | (string | number)[] | null | undefined

@@ -1,28 +1,31 @@
-import { useActions, useValues } from 'kea'
+import './EmptyStates.scss'
+
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { Button, Empty } from 'antd'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import './EmptyStates.scss'
-import { urls } from 'scenes/urls'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from '@posthog/lemon-ui'
-import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
-import { posthog } from 'posthog-js'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SupportModal } from 'lib/components/Support/SupportModal'
 import { IconWarning } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
+import { useActions, useValues } from 'kea'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportModal } from 'lib/components/Support/SupportModal'
+import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { posthog } from 'posthog-js'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelsQuery } from '~/queries/schema'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+
+import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -312,17 +315,19 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <p className="empty-state__description">{description}</p>
                 )}
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Link to={urls.insightNew()}>
-                        <Button
-                            size="large"
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-insight-button"
-                        >
-                            New Insight
-                        </Button>
-                    </Link>
+                    <div className="flex justify-center">
+                        <Link to={urls.insightNew()}>
+                            <LemonButton
+                                size="large"
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<PlusCircleOutlined />}
+                                className="add-insight-button"
+                            >
+                                New Insight
+                            </LemonButton>
+                        </Link>
+                    </div>
                 )}
             </div>
         </div>

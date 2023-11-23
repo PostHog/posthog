@@ -1,11 +1,13 @@
-import { useRef } from 'react'
-import { useValues } from 'kea'
-import clsx from 'clsx'
-import useSize from '@react-hook/size'
-import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
-import { Histogram } from 'scenes/insights/views/Histogram'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import './FunnelHistogram.scss'
+
+import useSize from '@react-hook/size'
+import clsx from 'clsx'
+import { useValues } from 'kea'
+import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
+import { useRef } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { Histogram } from 'scenes/insights/views/Histogram'
+
 import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelHistogram(): JSX.Element | null {

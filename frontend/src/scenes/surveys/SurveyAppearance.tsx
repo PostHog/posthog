@@ -1,15 +1,21 @@
 import './SurveyAppearance.scss'
+
 import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import React, { useEffect, useRef, useState } from 'react'
+
 import {
-    SurveyAppearance as SurveyAppearanceType,
-    SurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyQuestionType,
-    MultipleSurveyQuestion,
     AvailableFeature,
     BasicSurveyQuestion,
     LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance as SurveyAppearanceType,
+    SurveyQuestion,
+    SurveyQuestionType,
 } from '~/types'
+
 import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
@@ -23,9 +29,6 @@ import {
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
-import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
@@ -526,6 +529,64 @@ export function SurveyRatingAppearance({
     )
 }
 
+const OpenEndedChoice = ({
+    label,
+    initialChecked,
+    inputType,
+    index,
+}: {
+    label: string
+    initialChecked: boolean
+    inputType: string
+    textColor: string
+    index: number
+}): JSX.Element => {
+    const textRef = useRef<HTMLInputElement | null>(null)
+    const checkRef = useRef<HTMLInputElement | null>(null)
+
+    return (
+        <div
+            className="choice-option choice-option-open"
+            onClick={() => {
+                if (checkRef.current?.checked || checkRef.current?.disabled) {
+                    textRef.current?.focus()
+                }
+            }}
+        >
+            <input
+                id={`${label}-${index}`}
+                ref={checkRef}
+                type={inputType}
+                disabled={!initialChecked || !checkRef.current?.value}
+                defaultChecked={initialChecked}
+                name="choice"
+            />
+            <label htmlFor={`${label}-${index}`}>
+                <span>{label}:</span>
+                <input
+                    ref={textRef}
+                    type="text"
+                    maxLength={100}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                        if (checkRef.current) {
+                            checkRef.current.value = e.target.value
+                            if (e.target.value) {
+                                checkRef.current.disabled = false
+                                checkRef.current.checked = true
+                            } else {
+                                checkRef.current.disabled = true
+                                checkRef.current.checked = false
+                            }
+                        }
+                    }}
+                />
+            </label>
+            <span className="choice-check">{check}</span>
+        </div>
+    )
+}
+
 export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
@@ -584,18 +645,29 @@ export function SurveyMultipleChoiceAppearance({
                     />
                 )}
                 <div className="multiple-choice-options">
-                    {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
-                        <div className="choice-option" key={idx}>
-                            <input
-                                {...(initialChecked ? { checked: initialChecked.includes(idx) } : null)}
-                                type={inputType}
-                                name="choice"
-                                value={choice}
+                    {(multipleChoiceQuestion.choices || []).map((choice, idx) =>
+                        multipleChoiceQuestion?.hasOpenChoice && idx === multipleChoiceQuestion.choices?.length - 1 ? (
+                            <OpenEndedChoice
+                                key={idx}
+                                index={idx}
+                                initialChecked={!!initialChecked?.includes(idx)}
+                                inputType={inputType}
+                                label={choice}
+                                textColor={textColor}
                             />
-                            <label>{choice}</label>
-                            <span className="choice-check">{check}</span>
-                        </div>
-                    ))}
+                        ) : (
+                            <div className="choice-option" key={idx}>
+                                <input
+                                    {...(initialChecked ? { defaultChecked: initialChecked.includes(idx) } : null)}
+                                    type={inputType}
+                                    name="choice"
+                                    value={choice}
+                                />
+                                <label>{choice}</label>
+                                <span className="choice-check">{check}</span>
+                            </div>
+                        )
+                    )}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">

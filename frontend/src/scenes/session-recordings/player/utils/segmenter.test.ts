@@ -1,9 +1,11 @@
-import { sortedRecordingSnapshots } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import { createSegments } from './segmenter'
-import { convertSnapshotsResponse } from '../sessionRecordingDataLogic'
 import { dayjs } from 'lib/dayjs'
+import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import { sortedRecordingSnapshots } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+
 import { RecordingSnapshot } from '~/types'
+
+import { convertSnapshotsResponse } from '../sessionRecordingDataLogic'
+import { createSegments } from './segmenter'
 
 describe('segmenter', () => {
     it('matches snapshots', () => {

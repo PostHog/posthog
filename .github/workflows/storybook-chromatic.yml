@@ -54,7 +54,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.29.2 # Same as @storybook/test-runner@0.13's dependency
+            image: mcr.microsoft.com/playwright:v1.32.2 # Same as @storybook/test-runner@0.15.2's dependency
         strategy:
             fail-fast: false
             matrix:
@@ -144,6 +144,7 @@ jobs:
                   HOME: /root
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 

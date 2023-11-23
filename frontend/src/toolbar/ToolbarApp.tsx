@@ -1,16 +1,17 @@
-import { useRef, useState } from 'react'
-import { useSecondRender } from 'lib/hooks/useSecondRender'
-import root from 'react-shadow'
-import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useValues } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { ToolbarProps } from '~/types'
+import { useSecondRender } from 'lib/hooks/useSecondRender'
+import { useRef, useState } from 'react'
+import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
+
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
+import { ToolbarProps } from '~/types'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { jsURL } = useValues(toolbarLogic(props))
+    const { jsURL } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
@@ -23,7 +24,13 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   const styleLink = document.createElement('link')
                   styleLink.rel = 'stylesheet'
                   styleLink.type = 'text/css'
-                  styleLink.href = `${jsURL}/static/toolbar.css`
+                  // toolbar.js is served from the PostHog CDN, this has a TTL of 24 hours.
+                  // the toolbar asset includes a rotating "token" that is valid for 5 minutes.
+                  const fiveMinutesInMillis = 5 * 60 * 1000
+                  // this ensures that we bust the cache periodically
+                  const timestampToNearestFiveMinutes =
+                      Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
+                  styleLink.href = `${jsURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot

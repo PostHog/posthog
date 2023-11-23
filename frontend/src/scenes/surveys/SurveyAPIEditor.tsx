@@ -1,6 +1,8 @@
-import { Survey } from '~/types'
-import { NewSurvey } from './constants'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
+import { Survey } from '~/types'
+
+import { NewSurvey } from './constants'
 
 export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
     // Make sure this is synced to SurveyAPISerializer

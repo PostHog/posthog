@@ -1,11 +1,12 @@
-import { PerformanceEvent } from '~/types'
 import { getSeriesColor } from 'lib/colors'
-import { humanFriendlyMilliseconds } from 'lib/utils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useState } from 'react'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyMilliseconds } from 'lib/utils'
+import { useState } from 'react'
+import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
+
+import { PerformanceEvent } from '~/types'
 
 export interface EventPerformanceMeasure {
     start: number

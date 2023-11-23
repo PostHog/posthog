@@ -1,8 +1,10 @@
-import { kea, path, connect, selectors } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
-import type { mathsLogicType } from './mathsLogicType'
-import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
+import { connect, kea, path, selectors } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+
+import { groupsModel } from '~/models/groupsModel'
+import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
+
+import type { mathsLogicType } from './mathsLogicType'
 
 export enum MathCategory {
     EventCount,

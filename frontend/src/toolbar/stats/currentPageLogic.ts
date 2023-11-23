@@ -1,4 +1,5 @@
-import { kea, path, actions, reducers, events } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
+
 import type { currentPageLogicType } from './currentPageLogicType'
 
 export const currentPageLogic = kea<currentPageLogicType>([
@@ -14,23 +15,16 @@ export const currentPageLogic = kea<currentPageLogicType>([
             { setHref: (_, { href }) => href, setWildcardHref: (_, { href }) => href },
         ],
     })),
-    events(({ actions, cache, values }) => ({
-        afterMount: () => {
-            cache.interval = window.setInterval(() => {
-                if (window.location.href !== values.href) {
-                    actions.setHref(window.location.href)
-                }
-            }, 500)
-            cache.location = () => {
-                window.requestAnimationFrame(() => {
-                    actions.setHref(window.location.href)
-                })
+
+    afterMount(({ actions, values, cache }) => {
+        cache.interval = window.setInterval(() => {
+            if (window.location.href !== values.href) {
+                actions.setHref(window.location.href)
             }
-            window.addEventListener('popstate', cache.location)
-        },
-        beforeUnmount: () => {
-            window.clearInterval(cache.interval)
-            window.removeEventListener('popstate', cache.location)
-        },
-    })),
+        }, 500)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        window.clearInterval(cache.interval)
+    }),
 ])

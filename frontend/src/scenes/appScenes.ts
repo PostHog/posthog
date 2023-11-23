@@ -1,5 +1,5 @@
-import { Scene } from 'scenes/sceneTypes'
 import { preloadedScenes } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 export const appScenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),

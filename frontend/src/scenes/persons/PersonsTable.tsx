@@ -1,15 +1,17 @@
-import { TZLabel } from 'lib/components/TZLabel'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonType, PropertyDefinitionType } from '~/types'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { PersonDisplay } from './PersonDisplay'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { personsLogic } from 'scenes/persons/personsLogic'
+
+import { PersonType, PropertyDefinitionType } from '~/types'
+
+import { PersonDisplay } from './PersonDisplay'
 
 interface PersonsTableType {
     people: PersonType[]

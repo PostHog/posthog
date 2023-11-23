@@ -1,16 +1,18 @@
 import './index.scss'
-import { useActions, useValues } from 'kea'
+
 // eslint-disable-next-line no-restricted-imports
-import { ProjectOutlined, LaptopOutlined } from '@ant-design/icons'
+import { LaptopOutlined, ProjectOutlined } from '@ant-design/icons'
+import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../../../scenes/teamLogic'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
-import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+
+import { teamLogic } from '../../../scenes/teamLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'

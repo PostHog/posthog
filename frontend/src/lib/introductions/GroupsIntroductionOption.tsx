@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import Select from 'rc-select'
-import { Link } from 'lib/lemon-ui/Link'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { IconLock } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import Select from 'rc-select'
 
 // TODO: Remove, but de-ant FeatureFlagReleaseConditions first
 export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element | null {
