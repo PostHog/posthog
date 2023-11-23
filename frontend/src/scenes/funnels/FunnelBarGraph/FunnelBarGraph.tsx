@@ -98,7 +98,7 @@ export function FunnelBarGraph({
                             ) : null}
                         </header>
                         <div className="funnel-inner-viz">
-                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
+                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
                                 {!width ? null : isBreakdown ? (
                                     <>
                                         {step?.nested_breakdown?.map((breakdown, index) => {

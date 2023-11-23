@@ -2,7 +2,6 @@ import './ProjectHomepage.scss'
 
 import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
@@ -13,7 +12,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useRef } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
@@ -25,8 +23,8 @@ import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
 
-import { NewlySeenPersons } from './NewlySeenPersons'
 import { RecentInsights } from './RecentInsights'
+import { RecentPersons } from './RecentPersons'
 import { RecentRecordings } from './RecentRecordings'
 
 export function ProjectHomepage(): JSX.Element {
@@ -38,9 +36,6 @@ export function ProjectHomepage(): JSX.Element {
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const topListContainerRef = useRef<HTMLDivElement | null>(null)
-    const [topListContainerWidth] = useSize(topListContainerRef)
 
     const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
 
@@ -60,32 +55,17 @@ export function ProjectHomepage(): JSX.Element {
     )
 
     return (
-        <div className="project-homepage">
+        <div className="ProjectHomepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
-            <div
-                ref={topListContainerRef}
-                className={
-                    topListContainerWidth && topListContainerWidth < 600
-                        ? 'top-list-container-vertical'
-                        : 'top-list-container-horizontal'
-                }
-            >
-                <div className="top-list">
-                    <RecentInsights />
-                </div>
-                <div className="spacer" />
-                <div className="top-list">
-                    <NewlySeenPersons />
-                </div>
-                <div className="spacer" />
-                <div className="top-list">
-                    <RecentRecordings />
-                </div>
+            <div className="ProjectHomepage__lists">
+                <RecentInsights />
+                <RecentPersons />
+                <RecentRecordings />
             </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    <div className="HomepageDashboardHeader">
-                        <div className="HomepageDashboardHeader__title">
+                    <div className="ProjectHomepage__dashboardheader">
+                        <div className="ProjectHomepage__dashboardheader__title">
                             {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                             {dashboard?.name && (
                                 <>
