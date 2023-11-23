@@ -95,7 +95,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     ...(showGroupsIntroductionPage
                         ? [
                               {
-                                  key: 'groups-intro',
+                                  key: 'groups-0',
                                   label: 'Groups',
                                   url: urls.groups(0),
                                   content: <Groups groupTypeIndex={0} />,
@@ -137,6 +137,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     }),
     actionToUrl(({ values }) => ({
         setTabKey: ({ tabKey }) => {
+            console.log(values.tabs, tabKey)
             return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
         },
     })),
