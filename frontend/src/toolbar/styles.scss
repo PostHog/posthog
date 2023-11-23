@@ -17,16 +17,6 @@
     line-height: 1.5;
 }
 
-.toolbar-block {
-    background: white;
-    color: black;
-    font-size: 14px;
-
-    &.no-padding {
-        padding: 0;
-    }
-}
-
 .LemonModal__overlay--force-modal-above-popovers {
     z-index: 2147483033 !important;
 }
