@@ -122,7 +122,7 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(waitForSelector)
     }
 
-    await page.waitForTimeout(100) // Wait for effects to finish
+    await page.waitForTimeout(400) // Wait for effects to finish
 
     // Wait for all images to load
     await page.waitForFunction(() =>
