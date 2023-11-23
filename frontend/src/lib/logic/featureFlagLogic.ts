@@ -33,8 +33,6 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
-    availableFlags['posthog-3000'] = true
-
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
             {},
