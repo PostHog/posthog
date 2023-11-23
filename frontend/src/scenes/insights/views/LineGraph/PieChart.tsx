@@ -146,12 +146,8 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            return (showValueOnSeries !== false || // show if true or unset
-                                showLabelOnSeries) &&
-                                context.dataset.data.length > 1 &&
-                                percentage > 5
-                                ? 'auto'
-                                : false
+                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {
                             // in order to make numbers below 10 look circular we need a little padding
