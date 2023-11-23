@@ -1,19 +1,21 @@
-import { Mocks, MockSignature, mocksToHandlers } from './utils'
 import {
+    MOCK_DEFAULT_COHORT,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_ORGANIZATION_INVITE,
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
-    MOCK_DEFAULT_TEAM,
-    MOCK_DEFAULT_USER,
-    MOCK_DEFAULT_COHORT,
-    MOCK_PERSON_PROPERTIES,
     MOCK_DEFAULT_PLUGIN,
     MOCK_DEFAULT_PLUGIN_CONFIG,
-    MOCK_TEAM_ID,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
+    MOCK_TEAM_ID,
 } from 'lib/api.mock'
+
 import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
+
+import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
 export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESPONSE => ({

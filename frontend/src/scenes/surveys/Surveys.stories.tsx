@@ -1,6 +1,9 @@
+import { Meta, StoryFn } from '@storybook/react'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
@@ -11,8 +14,7 @@ import {
     SurveyQuestionType,
     SurveyType,
 } from '~/types'
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
+
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
@@ -243,11 +245,7 @@ export const SurveyView: StoryFn = () => {
     }, [])
     return <App />
 }
-SurveyView.parameters = {
-    testOptions: {
-        skip: true, // FIXME: Fix the mocked data so that survey results can actually load
-    },
-}
+SurveyView.tags = ['test-skip'] // FIXME: Fix the mocked data so that survey results can actually load
 
 export const SurveyTemplates: StoryFn = () => {
     useEffect(() => {

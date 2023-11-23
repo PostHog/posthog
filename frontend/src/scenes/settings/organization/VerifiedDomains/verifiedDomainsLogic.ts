@@ -1,12 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { SECURE_URL_REGEX } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { OrganizationDomainType, AvailableFeature } from '~/types'
-import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { SECURE_URL_REGEX } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
+
+import { AvailableFeature, OrganizationDomainType } from '~/types'
+
+import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 
 export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'jit_provisioning_enabled' | 'sso_enforcement'>

@@ -1,13 +1,15 @@
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '../navigationLogic'
+import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { initKeaTests } from '~/test/init'
+
+import { navigationLogic } from '../navigationLogic'
+import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
 
 describe('announcementLogic', () => {
     let logic: ReturnType<typeof announcementLogic.build>

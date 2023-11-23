@@ -1,7 +1,9 @@
-import { useMocks } from '~/mocks/jest'
-import { SDKVersion, versionCheckerLogic } from './versionCheckerLogic'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { SDKVersion, versionCheckerLogic } from './versionCheckerLogic'
 
 const useMockedVersions = (githubVersions: SDKVersion[], usedVersions: SDKVersion[]): void => {
     useMocks({

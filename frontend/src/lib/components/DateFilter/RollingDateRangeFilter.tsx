@@ -1,11 +1,12 @@
-import { Input } from 'antd'
-import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
-import { useActions, useValues } from 'kea'
-import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
+
+import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptions<DateOption> = [
     { value: 'days', label: 'days' },
@@ -38,11 +39,6 @@ export function RollingDateRangeFilter({
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))
 
-    const onInputChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
-        const newValue = event.target.value ? parseFloat(event.target.value) : undefined
-        setCounter(newValue)
-    }
-
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
             <LemonButton
@@ -61,14 +57,13 @@ export function RollingDateRangeFilter({
                     >
                         -
                     </span>
-                    <Input
+                    <LemonInput
                         data-attr="rolling-date-range-input"
                         type="number"
-                        value={counter ?? ''}
-                        min="0"
+                        value={counter ?? 0}
+                        min={0}
                         placeholder="0"
-                        onChange={onInputChange}
-                        bordered={false}
+                        onChange={(value) => setCounter(value)}
                     />
                     <span
                         className="RollingDateRangeFilter__counter__step"

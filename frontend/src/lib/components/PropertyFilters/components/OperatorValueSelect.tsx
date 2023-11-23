@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -9,9 +9,11 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
+import { useEffect, useState } from 'react'
+
+import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+
 import { PropertyValue } from './PropertyValue'
-import { dayjs } from 'lib/dayjs'
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType

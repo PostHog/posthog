@@ -1,6 +1,8 @@
-import { EventType } from '~/types'
-import { eventToDescription } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { eventToDescription } from 'lib/utils'
+
+import { EventType } from '~/types'
+
 import { EventIcon } from './EventIcon'
 
 type SessionEventProps = { event: EventType }

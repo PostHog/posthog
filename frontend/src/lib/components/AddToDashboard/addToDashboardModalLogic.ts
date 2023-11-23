@@ -1,13 +1,14 @@
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import FuseClass from 'fuse.js'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
-import FuseClass from 'fuse.js'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
 

@@ -1,15 +1,15 @@
-import React from 'react'
-import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from './funnelDataLogic'
-
 import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
-import { FunnelVizType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
+import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+
+import { FunnelVizType } from '~/types'
+
+import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

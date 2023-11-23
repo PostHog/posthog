@@ -1,6 +1,6 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from '@storybook/test-runner'
+import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/types'
 
@@ -13,11 +13,6 @@ declare module '@storybook/types' {
         options?: any
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
-            /**
-             * Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that).
-             * @default false
-             */
-            skip?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              * @default true
@@ -71,18 +66,19 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
-    async postRender(page, context) {
+    async postVisit(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
-        const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
+        const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
-        if (!skip) {
-            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
-            if (snapshotBrowsers.includes(currentBrowser)) {
-                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
-            }
+        const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
+        if (snapshotBrowsers.includes(currentBrowser)) {
+            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
+    },
+    tags: {
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
@@ -114,8 +110,7 @@ async function expectStoryToMatchSnapshot(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    // Wait for story to load
-    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
+    await waitForPageReady(page)
     await page.evaluate(() => {
         // Stop all animations for consistent snapshots
         document.body.classList.add('storybook-test-runner')
@@ -127,7 +122,7 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(waitForSelector)
     }
 
-    await page.waitForTimeout(400) // Wait for animations to finish
+    await page.waitForTimeout(400) // Wait for effects to finish
 
     // Wait for all images to load
     await page.waitForFunction(() =>

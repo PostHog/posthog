@@ -1,16 +1,16 @@
 import { connect, kea, path, selectors } from 'kea'
-import { SettingsMap } from './SettingsMap'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { Breadcrumb } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SettingSectionId, SettingLevelId, SettingLevelIds } from './types'
-
-import type { settingsSceneLogicType } from './settingsSceneLogicType'
-import { settingsLogic } from './settingsLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
+
+import { settingsLogic } from './settingsLogic'
+import { SettingsMap } from './SettingsMap'
+import type { settingsSceneLogicType } from './settingsSceneLogicType'
+import { SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),

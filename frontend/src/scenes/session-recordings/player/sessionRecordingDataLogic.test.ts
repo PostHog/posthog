@@ -1,21 +1,22 @@
+import { expectLogic } from 'kea-test-utils'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    convertSnapshotsByWindowId,
     prepareRecordingSnapshots,
     sessionRecordingDataLogic,
-    convertSnapshotsByWindowId,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AvailableFeature } from '~/types'
+
+import recordingEventsJson from '../__mocks__/recording_events_query'
+import recordingMetaJson from '../__mocks__/recording_meta.json'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()

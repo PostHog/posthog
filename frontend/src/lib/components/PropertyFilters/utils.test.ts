@@ -1,4 +1,14 @@
 import {
+    breakdownFilterToTaxonomicFilterType,
+    convertPropertiesToPropertyGroup,
+    convertPropertyGroupToProperties,
+    isValidPropertyFilter,
+    propertyFilterTypeToTaxonomicFilterType,
+} from 'lib/components/PropertyFilters/utils'
+
+import { BreakdownFilter } from '~/queries/schema'
+
+import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     ElementPropertyFilter,
@@ -9,15 +19,7 @@ import {
     PropertyOperator,
     SessionPropertyFilter,
 } from '../../../types'
-import {
-    isValidPropertyFilter,
-    propertyFilterTypeToTaxonomicFilterType,
-    breakdownFilterToTaxonomicFilterType,
-    convertPropertiesToPropertyGroup,
-    convertPropertyGroupToProperties,
-} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { BreakdownFilter } from '~/queries/schema'
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {

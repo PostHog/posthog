@@ -1,17 +1,19 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api, { ApiConfig } from 'lib/api'
-import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
-import { userLogic } from './userLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
-import { organizationLogic } from './organizationLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { loaders } from 'kea-loaders'
+import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { getPropertyLabel } from 'lib/taxonomy'
+import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
+
+import { organizationLogic } from './organizationLogic'
+import type { teamLogicType } from './teamLogicType'
+import { userLogic } from './userLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {

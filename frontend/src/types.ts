@@ -1,3 +1,10 @@
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { eventWithTime } from '@rrweb/types'
+import { UploadFile } from 'antd/lib/upload/interface'
+import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogicWrapper } from 'kea'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -12,20 +19,18 @@ import {
     ShownAsValue,
     TeamMembershipLevel,
 } from 'lib/constants'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginInstallationType } from 'scenes/plugins/types'
-import { UploadFile } from 'antd/lib/upload/interface'
-import { eventWithTime } from '@rrweb/types'
-import { PostHog } from 'posthog-js'
-import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
-import { LogLevel } from 'rrweb'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { LogicWrapper } from 'kea'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import { PostHog } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
+import { LogLevel } from 'rrweb'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PluginInstallationType } from 'scenes/plugins/types'
+
+import { QueryContext } from '~/queries/types'
+
 import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
@@ -33,10 +38,6 @@ import type {
     InsightVizNode,
     Node,
 } from './queries/schema'
-import { QueryContext } from '~/queries/types'
-
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1151,6 +1152,10 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+
+    //rrweb/network@1 - i.e. not in ClickHouse table
+    is_initial?: boolean
+    raw?: Record<string, any>
 }
 
 export interface CurrentBillCycleType {
@@ -1754,6 +1759,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     show_values_on_series?: boolean
+    show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
 }
 
@@ -2236,6 +2242,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    hasOpenChoice?: boolean
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion

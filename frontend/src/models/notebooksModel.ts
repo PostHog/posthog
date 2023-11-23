@@ -1,23 +1,22 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'kea'
-
 import { loaders } from 'kea-loaders'
-import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
-
-import api from 'lib/api'
-import posthog from 'posthog-js'
-import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { teamLogic } from 'scenes/teamLogic'
-import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
-
-import type { notebooksModelType } from './notebooksModelType'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-import { urls } from 'scenes/urls'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import posthog from 'posthog-js'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
+
+import type { notebooksModelType } from './notebooksModelType'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',

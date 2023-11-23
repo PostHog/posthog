@@ -17,6 +17,7 @@ export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the def
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_FLUSH_FREQUENCY_MS=0 # Reduce the potential for spurious errors in tests that wait for metrics
 export APP_METRICS_GATHERED_FOR_ALL=true
+export PLUGINS_DEFAULT_LOG_LEVEL=0 # All logs, as debug logs are used in synchronization barriers
 export NODE_ENV=production-functional-tests
 
 # Not important at all, but I like to see nice red/green for tests

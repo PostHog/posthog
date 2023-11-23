@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SupportModal } from 'lib/components/Support/SupportModal'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 import { IconBugShield } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

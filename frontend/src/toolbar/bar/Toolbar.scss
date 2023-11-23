@@ -1,0 +1,144 @@
+@import '../../styles/vars';
+
+#button-toolbar {
+    // default to light theme
+    @include light-mode-3000-variables;
+    @include posthog-3000-variables;
+
+    user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+
+    * > {
+        ::-webkit-scrollbar {
+            width: 0.5rem;
+            height: 0.5rem;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--accent-3000);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 0.25rem;
+            background: var(--trace-3000);
+
+            &:hover {
+                background: var(--muted-3000);
+            }
+        }
+    }
+
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    & + .HedgehogBuddy {
+        z-index: 2147483020;
+    }
+}
+
+#button-toolbar[theme='dark'] {
+    @include dark-mode-3000-variables;
+
+    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+    --mark: var(--secondary-3000-hover-dark);
+}
+
+.ToolbarMenu {
+    position: fixed;
+    max-width: calc(100% - 2rem);
+    height: 0;
+    z-index: 2;
+
+    .ToolbarMenu__content {
+        position: absolute;
+        background-color: var(--bg-3000);
+        color: var(--text-3000);
+        border-radius: var(--radius);
+
+        // transition: height 0.5s ease, border 0.5s ease;
+
+        max-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        filter: drop-shadow(0 5px 10px var(--trace-3000));
+        bottom: 0;
+        width: 30rem;
+        margin-left: -15rem;
+        overflow-y: auto;
+    }
+
+    &--visible {
+        .ToolbarMenu__content {
+            border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &.ToolbarMenu--below {
+        .ToolbarMenu__content {
+            top: 0;
+            bottom: auto;
+        }
+    }
+
+    form {
+        .form-error {
+            color: var(--danger);
+        }
+    }
+}
+
+.Toolbar {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    z-index: 1;
+    background-color: var(--bg-3000);
+    color: var(--text-3000);
+    transition-property: filter, width, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+    filter: drop-shadow(0 5px 10px var(--trace-3000));
+    border: 1px solid var(--border-bold-3000);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: fixed;
+
+    // fixed width so that animations work when changing width
+    width: 15.2rem;
+
+    > :first-child {
+        border-right: 1px solid var(--border-bold-3000);
+    }
+
+    > :last-child {
+        border-left: 1px solid var(--border-bold-3000);
+    }
+
+    --toolbar-button-x: 0;
+    --toolbar-button-y: 0;
+    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
+
+    transform: var(--toolbar-translate);
+
+    &--dragging {
+        // Disable transform transition whilst dragging
+        transition-property: filter, width;
+        transform: var(--toolbar-translate) scale(1.1);
+    }
+
+    &--minimized {
+        width: calc(2.5rem + 1px); // Account for border
+
+        &.Toolbar--hedgehog-mode {
+            transform: var(--toolbar-translate) scale(0);
+        }
+    }
+
+    &--unauthenticated {
+        width: calc(5rem + 1px); // Account for border
+    }
+}

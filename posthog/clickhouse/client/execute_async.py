@@ -81,7 +81,6 @@ def enqueue_process_query_task(
     query_json,
     query_id=None,
     refresh_requested=False,
-    in_export_context=False,
     bypass_celery=False,
     force=False,
 ):
@@ -115,12 +114,10 @@ def enqueue_process_query_task(
 
     if bypass_celery:
         # Call directly ( for testing )
-        process_query_task(
-            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
-        )
+        process_query_task(team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested)
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+            team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         redis_client.set(key, query_status.model_dump_json(), ex=REDIS_STATUS_TTL_SECONDS)
@@ -144,16 +141,21 @@ def get_query_status(team_id, query_id):
 
 
 def cancel_query(team_id, query_id):
-    query_status = get_query_status(team_id, query_id)
+    try:
+        query_status = get_query_status(team_id, query_id)
 
-    if query_status.task_id:
-        logger.info("Got task id %s, attempting to revoke", query_status.task_id)
-        celery.app.control.revoke(query_status.task_id, terminate=True)
+        if query_status.task_id:
+            logger.info("Got task id %s, attempting to revoke", query_status.task_id)
+            celery.app.control.revoke(query_status.task_id, terminate=True)
 
-        from posthog.clickhouse.cancel import cancel_query_on_cluster
+            logger.info("Revoked task id %s", query_status.task_id)
+    except QueryNotFoundError:
+        # Continue, to attempt to cancel the query even if it's not a task
+        pass
 
-        logger.info("Revoked task id %s, attempting to cancel on cluster", query_status.task_id)
-        cancel_query_on_cluster(team_id, query_id)
+    from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+    cancel_query_on_cluster(team_id, query_id)
 
     redis_client = redis.get_client()
     key = generate_redis_results_key(query_id, team_id)

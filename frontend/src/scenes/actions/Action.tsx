@@ -1,14 +1,16 @@
-import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { ActionType } from '~/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { ActionType } from '~/types'
+
+import { ActionEdit } from './ActionEdit'
 
 export const scene: SceneExport = {
     logic: actionLogic,

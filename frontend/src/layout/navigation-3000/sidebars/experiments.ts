@@ -1,16 +1,18 @@
+import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { dayjs } from 'lib/dayjs'
+import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { SidebarCategory, ExtendedListItem } from '../types'
-import Fuse from 'fuse.js'
-import { subscriptions } from 'kea-subscriptions'
-import { navigation3000Logic } from '../navigationLogic'
-import { FuseSearchMatch } from './utils'
+
 import { Experiment, ProgressStatus } from '~/types'
+
+import { navigation3000Logic } from '../navigationLogic'
+import { ExtendedListItem, SidebarCategory } from '../types'
 import type { experimentsSidebarLogicType } from './experimentsType'
-import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
-import { dayjs } from 'lib/dayjs'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<Experiment>([], {
     keys: [{ name: 'name', weight: 2 }, 'description'],

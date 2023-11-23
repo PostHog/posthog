@@ -146,6 +146,7 @@ export interface PluginsServerConfig {
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
+    PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
@@ -204,6 +205,7 @@ export interface PluginsServerConfig {
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
+    DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
 
@@ -450,9 +452,10 @@ export enum PluginLogEntryType {
 
 export enum PluginLogLevel {
     Full = 0, // all logs
-    Debug = 1, // all except log
-    Warn = 2, // all except log and info
-    Critical = 3, // only error type and system source
+    Log = 1, // all except debug
+    Info = 2, // all expect log and debug
+    Warn = 3, // all except log, debug and info
+    Critical = 4, // only error type and system source
 }
 
 export interface PluginLogEntry {
