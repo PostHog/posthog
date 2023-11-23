@@ -35,7 +35,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(event)) {
                 return
             }
             if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
