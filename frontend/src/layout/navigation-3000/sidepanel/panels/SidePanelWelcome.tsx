@@ -19,7 +19,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 love to hear your feedback!
             </p>
             <ul className="space-y-4">
-                <li className="bg-bg-3000 border rounded px-4 py-2 flex gap-2 items-center">
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconNight className="text-3xl" />
                     <div className="flex-1">
                         <h3 className="mb-0 font-semibold">Dark mode</h3>
@@ -30,21 +30,21 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </div>
                 </li>
 
-                <li className="bg-bg-3000 border rounded px-4 py-2 flex gap-2 items-center">
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconNotebook className="text-3xl" />
                     <div className="flex-1">
                         <h3 className="mb-0 font-semibold">Notebooks</h3>
                         <span>Gather your adhoc queries, ideas, replays, and more into a single place.</span>
                     </div>
                 </li>
-                <li className="bg-bg-3000 border rounded px-4 py-2 flex gap-2 items-center">
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconInfo className="text-3xl" />
                     <div className="flex-1">
                         <h3 className="mb-0 font-semibold">In-app Docs</h3>
                         <span>Get contextual information from our docs without needing to leave the app.</span>
                     </div>
                 </li>
-                <li className="bg-bg-3000 border rounded px-4 py-2 flex gap-2 items-center">
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconSearch className="text-3xl" />
                     <div className="flex-1">
                         <h3 className="mb-0 font-semibold">Global Search</h3>
