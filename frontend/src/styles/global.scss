@@ -358,7 +358,7 @@ input::-ms-clear {
     // variants
     &.funnel-step-glyph {
         border-color: var(--border);
-        background-color: white;
+        background-color: var(--bg-light);
         color: var(--primary-alt);
         height: 23px;
         width: 23px;

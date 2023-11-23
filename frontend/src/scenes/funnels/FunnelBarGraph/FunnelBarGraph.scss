@@ -63,7 +63,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid var(--mid);
+                border-right: 2px solid var(--border);
+                opacity: 0.5;
 
                 &.before {
                     top: 0;
