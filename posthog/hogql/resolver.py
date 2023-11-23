@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.errors import ResolverException
+from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -326,7 +327,8 @@ class Resolver(CloningVisitor):
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
-        scope.aliases[node.alias] = node.type
+        if not node.hidden:
+            scope.aliases[node.alias] = node.type
         return node
 
     def visit_call(self, node: ast.Call):
@@ -459,7 +461,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            new_node = ast.Alias(alias=node.type.name, expr=clone_expr(node.type.expr), hidden=True)
+            # TODO: make sure new_expr is of type node.type.return_type
+            new_expr = clone_expr(node.type.expr)
+            new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
             new_node = self.visit(new_node)
             return new_node
 
@@ -557,28 +561,13 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and self._is_events_table(self.visit(node.left))
-            and self._is_s3_cluster(self.visit(node.right))
-        ):
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GlobalIn
-                    if node.op == ast.CompareOperationOp.In
-                    else ast.CompareOperationOp.GlobalNotIn,
-                    left=node.left,
-                    right=node.right,
-                )
-            )
-
-        if self.context.modifiers.inCohortVia != "leftjoin":
+        if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
             elif node.op == ast.CompareOperationOp.NotInCohort:
@@ -586,12 +575,23 @@ class Resolver(CloningVisitor):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotIn,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
+
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(node.left)
+            and self._is_s3_cluster(node.right)
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
