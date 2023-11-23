@@ -30,7 +30,6 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height } = useResizeObserver({ ref: vizRef })
-    console.debug('height', height)
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
