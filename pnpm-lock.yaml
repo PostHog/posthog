@@ -661,8 +661,8 @@ devDependencies:
     specifier: ^2.2.0
     version: 2.2.0
   ts-json-schema-generator:
-    specifier: ^1.2.0
-    version: 1.2.0
+    specifier: ^1.4.0
+    version: 1.4.0
   ts-node:
     specifier: ^10.9.1
     version: 10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5)
@@ -8484,6 +8484,11 @@ packages:
   /commander@10.0.1:
     resolution: {integrity: sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug==}
     engines: {node: '>=14'}
+    dev: true
+
+  /commander@11.1.0:
+    resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==}
+    engines: {node: '>=16'}
     dev: true
 
   /commander@2.20.3:
@@ -17581,8 +17586,8 @@ packages:
       is-regex: 1.1.4
     dev: true
 
-  /safe-stable-stringify@2.4.1:
-    resolution: {integrity: sha512-dVHE6bMtS/bnL2mwualjc6IxEv1F+OCUpA46pKUj6F8uDbUM0jCCulPqRNPSnWwGNKx5etqMjZYdXtrm5KJZGA==}
+  /safe-stable-stringify@2.4.3:
+    resolution: {integrity: sha512-e2bDA2WJT0wxseVd4lsDP4+3ONX6HpMXQa1ZhFQ7SU+GjvORCmShbCMltrtIDfkYhVHrOcPtj+KhmDBdPdZD1g==}
     engines: {node: '>=10'}
     dev: true
 
@@ -18806,18 +18811,18 @@ packages:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
     dev: true
 
-  /ts-json-schema-generator@1.2.0:
-    resolution: {integrity: sha512-tUMeO3ZvA12d3HHh7T/AK8W5hmUhDRNtqWRHSMN3ZRbUFt+UmV0oX8k1RK4SA+a+BKNHpmW2v06MS49e8Fi3Yg==}
+  /ts-json-schema-generator@1.4.0:
+    resolution: {integrity: sha512-wm8vyihmGgYpxrqRshmYkWGNwEk+sf3xV2rUgxv8Ryeh7bSpMO7pZQOht+2rS002eDkFTxR7EwRPXVzrS0WJTg==}
     engines: {node: '>=10.0.0'}
     hasBin: true
     dependencies:
       '@types/json-schema': 7.0.12
-      commander: 9.4.1
+      commander: 11.1.0
       glob: 8.0.3
       json5: 2.2.3
       normalize-path: 3.0.0
-      safe-stable-stringify: 2.4.1
-      typescript: 4.9.5
+      safe-stable-stringify: 2.4.3
+      typescript: 5.2.2
     dev: true
 
   /ts-node@10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5):
@@ -18995,6 +19000,12 @@ packages:
   /typescript@4.9.5:
     resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
     engines: {node: '>=4.2.0'}
+    hasBin: true
+    dev: true
+
+  /typescript@5.2.2:
+    resolution: {integrity: sha512-mI4WrpHsbCIcwT9cF4FZvr80QUeKvsUsUvKDoR+X/7XHQH98xYD8YHZg7ANtz2GtZt/CBq2QJ0thkGJMHfqc1w==}
+    engines: {node: '>=14.17'}
     hasBin: true
     dev: true
 
