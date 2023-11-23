@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { posthog } from '~/toolbar/posthog'
 import { ToolbarProps } from '~/types'
@@ -75,7 +74,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
         posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
-    permanentlyMount(),
 ])
 
 export async function toolbarFetch(

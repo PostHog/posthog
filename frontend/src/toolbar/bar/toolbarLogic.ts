@@ -1,15 +1,15 @@
-import { windowValues } from 'kea-window-values'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { getShadowRoot, inBounds } from '~/toolbar/utils'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
+import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { getShadowRoot, inBounds } from '~/toolbar/utils'
+
 import type { toolbarLogicType } from './toolbarLogicType'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 const MARGIN = 2
 
@@ -264,5 +264,4 @@ export const toolbarLogic = kea<toolbarLogicType>([
             toolbarElement?.setAttribute('theme', theme)
         },
     }),
-    permanentlyMount(),
 ])
