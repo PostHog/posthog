@@ -10,7 +10,8 @@ from posthog.models.feature_flag.flag_matching import (
     get_feature_flag_hash_key_overrides,
 )
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.property.property import Property
+from posthog.models.property.property import Property, PropertyGroup
+from posthog.queries.base import property_group_to_Q
 from posthog.queries.insight import insight_sync_execute
 import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
@@ -47,6 +48,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
+    PropertyOperatorType,
 )
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
@@ -584,11 +586,20 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         for property in property_list:
             default_person_properties.update(get_default_person_property(property, cohorts_cache))
 
+    flag_property_conditions = [Filter(data=condition).property_groups for condition in feature_flag.conditions]
+    flag_property_group = PropertyGroup(type=PropertyOperatorType.OR, values=flag_property_conditions)
+
     try:
         # QuerySet.Iterator() doesn't work with pgbouncer, it will load everything into memory and then stream
         # which doesn't work for us, so need a manual chunking here.
         # Because of this pgbouncer transaction pooling mode, we can't use server-side cursors.
-        queryset = Person.objects.filter(team_id=team_id).order_by("id")
+        # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
+        # iterate through all persons
+        queryset = (
+            Person.objects.filter(team_id=team_id)
+            .filter(property_group_to_Q(flag_property_group, cohorts_cache=cohorts_cache))
+            .order_by("id")
+        )
         # get batchsize number of people at a time
         start = 0
         batch_of_persons = queryset[start : start + batchsize]
@@ -651,7 +662,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                     # we did not account for.
                     capture_exception(err)
 
-                if len(uuids_to_add_to_cohort) >= batchsize - 1:
+                if len(uuids_to_add_to_cohort) >= batchsize:
                     cohort.insert_users_list_by_uuid(
                         uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize
                     )
