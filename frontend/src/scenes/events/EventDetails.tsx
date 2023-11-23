@@ -71,7 +71,14 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'JSON',
             content: (
                 <div className="px-4 py-4">
-                    <ReactJson src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    <ReactJson
+                        theme={'railscasts'}
+                        src={event}
+                        name={'event'}
+                        collapsed={1}
+                        collapseStringsAfterLength={80}
+                        sortKeys
+                    />
                 </div>
             ),
         },
