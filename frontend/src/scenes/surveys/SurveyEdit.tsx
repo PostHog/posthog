@@ -452,82 +452,186 @@ export default function SurveyEdit(): JSX.Element {
                                                                     question.type ===
                                                                         SurveyQuestionType.MultipleChoice) && (
                                                                     <div className="flex flex-col gap-2">
-                                                                        <Field name="choices" label="Choices">
+                                                                        <Field name="hasOpenChoice">
                                                                             {({
-                                                                                value,
-                                                                                onChange,
-                                                                            }: {
-                                                                                value: string[]
-                                                                                onChange: (newValue: string[]) => void
+                                                                                value: hasOpenChoice,
+                                                                                onChange: toggleHasOpenChoice,
                                                                             }) => (
-                                                                                <div className="flex flex-col gap-2">
-                                                                                    {(value || []).map(
-                                                                                        (
-                                                                                            choice: string,
-                                                                                            index: number
-                                                                                        ) => (
-                                                                                            <div
-                                                                                                className="flex flex-row gap-2"
-                                                                                                key={index}
-                                                                                            >
-                                                                                                <LemonInput
-                                                                                                    value={choice}
-                                                                                                    fullWidth
-                                                                                                    onChange={(val) => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices[
-                                                                                                            index
-                                                                                                        ] = val
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
-                                                                                                <LemonButton
-                                                                                                    icon={
-                                                                                                        <IconDelete />
-                                                                                                    }
-                                                                                                    size="small"
-                                                                                                    status="muted"
-                                                                                                    noPadding
-                                                                                                    onClick={() => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices.splice(
-                                                                                                            index,
-                                                                                                            1
-                                                                                                        )
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
+                                                                                <Field name="choices" label="Choices">
+                                                                                    {({ value, onChange }) => (
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            {(value || []).map(
+                                                                                                (
+                                                                                                    choice: string,
+                                                                                                    index: number
+                                                                                                ) => {
+                                                                                                    const isOpenChoice =
+                                                                                                        hasOpenChoice &&
+                                                                                                        index ===
+                                                                                                            value?.length -
+                                                                                                                1
+                                                                                                    return (
+                                                                                                        <div
+                                                                                                            className="flex flex-row gap-2 relative"
+                                                                                                            key={index}
+                                                                                                        >
+                                                                                                            <LemonInput
+                                                                                                                value={
+                                                                                                                    choice
+                                                                                                                }
+                                                                                                                fullWidth
+                                                                                                                onChange={(
+                                                                                                                    val
+                                                                                                                ) => {
+                                                                                                                    const newChoices =
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                        ]
+                                                                                                                    newChoices[
+                                                                                                                        index
+                                                                                                                    ] =
+                                                                                                                        val
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                }}
+                                                                                                            />
+                                                                                                            {isOpenChoice && (
+                                                                                                                <span className="question-choice-open-ended-footer">
+                                                                                                                    open-ended
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                            <LemonButton
+                                                                                                                icon={
+                                                                                                                    <IconDelete />
+                                                                                                                }
+                                                                                                                size="small"
+                                                                                                                status="muted"
+                                                                                                                noPadding
+                                                                                                                onClick={() => {
+                                                                                                                    const newChoices =
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                        ]
+                                                                                                                    newChoices.splice(
+                                                                                                                        index,
+                                                                                                                        1
+                                                                                                                    )
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                    if (
+                                                                                                                        isOpenChoice
+                                                                                                                    ) {
+                                                                                                                        toggleHasOpenChoice(
+                                                                                                                            false
+                                                                                                                        )
+                                                                                                                    }
+                                                                                                                }}
+                                                                                                            />
+                                                                                                        </div>
+                                                                                                    )
+                                                                                                }
+                                                                                            )}
+                                                                                            <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                                                                {(value || []).length <
+                                                                                                    6 && (
+                                                                                                    <>
+                                                                                                        <LemonButton
+                                                                                                            icon={
+                                                                                                                <IconPlusMini />
+                                                                                                            }
+                                                                                                            type="secondary"
+                                                                                                            fullWidth={
+                                                                                                                false
+                                                                                                            }
+                                                                                                            onClick={() => {
+                                                                                                                if (
+                                                                                                                    !value
+                                                                                                                ) {
+                                                                                                                    onChange(
+                                                                                                                        [
+                                                                                                                            '',
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                } else if (
+                                                                                                                    hasOpenChoice
+                                                                                                                ) {
+                                                                                                                    const newChoices =
+                                                                                                                        value.slice(
+                                                                                                                            0,
+                                                                                                                            -1
+                                                                                                                        )
+                                                                                                                    newChoices.push(
+                                                                                                                        ''
+                                                                                                                    )
+                                                                                                                    newChoices.push(
+                                                                                                                        value[
+                                                                                                                            value.length -
+                                                                                                                                1
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                } else {
+                                                                                                                    onChange(
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                            '',
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                }
+                                                                                                            }}
+                                                                                                        >
+                                                                                                            Add choice
+                                                                                                        </LemonButton>
+                                                                                                        {featureFlags[
+                                                                                                            FEATURE_FLAGS
+                                                                                                                .SURVEYS_OPEN_CHOICE
+                                                                                                        ] &&
+                                                                                                            !hasOpenChoice && (
+                                                                                                                <LemonButton
+                                                                                                                    icon={
+                                                                                                                        <IconPlusMini />
+                                                                                                                    }
+                                                                                                                    type="secondary"
+                                                                                                                    fullWidth={
+                                                                                                                        false
+                                                                                                                    }
+                                                                                                                    onClick={() => {
+                                                                                                                        if (
+                                                                                                                            !value
+                                                                                                                        ) {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        } else {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    ...value,
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        }
+                                                                                                                        toggleHasOpenChoice(
+                                                                                                                            true
+                                                                                                                        )
+                                                                                                                    }}
+                                                                                                                >
+                                                                                                                    Add
+                                                                                                                    open-ended
+                                                                                                                    choice
+                                                                                                                </LemonButton>
+                                                                                                            )}
+                                                                                                    </>
+                                                                                                )}
                                                                                             </div>
-                                                                                        )
+                                                                                        </div>
                                                                                     )}
-                                                                                    <div className="w-fit">
-                                                                                        {(value || []).length < 6 && (
-                                                                                            <LemonButton
-                                                                                                icon={<IconPlusMini />}
-                                                                                                type="secondary"
-                                                                                                fullWidth={false}
-                                                                                                onClick={() => {
-                                                                                                    if (!value) {
-                                                                                                        onChange([''])
-                                                                                                    } else {
-                                                                                                        onChange([
-                                                                                                            ...value,
-                                                                                                            '',
-                                                                                                        ])
-                                                                                                    }
-                                                                                                }}
-                                                                                            >
-                                                                                                Add choice
-                                                                                            </LemonButton>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
+                                                                                </Field>
                                                                             )}
                                                                         </Field>
                                                                     </div>

@@ -5,7 +5,7 @@
     height: 1em;
     flex-shrink: 0;
 
-    --spinner-color: var(--brand-blue);
+    --spinner-color: var(--primary-3000);
 
     &.Spinner--textColored {
         --spinner-color: currentColor;
