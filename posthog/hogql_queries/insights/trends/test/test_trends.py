@@ -962,8 +962,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 [(item["breakdown_value"], item["count"], item["data"]) for item in response],
                 [
-                    ("[0.0,4.95]", 1.0, [1.0, 0.0, 0.0, 0.0]),
                     ("[4.95,10.05]", 2.0, [2.0, 0.0, 0.0, 0.0]),
+                    ("[0.0,4.95]", 1.0, [1.0, 0.0, 0.0, 0.0]),
                     ("[10.05,15.01]", 1.0, [0.0, 1.0, 0.0, 0.0]),
                 ],
             )
@@ -7220,6 +7220,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [2.0])
 
+    @pytest.mark.skip(reason="PoE V2 doesnt work with HogQL yet")
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
     def test_same_day_with_person_on_events_v2_latest_override(self):

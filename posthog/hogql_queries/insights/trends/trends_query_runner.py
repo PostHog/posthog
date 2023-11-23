@@ -253,7 +253,7 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
-                    if remapped_label == "" or remapped_label is None:
+                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
                         if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
                             continue
