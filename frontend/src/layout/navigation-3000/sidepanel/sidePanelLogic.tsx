@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -37,7 +37,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         shouldShowWelcomeAnnouncement: [
             (s) => [s.welcomeAnnouncementAcknowledged, s.featureFlags],
             (welcomeAnnouncementAcknowledged, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.POSTHOG_3000] && !welcomeAnnouncementAcknowledged) {
+                if (
+                    featureFlags[FEATURE_FLAGS.POSTHOG_3000] &&
+                    featureFlags[FEATURE_FLAGS.POSTHOG_3000_WELCOME_ANNOUNCEMENT] &&
+                    !welcomeAnnouncementAcknowledged
+                ) {
                     return true
                 }
 
