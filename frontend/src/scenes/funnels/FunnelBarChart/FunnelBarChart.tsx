@@ -30,6 +30,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
 
     const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height } = useResizeObserver({ ref: vizRef })
+    console.debug('height', height)
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -59,7 +60,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
         /** Average conversion time is only shown if it's known for at least one step. */
         // != is intentional to catch undefined too
         const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
-        const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
+        const barRowHeight = `calc(${height}px - 17px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
 
         return (
             <table
