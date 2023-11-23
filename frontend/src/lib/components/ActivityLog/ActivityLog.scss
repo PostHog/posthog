@@ -4,17 +4,17 @@
     }
 
     .summary-card {
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
         padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
 
         .taxonomic-breakdown-filter.tag-pill {
-            font-size: 0.8125rem;
             padding: 0;
+            font-size: 0.8125rem;
+            vertical-align: unset;
+            background: none;
             border: none;
             border-radius: 0;
-            background: none;
-            vertical-align: unset;
         }
 
         section:not(:last-child) {
@@ -24,12 +24,12 @@
 
     .activity-log-row {
         display: flex;
+        gap: 0.5rem;
+        max-width: 50rem;
+        padding: 0.5rem;
         margin-top: 0.5rem;
         line-height: 24px;
-        max-width: 50rem;
         overflow-wrap: anywhere;
-        padding: 0.5rem;
-        gap: 0.5rem;
 
         &.unread {
             background-color: var(--primary-highlight);
@@ -47,8 +47,8 @@
             flex-grow: 1;
 
             .highlighted-activity {
-                background-color: var(--mark);
                 display: inline;
+                background-color: var(--mark);
 
                 & > .PersonDisplay {
                     min-width: 5.5rem;

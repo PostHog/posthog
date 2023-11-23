@@ -3,15 +3,15 @@
 
     .BillingGaugeItem__info {
         position: absolute;
-        white-space: nowrap;
-        border-left: 1px solid var(--border);
+        bottom: 100%;
         left: 100%;
+        padding: 0 0.25rem 0.5rem;
         margin-left: -1px;
         font-size: 0.8rem;
-        background: var(--bg-light);
-        bottom: 100%;
-        padding: 0 0.25rem 0.5rem;
         line-height: 1rem;
+        white-space: nowrap;
+        background: var(--bg-light);
+        border-left: 1px solid var(--border);
 
         &--bottom {
             top: 100%;
