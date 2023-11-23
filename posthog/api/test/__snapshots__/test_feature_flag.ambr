@@ -1587,10 +1587,13 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE "posthog_person"."team_id" = 2
+  WHERE ("posthog_person"."team_id" = 2
+         AND ("posthog_person"."properties" -> 'key') = '"value"'
+         AND "posthog_person"."properties" ? 'key'
+         AND NOT (("posthog_person"."properties" -> 'key') = 'null'))
   ORDER BY "posthog_person"."id" ASC
-  LIMIT 1000
-  OFFSET 1000 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
+  LIMIT 10000
+  OFFSET 10000 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
   '
 ---
 # name: TestFeatureFlag.test_creating_static_cohort.12
@@ -2039,9 +2042,12 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE "posthog_person"."team_id" = 2
+  WHERE ("posthog_person"."team_id" = 2
+         AND ("posthog_person"."properties" -> 'key') = '"value"'
+         AND "posthog_person"."properties" ? 'key'
+         AND NOT (("posthog_person"."properties" -> 'key') = 'null'))
   ORDER BY "posthog_person"."id" ASC
-  LIMIT 1000 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
+  LIMIT 10000 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
