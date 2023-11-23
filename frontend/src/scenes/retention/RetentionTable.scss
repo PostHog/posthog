@@ -50,8 +50,9 @@
 
         &.RetentionTable__Tab--period {
             background-color: var(--bg-light);
-            border: 1px solid var(--retention-table-color);
-            opacity: 0.75;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            border-style: dashed;
         }
     }
 
