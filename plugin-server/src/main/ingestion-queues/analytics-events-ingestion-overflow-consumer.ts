@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
@@ -29,9 +30,9 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     // workloads ran on the same process they would share the same consumer
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
-
+    const tokenBlockList = buildStringMatcher(hub.DROP_EVENTS_BY_TOKEN, false)
     const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
-        await eachBatchParallelIngestion(messages, queue, IngestionOverflowMode.Consume)
+        await eachBatchParallelIngestion(tokenBlockList, messages, queue, IngestionOverflowMode.Consume)
     }
 
     const queue = new IngestionConsumer(

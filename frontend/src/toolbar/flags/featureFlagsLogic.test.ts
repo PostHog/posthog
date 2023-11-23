@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 const featureFlags = [
@@ -36,7 +36,7 @@ describe('toolbar featureFlagsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarLogic({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
         logic = featureFlagsLogic()
         logic.mount()
     })
@@ -78,6 +78,6 @@ describe('toolbar featureFlagsLogic', () => {
         )
         await expectLogic(logic, () => {
             logic.actions.getUserFlags()
-        }).toDispatchActions([toolbarLogic.actionTypes.tokenExpired])
+        }).toDispatchActions([toolbarConfigLogic.actionTypes.tokenExpired])
     })
 })
