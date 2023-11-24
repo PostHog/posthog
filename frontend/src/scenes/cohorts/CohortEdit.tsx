@@ -54,7 +54,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div className="flex items-center gap-2 mb-2">
                             {pageHeaderTitle}
                             <div className="flex">
-                                <LemonTag type="default" className="uppercase">
+                                <LemonTag type="highlight" className="uppercase">
                                     {cohort.is_static ? 'Static · Updated manually' : 'Dynamic . Updates automatically'}
                                 </LemonTag>
                             </div>
@@ -166,44 +166,43 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                {!is3000 && <LemonDivider />}
                 {!readonly && (
-                    <div className="space-y-2 max-w-160">
-                        <div className="flex gap-4 flex-wrap">
-                            <div className="flex-1">
-                                <Field name="name" label="Name">
-                                    <LemonInput data-attr="cohort-name" />
-                                </Field>
-                            </div>
-                            <div className="flex-1">
-                                <Field name="is_static" label="Type">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            disabledReason={
-                                                isNewCohort
-                                                    ? null
-                                                    : 'Create a new cohort to use a different type of cohort.'
-                                            }
-                                            options={COHORT_TYPE_OPTIONS}
-                                            value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                            onChange={(cohortType) => {
-                                                onChange(cohortType === CohortTypeEnum.Static)
-                                            }}
-                                            fullWidth
-                                            data-attr="cohort-type"
-                                        />
-                                    )}
-                                </Field>
-                            </div>
-                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                                <div className="ph-ignore-input">
-                                    <Field name="description" label="Description" data-attr="cohort-description">
-                                        <LemonTextArea />
+                    <>
+                        {!is3000 && <LemonDivider />}
+                        <div className="space-y-2 max-w-160">
+                            <div className="flex gap-4 flex-wrap">
+                                <div className="flex-1">
+                                    <Field name="name" label="Name">
+                                        <LemonInput data-attr="cohort-name" />
                                     </Field>
                                 </div>
-                            )}
+                                {isNewCohort && (
+                                    <div className="flex-1">
+                                        <Field name="is_static" label="Type">
+                                            {({ value, onChange }) => (
+                                                <LemonSelect
+                                                    options={COHORT_TYPE_OPTIONS}
+                                                    value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                                    onChange={(cohortType) => {
+                                                        onChange(cohortType === CohortTypeEnum.Static)
+                                                    }}
+                                                    fullWidth
+                                                    data-attr="cohort-type"
+                                                />
+                                            )}
+                                        </Field>
+                                    </div>
+                                )}
+                                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                                    <div className="ph-ignore-input">
+                                        <Field name="description" label="Description" data-attr="cohort-description">
+                                            <LemonTextArea />
+                                        </Field>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    </>
                 )}
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">

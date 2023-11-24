@@ -1,4 +1,5 @@
-import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
+import { ReadOnlyCohortField } from 'scenes/cohorts/cohortUtils'
 
 import { FilterLogicalOperator } from '~/types'
 
@@ -23,9 +24,7 @@ export function AndOrFilterSelect({
         <div className="flex items-center font-medium">
             <span className="ml-2">{prefix}</span>
             {readOnly && (
-                <LemonTag className="mx-2" type="highlight">
-                    <div className="text-sm">{value === FilterLogicalOperator.Or ? 'any' : 'all'}</div>
-                </LemonTag>
+                <ReadOnlyCohortField>{value === FilterLogicalOperator.Or ? 'any' : 'all'}</ReadOnlyCohortField>
             )}
             {!readOnly && (
                 <LemonSelect

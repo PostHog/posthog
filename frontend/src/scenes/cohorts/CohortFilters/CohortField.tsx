@@ -1,6 +1,5 @@
 import './CohortField.scss'
 
-import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -22,7 +21,7 @@ import {
 
 import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
-import { useIsReadonlyCohort } from '../cohortUtils'
+import { ReadOnlyCohortField, useIsReadonlyCohort } from '../cohortUtils'
 
 let uniqueMemoizedIndex = 0
 
@@ -101,11 +100,7 @@ export function CohortSelectorField({
                     </span>
                 </LemonButtonWithDropdown>
             )}
-            {readOnly && (
-                <LemonTag className="mx-2" type="highlight">
-                    <div className="text-sm">{currentOption?.label}</div>
-                </LemonTag>
-            )}
+            {readOnly && <ReadOnlyCohortField>{currentOption?.label}</ReadOnlyCohortField>}
         </>
     )
 }
@@ -159,11 +154,7 @@ export function CohortTaxonomicField({
                     )}
                 />
             )}
-            {readOnly && (
-                <LemonTag className="mx-2" type="highlight">
-                    <div className="text-sm">{calculatedValue(groupType)}</div>
-                </LemonTag>
-            )}
+            {readOnly && <ReadOnlyCohortField>{calculatedValue(groupType)}</ReadOnlyCohortField>}
         </>
     )
 }
@@ -186,19 +177,27 @@ export function CohortPersonPropertiesValuesField({
     })
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
+    const readOnly = useIsReadonlyCohort({ id: cohortId })
 
     return (
-        <PropertyValue
-            className={clsx('CohortField', 'CohortField__CohortPersonPropertiesValuesField')}
-            operator={operator || PropertyOperator.Exact}
-            propertyKey={propertyKey as string}
-            type={PropertyFilterType.Person}
-            value={value as PropertyFilterValue}
-            onSet={(newValue: PropertyOperator) => {
-                onChange({ [fieldKey]: newValue })
-            }}
-            placeholder="Enter value..."
-        />
+        <>
+            {!readOnly && (
+                <PropertyValue
+                    className={clsx('CohortField', 'CohortField__CohortPersonPropertiesValuesField')}
+                    operator={operator || PropertyOperator.Exact}
+                    propertyKey={propertyKey as string}
+                    type={PropertyFilterType.Person}
+                    value={value as PropertyFilterValue}
+                    onSet={(newValue: PropertyOperator) => {
+                        onChange({ [fieldKey]: newValue })
+                    }}
+                    placeholder="Enter value..."
+                />
+            )}
+            {readOnly &&
+                Array.isArray(value) &&
+                value.map((v, i) => <ReadOnlyCohortField key={i}>{v}</ReadOnlyCohortField>)}
+        </>
     )
 }
 
@@ -238,11 +237,7 @@ export function CohortNumberField({
                     className={clsx('CohortField', 'CohortField__CohortNumberField')}
                 />
             )}
-            {readOnly && (
-                <LemonTag className="mx-2" type="highlight">
-                    <div className="text-sm">{value}</div>
-                </LemonTag>
-            )}
+            {readOnly && <ReadOnlyCohortField>{value}</ReadOnlyCohortField>}
         </>
     )
 }

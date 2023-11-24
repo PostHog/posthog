@@ -1,3 +1,4 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
@@ -482,7 +483,15 @@ export const COHORT_MATCHING_DAYS = {
 
 export function useIsReadonlyCohort(logicProps: CohortLogicProps): boolean {
     const logic = cohortEditLogic(logicProps)
-    const { cohort, isEditingCohort } = useValues(logic)
+    const { cohort, isEditingCohort, cohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    return !isNewCohort && !isEditingCohort
+    return (!isNewCohort && !isEditingCohort) || cohortLoading
+}
+
+export function ReadOnlyCohortField({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <LemonTag className="mx-2" type="highlight">
+            <div className="text-sm">{children}</div>
+        </LemonTag>
+    )
 }
