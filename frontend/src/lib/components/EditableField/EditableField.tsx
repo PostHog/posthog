@@ -215,13 +215,7 @@ export function EditableField({
                                     <LemonButton
                                         title="Edit"
                                         icon={<IconEdit />}
-                                        size={
-                                            typeof compactButtons === 'string'
-                                                ? compactButtons
-                                                : compactButtons
-                                                ? 'small'
-                                                : undefined
-                                        }
+                                        size={compactButtons ? 'small' : undefined}
                                         onClick={() => {
                                             setLocalIsEditing(true)
                                             onModeToggle?.('edit')
