@@ -681,6 +681,11 @@ body {
         }
     }
 
+    .ant-input-number:hover,
+    .ant-input-number-focused {
+        border-color: var(--primary-3000);
+    }
+
     .ant-input-number-group-addon {
         background: var(--bg-3000);
     }
