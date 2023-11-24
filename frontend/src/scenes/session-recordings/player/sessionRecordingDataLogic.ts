@@ -70,7 +70,7 @@ export const prepareRecordingSnapshots = (
 ): RecordingSnapshot[] => {
     const seenHashes: Record<string, (RecordingSnapshot | string)[]> = {}
 
-    const prepared = (newSnapshots || [])
+    return (newSnapshots || [])
         .concat(existingSnapshots ? existingSnapshots ?? [] : [])
         .filter((snapshot) => {
             // For a multitude of reasons, there can be duplicate snapshots in the same recording.
@@ -94,27 +94,6 @@ export const prepareRecordingSnapshots = (
             return true
         })
         .sort((a, b) => a.timestamp - b.timestamp)
-
-    return prepared
-}
-
-export const convertSnapshotsByWindowId = (snapshotsByWindowId: {
-    [key: string]: eventWithTime[]
-}): RecordingSnapshot[] => {
-    return Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
-        return snapshots.map((snapshot) => ({
-            ...snapshot,
-            windowId,
-        }))
-    })
-}
-
-// Until we change the API to return a simple list of snapshots, we need to convert this ourselves
-export const convertSnapshotsResponse = (
-    snapshotsByWindowId: { [key: string]: eventWithTime[] },
-    existingSnapshots?: RecordingSnapshot[]
-): RecordingSnapshot[] => {
-    return prepareRecordingSnapshots(convertSnapshotsByWindowId(snapshotsByWindowId), existingSnapshots)
 }
 
 const generateRecordingReportDurations = (
