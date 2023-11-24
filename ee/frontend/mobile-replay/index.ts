@@ -49,14 +49,14 @@ export function transformEventToWeb(event: unknown): eventWithTime | null {
     }
 
     const transformer = transformers[event.type]
-    if (!transformer) {
-        console.warn(`No transformer for event type ${event.type}`)
-    } else {
+    if (transformer) {
         const transformed = transformer(event)
         validateAgainstWebSchema(transformed)
         return transformed
+    } else {
+        console.warn(`No transformer for event type ${event.type}`)
+        return event as eventWithTime
     }
-    return null
 }
 
 export function transformToWeb(mobileData: (eventWithTime | mobileEventWithTime)[]): string {
