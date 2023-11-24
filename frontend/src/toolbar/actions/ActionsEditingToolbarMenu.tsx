@@ -6,9 +6,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 import { posthog } from '~/toolbar/posthog'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar, IconPlus } from 'lib/lemon-ui/icons'
 
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
-import { ActionStep } from '~/toolbar/elements/ActionStep'
+import { ActionStep } from '~/toolbar/actions/ActionStep'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
