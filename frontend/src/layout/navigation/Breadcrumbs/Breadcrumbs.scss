@@ -3,17 +3,17 @@
     align-items: center;
     width: 100%;
     margin-top: 1rem;
-    cursor: default;
     overflow-x: auto;
+    cursor: default;
 }
 
 .Breadcrumbs__breadcrumb {
     display: flex;
+    gap: 0.5rem;
     align-items: center;
     font-weight: var(--font-medium);
     white-space: pre;
     user-select: none;
-    gap: 0.5rem;
 
     &--current {
         color: var(--default);
@@ -21,8 +21,8 @@
     }
 
     &--actionable {
-        cursor: pointer;
         color: var(--primary-3000);
+        cursor: pointer;
     }
 }
 

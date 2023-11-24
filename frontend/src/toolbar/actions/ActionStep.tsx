@@ -1,4 +1,4 @@
-import { ActionAttribute } from '~/toolbar/elements/ActionAttribute'
+import { ActionAttribute } from '~/toolbar/actions/ActionAttribute'
 import { ActionStepType } from '~/types'
 
 interface ActionStepProps {

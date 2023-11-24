@@ -87,10 +87,12 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          const hogQLInsightsFlagEnabled = Boolean(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
+                          const hogQLInsightsLifecycleFlagEnabled = Boolean(
+                              featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
+                          )
 
                           if (
-                              hogQLInsightsFlagEnabled &&
+                              hogQLInsightsLifecycleFlagEnabled &&
                               isLifecycle &&
                               query &&
                               isInsightVizNode(query) &&
