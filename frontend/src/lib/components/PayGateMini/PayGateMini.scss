@@ -2,18 +2,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    padding: 0.75rem;
+    font-size: 0.875rem;
     text-align: center;
     background: var(--side);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0.75rem;
-    font-size: 0.875rem;
 }
 
 .PayGateMini__icon {
     display: flex;
-    color: var(--warning);
     font-size: 2rem;
+    color: var(--warning);
 }
 
 .PayGateMini__description {

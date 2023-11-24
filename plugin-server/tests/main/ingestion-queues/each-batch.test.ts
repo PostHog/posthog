@@ -450,43 +450,46 @@ describe('eachBatchX', () => {
             expect(runEventPipeline).toHaveBeenCalledTimes(1)
         })
 
-        it('batches events by team or token and distinct_id', () => {
-            const batch = createBatchWithMultipleEvents([
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'c' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-            ])
-            const stats = new Map()
-            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-            for (const group of splitIngestionBatch(tokenBlockList, batch, IngestionOverflowMode.Disabled).toProcess) {
-                const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
-                for (const { pluginEvent: event } of group) {
-                    expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
-                }
-                stats.set(key, group.length)
-            }
-            expect(stats.size).toEqual(7)
-            expect(stats).toEqual(
-                new Map([
-                    ['3:undefined:a', 3],
-                    ['3:undefined:b', 2],
-                    ['3:undefined:c', 1],
-                    ['4:undefined:a', 2],
-                    ['4:undefined:b', 1],
-                    ['undefined:tok:a', 2],
-                    ['undefined:tok:b', 1],
+        it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.Disabled])(
+            'batches events by team or token and distinct_id %s',
+            (mode) => {
+                const batch = createBatchWithMultipleEvents([
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'c' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
                 ])
-            )
-        })
+                const stats = new Map()
+                const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+                for (const group of splitIngestionBatch(tokenBlockList, batch, mode).toProcess) {
+                    const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
+                    for (const { pluginEvent: event } of group) {
+                        expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
+                    }
+                    stats.set(key, group.length)
+                }
+                expect(stats.size).toEqual(7)
+                expect(stats).toEqual(
+                    new Map([
+                        ['3:undefined:a', 3],
+                        ['3:undefined:b', 2],
+                        ['3:undefined:c', 1],
+                        ['4:undefined:a', 2],
+                        ['4:undefined:b', 1],
+                        ['undefined:tok:a', 2],
+                        ['undefined:tok:b', 1],
+                    ])
+                )
+            }
+        )
 
         it('does not batch events when consuming overflow', () => {
             const input = createBatchWithMultipleEvents([
@@ -497,7 +500,11 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
             ])
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-            const batches = splitIngestionBatch(tokenBlockList, input, IngestionOverflowMode.Consume).toProcess
+            const batches = splitIngestionBatch(
+                tokenBlockList,
+                input,
+                IngestionOverflowMode.ConsumeSplitEvenly
+            ).toProcess
             expect(batches.length).toEqual(input.length)
             for (const group of batches) {
                 expect(group.length).toEqual(1)

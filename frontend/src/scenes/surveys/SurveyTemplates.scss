@@ -1,13 +1,13 @@
 @import '../../styles/mixins';
 
 .SurveyTemplateContainer {
-    align-items: center;
-    background: var(--bg-light);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
     display: flex;
     flex: 1;
+    align-items: center;
     min-height: 300px;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     &:hover {
         cursor: pointer;
