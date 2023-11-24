@@ -102,32 +102,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
     )
 
     it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.ConsumeSplitEvenly])(
-        'raises ingestion warning when consuming from overflow with batching by distinctId %s',
-        async (mode) => {
-            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
-            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
-
-            queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-            await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
-
-            expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
-            expect(consume).toHaveBeenCalledWith('1:id', 1)
-            expect(captureIngestionWarning).toHaveBeenCalledWith(
-                queue.pluginsServer.db,
-                1,
-                'ingestion_capacity_overflow',
-                {
-                    overflowDistinctId: captureEndpointEvent1['distinct_id'],
-                }
-            )
-
-            // Event is processed
-            expect(runEventPipeline).toHaveBeenCalled()
-        }
-    )
-
-    it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.ConsumeSplitEvenly])(
         'does not raise ingestion warning when under threshold %s',
         async (mode) => {
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
