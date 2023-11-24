@@ -15,7 +15,7 @@ from posthog.constants import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -121,16 +121,17 @@ class RetentionQueryRunner(QueryRunner):
         date_query, date_params = self._get_date_filter()
         params.update(date_params)
 
+        filter_expressions = []
         if self.query.properties is not None and self.query.properties != []:
-            # TODO: event_filters.append(property_to_expr(self.query.properties, self.team))
-            pass
-        prop_query = ""
+            filter_expressions.append(property_to_expr(self.query.properties, self.team))
 
-        entity_expr = self._get_entity_query(
-            entity=self.old_filter.target_entity
-            if self.event_query_type == RetentionQueryType.TARGET
-            or self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else self.old_filter.returning_entity
+        filter_expressions.append(
+            self._get_entity_query(
+                entity=self.old_filter.target_entity
+                if self.event_query_type == RetentionQueryType.TARGET
+                or self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                else self.old_filter.returning_entity
+            )
         )
 
         # make hogql constants for all params
@@ -139,9 +140,8 @@ class RetentionQueryRunner(QueryRunner):
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             WHERE
-            {{entity_where}}
+            {{filter_where}}
             {f"AND {date_query}" if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {prop_query}
             {f"GROUP BY target HAVING {date_query}" if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
             {f"GROUP BY target, event_date" if self.event_query_type == RetentionQueryType.RETURNING else ''}
         """
@@ -149,7 +149,9 @@ class RetentionQueryRunner(QueryRunner):
             query,
             placeholders={
                 **hogql_params,
-                "entity_where": entity_expr,
+                "filter_where": ast.And(exprs=filter_expressions)
+                if len(filter_expressions) > 1
+                else filter_expressions[0],
             },
             timings=self.timings,
         )
