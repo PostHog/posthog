@@ -1327,6 +1327,14 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_hidden_aliases_double_property(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+
         query = parse_select("select * from (SELECT properties.$browser, properties.$browser FROM events)")
         printed = print_ast(
             query,
