@@ -12,7 +12,6 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from posthog import redis
-from posthog.api.cohort import get_cohort_actors_for_feature_flag
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
@@ -31,6 +30,7 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.workflows.cohort_for_flag import get_cohort_actors_for_feature_flag
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
