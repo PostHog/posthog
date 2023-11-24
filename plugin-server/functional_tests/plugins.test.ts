@@ -2,6 +2,7 @@ import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
 import { UUIDT } from '../src/utils/utils'
+import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
     capture,
     createAndReloadPluginConfig,
@@ -261,7 +262,7 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
     await updatePluginConfig(teamId, pluginConfig.id, { updated_at: new Date().toISOString() })
     await reloadPlugins()
 
-    const signalKey = `@plugin/${plugin.id}/${teamId}/teardown`
+    const signalKey = getCacheKey(plugin.id, teamId, 'teardown')
     expect(await redis.blpop(signalKey, 10)).toEqual([signalKey, 'x'])
 })
 
