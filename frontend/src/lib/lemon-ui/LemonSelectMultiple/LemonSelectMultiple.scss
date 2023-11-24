@@ -6,12 +6,12 @@
         &.ant-select-single .ant-select-selector {
             min-height: 40px;
             padding: 0.25rem;
-            border-radius: var(--radius);
             font-size: 0.875rem;
-            text-align: left;
             line-height: 1.25rem;
-            border: 1px solid var(--border);
+            text-align: left;
             background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
 
             .ant-select-selection-overflow {
                 gap: 0.25rem;
@@ -40,8 +40,8 @@
 
         &.ant-select-single {
             .ant-select-selector {
-                height: 40px;
                 box-sizing: border-box;
+                height: 40px;
 
                 .ant-select-selection-search-input {
                     height: 38px;
@@ -64,11 +64,11 @@
 }
 
 .LemonSelectMultipleDropdown {
-    background: var(--bg-light);
-    border-radius: var(--radius);
-    border: 1px solid var(--primary);
-    margin: -4px 0; // Counteract antd wrapper
     padding: 0.5rem;
+    margin: -4px 0; // Counteract antd wrapper
+    background: var(--bg-light);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
 
     .posthog-3000 & {
         border: 1px solid var(--primary-3000);
@@ -76,14 +76,14 @@
 
     .ant-select-item {
         padding: 0;
-        background: none;
         padding-bottom: 0.2rem;
+        background: none;
 
         .ant-select-item-option-content {
             height: 40px;
+            padding: 0.25rem 0.5rem;
             cursor: pointer;
             border-radius: var(--radius);
-            padding: 0.25rem 0.5rem;
         }
 
         &.ant-select-item-option-active {
@@ -114,8 +114,8 @@
 
     .LemonSelectMultipleDropdown__skeleton {
         display: flex;
-        align-items: center;
         gap: 0.5rem;
+        align-items: center;
         height: 40px;
         padding: 0 0.25rem;
     }
