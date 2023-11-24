@@ -5440,7 +5440,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         if step:
             step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
             step.save()
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with freeze_time("2020-01-04T14:01:01Z"):
             action_response = Trends().run(
                 Filter(
                     team=self.team,

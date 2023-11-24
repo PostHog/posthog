@@ -5,15 +5,15 @@
         table-layout: fixed;
 
         td {
-            vertical-align: top;
             padding: 1.25rem;
+            vertical-align: top;
         }
 
         th {
-            vertical-align: top;
             padding: 1.25rem;
             font-weight: 800;
             text-align: left;
+            vertical-align: top;
 
             &.PlanTable__th__section {
                 padding: 0.25rem 1.25rem;

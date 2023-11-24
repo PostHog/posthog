@@ -1,9 +1,9 @@
 @import '../../styles/mixins';
 
 .PasswordWrapper {
+    max-height: 1000px;
     overflow: hidden;
     transition: max-height 0.8s ease-in-out;
-    max-height: 1000px;
 
     &.zero-height {
         max-height: 0;

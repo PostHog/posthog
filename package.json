@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@8.6.0",
+    "packageManager": "pnpm@8.10.5",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual-regression",
@@ -182,7 +182,7 @@
         "@babel/preset-typescript": "^7.22.5",
         "@babel/runtime": "^7.22.10",
         "@cypress/webpack-preprocessor": "^5.17.1",
-        "@playwright/test": "1.29.2",
+        "@playwright/test": "1.32.2",
         "@sentry/types": "7.22.0",
         "@storybook/addon-a11y": "^7.5.1",
         "@storybook/addon-actions": "^7.5.1",
@@ -271,7 +271,6 @@
         "msw": "^0.49.0",
         "path-browserify": "^1.0.1",
         "pixelmatch": "^5.3.0",
-        "playwright-core": "1.29.2",
         "pngjs": "^6.0.0",
         "postcss": "^8.4.31",
         "postcss-loader": "^4.3.0",
@@ -282,6 +281,7 @@
         "storybook-addon-pseudo-states": "2.1.2",
         "style-loader": "^2.0.0",
         "stylelint": "^15.11.0",
+        "stylelint-config-recess-order": "^4.3.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.3",
         "sucrase": "^3.29.0",
@@ -295,6 +295,11 @@
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"
+    },
+    "pnpm": {
+        "overrides": {
+            "playwright": "1.32.2"
+        }
     },
     "lint-staged": {
         "*.{json,yaml,yml}": "prettier --write",
