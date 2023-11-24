@@ -373,8 +373,8 @@ $_lifecycle_dormant: $_danger;
     --modal-transition-time: 200ms;
 
     // Tooltips
-    --tooltip-background-light: var(--bg-charcoal);
-    --tooltip-background-dark: #656d81;
+    --tooltip-bg-light: var(--bg-charcoal);
+    --tooltip-bg-dark: #656d81;
 
     // Notebooks
     --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
@@ -415,7 +415,7 @@ $_lifecycle_dormant: $_danger;
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
     --secondary-3000-button-border: var(--secondary-3000-button-border-light);
     --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
-    --tooltip-bg: var(--tooltip-background-light);
+    --tooltip-bg: var(--tooltip-bg-light);
 }
 
 // defined here so that they can be shared with the toolbar
@@ -452,7 +452,7 @@ $_lifecycle_dormant: $_danger;
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
     --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
     --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
-    --tooltip-bg: var(--tooltip-background-dark);
+    --tooltip-bg: var(--tooltip-bg-dark);
     --data-color-2: #7f26d9;
     --data-color-3: #3e7a76;
     --data-color-4: #bf0d6c;
