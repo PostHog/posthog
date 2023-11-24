@@ -26,7 +26,8 @@ require('@sentry/tracing')
 export enum IngestionOverflowMode {
     Disabled,
     Reroute,
-    Consume,
+    ConsumeSplitByDistinctId,
+    ConsumeSplitEvenly,
 }
 
 type IngestionSplitBatch = {
@@ -137,7 +138,11 @@ export async function eachBatchParallelIngestion(
                 })
 
                 // Process overflow ingestion warnings
-                if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
+                if (
+                    (overflowMode == IngestionOverflowMode.ConsumeSplitByDistinctId ||
+                        overflowMode == IngestionOverflowMode.ConsumeSplitEvenly) &&
+                    currentBatch.length > 0
+                ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
@@ -295,7 +300,7 @@ export function splitIngestionBatch(
         toOverflow: [],
     }
 
-    if (overflowMode === IngestionOverflowMode.Consume) {
+    if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
          * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
          * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
@@ -316,6 +321,7 @@ export function splitIngestionBatch(
             }
             output.toProcess.push(new Array({ message: message, pluginEvent }))
         }
+
         return output
     }
 

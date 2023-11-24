@@ -138,16 +138,19 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
-        } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
-            status.warn('⚠️', 'Failed to update property definitions for an event', {
-                event,
-                properties,
-                err,
-            })
+        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+            try {
+                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            } catch (err) {
+                Sentry.captureException(err, { tags: { team_id: team.id } })
+                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                    event,
+                    properties,
+                    err,
+                })
+            }
         }
+
         // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 

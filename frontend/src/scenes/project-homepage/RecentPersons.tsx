@@ -29,7 +29,7 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
-export function NewlySeenPersons(): JSX.Element {
+export function RecentPersons(): JSX.Element {
     const { persons, personsLoading } = useValues(projectHomepageLogic)
 
     return (

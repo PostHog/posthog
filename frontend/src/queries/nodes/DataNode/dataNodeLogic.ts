@@ -42,9 +42,10 @@ import {
 import {
     isEventsQuery,
     isInsightQueryNode,
+    isLifecycleQuery,
     isPersonsNode,
     isPersonsQuery,
-    isQueryWithHogQLSupport,
+    isTrendsQuery,
 } from '~/queries/utils'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
@@ -119,7 +120,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (
                         isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(props.query)) &&
+                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
+                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -339,9 +341,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsFlagEnabled: [
+        hogQLInsightsLifecycleFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
+        ],
+        hogQLInsightsTrendsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
