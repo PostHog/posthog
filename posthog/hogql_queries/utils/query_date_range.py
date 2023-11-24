@@ -228,5 +228,5 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         date_to = self.now_with_timezone + delta
 
         if self.is_hourly:
-            return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-        return date_to.replace(minute=0, second=0, microsecond=0)
+            return date_to.replace(minute=0, second=0, microsecond=0)
+        return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
