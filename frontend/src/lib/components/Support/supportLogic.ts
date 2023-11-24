@@ -3,7 +3,9 @@ import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -111,8 +113,8 @@ export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight']],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
+        values: [userLogic, ['user'], preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -205,15 +207,16 @@ export const supportLogic = kea<supportLogicType>([
                     : 'Leave a message with PostHog',
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         openSupportForm: async ({ kind, target_area }) => {
+            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             actions.resetSendSupportRequest({
                 kind,
-                target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
+                target_area: area,
                 message: '',
             })
 
-            actions.openSidePanel(SidePanelTab.Support)
+            actions.openSidePanel(SidePanelTab.Support, `${kind}:${area}`)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
@@ -306,6 +309,23 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: () => {
             props.onClose?.()
         },
+        setSidePanelOptions: ({ options }) => {
+            const [kind, target_area] = (options || '').split(':')
+            if (
+                kind &&
+                values.sendSupportRequest.kind !== kind &&
+                Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind)
+            ) {
+                actions.setSendSupportRequestValue('kind', kind)
+            }
+            if (
+                target_area &&
+                values.sendSupportRequest.target_area !== target_area &&
+                Object.keys(TARGET_AREA_TO_NAME).includes(target_area)
+            ) {
+                actions.setSendSupportRequestValue('area', target_area)
+            }
+        },
     })),
 
     urlToAction(({ actions, values }) => ({
@@ -322,32 +342,36 @@ export const supportLogic = kea<supportLogicType>([
                     Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
                 )
-            } else if ((hashParams['panel'] as string | undefined)?.startsWith('support')) {
-                const [kind, area] = hashParams['panel'].split(':').slice(1)
-
-                actions.openSupportForm(
-                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
-                )
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, actions }) => {
         const updateUrl = (): any => {
             const hashParams = router.values.hashParams
-            delete hashParams['supportModal'] // legacy value
-            hashParams['panel'] = `support:${values.sendSupportRequest.kind || ''}:${
+            const panelOptions = `${values.sendSupportRequest.kind || ''}:${
                 values.sendSupportRequest.target_area || ''
             }`
+
+            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                actions.setSidePanelOptions(panelOptions)
+                return
+            } else {
+                // Legacy values
+                hashParams['supportModal'] = `support:${panelOptions}`
+            }
+
             return [router.values.location.pathname, router.values.searchParams, hashParams]
         }
         return {
             openSupportForm: () => updateUrl(),
             setSendSupportRequestValue: () => updateUrl(),
             closeSupportForm: () => {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                    return
+                }
+
                 const hashParams = router.values.hashParams
                 delete hashParams['supportModal'] // legacy value
-                delete hashParams['panel']
 
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },

@@ -1,4 +1,5 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { SidePanelTab } from '~/types'
 
@@ -9,9 +10,10 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
     actions({
-        openSidePanel: (tab: SidePanelTab) => ({ tab }),
+        openSidePanel: (tab: SidePanelTab, options?: string) => ({ tab, options }),
         closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
         setSidePanelOpen: (open: boolean) => ({ open }),
+        setSidePanelOptions: (options: string | null) => ({ options }),
     }),
 
     reducers(() => ({
@@ -20,6 +22,15 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             { persist: true },
             {
                 openSidePanel: (_, { tab }) => tab,
+            },
+        ],
+
+        selectedTabOptions: [
+            null as string | null,
+            {
+                openSidePanel: (_, { options }) => options ?? null,
+                setSidePanelOptions: (_, { options }) => options ?? null,
+                closeSidePanel: () => null,
             },
         ],
         sidePanelOpen: [
@@ -46,4 +57,48 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             }
         },
     })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, _search, hashParams) => {
+            if ('supportModal' in hashParams) {
+                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                delete hashParams['supportModal'] // legacy value
+                hashParams['panel'] = `support`
+                hashParams['panelOptions'] = `${kind ?? ''}:${area ?? ''}`
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
+                return
+            }
+
+            const panel = hashParams['panel'] as string | undefined
+
+            if (panel && (panel !== values.selectedTab || !values.sidePanelOpen)) {
+                actions.openSidePanel(panel as SidePanelTab, hashParams['panelOptions'])
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const updateUrl = (): any => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                {
+                    ...router.values.hashParams,
+                    panel: values.selectedTab,
+                    panelOptions: values.selectedTabOptions ?? undefined,
+                },
+                { replace: true },
+            ]
+        }
+        return {
+            openSidePanel: () => updateUrl(),
+            setSidePanelOptions: () => updateUrl(),
+            closeSidePanel: () => {
+                const hashParams = { ...router.values.hashParams }
+                delete hashParams['panel']
+                delete hashParams['panelOptions']
+                return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]
+            },
+        }
+    }),
 ])
