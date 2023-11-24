@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
-import { isOverflowBatchByDistinctId } from 'utils/env-utils'
 
 import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
+import { isOverflowBatchByDistinctId } from '../../utils/env-utils'
 import { status } from '../../utils/status'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
