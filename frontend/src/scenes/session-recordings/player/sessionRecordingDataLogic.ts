@@ -29,6 +29,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 
+import { transformEventToWeb } from '../../../../../ee/frontend/mobile-replay'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
@@ -41,10 +42,14 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], ses
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = snapshotLine['data']
 
-            return snapshotData.map((d: any) => ({
-                windowId: snapshotLine['window_id'],
-                ...d,
-            }))
+            // TODO can we type this better and still have mobileEventWithTime in ee folder?
+            return snapshotData.map((d: unknown) => {
+                const snap = transformEventToWeb(d)
+                return {
+                    windowId: snapshotLine['window_id'],
+                    ...(snap || (d as eventWithTime)),
+                }
+            })
         } catch (e) {
             posthog.capture('session recording had unparseable line', {
                 sessionId,
@@ -346,6 +351,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             props.sessionRecordingId,
                             source.blob_key
                         )
+
                         data.snapshots = prepareRecordingSnapshots(
                             parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
                             values.sessionPlayerSnapshotData?.snapshots ?? []
