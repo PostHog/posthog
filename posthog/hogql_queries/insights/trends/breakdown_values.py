@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -15,6 +15,7 @@ class BreakdownValues:
     query_date_range: QueryDateRange
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
+    events_filter: ast.Expr
 
     def __init__(
         self,
@@ -23,6 +24,7 @@ class BreakdownValues:
         breakdown_field: Union[str, float],
         query_date_range: QueryDateRange,
         breakdown_type: str,
+        events_filter: ast.Expr,
         histogram_bin_count: Optional[float] = None,
         group_type_index: Optional[float] = None,
     ):
@@ -31,11 +33,15 @@ class BreakdownValues:
         self.breakdown_field = breakdown_field
         self.query_date_range = query_date_range
         self.breakdown_type = breakdown_type
+        self.events_filter = events_filter
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
+            if self.breakdown_field == "all":
+                return [0]
+
             return [int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
@@ -71,7 +77,7 @@ class BreakdownValues:
                     value DESC
             """,
             placeholders={
-                "events_where": self._where_filter(),
+                "events_where": self.events_filter,
                 "select_field": select_field,
             },
         )
@@ -94,35 +100,12 @@ class BreakdownValues:
             team=self.team,
         )
 
-        values = response.results[0][0]
+        values: List[Any] = response.results[0][0]
+
+        if self.histogram_bin_count is None:
+            values.insert(0, None)
+
         return values
-
-    def _where_filter(self) -> ast.Expr:
-        filters: List[ast.Expr] = []
-
-        filters.append(parse_expr("notEmpty(e.person_id)"))
-        filters.extend(
-            [
-                parse_expr(
-                    "timestamp >= {date_from}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-            ]
-        )
-
-        if self.event_name is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=self.event_name)},
-                )
-            )
-
-        return ast.And(exprs=filters)
 
     def _to_bucketing_expression(self) -> ast.Expr:
         assert isinstance(self.histogram_bin_count, int)
