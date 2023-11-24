@@ -195,8 +195,9 @@ export function CohortPersonPropertiesValuesField({
                 />
             )}
             {readOnly &&
-                Array.isArray(value) &&
-                value.map((v, i) => <ReadOnlyCohortField key={i}>{v}</ReadOnlyCohortField>)}
+                [...(Array.isArray(value) ? value : [value])].map((v, i) => (
+                    <ReadOnlyCohortField key={i}>{v}</ReadOnlyCohortField>
+                ))}
         </>
     )
 }

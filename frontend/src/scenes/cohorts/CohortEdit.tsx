@@ -61,7 +61,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                     description={
-                        readonly && cohort.description ? (
+                        hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
+                        readonly &&
+                        cohort.description ? (
                             <span style={{ fontStyle: 'normal' }}>{cohort.description}</span>
                         ) : (
                             ''
