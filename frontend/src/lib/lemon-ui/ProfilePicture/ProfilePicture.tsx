@@ -50,18 +50,20 @@ export function ProfilePicture({
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)}>
-            <span className={gravatarLoaded === true ? 'hidden' : ''}>
-                {type === 'bot' ? (
-                    <IconRobot className={'p-0.5'} />
-                ) : (
-                    <Lettermark
-                        name={combinedNameAndEmail}
-                        index={index}
-                        rounded
-                        color={type === 'system' ? LettermarkColor.Gray : undefined}
-                    />
-                )}
-            </span>
+            {gravatarLoaded !== true && (
+                <>
+                    {type === 'bot' ? (
+                        <IconRobot className={'p-0.5'} />
+                    ) : (
+                        <Lettermark
+                            name={combinedNameAndEmail}
+                            index={index}
+                            rounded
+                            color={type === 'system' ? LettermarkColor.Gray : undefined}
+                        />
+                    )}
+                </>
+            )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
                     className={'absolute top-0 left-0 w-full h-full rounded-full'}
