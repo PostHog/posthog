@@ -153,6 +153,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     onRename: async (name: string) => {
                         if (!playlist) {
                             lemonToast.error('Cannot rename unsaved playlist')
+                            return
                         }
                         await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
                     },
