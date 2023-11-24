@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { IconRobot } from '../icons'
@@ -32,7 +32,7 @@ export function ProfilePicture({
     type = 'person',
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const [missingGravatar, setMissingGravatar] = useState<boolean>(false)
+    const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
 
     const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
 
@@ -50,23 +50,26 @@ export function ProfilePicture({
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)}>
-            {type === 'bot' ? (
-                <IconRobot className={'p-0.5'} />
-            ) : (
-                <Lettermark
-                    name={combinedNameAndEmail}
-                    index={index}
-                    rounded
-                    color={type === 'system' ? LettermarkColor.Gray : undefined}
-                />
-            )}
-            {gravatarUrl && !missingGravatar ? (
+            <span className={gravatarLoaded === true ? 'hidden' : ''}>
+                {type === 'bot' ? (
+                    <IconRobot className={'p-0.5'} />
+                ) : (
+                    <Lettermark
+                        name={combinedNameAndEmail}
+                        index={index}
+                        rounded
+                        color={type === 'system' ? LettermarkColor.Gray : undefined}
+                    />
+                )}
+            </span>
+            {gravatarUrl && gravatarLoaded !== false ? (
                 <img
                     className={'absolute top-0 left-0 w-full h-full rounded-full'}
                     src={gravatarUrl}
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
-                    onError={() => setMissingGravatar(true)}
+                    onError={() => setGravatarLoaded(false)}
+                    onLoad={() => setGravatarLoaded(true)}
                 />
             ) : null}
         </span>
