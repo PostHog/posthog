@@ -25,6 +25,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
@@ -162,21 +163,30 @@ class TrendsQueryRunner(QueryRunner):
 
         res = []
         for val in response.results:
+            try:
+                series_label = self.series_event(series.series)
+            except Action.DoesNotExist:
+                # Dont append the series if the action doesnt exist
+                continue
+
             if series.aggregate_values:
                 series_object = {
                     "data": [],
-                    "days": [],
+                    "days": [
+                        item.strftime(
+                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
+                        )
+                        for item in get_value("date", val)
+                    ],
                     "count": 0,
                     "aggregated_value": get_value("total", val),
-                    "label": "All events"
-                    if self.series_event(series.series) is None
-                    else self.series_event(series.series),
+                    "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "id": self.series_event(series.series),
+                        "id": series_label,
                         "type": "events",
                         "order": 0,
-                        "name": self.series_event(series.series) or "All events",
+                        "name": series_label or "All events",
                         "custom_name": None,
                         "math": series.series.math,
                         "math_property": None,
@@ -201,15 +211,13 @@ class TrendsQueryRunner(QueryRunner):
                         for item in get_value("date", val)
                     ],
                     "count": float(sum(get_value("total", val))),
-                    "label": "All events"
-                    if self.series_event(series.series) is None
-                    else self.series_event(series.series),
+                    "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "id": self.series_event(series.series),
+                        "id": series_label,
                         "type": "events",
                         "order": 0,
-                        "name": self.series_event(series.series) or "All events",
+                        "name": series_label or "All events",
                         "custom_name": None,
                         "math": series.series.math,
                         "math_property": None,
@@ -237,23 +245,36 @@ class TrendsQueryRunner(QueryRunner):
             if self.query.breakdown is not None and self.query.breakdown.breakdown is not None:
                 if self._is_breakdown_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
+
+                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                        # Skip the "none" series if it doesn't have any data
+                        if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
+                            continue
+                        remapped_label = "none"
+
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdown.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
-                    cohort_name = Cohort.objects.get(pk=cohort_id).name
+                    cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
 
                     series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
-                    series_object["breakdown_value"] = get_value("breakdown_value", val)
+                    series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
+                    remapped_label = get_value("breakdown_value", val)
+                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                        # Skip the "none" series if it doesn't have any data
+                        if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
+                            continue
+                        remapped_label = "none"
+
                     # If there's multiple series, include the object label in the series label
                     if series_count > 1:
-                        series_object["label"] = "{} - {}".format(
-                            series_object["label"], get_value("breakdown_value", val)
-                        )
+                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     else:
-                        series_object["label"] = get_value("breakdown_value", val)
-                    series_object["breakdown_value"] = get_value("breakdown_value", val)
+                        series_object["label"] = remapped_label
+
+                    series_object["breakdown_value"] = remapped_label
 
             res.append(series_object)
         return res
@@ -279,6 +300,10 @@ class TrendsQueryRunner(QueryRunner):
     def series_event(self, series: EventsNode | ActionsNode) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
+        if isinstance(series, ActionsNode):
+            # TODO: Can we load the Action in more efficiently?
+            action = Action.objects.get(pk=int(series.id), team=self.team)
+            return action.name
         return None
 
     def setup_series(self) -> List[SeriesWithExtras]:
@@ -294,7 +319,12 @@ class TrendsQueryRunner(QueryRunner):
 
         if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
             updated_series = []
-            for cohort_id in self.query.breakdown.breakdown:
+            if isinstance(self.query.breakdown.breakdown, List):
+                cohort_ids = self.query.breakdown.breakdown
+            else:
+                cohort_ids = [self.query.breakdown.breakdown]
+
+            for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
                     copied_query.breakdown.breakdown = cohort_id
@@ -383,7 +413,7 @@ class TrendsQueryRunner(QueryRunner):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
-        bool_map = {1: "true", 0: "false", "": ""}
+        bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 
     def _event_property(
