@@ -1,12 +1,25 @@
 import { IconInfo, IconNight, IconNotebook, IconSearch } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
+
+    useEffect(() => {
+        return () => {
+            // Linked to the FF to ensure it isn't shown again
+            posthog.capture('3000 welcome acknowledged', {
+                $set: {
+                    [`3000-welcome-acknowledged`]: true,
+                },
+            })
+        }
+    }, [])
 
     return (
         <div className="flex flex-col items-center justify-center m-4 my-10 flex-1">
