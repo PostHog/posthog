@@ -2786,6 +2786,8 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
+    /** When this is true, the name is always is edit mode, and `onRename` runs on every input change. */
+    forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
 export type FinalizedBreadcrumb =

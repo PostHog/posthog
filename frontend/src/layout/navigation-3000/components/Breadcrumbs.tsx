@@ -125,12 +125,13 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                     }
                     setPopoverShown(false)
                 }}
+                placeholder="Unnamed"
                 compactButtons="xsmall"
                 editingIndication="underlined"
             />
         )
     } else {
-        nameElement = <span>{breadcrumb.name}</span>
+        nameElement = <span>{breadcrumb.name || <i>Unnamed</i>}</span>
     }
 
     const Component = breadcrumb.path ? Link : 'div'
@@ -193,18 +194,33 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                 <EditableField
                     name="item-name-large"
                     value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
-                    onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                    onChange={(newName) => {
+                        tentativelyRename(breadcrumb.globalKey, newName)
+                        if (breadcrumb.forceEditMode) {
+                            // In this case there's no "Save" button, we update on input
+                            void breadcrumb.onRename?.(newName)
+                        }
+                    }}
                     onSave={(newName) => {
                         void breadcrumb.onRename?.(newName)
                     }}
-                    mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
-                    onModeToggle={(newMode) => {
-                        if (newMode === 'edit') {
-                            tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
-                        } else {
-                            finishRenaming()
-                        }
-                    }}
+                    mode={
+                        breadcrumb.forceEditMode || (renameState && renameState[0] === breadcrumb.globalKey)
+                            ? 'edit'
+                            : 'view'
+                    }
+                    onModeToggle={
+                        !breadcrumb.forceEditMode
+                            ? (newMode) => {
+                                  if (newMode === 'edit') {
+                                      tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                                  } else {
+                                      finishRenaming()
+                                  }
+                              }
+                            : undefined
+                    }
+                    placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"
                 />
