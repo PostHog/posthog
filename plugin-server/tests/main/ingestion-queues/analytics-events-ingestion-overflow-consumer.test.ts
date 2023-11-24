@@ -75,57 +75,71 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         }
     })
 
-    it('raises ingestion warning when consuming from overflow', async () => {
-        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
-        const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
+    it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.ConsumeSplitEvenly])(
+        'raises ingestion warning when consuming from overflow %s',
+        async (mode) => {
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
+            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
 
-        queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-        const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
+            queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
-        expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
-        expect(consume).toHaveBeenCalledWith('1:id', 1)
-        expect(captureIngestionWarning).toHaveBeenCalledWith(queue.pluginsServer.db, 1, 'ingestion_capacity_overflow', {
-            overflowDistinctId: captureEndpointEvent1['distinct_id'],
-        })
+            expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
+            expect(consume).toHaveBeenCalledWith('1:id', 1)
+            expect(captureIngestionWarning).toHaveBeenCalledWith(
+                queue.pluginsServer.db,
+                1,
+                'ingestion_capacity_overflow',
+                {
+                    overflowDistinctId: captureEndpointEvent1['distinct_id'],
+                }
+            )
 
-        // Event is processed
-        expect(runEventPipeline).toHaveBeenCalled()
-    })
+            // Event is processed
+            expect(runEventPipeline).toHaveBeenCalled()
+        }
+    )
 
-    it('does not raise ingestion warning when under threshold', async () => {
-        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
-        const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
+    it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.ConsumeSplitEvenly])(
+        'does not raise ingestion warning when under threshold %s',
+        async (mode) => {
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
+            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
 
-        queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-        const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
+            queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
-        expect(consume).toHaveBeenCalledWith('1:id', 1)
-        expect(captureIngestionWarning).not.toHaveBeenCalled()
-        expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(consume).toHaveBeenCalledWith('1:id', 1)
+            expect(captureIngestionWarning).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
 
-        // Event is processed
-        expect(runEventPipeline).toHaveBeenCalled()
-    })
+            // Event is processed
+            expect(runEventPipeline).toHaveBeenCalled()
+        }
+    )
 
-    it('does drop events from blocked tokens', async () => {
-        const batch = createBatchWithMultipleEventsWithKeys([
-            captureEndpointEvent1,
-            captureEndpointEvent2,
-            captureEndpointEvent1,
-        ])
-        const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
+    it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.ConsumeSplitEvenly])(
+        'does drop events from blocked tokens %s',
+        async (mode) => {
+            const batch = createBatchWithMultipleEventsWithKeys([
+                captureEndpointEvent1,
+                captureEndpointEvent2,
+                captureEndpointEvent1,
+            ])
+            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
 
-        queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
-        const tokenBlockList = buildStringMatcher('mytoken,more_token', false)
-        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Consume)
+            queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
+            const tokenBlockList = buildStringMatcher('mytoken,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
-        expect(captureIngestionWarning).not.toHaveBeenCalled()
-        expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(captureIngestionWarning).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
 
-        // captureEndpointEvent2 is processed, captureEndpointEvent1 are dropped
-        expect(runEventPipeline).toHaveBeenCalledTimes(1)
-        expect(consume).toHaveBeenCalledTimes(1)
-    })
+            // captureEndpointEvent2 is processed, captureEndpointEvent1 are dropped
+            expect(runEventPipeline).toHaveBeenCalledTimes(1)
+            expect(consume).toHaveBeenCalledTimes(1)
+        }
+    )
 })

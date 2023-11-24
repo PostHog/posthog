@@ -7,12 +7,12 @@
     position: relative;
     display: flex;
     flex-direction: row;
-    overflow: hidden;
-    height: 100%;
     width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background-color: var(--bg-light);
 
     &--no-border {
         border: none;
@@ -22,10 +22,10 @@
     .SessionRecordingPlayer__body {
         position: relative;
         z-index: 0;
-        background-color: var(--bg-light);
         min-width: 1px;
         height: 100%;
         overflow: hidden;
+        background-color: var(--bg-light);
     }
 
     .SessionRecordingPlayer__main {
@@ -36,9 +36,9 @@
     &--fullscreen {
         position: fixed;
         inset: 0;
+        z-index: var(--z-modal);
         overflow-y: auto;
         background-color: var(--bg-light);
-        z-index: var(--z-modal);
         border: none;
         border-radius: 0;
 
@@ -63,18 +63,18 @@
     }
 
     .SessionRecordingPlayer__inspector {
-        flex-shrink: 0;
-        border-left: 1px solid var(--border);
         position: absolute;
-        right: 0;
         top: 0;
+        right: 0;
         bottom: 0;
         z-index: 10;
+        flex-shrink: 0;
         width: var(--inspector-width);
         max-width: 95%;
-        transform: translateX(calc(100% - var(--inspector-peek-width)));
-        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        border-left: 1px solid var(--border);
         box-shadow: 0 0 5px rgb(0 0 0 / 10%);
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        transform: translateX(calc(100% - var(--inspector-peek-width)));
 
         .PlayerInspectorPreview {
             position: absolute;
@@ -95,12 +95,12 @@
 
     &--inspector-focus {
         .SessionRecordingPlayer__inspector {
-            transform: translateX(0);
             box-shadow: -10px 0 20px rgb(0 0 0 / 20%);
+            transform: translateX(0);
 
             .PlayerInspectorPreview {
-                opacity: 0;
                 pointer-events: none;
+                opacity: 0;
             }
         }
     }
@@ -111,13 +111,13 @@
         }
 
         .SessionRecordingPlayer__inspector {
-            min-width: 30%;
-            width: 40%;
-            max-width: 400px;
             position: relative;
-            transform: translateX(0);
+            width: 40%;
+            min-width: 30%;
+            max-width: 400px;
             box-shadow: none;
             transition: none;
+            transform: translateX(0);
 
             .PlayerInspectorPreview {
                 display: none;
@@ -142,13 +142,13 @@
 
     .PlayerControlSeekIcon__seconds {
         position: absolute;
-        font-size: 6px;
-        font-weight: bold;
-        text-align: center;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 6px;
+        font-weight: bold;
+        text-align: center;
     }
 
     .PlayerControlSeekIcon__icon {
