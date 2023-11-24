@@ -1,8 +1,8 @@
 module.exports = {
-    extends: 'stylelint-config-standard-scss', // TODO: Enable separately, as the diff will be significant
-    // TODO: Enable separately, as the diff will be significant "plugins": ["stylelint-order"],
+    extends: ['stylelint-config-standard-scss', 'stylelint-config-recess-order'],
+    plugins: ['stylelint-order'],
     rules: {
-        'no-descending-specificity': null,
+        'no-descending-specificity': null, // TODO: Enable separately, as the diff will be significant
         'number-max-precision': 5,
         'value-keyword-case': [
             'lower',
@@ -43,7 +43,6 @@ module.exports = {
         'scss/operator-no-newline-after': null, // Doesn't always play well with prettier
         'scss/at-extend-no-missing-placeholder': null,
         'scss/comment-no-empty': null,
-        // "order/order": ["dollar-variables", "custom-properties", "declarations", "rules", "at-rules"],
-        // "order/properties-order": ["width", "height"],
+        'order/order': ['dollar-variables', 'custom-properties', 'declarations', 'rules', 'at-rules'],
     },
 }
