@@ -1,11 +1,11 @@
 .Link {
-    background: none;
-    border: none;
+    padding: 0;
+    line-height: inherit;
     color: var(--link);
     cursor: pointer;
-    line-height: inherit;
+    background: none;
+    border: none;
     outline: none;
-    padding: 0;
     transition: none;
 
     &:not(:disabled) {
@@ -19,8 +19,8 @@
     }
 
     &:disabled {
-        opacity: var(--opacity-disabled);
         cursor: not-allowed;
+        opacity: var(--opacity-disabled);
     }
 
     > .LemonIcon {
