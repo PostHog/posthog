@@ -1,19 +1,21 @@
-import { Mocks, MockSignature, mocksToHandlers } from './utils'
 import {
+    MOCK_DEFAULT_COHORT,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_ORGANIZATION_INVITE,
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
-    MOCK_DEFAULT_TEAM,
-    MOCK_DEFAULT_USER,
-    MOCK_DEFAULT_COHORT,
-    MOCK_PERSON_PROPERTIES,
     MOCK_DEFAULT_PLUGIN,
     MOCK_DEFAULT_PLUGIN_CONFIG,
-    MOCK_TEAM_ID,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
+    MOCK_TEAM_ID,
 } from 'lib/api.mock'
+
 import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
+
+import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
 export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESPONSE => ({
@@ -31,7 +33,17 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/@current/dashboard_templates/repository/': [],
+        '/api/projects/:team_id/dashboard_templates/repository/': [],
+        '/api/projects/:team_id/notebooks': () => {
+            // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
+            return [
+                200,
+                {
+                    count: 0,
+                    results: [],
+                },
+            ]
+        },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
@@ -42,7 +54,7 @@ export const defaultMocks: Mocks = {
         } as SharingConfigurationType,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/explicit_members/': [],
         '/api/organizations/@current/': (): MockSignature => [

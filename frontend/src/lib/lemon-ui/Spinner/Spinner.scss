@@ -1,11 +1,11 @@
 .Spinner {
+    --spinner-color: var(--primary-3000);
+
     display: inline-block; // Same as .LemonIcon
-    vertical-align: -0.15em; // Same as .LemonIcon
+    flex-shrink: 0;
     width: 1em;
     height: 1em;
-    flex-shrink: 0;
-
-    --spinner-color: var(--brand-blue);
+    vertical-align: -0.15em; // Same as .LemonIcon
 
     &.Spinner--textColored {
         --spinner-color: currentColor;
@@ -18,10 +18,10 @@
     > circle {
         display: block;
         fill: transparent;
-        stroke-width: 8px;
-        transform-origin: center;
         stroke: var(--spinner-color);
         stroke-linecap: round;
+        stroke-width: 8px;
+        transform-origin: center;
     }
 
     &:nth-child(1) {
@@ -40,36 +40,36 @@
 @keyframes Spinner__writhe {
     0%,
     100% {
-        stroke-dashoffset: -60;
         stroke-dasharray: 70;
+        stroke-dashoffset: -60;
     }
 
     50% {
-        stroke-dashoffset: -30;
         stroke-dasharray: 70;
+        stroke-dashoffset: -30;
     }
 }
 
 .SpinnerOverlay {
-    transition: opacity 0.2s ease;
     position: absolute;
     inset: 0;
-    text-align: center;
-    min-height: 6rem;
     z-index: var(--z-content-overlay);
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 6rem;
+    text-align: center;
+    transition: opacity 0.2s ease;
 
     &[aria-hidden='true'] {
-        opacity: 0;
         pointer-events: none;
+        opacity: 0;
     }
 
     &::before {
-        content: '';
         position: absolute;
         inset: 0;
+        content: '';
         background: var(--bg-light);
         opacity: 0.5;
     }

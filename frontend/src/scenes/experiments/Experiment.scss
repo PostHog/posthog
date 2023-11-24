@@ -1,16 +1,16 @@
 .experiment-form {
     .metrics-selection {
-        border-top: 1px solid var(--border);
-        padding-top: 1rem;
         width: 100%;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .person-selection {
-        width: 100%;
-        border-top: 1px solid var(--border);
-        padding-top: 1rem;
         align-items: center;
         justify-content: space-between;
+        width: 100%;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .experiment-preview {
@@ -29,8 +29,8 @@
     }
 
     .variants {
-        margin-top: 0.5rem;
         padding-bottom: 1rem;
+        margin-top: 0.5rem;
 
         .ant-form-horizontal {
             min-height: 32px;
@@ -42,8 +42,8 @@
         }
 
         .border-bottom {
-            border-bottom-left-radius: 4px;
             border-bottom-right-radius: 4px;
+            border-bottom-left-radius: 4px;
         }
 
         .feature-flag-variant {
@@ -51,11 +51,11 @@
             align-items: center;
             padding: 0.5rem;
             background: var(--bg-light);
-            border-width: 1px;
             border-color: var(--border);
+            border-width: 1px;
             border-top-style: solid;
-            border-left-style: solid;
             border-right-style: solid;
+            border-left-style: solid;
 
             .extend-variant-fully {
                 flex: 1;
@@ -65,25 +65,25 @@
         .variant-label {
             display: flex;
             flex-direction: row;
-            justify-content: center;
             align-items: center;
-            border-radius: 4px;
-            color: #fff;
+            justify-content: center;
             min-width: 52px;
             padding: 2px 6px;
             margin-right: 8px;
             font-size: 12px;
             font-weight: 500;
+            color: #fff;
             letter-spacing: 0.01em;
+            border-radius: 4px;
         }
     }
 
     .secondary-metrics {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border);
-        margin-bottom: 1rem;
         width: 100%;
+        padding-top: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .ant-input-number-disabled {
@@ -143,10 +143,10 @@
         margin-top: 0.5rem;
 
         li::before {
-            content: '\2022';
             display: inline-block;
-            font-weight: 900;
             margin-right: 4px;
+            font-weight: 900;
+            content: '\2022';
         }
 
         .ant-progress-inner {
@@ -160,14 +160,14 @@
 
     .no-experiment-results {
         display: flex;
-        justify-content: center;
         align-items: center;
-        margin-top: 1rem;
-        background-color: var(--side);
-        border: 1px solid var(--border);
+        justify-content: center;
         width: 100%;
         min-height: 320px;
+        margin-top: 1rem;
         font-size: 24px;
+        background-color: var(--side);
+        border: 1px solid var(--border);
     }
 
     .computation-time-and-sampling-notice {
@@ -176,31 +176,31 @@
 }
 
 .preview-conversion-goal-num {
-    height: 24px;
     width: 24px;
+    height: 24px;
+    margin-right: 0.5rem;
+    font-weight: 700;
+    color: var(--primary-alt);
     text-align: center;
     background-color: var(--side);
-    color: var(--primary-alt);
-    font-weight: 700;
-    margin-right: 0.5rem;
 }
 
 .experiment-preview-row {
-    border-bottom: 1px solid var(--border);
     padding-bottom: 1rem;
     margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
 
     &:last-child {
-        border-bottom: none;
         padding-bottom: 0;
         margin-bottom: 0;
+        border-bottom: none;
     }
 }
 
 .metric-name {
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    flex: 1;
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
-    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 4px;
 }

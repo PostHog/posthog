@@ -1,10 +1,10 @@
-import { kea, path, connect, afterMount, listeners, actions, reducers, props } from 'kea'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { setup2FALogicType } from './setup2FALogicType'
 

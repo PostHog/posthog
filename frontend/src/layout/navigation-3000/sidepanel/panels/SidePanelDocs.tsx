@@ -1,11 +1,17 @@
-import { useActions, useValues } from 'kea'
-import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
-import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { themeLogic } from '../../themeLogic'
+import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
+
+type Menu = {
+    name: string
+    url?: string
+}
 
 function SidePanelDocsSkeleton(): JSX.Element {
     return (
@@ -22,12 +28,50 @@ function SidePanelDocsSkeleton(): JSX.Element {
     )
 }
 
+function Menu({
+    menu,
+    activeMenuName,
+    onChange,
+}: {
+    menu: Menu[]
+    activeMenuName: string | null
+    onChange: (newValue: string | null) => void
+}): JSX.Element {
+    return (
+        <div className="mr-auto">
+            <LemonSelect
+                placeholder="Navigate"
+                dropdownMatchSelectWidth={false}
+                onChange={onChange}
+                size="small"
+                value={activeMenuName}
+                options={menu.map(({ name }) => ({ label: name, value: name }))}
+            />
+        </div>
+    )
+}
+
 export const SidePanelDocs = (): JSX.Element => {
     const { iframeSrc, currentUrl } = useValues(sidePanelDocsLogic)
     const { updatePath, unmountIframe, closeSidePanel, handleExternalUrl } = useActions(sidePanelDocsLogic)
     const ref = useRef<HTMLIFrameElement>(null)
     const [ready, setReady] = useState(false)
     const { isDarkModeOn } = useValues(themeLogic)
+    const [menu, setMenu] = useState<Menu[] | null>(null)
+    const [activeMenuName, setActiveMenuName] = useState<string | null>(null)
+
+    const handleMenuChange = (newValue: string | null): void => {
+        const url = menu?.find(({ name }: Menu) => name === newValue)?.url
+        if (url) {
+            ref.current?.contentWindow?.postMessage(
+                {
+                    type: 'navigate',
+                    url,
+                },
+                '*'
+            )
+        }
+    }
 
     useEffect(() => {
         ref.current?.contentWindow?.postMessage(
@@ -56,6 +100,15 @@ export const SidePanelDocs = (): JSX.Element => {
                     handleExternalUrl(event.data.url)
                     return
                 }
+                if (event.data.type === 'docs-menu') {
+                    setMenu(event.data.menu)
+                    return
+                }
+
+                if (event.data.type === 'docs-active-menu') {
+                    setActiveMenuName(event.data.activeMenuName)
+                    return
+                }
 
                 console.warn('Unhandled iframe message from Docs:', event.data)
             }
@@ -78,6 +131,7 @@ export const SidePanelDocs = (): JSX.Element => {
     return (
         <>
             <SidePanelPaneHeader>
+                {menu && <Menu menu={menu} activeMenuName={activeMenuName} onChange={handleMenuChange} />}
                 <LemonButton
                     size="small"
                     sideIcon={<IconExternal />}

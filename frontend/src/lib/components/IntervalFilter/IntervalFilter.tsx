@@ -1,7 +1,8 @@
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonSelect } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import { InsightQueryNode } from '~/queries/schema'
 
 interface IntervalFilterProps {

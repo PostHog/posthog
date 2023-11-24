@@ -1,29 +1,31 @@
-.LemonButton {
-    align-items: center;
-    appearance: none !important; // Important as this gets overridden by Ant styles...
-    background: none;
-    border-radius: var(--radius);
-    border: none;
-    cursor: pointer;
+.LemonButton,
+.Link.LemonButton {
+    position: relative;
     display: flex;
     flex-direction: row;
+    flex-shrink: 0;
+    gap: 0.5rem;
+
+    // Make sure we override .Link's styles where needed, e.g. padding
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    text-align: left;
+    appearance: none !important; // Important as this gets overridden by Ant styles...
+    cursor: pointer;
+    user-select: none;
+    background: none;
+    border: none;
+    border-radius: var(--radius);
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 100ms ease;
 
     .posthog-3000 & {
         font-family: var(--font-title);
     }
-
-    flex-shrink: 0;
-    font-size: 0.875rem;
-    font-weight: 500;
-    gap: 0.5rem;
-    justify-content: flex-start;
-    line-height: 1.5rem;
-    padding: 0.25rem 0.75rem;
-    position: relative;
-    text-align: left;
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-        transform 100ms ease;
-    user-select: none;
 
     .font-normal {
         font-family: var(--font-sans);
@@ -36,20 +38,19 @@
     }
 
     .LemonButton__content {
-        flex: 1;
-        line-height: initial;
         display: flex;
+        flex: 1;
         align-items: center;
+        line-height: initial;
     }
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
         cursor: not-allowed;
+        opacity: var(--opacity-disabled);
 
         > span {
             cursor: not-allowed;
         }
-
-        opacity: var(--opacity-disabled);
     }
 
     &.LemonButton--loading {
@@ -58,8 +59,8 @@
 
     &.LemonButton--full-width {
         width: 100%;
-        padding-left: 0.5rem;
         padding-right: 0.5rem;
+        padding-left: 0.5rem;
 
         > span,
         .LemonButton__content {
@@ -83,8 +84,8 @@
     }
 
     &.LemonButton--no-content {
-        padding-left: 0.5rem;
         padding-right: 0.5rem;
+        padding-left: 0.5rem;
     }
 
     &.LemonButton--xsmall {
@@ -100,8 +101,7 @@
         }
     }
 
-    &.LemonButton--small,
-    .Breadcrumbs3000 & {
+    &.LemonButton--small {
         gap: 0.25rem;
 
         > span {
@@ -126,9 +126,9 @@
     }
 
     &.LemonButton--no-padding {
-        min-height: 0;
-        height: auto;
         width: auto;
+        height: auto;
+        min-height: 0;
         padding: 0;
 
         &.LemonButton--full-width {
@@ -138,10 +138,25 @@
 
     .LemonButton__icon {
         display: flex;
-        font-size: 1.5rem;
         flex-shrink: 0;
-        transition: color 200ms ease;
         place-items: center center;
+        font-size: 1.5rem;
+        transition: color 200ms ease;
+    }
+
+    .ant-tooltip & {
+        // Buttons have an overriden style in tooltips, as they are always dark
+        &:hover {
+            background: rgb(255 255 255 / 15%) !important;
+        }
+
+        &:active {
+            background: rgb(255 255 255 / 20%) !important;
+        }
+
+        .LemonButton__icon {
+            color: #fff !important;
+        }
     }
 
     @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
@@ -162,21 +177,6 @@
             }
         }
     }
-
-    .ant-tooltip & {
-        // Buttons have an overriden style in tooltips, as they are always dark
-        &:hover {
-            background: rgb(255 255 255 / 15%) !important;
-        }
-
-        &:active {
-            background: rgb(255 255 255 / 20%) !important;
-        }
-
-        .LemonButton__icon {
-            color: #fff !important;
-        }
-    }
 }
 
 .LemonButtonWithSideAction {
@@ -195,8 +195,8 @@
     position: absolute;
     top: 50%;
     right: 0.5rem;
-    transform: translateY(-50%);
     background: none;
+    transform: translateY(-50%);
 
     .LemonButtonWithSideAction--small & {
         right: 0.375rem;

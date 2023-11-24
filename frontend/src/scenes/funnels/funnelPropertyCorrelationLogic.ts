@@ -1,17 +1,16 @@
-import { kea, props, key, path, selectors, listeners, connect, reducers, actions, defaults } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { appendToCorrelationConfig } from './funnelUtils'
-import api from 'lib/api'
-import { lemonToast } from '@posthog/lemon-ui'
-
-import type { funnelPropertyCorrelationLogicType } from './funnelPropertyCorrelationLogicType'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
+import type { funnelPropertyCorrelationLogicType } from './funnelPropertyCorrelationLogicType'
+import { appendToCorrelationConfig } from './funnelUtils'
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from

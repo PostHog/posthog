@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { Scene } from 'scenes/sceneTypes'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
-import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SidebarChangeNoticeTooltip } from '~/layout/navigation/SideBar/SidebarChangeNotice'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */

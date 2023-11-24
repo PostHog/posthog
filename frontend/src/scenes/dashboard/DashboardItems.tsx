@@ -1,18 +1,18 @@
 import './DashboardItems.scss'
 
-import { useRef, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
-
-import { DashboardMode, DashboardType, DashboardPlacement, DashboardTile } from '~/types'
-import { insightsModel } from '~/models/insightsModel'
-import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
+import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { useRef, useState } from 'react'
+import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
+import { insightsModel } from '~/models/insightsModel'
+import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {

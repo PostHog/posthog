@@ -1,3 +1,6 @@
+import '../../lib/components/Cards/InsightCard/InsightCard.scss'
+
+import { captureException } from '@sentry/react'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -6,18 +9,17 @@ import {
     detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightShortId } from '~/types'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
-import '../../lib/components/Cards/InsightCard/InsightCard.scss'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Link } from 'lib/lemon-ui/Link'
+import { areObjectValuesEmpty, pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
-import { captureException } from '@sentry/react'
+import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'

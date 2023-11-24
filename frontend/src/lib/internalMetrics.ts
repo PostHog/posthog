@@ -1,5 +1,5 @@
-import posthog from 'posthog-js'
 import api, { getJSONOrThrow } from 'lib/api'
+import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 export interface TimeToSeeDataPayload {

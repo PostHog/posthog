@@ -1,18 +1,20 @@
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
+    Attribute,
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
+    ExtendedRegExpMatchArray,
     FocusPosition as EditorFocusPosition,
     getText,
     JSONContent as TTJSONContent,
     Range as EditorRange,
     TextSerializer,
-    ExtendedRegExpMatchArray,
-    Attribute,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
+
 import { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
 
 // TODO: fix the typing of string to NotebookNodeType
@@ -53,8 +55,8 @@ export interface JSONContent extends TTJSONContent {}
 
 export {
     ChainedCommands as EditorCommands,
-    Range as EditorRange,
     FocusPosition as EditorFocusPosition,
+    Range as EditorRange,
 } from '@tiptap/core'
 
 export type CustomNotebookNodeAttributes = Record<string, any>

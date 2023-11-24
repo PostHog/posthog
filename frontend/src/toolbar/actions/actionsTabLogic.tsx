@@ -1,17 +1,19 @@
-import { kea, path, actions, connect, reducers, selectors, listeners } from 'kea'
-import api from 'lib/api'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import type { actionsTabLogicType } from './actionsTabLogicType'
-import { ActionType, ElementType } from '~/types'
-import { ActionDraftType, ActionForm } from '~/toolbar/types'
-import { posthog } from '~/toolbar/posthog'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { urls } from 'scenes/urls'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { urls } from 'scenes/urls'
+
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { posthog } from '~/toolbar/posthog'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ActionDraftType, ActionForm } from '~/toolbar/types'
+import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
+import { ActionType, ElementType } from '~/types'
+
+import type { actionsTabLogicType } from './actionsTabLogicType'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
@@ -67,7 +69,12 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     }),
 
     connect(() => ({
-        values: [toolbarLogic, ['dataAttributes'], actionsLogic, ['allActions']],
+        values: [
+            toolbarConfigLogic,
+            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId', 'dataAttributes'],
+            actionsLogic,
+            ['allActions'],
+        ],
     })),
 
     reducers({
@@ -147,7 +154,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     ...formValues,
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
                 }
-                const { apiURL, temporaryToken } = toolbarLogic.values
+                const { apiURL, temporaryToken } = values
                 const { selectedActionId } = values
 
                 let response: ActionType
@@ -247,22 +254,21 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         },
         selectAction: ({ id }) => {
             if (id) {
-                if (!toolbarLogic.values.buttonVisible) {
-                    toolbarLogic.actions.showButton()
+                if (!values.buttonVisible) {
+                    toolbarConfigLogic.actions.showButton()
                 }
 
                 if (!values.buttonActionsVisible) {
                     actions.showButtonActions()
                 }
-                if (!toolbarButtonLogic.values.actionsInfoVisible) {
-                    toolbarButtonLogic.actions.showActionsInfo()
-                }
+
+                toolbarLogic.actions.setVisibleMenu('actions')
             }
         },
         inspectElementSelected: ({ element, index }) => {
             if (values.actionForm) {
                 const actionStep = actionStepToActionStepFormItem(
-                    elementToActionStep(element, toolbarLogic.values.dataAttributes),
+                    elementToActionStep(element, values.dataAttributes),
                     true
                 )
                 const newSteps = (values.actionForm.steps || []).map((step, i) =>
@@ -275,8 +281,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             }
         },
         deleteAction: async () => {
-            const { apiURL, temporaryToken } = toolbarLogic.values
-            const { selectedActionId } = values
+            const { selectedActionId, apiURL, temporaryToken } = values
             if (selectedActionId && selectedActionId !== 'new') {
                 await api.delete(
                     `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
@@ -295,13 +300,13 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: false })
         },
         [actionsLogic.actionTypes.getActionsSuccess]: () => {
-            const { userIntent } = toolbarLogic.values
+            const { userIntent, actionId } = values
             if (userIntent === 'edit-action') {
-                actions.selectAction(toolbarLogic.values.actionId)
-                toolbarLogic.actions.clearUserIntent()
+                actions.selectAction(actionId)
+                toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-action') {
                 actions.newAction()
-                toolbarLogic.actions.clearUserIntent()
+                toolbarConfigLogic.actions.clearUserIntent()
             } else {
                 actions.setShowActionsTooltip(true)
             }
