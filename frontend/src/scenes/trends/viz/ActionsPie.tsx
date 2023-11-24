@@ -1,18 +1,21 @@
 import './ActionsPie.scss'
-import { useState, useEffect } from 'react'
-import { getSeriesColor } from 'lib/colors'
+
 import { useValues } from 'kea'
-import { ChartParams, GraphType, GraphDataset, ChartDisplayType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
-import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { getSeriesColor } from 'lib/colors'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useEffect, useState } from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
+
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsPie({

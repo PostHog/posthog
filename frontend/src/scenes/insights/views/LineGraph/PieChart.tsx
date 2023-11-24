@@ -1,19 +1,24 @@
-import { useEffect, useRef } from 'react'
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+import { useActions, useValues } from 'kea'
 import {
     ActiveElement,
     Chart,
+    ChartDataset,
     ChartEvent,
     ChartItem,
-    ChartType,
-    TooltipModel,
     ChartOptions,
-    ChartDataset,
+    ChartType,
     Plugin,
+    TooltipModel,
 } from 'lib/Chart'
-import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty } from '~/lib/utils'
-import { GraphType } from '~/types'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import {
     ensureTooltip,
     filterNestedDataset,
@@ -21,14 +26,11 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useActions, useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+
+import { areObjectValuesEmpty } from '~/lib/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -144,12 +146,8 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            return (showValueOnSeries !== false || // show if true or unset
-                                showLabelOnSeries) &&
-                                context.dataset.data.length > 1 &&
-                                percentage > 5
-                                ? 'auto'
-                                : false
+                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {
                             // in order to make numbers below 10 look circular we need a little padding

@@ -1,18 +1,21 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
-import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
-import { userLogic } from 'scenes/userLogic'
+
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb, FinalizedBreadcrumb } from '~/types'
-import { subscriptions } from 'kea-subscriptions'
+
+import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),

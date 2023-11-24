@@ -1,19 +1,21 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import type { insightSceneLogicType } from './insightSceneLogicType'
-import { urls } from 'scenes/urls'
-import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogicType } from 'scenes/insights/insightLogicType'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { insightSceneLogicType } from './insightSceneLogicType'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),

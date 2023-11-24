@@ -1,10 +1,12 @@
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
-import { useEffect, useState } from 'react'
-import equal from 'fast-deep-equal'
 import { LemonButton } from '@posthog/lemon-ui'
-import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
+import equal from 'fast-deep-equal'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { useEffect, useState } from 'react'
+
+import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
+
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
+import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters

@@ -1,14 +1,16 @@
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
-import type { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { OrganizationMemberType } from '~/types'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { membershipLevelToName } from 'lib/utils/permissioning'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import Fuse from 'fuse.js'
+
+import { OrganizationMemberType } from '~/types'
+
+import type { membersLogicType } from './membersLogicType'
 
 export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 

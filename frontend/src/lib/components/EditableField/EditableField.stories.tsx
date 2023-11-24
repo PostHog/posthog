@@ -1,7 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { useState } from 'react'
 
 import { EditableField as EditableFieldComponent } from './EditableField'
-import { useState } from 'react'
 
 const meta: Meta<typeof EditableFieldComponent> = {
     title: 'Components/Editable Field',

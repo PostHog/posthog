@@ -1,9 +1,29 @@
 import { useValues } from 'kea'
+import {
+    formatPropertyLabel,
+    isAnyPropertyfilter,
+    isCohortPropertyFilter,
+    isPropertyFilterWithOperator,
+} from 'lib/components/PropertyFilters/utils'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 import {
     FilterLogicalOperator,
     FilterType,
@@ -12,27 +32,9 @@ import {
     PathsFilterType,
     PropertyGroupFilter,
 } from '~/types'
-import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
-import { KEY_MAPPING } from 'lib/taxonomy'
 import { TZLabel } from '../../TZLabel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import React from 'react'
-import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import {
-    formatPropertyLabel,
-    isAnyPropertyfilter,
-    isCohortPropertyFilter,
-    isPropertyFilterWithOperator,
-} from 'lib/components/PropertyFilters/utils'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,

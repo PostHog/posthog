@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
@@ -24,8 +25,9 @@ export const startAnalyticsEventsIngestionHistoricalConsumer = async ({
         We don't want to move events to overflow from here, it's fine for the processing to
         take longer, but we want the locality constraints to be respected like normal ingestion.
     */
+    const tokenBlockList = buildStringMatcher(hub.DROP_EVENTS_BY_TOKEN, false)
     const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
-        await eachBatchParallelIngestion(messages, queue, IngestionOverflowMode.Disabled)
+        await eachBatchParallelIngestion(tokenBlockList, messages, queue, IngestionOverflowMode.Disabled)
     }
 
     const queue = new IngestionConsumer(

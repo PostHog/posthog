@@ -1,7 +1,15 @@
+import { EventType, eventWithTime } from '@rrweb/types'
+import { captureException } from '@sentry/react'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { toParams } from 'lib/utils'
+import { chainToElements } from 'lib/utils/elements-chain'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
+
+import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -20,15 +28,9 @@ import {
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventType, eventWithTime } from '@rrweb/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
+
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { chainToElements } from 'lib/utils/elements-chain'
-import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import posthog from 'posthog-js'
-import { NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.

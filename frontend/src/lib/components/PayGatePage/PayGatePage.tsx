@@ -1,10 +1,12 @@
-import { useValues } from 'kea'
-import { identifierToHuman } from 'lib/utils'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PayGatePage.scss'
-import { AvailableFeature } from '~/types'
+
+import { useValues } from 'kea'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { identifierToHuman } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+
+import { AvailableFeature } from '~/types'
 
 interface PayGatePageInterface {
     header: string | JSX.Element

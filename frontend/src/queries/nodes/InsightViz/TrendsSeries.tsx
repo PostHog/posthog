@@ -1,19 +1,20 @@
-import { useValues, useActions } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { FilterType } from '~/types'
-import { alphabet } from 'lib/utils'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsQuery, FunnelsQuery, LifecycleQuery, StickinessQuery } from '~/queries/schema'
-import { isInsightQueryNode } from '~/queries/utils'
-import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
-
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { alphabet } from 'lib/utils'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { groupsModel } from '~/models/groupsModel'
+import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { isInsightQueryNode } from '~/queries/utils'
+import { FilterType } from '~/types'
+
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

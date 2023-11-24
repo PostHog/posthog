@@ -48,13 +48,13 @@
     }
 
     .mx-#{escape-number($space)} {
-        margin-left: #{$space * 0.25}rem;
         margin-right: #{$space * 0.25}rem;
+        margin-left: #{$space * 0.25}rem;
     }
 
     .-mx-#{escape-number($space)} {
-        margin-left: #{-$space * 0.25}rem;
         margin-right: #{-$space * 0.25}rem;
+        margin-left: #{-$space * 0.25}rem;
     }
 
     .my-#{escape-number($space)} {
@@ -68,8 +68,8 @@
     }
 
     .px-#{escape-number($space)} {
-        padding-left: #{$space * 0.25}rem;
         padding-right: #{$space * 0.25}rem;
+        padding-left: #{$space * 0.25}rem;
     }
 
     .py-#{escape-number($space)} {
@@ -86,8 +86,8 @@
     }
 
     .inset-x-#{escape-number($space)} {
-        left: #{$space * 0.25}rem;
         right: #{$space * 0.25}rem;
+        left: #{$space * 0.25}rem;
     }
 
     .inset-y-#{escape-number($space)} {
@@ -431,8 +431,8 @@ $decorations: underline, overline, line-through, no-underline;
         border-color: var(--#{$name});
     }
     .border-x-#{$name} {
-        border-left-color: var(--#{$name});
         border-right-color: var(--#{$name});
+        border-left-color: var(--#{$name});
     }
     .border-y-#{$name} {
         border-top-color: var(--#{$name});
@@ -755,11 +755,6 @@ $decorations: underline, overline, line-through, no-underline;
     $prefix: if($name == 'base', '', $name + '\\:');
 
     @include screen($size) {
-        @for $i from 1 through 12 {
-            .#{$prefix}grid-cols-#{$i} {
-                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
-            }
-        }
         .#{$prefix}grid-cols-none {
             grid-template-columns: none;
         }
@@ -768,29 +763,11 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}col-auto {
             grid-column: auto;
         }
-
-        @for $i from 1 through 12 {
-            .#{$prefix}col-span-#{$i} {
-                grid-column: span #{$i} / span #{$i};
-            }
-        }
         .#{$prefix}col-span-full {
             grid-column: 1 / -1;
         }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-start-#{$i} {
-                grid-column-start: #{$i};
-            }
-        }
         .#{$prefix}col-start-auto {
             grid-column-start: auto;
-        }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-end-#{$i} {
-                grid-column-end: #{$i};
-            }
         }
         .#{$prefix}col-end-auto {
             grid-column-end: auto;
@@ -800,14 +777,53 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}row-auto {
             grid-row: auto;
         }
+        .#{$prefix}row-span-full {
+            grid-row: 1 / -1;
+        }
+        .#{$prefix}row-start-auto {
+            grid-row-start: auto;
+        }
+        .#{$prefix}row-end-auto {
+            grid-row-end: auto;
+        }
+        .#{$prefix}gap-px {
+            gap: 1px;
+        }
+        .#{$prefix}gap-x-px {
+            column-gap: 1px;
+        }
+        .#{$prefix}gap-y-px {
+            row-gap: 1px;
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}grid-cols-#{$i} {
+                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
+            }
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}col-span-#{$i} {
+                grid-column: span #{$i} / span #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-start-#{$i} {
+                grid-column-start: #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-end-#{$i} {
+                grid-column-end: #{$i};
+            }
+        }
 
         @for $i from 1 through 6 {
             .#{$prefix}row-span-#{$i} {
                 grid-row: span #{$i} / span #{$i};
             }
-        }
-        .#{$prefix}row-span-full {
-            grid-row: 1 / -1;
         }
 
         @for $i from 1 through 7 {
@@ -815,17 +831,11 @@ $decorations: underline, overline, line-through, no-underline;
                 grid-row-start: #{$i};
             }
         }
-        .#{$prefix}row-start-auto {
-            grid-row-start: auto;
-        }
 
         @for $i from 1 through 7 {
             .#{$prefix}row-end-#{$i} {
                 grid-row-end: #{$i};
             }
-        }
-        .#{$prefix}row-end-auto {
-            grid-row-end: auto;
         }
 
         // Gap
@@ -839,15 +849,6 @@ $decorations: underline, overline, line-through, no-underline;
             .#{$prefix}gap-y-#{escape-number($space)} {
                 row-gap: #{$space * 0.25}rem;
             }
-        }
-        .#{$prefix}gap-px {
-            gap: 1px;
-        }
-        .#{$prefix}gap-x-px {
-            column-gap: 1px;
-        }
-        .#{$prefix}gap-y-px {
-            row-gap: 1px;
         }
     }
 }
@@ -898,8 +899,8 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .break-normal {
-    overflow-wrap: normal;
     word-break: normal;
+    overflow-wrap: normal;
 }
 
 .break-words {
@@ -1026,8 +1027,8 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .rounded-b {
-    border-bottom-left-radius: var(--radius); /* 4px */
     border-bottom-right-radius: var(--radius); /* 4px */
+    border-bottom-left-radius: var(--radius); /* 4px */
 }
 
 .rounded-none {
@@ -1323,6 +1324,14 @@ $decorations: underline, overline, line-through, no-underline;
     visibility: hidden;
 }
 
+.resize {
+    resize: both;
+}
+
+.resize-x {
+    resize: horizontal;
+}
+
 .resize-y {
     resize: vertical;
 }
@@ -1350,16 +1359,16 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .line-clamp-2 {
-    overflow: hidden;
     display: -webkit-box;
+    overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
 
 .transition-all {
-    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
+    transition-property: all;
 }
 
 .aspect-auto {

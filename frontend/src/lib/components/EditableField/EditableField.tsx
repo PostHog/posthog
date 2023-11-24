@@ -1,12 +1,13 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
+
+import clsx from 'clsx'
 import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import TextareaAutosize from 'react-textarea-autosize'
-import clsx from 'clsx'
-import { pluralize } from 'lib/utils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import TextareaAutosize from 'react-textarea-autosize'
 
 export interface EditableFieldProps {
     /** What this field stands for. */

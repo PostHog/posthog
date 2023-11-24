@@ -1,11 +1,12 @@
 import '~/styles'
 import './styles.scss'
 
+import { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
+
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
-import { PostHog } from 'posthog-js'
 ;(window as any)['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
     initKea()
     const container = document.createElement('div')

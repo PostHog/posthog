@@ -1,5 +1,6 @@
-import { SDK } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { SDK } from '~/types'
 
 export const SDKSnippet = ({ sdk, sdkInstructions }: { sdk: SDK; sdkInstructions: () => JSX.Element }): JSX.Element => {
     return (

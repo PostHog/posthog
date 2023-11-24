@@ -1,10 +1,11 @@
-import { connect, kea, selectors, path } from 'kea'
-
-import type { personDashboardLogicType } from './personDashboardLogicType'
-import { DashboardPlacement, PersonType } from '~/types'
+import { connect, kea, path, selectors } from 'kea'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+
+import { DashboardPlacement, PersonType } from '~/types'
+
+import type { personDashboardLogicType } from './personDashboardLogicType'
 
 export interface PersonDashboardLogicProps {
     person: PersonType

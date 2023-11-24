@@ -1,5 +1,5 @@
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter } from '~/types'
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({

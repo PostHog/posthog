@@ -1,13 +1,15 @@
-import { CSSProperties, useEffect } from 'react'
+import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { propertyFilterLogic } from './propertyFilterLogic'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { objectsEqual } from 'lib/utils'
+import { CSSProperties, useEffect } from 'react'
+
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { PropertyFilterButton } from './components/PropertyFilterButton'
-import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { propertyFilterLogic } from './propertyFilterLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null

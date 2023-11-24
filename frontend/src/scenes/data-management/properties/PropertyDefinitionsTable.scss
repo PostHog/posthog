@@ -1,8 +1,8 @@
 .event-properties-definition-table {
     .LemonTable__content > table > tbody {
         td.definition-column-icon {
-            padding-right: 0.5rem;
             width: 36px;
+            padding-right: 0.5rem;
 
             .definition-column-name-icon {
                 display: flex;
@@ -27,18 +27,18 @@
 
         td.definition-column-name {
             .definition-column-name-content {
+                position: relative;
                 display: flex;
                 flex-direction: column;
-                position: relative;
-                min-height: 32px;
                 justify-content: center;
+                min-height: 32px;
 
                 .definition-column-name-content-title {
-                    align-items: center;
-                    cursor: pointer;
                     display: flex;
-                    font-weight: 600;
                     gap: 0.25rem;
+                    align-items: center;
+                    font-weight: 600;
+                    cursor: pointer;
 
                     svg {
                         color: var(--success);

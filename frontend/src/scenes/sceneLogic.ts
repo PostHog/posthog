@@ -1,18 +1,20 @@
-import { BuiltLogic, kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
-import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from './userLogic'
-import { handleLoginRedirect } from './authentication/loginLogic'
-import { teamLogic } from './teamLogic'
-import { urls } from 'scenes/urls'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { organizationLogic } from './organizationLogic'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature } from '~/types'
+
 import { appContextLogic } from './appContextLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
+import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import type { sceneLogicType } from './sceneLogicType'
+import { teamLogic } from './teamLogic'
+import { userLogic } from './userLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {

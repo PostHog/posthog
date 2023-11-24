@@ -1,10 +1,10 @@
-import { kea, props, key, path, connect, selectors, reducers, actions } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
 import { FunnelCorrelation, InsightLogicProps } from '~/types'
 
-import { funnelDataLogic } from './funnelDataLogic'
-
 import type { funnelCorrelationDetailsLogicType } from './funnelCorrelationDetailsLogicType'
+import { funnelDataLogic } from './funnelDataLogic'
 
 export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicType>([
     props({} as InsightLogicProps),

@@ -1,4 +1,13 @@
+import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import clsx from 'clsx'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { capitalizeFirstLetter, delay, range } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import {
     LemonButton,
     LemonButtonProps,
@@ -6,15 +15,7 @@ import {
     LemonButtonWithDropdownProps,
     LemonButtonWithSideAction,
 } from './LemonButton'
-import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
 import { More } from './More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { capitalizeFirstLetter, delay, range } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import clsx from 'clsx'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
@@ -28,6 +29,9 @@ const meta: Meta<typeof LemonButton> = {
         icon: {
             type: 'function',
         },
+    },
+    parameters: {
+        testOptions: { include3000: true },
     },
 }
 export default meta

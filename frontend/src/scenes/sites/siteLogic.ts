@@ -1,8 +1,9 @@
-import { kea, props, selectors, path } from 'kea'
+import { kea, path, props, selectors } from 'kea'
+import { Scene } from 'scenes/sceneTypes'
+
 import { Breadcrumb } from '~/types'
 
 import type { siteLogicType } from './siteLogicType'
-import { Scene } from 'scenes/sceneTypes'
 
 export interface SiteLogicProps {
     url: string

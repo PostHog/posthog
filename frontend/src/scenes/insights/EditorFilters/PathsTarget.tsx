@@ -1,12 +1,11 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
-
+import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
+import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { FunnelPathType, EditorFilterProps } from '~/types'
-import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { EditorFilterProps, FunnelPathType } from '~/types'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTarget position="start" {...props} />

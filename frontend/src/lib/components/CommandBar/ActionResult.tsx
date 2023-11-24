@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
 
-import { actionBarLogic } from './actionBarLogic'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
+import { actionBarLogic } from './actionBarLogic'
 
 type SearchResultProps = {
     result: CommandResultDisplayable
@@ -22,9 +22,11 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     }, [focused])
 
     return (
-        <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
+        <div className={`border-l-4 ${isExecutable ? 'border-primary-3000' : ''}`}>
             <div
-                className={`w-full pl-3 pr-2 ${focused ? 'bg-accent-3000' : 'bg-bg-light'} border-b cursor-pointer`}
+                className={`flex items-center w-full pl-3 pr-2 ${
+                    focused ? 'bg-bg-3000' : 'bg-bg-light'
+                } border-b cursor-pointer`}
                 onMouseEnter={() => {
                     onMouseEnterResult(result.index)
                 }}
@@ -42,6 +44,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                     <result.icon className="text-muted-3000" />
                     <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
                 </div>
+                {focused && <div className="shrink-0 text-primary-3000">Run command</div>}
             </div>
         </div>
     )

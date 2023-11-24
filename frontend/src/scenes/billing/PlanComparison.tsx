@@ -1,15 +1,18 @@
-import React from 'react'
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import './PlanComparison.scss'
+
+import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
-import { billingLogic } from './billingLogic'
+import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+
+import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
+import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
     feature,

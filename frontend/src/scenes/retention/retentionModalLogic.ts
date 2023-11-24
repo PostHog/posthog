@@ -1,13 +1,13 @@
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightLogicProps } from '~/types'
-import { retentionPeopleLogic } from './retentionPeopleLogic'
-
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { groupsModel, Noun } from '~/models/groupsModel'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
-import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 

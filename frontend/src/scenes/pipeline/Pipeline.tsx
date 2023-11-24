@@ -1,14 +1,16 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { PipelineTabs } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Transformations } from './Transformations'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { PipelineTabs } from '~/types'
+
 import { NewButton } from './NewButton'
+import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
