@@ -34,20 +34,20 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <IconNotebook className="text-3xl" />
                     <div className="flex-1">
                         <h3 className="mb-0 font-semibold">Notebooks</h3>
-                        <span>Gather your adhoc queries, ideas, replays, and more into a single place.</span>
+                        <span>Explore your ideas, gather your data and come to conclusions in a single document.</span>
                     </div>
                 </li>
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconInfo className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">In-app Docs</h3>
+                        <h3 className="mb-0 font-semibold">In-app docs</h3>
                         <span>Get contextual information from our docs without needing to leave the app.</span>
                     </div>
                 </li>
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconSearch className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Global Search</h3>
+                        <h3 className="mb-0 font-semibold">Global search + commands</h3>
                         <span>
                             Search from anywhere in the app simply starting by pressing <KeyboardShortcut shift k />
                         </span>

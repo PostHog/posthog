@@ -64,8 +64,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.Welcome)
                 tabs.push(SidePanelTab.Activation)
+                tabs.push(SidePanelTab.Welcome)
 
                 return tabs
             },
