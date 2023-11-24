@@ -59,16 +59,14 @@ export function transformEventToWeb(event: unknown): eventWithTime | null {
     }
 }
 
-export function transformToWeb(mobileData: (eventWithTime | mobileEventWithTime)[]): string {
-    const response = mobileData.reduce((acc, event) => {
+export function transformToWeb(mobileData: (eventWithTime | mobileEventWithTime)[]): eventWithTime[] {
+    return mobileData.reduce((acc, event) => {
         const transformed = transformEventToWeb(event)
         if (transformed) {
             acc.push(transformed)
         }
         return acc
     }, [] as eventWithTime[])
-
-    return JSON.stringify(response)
 }
 
 export function validateAgainstWebSchema(data: unknown): boolean {

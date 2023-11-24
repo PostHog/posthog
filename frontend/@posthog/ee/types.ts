@@ -8,5 +8,6 @@ export type PostHogEE = {
     mobileReplay?: {
         // defined as unknown while the mobileEventWithTime type is in the ee folder
         transformEventToWeb(x: unknown): eventWithTime | null
+        transformToWeb(x: unknown[]): eventWithTime[]
     }
 }

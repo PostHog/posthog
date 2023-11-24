@@ -1,6 +1,6 @@
 import { PostHogEE } from '@posthog/ee/types'
 
-import { transformEventToWeb } from './mobile-replay'
+import { transformEventToWeb, transformToWeb } from './mobile-replay'
 
 const myTestCode = (): void => {
     // eslint-disable-next-line no-console
@@ -12,6 +12,7 @@ const postHogEE: PostHogEE = {
     myTestCode,
     mobileReplay: {
         transformEventToWeb,
+        transformToWeb,
     },
 }
 

@@ -250,6 +250,7 @@
         "eslint-plugin-compat": "^4.2.0",
         "eslint-plugin-cypress": "^2.15.1",
         "eslint-plugin-eslint-comments": "^3.2.0",
+        "eslint-plugin-import": "^2.29.0",
         "eslint-plugin-jest": "^27.4.3",
         "eslint-plugin-no-only-tests": "^3.1.0",
         "eslint-plugin-posthog": "link:./eslint-rules",

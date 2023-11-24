@@ -1,3 +1,4 @@
+import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
@@ -29,7 +30,6 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 
-import postHogEE from '../../../../../ee/frontend/exports'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
@@ -44,8 +44,8 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], ses
 
             // TODO can we type this better and still have mobileEventWithTime in ee folder?
             return snapshotData.map((d: unknown) => {
-                const snap = postHogEE.mobileReplay
-                    ? postHogEE.mobileReplay.transformEventToWeb(d)
+                const snap = posthogEE.mobileReplay
+                    ? posthogEE.mobileReplay.transformEventToWeb(d)
                     : (d as eventWithTime)
                 return {
                     windowId: snapshotLine['window_id'],
