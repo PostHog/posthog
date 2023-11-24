@@ -15,6 +15,7 @@ import {
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
+    redis,
     reloadPlugins,
     updatePluginConfig,
     waitForPluginToLoad,
@@ -230,7 +231,7 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
             }
 
             async function teardownPlugin(meta) {
-                console.log({ method: "teardownPlugin" })
+                await meta.cache.lpush("teardown", "x")
             }
         `,
     })
@@ -260,10 +261,8 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
     await updatePluginConfig(teamId, pluginConfig.id, { updated_at: new Date().toISOString() })
     await reloadPlugins()
 
-    await waitForExpect(async () => {
-        const logs = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        expect(logs.filter((log) => log.message.method === 'teardownPlugin')).toHaveLength(1)
-    })
+    const signalKey = `@plugin/${plugin.id}/${teamId}/teardown`
+    expect(await redis.blpop(signalKey, 10)).toEqual([signalKey, 'x'])
 })
 
 test.concurrent(`plugin method tests: can update distinct_id via processEvent`, async () => {
