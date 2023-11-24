@@ -7,6 +7,6 @@ export type PostHogEE = {
     myTestCode?: () => void
     mobileReplay?: {
         // defined as unknown while the mobileEventWithTime type is in the ee folder
-        transformEventToWeb(x: unknown[]): eventWithTime | null
+        transformEventToWeb(x: unknown): eventWithTime | null
     }
 }

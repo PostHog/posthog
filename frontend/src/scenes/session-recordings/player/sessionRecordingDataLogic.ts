@@ -29,7 +29,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 
-import { transformEventToWeb } from '../../../../../ee/frontend/mobile-replay'
+import postHogEE from '../../../../../ee/frontend/exports'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
@@ -44,7 +44,9 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], ses
 
             // TODO can we type this better and still have mobileEventWithTime in ee folder?
             return snapshotData.map((d: unknown) => {
-                const snap = transformEventToWeb(d)
+                const snap = postHogEE.mobileReplay
+                    ? postHogEE.mobileReplay.transformEventToWeb(d)
+                    : (d as eventWithTime)
                 return {
                     windowId: snapshotLine['window_id'],
                     ...(snap || (d as eventWithTime)),
