@@ -17,6 +17,7 @@ export interface NavbarButtonProps {
     icon: ReactElement
     title?: string
     shortTitle?: string
+    alwaysShowTitle?: boolean
     tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
@@ -30,7 +31,17 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(
     (
-        { identifier, shortTitle, title, tag, onClick, persistentTooltip, keyboardShortcut, ...buttonProps },
+        {
+            identifier,
+            shortTitle,
+            title,
+            alwaysShowTitle,
+            tag,
+            onClick,
+            persistentTooltip,
+            keyboardShortcut,
+            ...buttonProps
+        },
         ref
     ): JSX.Element => {
         const { aliasedActiveScene } = useValues(sceneLogic)
@@ -113,7 +124,13 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     </Tooltip>
                 ) : (
                     <Tooltip
-                        title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
+                        title={
+                            alwaysShowTitle || isNavCollapsedActually
+                                ? here
+                                    ? `${title} (you are here)`
+                                    : title
+                                : null
+                        }
                         placement="right"
                         delayMs={0}
                         visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
