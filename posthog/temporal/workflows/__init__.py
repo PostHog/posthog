@@ -15,6 +15,7 @@ from posthog.temporal.workflows.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity,
 )
+from posthog.temporal.workflows.cohort_for_flag import CreateCohortForFlagWorkflow, cohort_for_flag
 from posthog.temporal.workflows.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.workflows.postgres_batch_export import (
     PostgresBatchExportWorkflow,
@@ -43,6 +44,7 @@ WORKFLOWS = [
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
+    CreateCohortForFlagWorkflow,
 ]
 
 ACTIVITIES: Sequence[Callable] = [
@@ -65,4 +67,5 @@ ACTIVITIES: Sequence[Callable] = [
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,
+    cohort_for_flag,
 ]

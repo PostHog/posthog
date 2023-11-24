@@ -79,6 +79,7 @@ class Command(BaseCommand):
                             rollout_percentage=100,
                             name=flag,
                             key=flag,
+                            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
                             created_by=first_user,
                             active=is_enabled,
                         )
