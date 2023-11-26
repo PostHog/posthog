@@ -116,7 +116,7 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     posthoganalytics.capture(
         user.distinct_id,
         "user updated",
-        properties={"updated_attrs": updated_attrs},
+        properties={"updated_attrs": updated_attrs, "$set": user.get_analytics_metadata()},
         groups=groups(user.current_organization, user.current_team),
     )
 
