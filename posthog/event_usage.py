@@ -211,6 +211,7 @@ def report_user_organization_membership_level_changed(
         properties={
             "new_level": new_level,
             "previous_level": previous_level,
+            "$set": user.get_analytics_metadata(),
         },
         groups=groups(organization),
     )
