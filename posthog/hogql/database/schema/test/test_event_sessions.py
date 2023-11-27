@@ -38,7 +38,7 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["team_id"]),
+            left=ast.Alias(alias="team_id", hidden=True, expr=ast.Field(chain=["team_id"])),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=1),
         )
@@ -56,7 +56,7 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["timestamp"]),
+            left=ast.Alias(alias="timestamp", hidden=True, expr=ast.Field(chain=["timestamp"])),
             op=ast.CompareOperationOp.Gt,
             right=ast.Constant(value="2023-01-01"),
         )
@@ -74,7 +74,7 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["team_id"]),
+            left=ast.Alias(alias="team_id", hidden=True, expr=ast.Field(chain=["team_id"])),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=1),
         )
@@ -92,12 +92,12 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 2
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["team_id"]),
+            left=ast.Alias(alias="team_id", hidden=True, expr=ast.Field(chain=["team_id"])),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=1),
         )
         assert compare_operators[1] == ast.CompareOperation(
-            left=ast.Field(chain=["timestamp"]),
+            left=ast.Alias(alias="timestamp", hidden=True, expr=ast.Field(chain=["timestamp"])),
             op=ast.CompareOperationOp.Gt,
             right=ast.Constant(value="2023-01-01"),
         )
@@ -117,7 +117,7 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["team_id"]),
+            left=ast.Alias(alias="team_id", hidden=True, expr=ast.Field(chain=["team_id"])),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=1),
         )

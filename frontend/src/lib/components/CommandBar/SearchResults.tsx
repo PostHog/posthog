@@ -37,7 +37,7 @@ export const SearchResults = (): JSX.Element => {
                         />
                     ))}
             </div>
-            <div className="w-1/2 p-2">
+            <div className="w-1/2 p-2 overflow-y-auto">
                 <SearchResultPreview />
             </div>
         </div>
