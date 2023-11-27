@@ -18,7 +18,8 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
 use tokio::sync::Notify;
-use tracing::debug;
+use tokio::time::timeout;
+use tracing::{debug, warn};
 
 use capture::config::{Config, KafkaConfig};
 use capture::server::serve;
@@ -32,6 +33,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
+        kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
@@ -174,9 +176,14 @@ impl EphemeralTopic {
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
         debug!("dropping EphemeralTopic {}...", self.topic_name);
-        _ = self.consumer.unassign();
-        futures::executor::block_on(delete_topic(self.topic_name.clone()));
-        debug!("dropped topic");
+        self.consumer.unsubscribe();
+        match futures::executor::block_on(timeout(
+            Duration::from_secs(10),
+            delete_topic(self.topic_name.clone()),
+        )) {
+            Ok(_) => debug!("dropped topic"),
+            Err(err) => warn!("failed to drop topic: {}", err),
+        }
     }
 }
 

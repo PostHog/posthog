@@ -45,7 +45,8 @@ where
             .await;
 
         let partition = PartitionLimiter::new(config.per_second_limit, config.burst_limit);
-        let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition).unwrap();
+        let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition)
+            .expect("failed to start Kafka sink");
 
         router::router(
             crate::time::SystemTime {},

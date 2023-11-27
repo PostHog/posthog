@@ -228,11 +228,10 @@ pub async fn process_events<'a>(
     tracing::debug!(events=?events, "processed {} events", events.len());
 
     if events.len() == 1 {
-        sink.send(events[0].clone()).await?;
+        sink.send(events[0].clone()).await
     } else {
-        sink.send_batch(events).await?;
+        sink.send_batch(events).await
     }
-    Ok(())
 }
 
 #[cfg(test)]
