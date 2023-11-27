@@ -5,8 +5,16 @@ export enum BarStatus {
     SHOW_SHORTCUTS = 'show_shortcuts',
 }
 
-export type ResultType = 'action' | 'cohort' | 'insight' | 'dashboard' | 'experiment' | 'feature_flag' | 'notebook'
-
+export type ResultTypePostgres =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+export type ResultTypeClickhouse = 'person'
+export type ResultType = ResultTypePostgres | ResultTypeClickhouse
 export type ResultTypeWithAll = ResultType | 'all'
 
 export type SearchResult = {

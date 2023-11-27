@@ -31,8 +31,29 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(300)
+
                     if (values.activeTab === 'all') {
-                        return await api.get(`api/projects/@current/search?q=${values.searchQuery}`)
+                        const length = values.searchQuery.length
+                        const A = 2.0
+                        const personsRank = length / (length + A)
+                        const personsResponse = await api.get(
+                            `api/projects/@current/persons?search=${values.searchQuery}`
+                        )
+                        personsResponse.results = personsResponse.results.map((p) => ({
+                            type: 'person',
+                            result_id: p.uuid,
+                            extra_fields: { name: p.name },
+                            rank: personsRank,
+                        }))
+
+                        const searchResponse = await api.get(`api/projects/@current/search?q=${values.searchQuery}`)
+
+                        searchResponse.results = [...personsResponse.results, ...searchResponse.results].sort(
+                            (a, b) => a.rank - b.rank
+                        )
+                        searchResponse.counts = { ...searchResponse.counts, person: 9999 }
+
+                        return searchResponse
                     } else {
                         return await api.get(
                             `api/projects/@current/search?q=${values.searchQuery}&entities=${values.activeTab}`
@@ -173,6 +194,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.insightView(result.result_id as InsightShortId)
         case 'notebook':
             return urls.notebook(result.result_id)
+        case 'person':
+            return urls.personByUUID(result.result_id)
         default:
             throw new Error(`No action for type '${result.type}' defined.`)
     }
