@@ -101,10 +101,6 @@ class CohortForFlagInputs:
     batchsize: int
 
 
-# TODO: Maybe it's better for the activity to be for a specific batch?
-# So if we need to retry, due to say network partitions, it's only that specific batch that is retried, and not the whole thing.
-# and then we can have much smaller timeouts per batch
-# TODO: Does logging & sentry capture exception work as usual?
 @activity.defn
 async def cohort_for_flag(inputs: CohortForFlagInputs) -> None:
     """Populate a cohort with persons that match a feature flag.
