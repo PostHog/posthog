@@ -74,7 +74,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
-                        mode={undefined}
                         data-attr="playlist-name"
                     />
                 }

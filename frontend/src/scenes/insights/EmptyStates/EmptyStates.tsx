@@ -322,7 +322,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
                                 icon={<PlusCircleOutlined />}
                                 className="add-insight-button"
                             >
-                                New Insight
+                                New insight
                             </LemonButton>
                         </Link>
                     </div>
