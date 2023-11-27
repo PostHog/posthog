@@ -231,7 +231,7 @@ $_lifecycle_dormant: $_danger;
     --bg-bridge: #ebece8;
 
     // Non-color vars
-    --radius: 4px;
+    --radius: 0.25rem;
     --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
@@ -469,4 +469,5 @@ $_lifecycle_dormant: $_danger;
     --primary-alt-highlight: var(--primary-alt-highlight-3000);
     --data-color-1: #1d4aff;
     --data-color-10: #35416b;
+    --radius: 0.375rem;
 }
