@@ -1,24 +1,25 @@
-import { useValues, useActions } from 'kea'
-import { LoadingOutlined } from '@ant-design/icons'
-import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { Link, Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import {
     IconCheckCircleOutline,
     IconErrorOutline,
+    IconRefresh,
     IconUnfoldLess,
     IconUnfoldMore,
-    IconRefresh,
     IconWarning,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { Link } from '@posthog/lemon-ui'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 
 export const scene: SceneExport = {
     component: PreflightCheck,
@@ -27,7 +28,7 @@ export const scene: SceneExport = {
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
     if (loading) {
-        return <LoadingOutlined style={{ color: 'var(--primary)' }} />
+        return <Spinner textColored className="text-primary" />
     }
     if (status === 'validated') {
         return <IconCheckCircleOutline />

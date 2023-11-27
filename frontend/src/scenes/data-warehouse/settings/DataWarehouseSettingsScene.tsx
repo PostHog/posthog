@@ -1,12 +1,14 @@
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
+import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -20,7 +22,9 @@ const StatusTagSetting = {
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
+        useValues(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -42,7 +46,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
                             key={'new-data-warehouse-easy-link'}
-                            onClick={toggleSourceModal}
+                            onClick={() => toggleSourceModal()}
                         >
                             Link Source
                         </LemonButton>
@@ -74,6 +78,50 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         render: function RenderStatus(_, source) {
                             return (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                            )
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, source) {
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    {sourceReloadingById[source.id] ? (
+                                        <div>
+                                            <Spinner />
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <More
+                                                overlay={
+                                                    <>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                            key={`reload-data-warehouse-${source.source_type}`}
+                                                            onClick={() => {
+                                                                reloadSource(source)
+                                                            }}
+                                                        >
+                                                            Reload
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            status="danger"
+                                                            data-attr={`delete-data-warehouse-${source.source_type}`}
+                                                            key={`delete-data-warehouse-${source.source_type}`}
+                                                            onClick={() => {
+                                                                deleteSource(source)
+                                                            }}
+                                                        >
+                                                            Delete
+                                                        </LemonButton>
+                                                    </>
+                                                }
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             )
                         },
                     },

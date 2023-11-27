@@ -1,4 +1,4 @@
-import { StoryFn, Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 

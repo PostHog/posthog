@@ -37,6 +37,22 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
     )
 
 
+def activate_connection_by_id(connection_id: str):
+    update_connection_status_by_id(connection_id, "active")
+
+
+def deactivate_connection_by_id(connection_id: str):
+    update_connection_status_by_id(connection_id, "inactive")
+
+
+def update_connection_status_by_id(connection_id: str, status: str):
+    connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
+
+    payload = {"status": status}
+
+    send_request(connection_id_url, method="PATCH", payload=payload)
+
+
 def update_connection_stream(connection_id: str):
     connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
 
@@ -62,7 +78,8 @@ def start_sync(connection_id: str):
         send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
     except Exception as e:
         logger.exception(
-            f"Sync Resource failed with an unexpected exception for connection id: {connection_id}", exc_info=e
+            f"Data Warehouse: Sync Resource failed with an unexpected exception for connection id: {connection_id}",
+            exc_info=e,
         )
 
 

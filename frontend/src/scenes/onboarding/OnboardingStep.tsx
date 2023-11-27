@@ -1,10 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -14,6 +15,7 @@ export const OnboardingStep = ({
     showSkip = false,
     onSkip,
     continueOverride,
+    backActionOverride,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -22,6 +24,7 @@ export const OnboardingStep = ({
     showSkip?: boolean
     onSkip?: () => void
     continueOverride?: JSX.Element
+    backActionOverride?: () => void
 }): JSX.Element => {
     const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
@@ -39,14 +42,20 @@ export const OnboardingStep = ({
                 <div className="mb-4">
                     <LemonButton
                         icon={<IconArrowLeft />}
-                        onClick={() => (hasPreviousStep ? goToPreviousStep() : router.actions.push(urls.products()))}
+                        onClick={() =>
+                            backActionOverride
+                                ? backActionOverride()
+                                : hasPreviousStep
+                                ? goToPreviousStep()
+                                : router.actions.push(urls.products())
+                        }
                     >
                         Back
                     </LemonButton>
                 </div>
             }
         >
-            <div className="w-md">
+            <div className="max-w-md">
                 <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}

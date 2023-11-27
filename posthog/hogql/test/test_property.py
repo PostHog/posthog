@@ -65,6 +65,29 @@ class TestProperty(BaseTest):
             ast.Constant(value=1),
         )
 
+    def test_property_to_expr_group(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b"}),
+            self._parse_expr("group_0.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 3, "key": "a", "value": "b"}),
+            self._parse_expr("group_3.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
+            ),
+        )
+
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr({"type": "group", "key": "a", "value": "b"})
+        self.assertEqual(
+            str(e.exception),
+            "Missing required key group_type_index for property type group",
+        )
+
     def test_property_to_expr_event(self):
         self.assertEqual(
             self._property_to_expr({"key": "a", "value": "b"}),
@@ -163,7 +186,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a = 'b' or properties.a = 'c'"),
+            self._parse_expr("properties.a IN ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -183,7 +206,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b' and properties.a != 'c'"),
+            self._parse_expr("properties.a NOT IN ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(

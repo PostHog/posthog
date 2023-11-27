@@ -2,13 +2,17 @@
     position: absolute;
     top: 0;
     right: 0;
-    pointer-events: none;
     z-index: 1;
     width: 1rem;
     height: 0.5rem;
     margin-top: 0.25rem;
+    pointer-events: none;
     background-color: var(--primary);
-    border-radius: var(--radius) 0px 0px var(--radius);
+    border-radius: var(--radius) 0 0 var(--radius);
     transition: transform 200ms linear;
     will-change: transform;
+
+    .posthog-3000 & {
+        background-color: var(--primary-3000);
+    }
 }

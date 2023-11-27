@@ -1,7 +1,15 @@
+import { EventType, eventWithTime } from '@rrweb/types'
+import { captureException } from '@sentry/react'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { toParams } from 'lib/utils'
+import { chainToElements } from 'lib/utils/elements-chain'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
+
+import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -20,15 +28,9 @@ import {
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventWithTime } from '@rrweb/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
+
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { chainToElements } from 'lib/utils/elements-chain'
-import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import posthog from 'posthog-js'
-import { NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -265,7 +267,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportViewed: async (_, breakpoint) => {
             const durations = generateRecordingReportDurations(cache, values)
 
-            await breakpoint()
+            breakpoint()
             // Triggered on first paint
             eventUsageLogic.actions.reportRecording(
                 values.sessionPlayerData,
@@ -311,7 +313,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
-                breakpoint(100)
+                await breakpoint(100)
                 await api.recordings.persist(props.sessionRecordingId)
 
                 return {
@@ -597,6 +599,42 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionPlayerSnapshotData],
             (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
                 return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
+            },
+        ],
+
+        snapshotsInvalid: [
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, p.sessionRecordingId],
+            (snapshotsByWindowId, fullyLoaded, sessionRecordingId): boolean => {
+                if (!fullyLoaded) {
+                    return false
+                }
+
+                const windowsHaveFullSnapshot = Object.entries(snapshotsByWindowId).reduce(
+                    (acc, [windowId, events]) => {
+                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                            (event) => event.type === EventType.FullSnapshot
+                        )
+                        return acc
+                    },
+                    {}
+                )
+                const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
+                const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
+
+                if (everyWindowMissingFullSnapshot) {
+                    // video is definitely unplayable
+                    posthog.capture('recording_has_no_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                } else if (anyWindowMissingFullSnapshot) {
+                    posthog.capture('recording_window_missing_full_snapshot', {
+                        ...windowsHaveFullSnapshot,
+                        sessionId: sessionRecordingId,
+                    })
+                }
+
+                return everyWindowMissingFullSnapshot
             },
         ],
 

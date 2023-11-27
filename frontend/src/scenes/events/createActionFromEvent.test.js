@@ -1,7 +1,9 @@
-import { api } from 'lib/api.mock'
 import { router } from 'kea-router'
-import { createActionFromEvent } from './createActionFromEvent'
+import { api } from 'lib/api.mock'
+
 import { initKeaTests } from '~/test/init'
+
+import { createActionFromEvent } from './createActionFromEvent'
 
 describe('createActionFromEvent()', () => {
     given(

@@ -1,21 +1,15 @@
 import { useValues } from 'kea'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { PageHeader } from 'lib/components/PageHeader'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/lemon-ui/Link'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
 import { ReadingHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
-    component: IngestionWarningsView,
-    logic: ingestionWarningsLogic,
-}
+import { ProductKey } from '~/types'
+
+import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
@@ -147,12 +141,6 @@ export function IngestionWarningsView(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-            <DataManagementPageTabs tab={DataManagementTab.IngestionWarnings} />
             {data.length > 0 || dataLoading ? (
                 <>
                     <div className="mb-4">Data ingestion related warnings from past 30 days.</div>

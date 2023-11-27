@@ -1,8 +1,10 @@
-import { useState } from 'react'
 import { Button, Col, Divider, Input, Row } from 'antd'
 import { useActions } from 'kea'
-import { asyncMigrationsLogic } from './asyncMigrationsLogic'
+import { useState } from 'react'
+
 import { InstanceSetting } from '~/types'
+
+import { asyncMigrationsLogic } from './asyncMigrationsLogic'
 
 export function SettingUpdateField({ setting }: { setting: InstanceSetting }): JSX.Element {
     const { updateSetting } = useActions(asyncMigrationsLogic)

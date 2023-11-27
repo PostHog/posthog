@@ -122,6 +122,7 @@ async def test_update_export_run_status(activity_environment, team, batch_export
     update_inputs = UpdateBatchExportRunStatusInputs(
         id=str(run_id),
         status="Completed",
+        team_id=inputs.team_id,
     )
     await activity_environment.run(update_export_run_status, update_inputs)
 

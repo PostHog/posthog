@@ -1,9 +1,10 @@
 .LemonCard {
     transition: 200ms ease;
+
     &.LemonCard--hoverEffect {
         &:hover {
-            transform: scale(1.01);
             box-shadow: var(--shadow-elevation);
+            transform: scale(1.01);
         }
     }
 }

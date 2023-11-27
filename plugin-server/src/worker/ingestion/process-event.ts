@@ -28,7 +28,7 @@ import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
-import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
@@ -68,12 +68,6 @@ export class EventsProcessor {
         timestamp: DateTime,
         eventUuid: string
     ): Promise<PreIngestionEvent> {
-        if (!UUID.validateString(eventUuid, false)) {
-            await captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(eventUuid),
-            })
-            throw new Error(`Not a valid UUID: "${eventUuid}"`)
-        }
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
             event: JSON.stringify(data),
@@ -144,16 +138,19 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
-        } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
-            status.warn('⚠️', 'Failed to update property definitions for an event', {
-                event,
-                properties,
-                err,
-            })
+        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+            try {
+                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            } catch (err) {
+                Sentry.captureException(err, { tags: { team_id: team.id } })
+                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                    event,
+                    properties,
+                    err,
+                })
+            }
         }
+
         // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 

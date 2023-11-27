@@ -1,10 +1,6 @@
-import { KeyMapping, PropertyFilterValue } from '~/types'
-import { Link } from './lemon-ui/Link'
+import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
 
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
+import { Link } from './lemon-ui/Link'
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
@@ -142,8 +138,8 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     This variable will be set to the distinct ID if you've called{' '}
-                    <pre style={{ display: 'inline' }}>posthog.identify('distinct id')</pre>. If the user is anonymous,
-                    it'll be empty.
+                    <pre className="inline">posthog.identify('distinct id')</pre>. If the user is anonymous, it'll be
+                    empty.
                 </span>
             ),
         },
@@ -665,6 +661,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'GeoIP Disabled',
             description: `Whether to skip GeoIP processing for the event.`,
         },
+        $el_text: {
+            label: 'Element Text',
+            description: `The text of the element that was clicked. Only sent with Autocapture events.`,
+            examples: ['Click here!'],
+        },
         // NOTE: This is a hack. $session_duration is a session property, not an event property
         // but we don't do a good job of tracking property types, so making it a session property
         // would require a large refactor, and this works (because all properties are treated as
@@ -835,7 +836,7 @@ export function getKeyMapping(
         data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+            data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {

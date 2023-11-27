@@ -1,29 +1,28 @@
 import './HelpButton.scss'
-import { kea, useActions, useValues, props, key, path, connect, actions, reducers, listeners } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { HelpType } from '~/types'
-import type { helpButtonLogicType } from './HelpButtonType'
+
+import { Placement } from '@floating-ui/react'
+import clsx from 'clsx'
+import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import {
     IconArrowDropDown,
     IconArticle,
-    IconHelpOutline,
-    IconQuestionAnswer,
-    IconMessages,
-    IconFlare,
-    IconLive,
-    IconSupport,
-    IconFeedback,
     IconBugReport,
+    IconFeedback,
+    IconHelpOutline,
+    IconMessages,
+    IconQuestionAnswer,
+    IconSupport,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { Placement } from '@floating-ui/react'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
-import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { HelpType } from '~/types'
+
 import { supportLogic } from '../Support/supportLogic'
 import { SupportModal } from '../Support/SupportModal'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { helpButtonLogicType } from './HelpButtonType'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,8 +87,6 @@ export function HelpButton({
     const { validProductTourSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
@@ -103,20 +100,6 @@ export function HelpButton({
         <>
             <LemonMenu
                 items={[
-                    !contactOnly && {
-                        items: [
-                            {
-                                icon: <IconLive />,
-                                label: "What's new?",
-                                onClick: () => {
-                                    reportHelpButtonUsed(HelpType.Updates)
-                                    hideHelp()
-                                },
-                                to: 'https://posthog.com/changelog',
-                                targetBlank: true,
-                            },
-                        ],
-                    },
                     showSupportOptions && {
                         items: [
                             {
@@ -182,14 +165,6 @@ export function HelpButton({
                                     hideHelp()
                                 },
                             },
-                            {
-                                label: `${hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
-                                icon: <IconFlare />,
-                                onClick: () => {
-                                    setHedgehogModeEnabled(!hedgehogModeEnabled)
-                                    hideHelp()
-                                },
-                            },
                         ],
                     },
                 ]}
@@ -208,7 +183,6 @@ export function HelpButton({
                     )}
                 </div>
             </LemonMenu>
-            <HedgehogBuddyWithLogic />
             <SupportModal />
         </>
     )

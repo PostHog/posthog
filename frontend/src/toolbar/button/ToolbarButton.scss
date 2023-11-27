@@ -1,29 +1,27 @@
 #button-toolbar {
     position: fixed;
-    left: 0;
     top: 0;
+    left: 0;
     z-index: 2147483020;
     opacity: 1;
     transition: opacity ease 0.5s;
 
     .circle-button {
+        box-shadow: 0 0.3px 0.7px rgb(0 0 0 / 25%), 0 0.8px 1.7px rgb(0 0 0 / 18%), 0 1.5px 3.1px rgb(0 0 0 / 14.9%),
+            0 2.7px 5.4px rgb(0 0 0 / 12.5%), 0 5px 10px rgb(0 0 0 / 10.1%), 0 12px 24px rgb(0 0 0 / 7%);
         transition: box-shadow 0.2s ease;
-        box-shadow: 0 0.3px 0.7px rgba(0, 0, 0, 0.25), 0 0.8px 1.7px rgba(0, 0, 0, 0.18),
-            0 1.5px 3.1px rgba(0, 0, 0, 0.149), 0 2.7px 5.4px rgba(0, 0, 0, 0.125), 0 5px 10px rgba(0, 0, 0, 0.101),
-            0 12px 24px rgba(0, 0, 0, 0.07);
 
         &:hover {
-            box-shadow: 0 1.3px 2.7px rgba(0, 0, 0, 0.25), 0 3.2px 6.4px rgba(0, 0, 0, 0.18),
-                0 6px 12px rgba(0, 0, 0, 0.149), 0 10.7px 21.4px rgba(0, 0, 0, 0.125),
-                0 20.1px 40.1px rgba(0, 0, 0, 0.101), 0 48px 96px rgba(0, 0, 0, 0.07);
+            box-shadow: 0 1.3px 2.7px rgb(0 0 0 / 25%), 0 3.2px 6.4px rgb(0 0 0 / 18%), 0 6px 12px rgb(0 0 0 / 14.9%),
+                0 10.7px 21.4px rgb(0 0 0 / 12.5%), 0 20.1px 40.1px rgb(0 0 0 / 10.1%), 0 48px 96px rgb(0 0 0 / 7%);
         }
     }
 
     .circle-label {
         font-weight: bold;
-        text-shadow: black 0 0 1px, black 0 0 2px, rgba(0, 0, 0, 0.25) 0 0.3px 0.7px, rgba(0, 0, 0, 0.18) 0 0.8px 1.6px,
-            rgba(0, 0, 0, 0.15) 0 1.5px 3px, rgba(0, 0, 0, 0.125) 0 2.7px 5.4px, rgba(0, 0, 0, 0.1) 0 5px 10px,
-            rgba(0, 0, 0, 0.07) 0 12px 24px;
+        text-shadow: black 0 0 1px, black 0 0 2px, rgb(0 0 0 / 25%) 0 0.3px 0.7px, rgb(0 0 0 / 18%) 0 0.8px 1.6px,
+            rgb(0 0 0 / 15%) 0 1.5px 3px, rgb(0 0 0 / 12.5%) 0 2.7px 5.4px, rgb(0 0 0 / 10%) 0 5px 10px,
+            rgb(0 0 0 / 7%) 0 12px 24px;
     }
 
     & + .HedgehogBuddy {
@@ -33,17 +31,17 @@
 
 .toolbar-info-windows {
     position: fixed;
-    width: 300px;
-    left: 0;
     top: 0;
+    left: 0;
     z-index: 2147483020;
-    box-shadow: 0 0.3px 0.7px rgba(0, 0, 0, 0.25), 0 0.8px 1.7px rgba(0, 0, 0, 0.18), 0 1.5px 3.1px rgba(0, 0, 0, 0.149),
-        0 2.7px 5.4px rgba(0, 0, 0, 0.125), 0 5px 10px rgba(0, 0, 0, 0.101), 0 12px 24px rgba(0, 0, 0, 0.07);
+    width: 300px;
+    background-color: rgb(255 255 255);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 0.3px 0.7px rgb(0 0 0 / 25%), 0 0.8px 1.7px rgb(0 0 0 / 18%), 0 1.5px 3.1px rgb(0 0 0 / 14.9%),
+        0 2.7px 5.4px rgb(0 0 0 / 12.5%), 0 5px 10px rgb(0 0 0 / 10.1%), 0 12px 24px rgb(0 0 0 / 7%);
     opacity: 1;
     transition: opacity ease 0.5s;
-    background-color: rgba(255, 255, 255);
-    border-radius: 4px;
-    border: 1px solid var(--border);
 
     .toolbar-block {
         max-height: 80vh;
@@ -51,48 +49,47 @@
     }
 
     .toolbar-info-window-title {
-        line-height: 26px;
         display: flex;
         align-items: center;
-        margin: 0 8px 0 8px;
+        margin: 0 8px;
+        line-height: 26px;
         border-bottom: 1px solid var(--border);
 
         .toolbar-info-window-draggable {
-            cursor: move;
-            flex: 1;
             display: flex;
-            width: 100%;
+            flex: 1;
             align-items: center;
+            width: 100%;
+            padding: 15px 0;
             cursor: move;
-            padding: 15px 0 15px 0;
 
             .window-label {
+                padding-left: 8px;
+                margin-bottom: 0;
                 font-size: 14px;
                 font-weight: bold;
-                margin-bottom: 0;
-                padding-left: 8px;
             }
         }
 
         .close-button {
-            cursor: pointer;
             padding: 8px;
-            color: rgba(0, 0, 0, 0.6);
+            color: rgb(0 0 0 / 60%);
+            cursor: pointer;
             transition: color 0.1s ease-in-out;
 
             &:hover {
-                color: rgb(0, 0, 0);
+                color: rgb(0 0 0);
             }
         }
     }
 }
 
 .overridden-tag {
+    padding: 0 4px;
     margin-left: 5px;
     font-size: 11px;
-    padding: 0 4px;
+    font-weight: bold;
     line-height: 20px;
     background: var(--mark);
     border-radius: 4px;
-    font-weight: bold;
 }

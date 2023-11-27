@@ -3,27 +3,27 @@
     gap: 0.5rem;
 
     .PropertyFilters__content {
-        flex: 1;
         display: flex;
+        flex: 1;
         flex-wrap: wrap;
         gap: 0.5rem;
         overflow: hidden;
     }
 
     .PropertyFilters__prefix {
-        color: #c4c4c4;
+        padding: 0 5px;
         font-size: 18px;
+        color: #c4c4c4;
         user-select: none;
-        padding: 0px 5px;
     }
 
     .logical-row-divider {
-        font-weight: 600;
-        font-size: 12px;
-        text-transform: uppercase;
         align-items: flex-start;
         margin-top: 0.5rem;
-        margin-bottom: 0px;
+        margin-bottom: 0;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
 
         &::before,
         &::after {

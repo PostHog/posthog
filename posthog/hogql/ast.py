@@ -38,6 +38,14 @@ class FieldAliasType(Type):
     def has_child(self, name: str) -> bool:
         return self.type.has_child(name)
 
+    def resolve_constant_type(self):
+        return self.type.resolve_constant_type()
+
+    def resolve_database_field(self):
+        if isinstance(self.type, FieldType):
+            return self.type.resolve_database_field()
+        raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
+
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
@@ -346,6 +354,12 @@ class LambdaArgumentType(Type):
 class Alias(Expr):
     alias: str
     expr: Expr
+    """
+    Aliases are "hidden" if they're automatically created by HogQL when abstracting fields.
+    E.g. "events.timestamp" gets turned into a "toTimeZone(events.timestamp, 'UTC') AS timestamp".
+    Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
+    """
+    hidden: bool = False
 
 
 class ArithmeticOperationOp(str, Enum):

@@ -1,23 +1,22 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'kea'
-
 import { loaders } from 'kea-loaders'
-import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, NotebookType } from '~/types'
-
-import api from 'lib/api'
-import posthog from 'posthog-js'
-import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
-import { deleteWithUndo } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
-import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
-
-import type { notebooksModelType } from './notebooksModelType'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-import { urls } from 'scenes/urls'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import posthog from 'posthog-js'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
+
+import type { notebooksModelType } from './notebooksModelType'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -28,7 +27,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 
 export const openNotebook = async (
     notebookId: string,
-    target: NotebookTarget = NotebookTarget.Auto,
+    target: NotebookTarget,
     focus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
@@ -60,8 +59,8 @@ export const notebooksModel = kea<notebooksModelType>([
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
+            location: NotebookTarget,
             title?: string,
-            location: NotebookTarget = NotebookTarget.Auto,
             content?: JSONContent[],
             onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
         ) => ({
@@ -81,7 +80,7 @@ export const notebooksModel = kea<notebooksModelType>([
 
     reducers({
         scratchpadNotebook: [
-            SCRATCHPAD_NOTEBOOK as NotebookListItemType,
+            SCRATCHPAD_NOTEBOOK,
             {
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
@@ -106,7 +105,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         content: defaultNotebookContent(title, content),
                     })
 
-                    openNotebook(notebook.short_id, location, 'end', (logic) => {
+                    await openNotebook(notebook.short_id, location, 'end', (logic) => {
                         onCreate?.(logic)
                     })
 
@@ -118,7 +117,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {
-                    deleteWithUndo({
+                    await deleteWithUndo({
                         endpoint: `projects/${values.currentTeamId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
                         callback: actions.loadNotebooks,
@@ -138,14 +137,14 @@ export const notebooksModel = kea<notebooksModelType>([
             },
         ],
         notebookTemplates: [
-            LOCAL_NOTEBOOK_TEMPLATES as NotebookType[],
+            LOCAL_NOTEBOOK_TEMPLATES,
             {
                 // In the future we can load these from remote
             },
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ asyncActions }) => ({
         createNotebookFromDashboard: async ({ dashboard }) => {
             const queries = dashboard.tiles.reduce((acc, tile) => {
                 if (!tile.insight) {
@@ -186,7 +185,7 @@ export const notebooksModel = kea<notebooksModelType>([
                 },
             }))
 
-            await actions.createNotebook(dashboard.name + ' (copied)', NotebookTarget.Auto, resources)
+            await asyncActions.createNotebook(NotebookTarget.Scene, dashboard.name + ' (copied)', resources)
         },
     })),
 ])

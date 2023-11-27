@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { CohortTextField } from './CohortField'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTextFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+
+import { CohortTextField } from './CohortField'
 
 type Story = StoryObj<typeof CohortTextField>
 const meta: Meta<typeof CohortTextField> = {

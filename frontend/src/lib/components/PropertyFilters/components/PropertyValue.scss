@@ -1,9 +1,9 @@
 .property-filters-property-value {
     min-width: 150px;
     min-height: 40px;
+    background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background-color: var(--bg-light);
 
     .ant-select-selection-search,
     .ant-select-selection-placeholder {
@@ -14,22 +14,22 @@
 
     &.ant-select-single {
         .ant-select-selector {
-            min-height: 38px !important;
             height: unset;
-            border: none !important;
+            min-height: 38px !important;
             background-color: inherit;
+            border: none !important;
         }
     }
 
     &.ant-select-multiple {
         .ant-select-selector {
             height: 100% !important;
-            border: none !important;
             padding: 5px 40px 5px 11px;
             background-color: inherit;
+            border: none !important;
 
             .ant-select-selection-search {
-                padding-left: 0px !important;
+                padding-left: 0 !important;
             }
 
             .ant-select-selection-placeholder {

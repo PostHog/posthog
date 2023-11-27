@@ -9,6 +9,7 @@
             "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
             "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "storybook/*": ["../.storybook/*"],
+            "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
             "public/*": ["public/*"]
         },
@@ -33,8 +34,8 @@
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*"],
-    "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*", "ee/frontend/**/*"],
+    "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"

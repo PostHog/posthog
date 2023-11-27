@@ -1,4 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { beforeUnload, router } from 'kea-router'
+import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
@@ -11,17 +17,11 @@ import {
     Breadcrumb,
 } from '~/types'
 
-import api from 'lib/api'
-import { forms } from 'kea-forms'
-import { urls } from 'scenes/urls'
-import { beforeUnload, router } from 'kea-router'
-
 import type { batchExportsEditLogicType } from './batchExportEditLogicType'
-import { dayjs, Dayjs } from 'lib/dayjs'
 import { batchExportLogic } from './batchExportLogic'
 
 export type BatchExportsEditLogicProps = {
-    id: string | 'new'
+    id: string
 }
 
 export type BatchExportConfigurationForm = Omit<
@@ -267,22 +267,25 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             (s) => [s.batchExportConfig, s.isNew],
             (config, isNew): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 ...(isNew
                     ? [
                           {
+                              key: 'new',
                               name: 'New',
                           },
                       ]
                     : [
                           {
-                              name: config?.name ?? 'Loading',
+                              key: config?.id ?? 'loading',
+                              name: config?.name,
                               path: config?.id ? urls.batchExport(config.id) : undefined,
                           },
-
                           {
+                              key: 'edit',
                               name: 'Edit',
                           },
                       ]),

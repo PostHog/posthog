@@ -1,8 +1,10 @@
-import { kea, path, actions, reducers, events } from 'kea'
-import type { featureFlagLogicType } from './featureFlagLogicType'
-import posthog from 'posthog-js'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
 import { AppContext } from '~/types'
+
+import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string
@@ -84,9 +86,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    events(({ actions }) => ({
-        afterMount: () => {
-            posthog.onFeatureFlags(actions.setFeatureFlags)
-        },
-    })),
+    afterMount(({ actions }) => {
+        posthog.onFeatureFlags(actions.setFeatureFlags)
+    }),
 ])

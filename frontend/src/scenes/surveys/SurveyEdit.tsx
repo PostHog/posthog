@@ -1,7 +1,5 @@
 import './EditSurvey.scss'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Group } from 'kea-forms'
+
 import {
     LemonBanner,
     LemonButton,
@@ -14,17 +12,37 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { FlagSelector } from 'lib/components/FlagSelector'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field, PureField } from 'lib/forms/Field'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+
 import {
+    AvailableFeature,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    LinkSurveyQuestion,
-    RatingSurveyQuestion,
     SurveyUrlMatchType,
-    AvailableFeature,
 } from '~/types'
-import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    SurveyQuestionLabel,
+    SurveyUrlMatchTypeLabels,
+} from './constants'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 import {
     BaseAppearance,
     Customization,
@@ -32,23 +50,9 @@ import {
     SurveyMultipleChoiceAppearance,
     SurveyRatingAppearance,
 } from './SurveyAppearance'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import {
-    defaultSurveyFieldValues,
-    defaultSurveyAppearance,
-    SurveyQuestionLabel,
-    SurveyUrlMatchTypeLabels,
-} from './constants'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React from 'react'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { FlagSelector } from 'lib/components/FlagSelector'
 
 function PresentationTypeCard({
     title,
@@ -67,8 +71,12 @@ function PresentationTypeCard({
 }): JSX.Element {
     return (
         <div
-            style={{ borderColor: active ? 'var(--primary)' : 'var(--border)', height: 230, width: 260 }}
-            className="border rounded-md relative px-4 py-2 overflow-hidden"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: 230, width: 260 }}
+            className={clsx(
+                'border rounded-md relative px-4 py-2 overflow-hidden',
+                active ? 'border-primary' : 'border-border'
+            )}
         >
             <p className="font-semibold m-0">{title}</p>
             {description && <p className="m-0 text-xs">{description}</p>}
@@ -211,9 +219,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
                                                                                         }}
-                                                                                        question="Share your thoughts"
-                                                                                        description="Optional form description."
-                                                                                        type={SurveyQuestionType.Open}
+                                                                                        question={{
+                                                                                            type: SurveyQuestionType.Open,
+                                                                                            question:
+                                                                                                'Share your thoughts',
+                                                                                            description:
+                                                                                                'Optional form description',
+                                                                                        }}
                                                                                     />
                                                                                 ),
                                                                             },
@@ -227,11 +239,14 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         appearance={{
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
-                                                                                            submitButtonText:
-                                                                                                'Register',
                                                                                         }}
-                                                                                        question="Do you want to join our upcoming webinar?"
-                                                                                        type={SurveyQuestionType.Link}
+                                                                                        question={{
+                                                                                            type: SurveyQuestionType.Link,
+                                                                                            question:
+                                                                                                'Do you want to join our upcoming webinar?',
+                                                                                            buttonText: 'Register',
+                                                                                            link: '',
+                                                                                        }}
                                                                                     />
                                                                                 ),
                                                                             },
@@ -246,16 +261,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                                             ...survey.appearance,
                                                                                             whiteLabel: true,
                                                                                         }}
-                                                                                        question="How satisfied are you with our product?"
-                                                                                        description="Optional form description."
                                                                                         ratingSurveyQuestion={{
+                                                                                            question:
+                                                                                                'How satisfied are you with our product?',
+                                                                                            description:
+                                                                                                'Optional form description.',
                                                                                             display: 'number',
                                                                                             lowerBoundLabel:
                                                                                                 'Not great',
                                                                                             upperBoundLabel:
                                                                                                 'Fantastic',
-                                                                                            question:
-                                                                                                'How satisfied are you with our product?',
                                                                                             scale: 5,
                                                                                             type: SurveyQuestionType.Rating,
                                                                                         }}
@@ -275,7 +290,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                 ...survey.appearance,
                                                                                                 whiteLabel: true,
                                                                                             }}
-                                                                                            question="Have you found this tutorial useful?"
                                                                                             multipleChoiceQuestion={{
                                                                                                 type: SurveyQuestionType.SingleChoice,
                                                                                                 choices: ['Yes', 'No'],
@@ -297,7 +311,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                                                 ...survey.appearance,
                                                                                                 whiteLabel: true,
                                                                                             }}
-                                                                                            question="Which types of content would you like to see more of?"
                                                                                             multipleChoiceQuestion={{
                                                                                                 type: SurveyQuestionType.MultipleChoice,
                                                                                                 choices: [
@@ -439,80 +452,202 @@ export default function SurveyEdit(): JSX.Element {
                                                                     question.type ===
                                                                         SurveyQuestionType.MultipleChoice) && (
                                                                     <div className="flex flex-col gap-2">
-                                                                        <Field name="choices" label="Choices">
-                                                                            {({ value, onChange }) => (
-                                                                                <div className="flex flex-col gap-2">
-                                                                                    {(value || []).map(
-                                                                                        (
-                                                                                            choice: string,
-                                                                                            index: number
-                                                                                        ) => (
-                                                                                            <div
-                                                                                                className="flex flex-row gap-2"
-                                                                                                key={index}
-                                                                                            >
-                                                                                                <LemonInput
-                                                                                                    value={choice}
-                                                                                                    fullWidth
-                                                                                                    onChange={(val) => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices[
-                                                                                                            index
-                                                                                                        ] = val
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
-                                                                                                <LemonButton
-                                                                                                    icon={
-                                                                                                        <IconDelete />
-                                                                                                    }
-                                                                                                    size="small"
-                                                                                                    status="muted"
-                                                                                                    noPadding
-                                                                                                    onClick={() => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices.splice(
-                                                                                                            index,
-                                                                                                            1
-                                                                                                        )
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
+                                                                        <Field name="hasOpenChoice">
+                                                                            {({
+                                                                                value: hasOpenChoice,
+                                                                                onChange: toggleHasOpenChoice,
+                                                                            }) => (
+                                                                                <Field name="choices" label="Choices">
+                                                                                    {({ value, onChange }) => (
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            {(value || []).map(
+                                                                                                (
+                                                                                                    choice: string,
+                                                                                                    index: number
+                                                                                                ) => {
+                                                                                                    const isOpenChoice =
+                                                                                                        hasOpenChoice &&
+                                                                                                        index ===
+                                                                                                            value?.length -
+                                                                                                                1
+                                                                                                    return (
+                                                                                                        <div
+                                                                                                            className="flex flex-row gap-2 relative"
+                                                                                                            key={index}
+                                                                                                        >
+                                                                                                            <LemonInput
+                                                                                                                value={
+                                                                                                                    choice
+                                                                                                                }
+                                                                                                                fullWidth
+                                                                                                                onChange={(
+                                                                                                                    val
+                                                                                                                ) => {
+                                                                                                                    const newChoices =
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                        ]
+                                                                                                                    newChoices[
+                                                                                                                        index
+                                                                                                                    ] =
+                                                                                                                        val
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                }}
+                                                                                                            />
+                                                                                                            {isOpenChoice && (
+                                                                                                                <span className="question-choice-open-ended-footer">
+                                                                                                                    open-ended
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                            <LemonButton
+                                                                                                                icon={
+                                                                                                                    <IconDelete />
+                                                                                                                }
+                                                                                                                size="small"
+                                                                                                                status="muted"
+                                                                                                                noPadding
+                                                                                                                onClick={() => {
+                                                                                                                    const newChoices =
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                        ]
+                                                                                                                    newChoices.splice(
+                                                                                                                        index,
+                                                                                                                        1
+                                                                                                                    )
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                    if (
+                                                                                                                        isOpenChoice
+                                                                                                                    ) {
+                                                                                                                        toggleHasOpenChoice(
+                                                                                                                            false
+                                                                                                                        )
+                                                                                                                    }
+                                                                                                                }}
+                                                                                                            />
+                                                                                                        </div>
+                                                                                                    )
+                                                                                                }
+                                                                                            )}
+                                                                                            <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                                                                {(value || []).length <
+                                                                                                    6 && (
+                                                                                                    <>
+                                                                                                        <LemonButton
+                                                                                                            icon={
+                                                                                                                <IconPlusMini />
+                                                                                                            }
+                                                                                                            type="secondary"
+                                                                                                            fullWidth={
+                                                                                                                false
+                                                                                                            }
+                                                                                                            onClick={() => {
+                                                                                                                if (
+                                                                                                                    !value
+                                                                                                                ) {
+                                                                                                                    onChange(
+                                                                                                                        [
+                                                                                                                            '',
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                } else if (
+                                                                                                                    hasOpenChoice
+                                                                                                                ) {
+                                                                                                                    const newChoices =
+                                                                                                                        value.slice(
+                                                                                                                            0,
+                                                                                                                            -1
+                                                                                                                        )
+                                                                                                                    newChoices.push(
+                                                                                                                        ''
+                                                                                                                    )
+                                                                                                                    newChoices.push(
+                                                                                                                        value[
+                                                                                                                            value.length -
+                                                                                                                                1
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                    onChange(
+                                                                                                                        newChoices
+                                                                                                                    )
+                                                                                                                } else {
+                                                                                                                    onChange(
+                                                                                                                        [
+                                                                                                                            ...value,
+                                                                                                                            '',
+                                                                                                                        ]
+                                                                                                                    )
+                                                                                                                }
+                                                                                                            }}
+                                                                                                        >
+                                                                                                            Add choice
+                                                                                                        </LemonButton>
+                                                                                                        {featureFlags[
+                                                                                                            FEATURE_FLAGS
+                                                                                                                .SURVEYS_OPEN_CHOICE
+                                                                                                        ] &&
+                                                                                                            !hasOpenChoice && (
+                                                                                                                <LemonButton
+                                                                                                                    icon={
+                                                                                                                        <IconPlusMini />
+                                                                                                                    }
+                                                                                                                    type="secondary"
+                                                                                                                    fullWidth={
+                                                                                                                        false
+                                                                                                                    }
+                                                                                                                    onClick={() => {
+                                                                                                                        if (
+                                                                                                                            !value
+                                                                                                                        ) {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        } else {
+                                                                                                                            onChange(
+                                                                                                                                [
+                                                                                                                                    ...value,
+                                                                                                                                    'Other',
+                                                                                                                                ]
+                                                                                                                            )
+                                                                                                                        }
+                                                                                                                        toggleHasOpenChoice(
+                                                                                                                            true
+                                                                                                                        )
+                                                                                                                    }}
+                                                                                                                >
+                                                                                                                    Add
+                                                                                                                    open-ended
+                                                                                                                    choice
+                                                                                                                </LemonButton>
+                                                                                                            )}
+                                                                                                    </>
+                                                                                                )}
                                                                                             </div>
-                                                                                        )
+                                                                                        </div>
                                                                                     )}
-                                                                                    <div className="w-fit">
-                                                                                        {(value || []).length < 6 && (
-                                                                                            <LemonButton
-                                                                                                icon={<IconPlusMini />}
-                                                                                                type="secondary"
-                                                                                                fullWidth={false}
-                                                                                                onClick={() => {
-                                                                                                    if (!value) {
-                                                                                                        onChange([''])
-                                                                                                    } else {
-                                                                                                        onChange([
-                                                                                                            ...value,
-                                                                                                            '',
-                                                                                                        ])
-                                                                                                    }
-                                                                                                }}
-                                                                                            >
-                                                                                                Add choice
-                                                                                            </LemonButton>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
+                                                                                </Field>
                                                                             )}
                                                                         </Field>
                                                                     </div>
                                                                 )}
+                                                                <Field name="buttonText" label="Button text">
+                                                                    <LemonInput
+                                                                        value={
+                                                                            question.buttonText === undefined
+                                                                                ? survey.questions.length > 1 &&
+                                                                                  index !== survey.questions.length - 1
+                                                                                    ? 'Next'
+                                                                                    : survey.appearance.submitButtonText
+                                                                                : question.buttonText
+                                                                        }
+                                                                    />
+                                                                </Field>
                                                             </div>
                                                         </Group>
                                                     ),
@@ -581,6 +716,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                               setWritingHTMLDescription
                                                                           }
                                                                           textPlaceholder="ex: We really appreciate it."
+                                                                      />
+                                                                  </PureField>
+                                                                  <PureField label="Auto disappear">
+                                                                      <LemonCheckbox
+                                                                          checked={!!survey.appearance.autoDisappear}
+                                                                          onChange={(checked) =>
+                                                                              setSurveyValue('appearance', {
+                                                                                  ...survey.appearance,
+                                                                                  autoDisappear: checked,
+                                                                              })
+                                                                          }
                                                                       />
                                                                   </PureField>
                                                               </>
@@ -671,13 +817,6 @@ export default function SurveyEdit(): JSX.Element {
                                                             preview
                                                             type={survey.questions[0].type}
                                                             surveyQuestionItem={survey.questions[0]}
-                                                            question={survey.questions[0].question}
-                                                            description={survey.questions[0].description}
-                                                            link={
-                                                                survey.questions[0].type === SurveyQuestionType.Link
-                                                                    ? survey.questions[0].link
-                                                                    : undefined
-                                                            }
                                                             appearance={{
                                                                 ...(survey.appearance || defaultSurveyAppearance),
                                                                 ...(survey.questions.length > 1
@@ -694,13 +833,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div
-                                                        style={{
-                                                            position: 'absolute',
-                                                            left: '1rem',
-                                                            width: 350,
-                                                        }}
-                                                    >
+                                                    <div className="absolute left-4" style={{ width: 350 }}>
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -824,7 +957,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </PureField>
-                                                        <PureField label="Selector matches:">
+                                                        <PureField label="CSS selector matches:">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>
@@ -924,14 +1057,12 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="px-4">
-                <div className="flex flex-col items-center h-full sticky top-0 pt-8">
-                    <SurveyFormAppearance
-                        activePreview={selectedQuestion || 0}
-                        survey={survey}
-                        setActivePreview={(preview) => setSelectedQuestion(preview)}
-                    />
-                </div>
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8">
+                <SurveyFormAppearance
+                    activePreview={selectedQuestion || 0}
+                    survey={survey}
+                    setActivePreview={(preview) => setSelectedQuestion(preview)}
+                />
             </div>
         </div>
     )

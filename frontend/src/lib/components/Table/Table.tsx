@@ -1,10 +1,11 @@
-import { uniqueBy } from 'lib/utils'
-import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { TZLabel } from '../TZLabel'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { ColumnType } from 'antd/lib/table'
+import { useValues } from 'kea'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { uniqueBy } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { TZLabel } from '../TZLabel'
 
 export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
     return {
@@ -13,7 +14,7 @@ export function createdAtColumn<T extends Record<string, any> = Record<string, a
         render: function RenderCreatedAt(_, item): JSX.Element | undefined | '' {
             return (
                 item.created_at && (
-                    <div style={{ whiteSpace: 'nowrap' }}>
+                    <div className="whitespace-nowrap">
                         <TZLabel time={item.created_at} />
                     </div>
                 )
@@ -33,6 +34,7 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
                     {item.created_by && (
                         <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
                     )}
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div style={{ maxWidth: 250, width: 'auto', verticalAlign: 'middle', marginLeft: 8 }}>
                         {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
                     </div>

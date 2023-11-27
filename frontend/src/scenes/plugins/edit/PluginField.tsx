@@ -1,11 +1,11 @@
-import { UploadField } from 'scenes/plugins/edit/UploadField'
-import { Button, Input, Select } from 'antd'
-import { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
-import { EditOutlined } from '@ant-design/icons'
-import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { Button, Input, Select } from 'antd'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { IconEdit } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { UploadField } from 'scenes/plugins/edit/UploadField'
+import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 
 function JsonConfigField(props: {
     onChange: (value: any) => void
@@ -51,7 +51,7 @@ export function PluginField({
     ) {
         return (
             <Button
-                icon={<EditOutlined />}
+                icon={<IconEdit />}
                 onClick={() => {
                     onChange(fieldConfig.default || '')
                     setEditingSecret(true)
@@ -77,7 +77,7 @@ export function PluginField({
             ))}
         </Select>
     ) : (
-        <strong style={{ color: 'var(--danger)' }}>
+        <strong className="text-danger">
             Unknown field type "<code>{fieldConfig.type}</code>".
             <br />
             You may need to upgrade PostHog!

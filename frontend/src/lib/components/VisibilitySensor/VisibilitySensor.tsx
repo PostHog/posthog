@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 import { useEffect, useRef } from 'react'
+
 import { visibilitySensorLogic } from './visibilitySensorLogic'
 
 interface VisibilityProps {

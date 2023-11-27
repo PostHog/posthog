@@ -131,7 +131,7 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     pasteOptions: {
         find: urls.earlyAccessFeature('') + '(.+)',
         getAttributes: async (match) => {
-            return { id: match[1] as EarlyAccessFeatureLogicProps['id'] }
+            return { id: match[1] }
         },
     },
 })

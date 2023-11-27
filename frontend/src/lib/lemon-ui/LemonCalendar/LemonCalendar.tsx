@@ -1,11 +1,12 @@
 import './LemonCalendar.scss'
-import { useEffect, useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import { range } from 'lib/utils'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { range } from 'lib/utils'
+import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {

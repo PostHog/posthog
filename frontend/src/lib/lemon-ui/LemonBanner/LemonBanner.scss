@@ -1,31 +1,32 @@
 .LemonBanner {
-    border-radius: var(--radius);
-    padding: 0.5rem 0.75rem;
-    color: var(--primary-alt);
-    font-weight: 500;
     display: flex;
-    align-items: center;
-    text-align: left;
     gap: 0.5rem;
+    align-items: center;
     min-height: 3rem;
+    padding: 0.5rem 0.75rem;
+    font-weight: 500;
+    color: var(--primary-alt);
+    text-align: left;
+    border: solid 1px var(--border-3000);
+    border-radius: var(--radius);
 
     &.LemonBanner--info {
         background-color: var(--primary-alt-highlight);
     }
 
     &.LemonBanner--warning {
-        background-color: var(--warning-highlight);
         color: var(--warning-dark);
+        background-color: var(--warning-highlight);
     }
 
     &.LemonBanner--error {
-        background-color: var(--danger-highlight);
         color: var(--danger);
+        background-color: var(--danger-highlight);
     }
 
     &.LemonBanner--success {
-        background-color: var(--success-highlight);
         color: var(--success-dark);
+        background-color: var(--success-highlight);
     }
 
     p {
@@ -33,8 +34,8 @@
     }
 
     > .LemonIcon {
-        line-height: 0;
         flex-shrink: 0;
         font-size: 1.5rem;
+        line-height: 0;
     }
 }

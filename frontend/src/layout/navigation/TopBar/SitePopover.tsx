@@ -1,43 +1,48 @@
+import { IconLive } from '@posthog/icons'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { userLogic } from '../../../scenes/userLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
-    IconCheckmark,
-    IconOffline,
-    IconLogout,
-    IconUpdate,
-    IconExclamation,
-    IconBill,
     IconArrowDropDown,
-    IconSettings,
+    IconBill,
+    IconCheckmark,
     IconCorporate,
+    IconExclamation,
+    IconFlare,
+    IconLogout,
+    IconOffline,
     IconPlus,
     IconRedeem,
+    IconSettings,
+    IconUpdate,
 } from 'lib/lemon-ui/icons'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from '../../../scenes/urls'
-import { navigationLogic } from '../navigationLogic'
-import { OrganizationBasicType } from '../../../types'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { organizationLogic } from '../../../scenes/organizationLogic'
+import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { urls } from '../../../scenes/urls'
+import { userLogic } from '../../../scenes/userLogic'
+import { OrganizationBasicType } from '../../../types'
+import { navigationLogic } from '../navigationLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -63,7 +68,7 @@ function AccountInfo(): JSX.Element {
             </div>
             <Tooltip title="Account settings" placement="left">
                 <LemonButton
-                    to={urls.mySettings()}
+                    to={urls.settings('user')}
                     onClick={closeSitePopover}
                     data-attr="top-menu-item-me"
                     status="stealth"
@@ -85,7 +90,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 sideIcon={<IconSettings />}
                 status="stealth"
                 fullWidth
-                to={urls.organizationSettings()}
+                to={urls.settings('organization')}
                 onClick={closeSitePopover}
             >
                 <div className="SitePopover__main-info SitePopover__organization">
@@ -237,6 +242,8 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
+    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
     return (
         <>
@@ -277,11 +284,30 @@ export function SitePopoverOverlay(): JSX.Element {
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
-            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
-                <SitePopoverSection>
+            <SitePopoverSection>
+                <LemonButton
+                    onClick={closeSitePopover}
+                    to={'https://posthog.com/changelog'}
+                    icon={<IconLive />}
+                    fullWidth
+                    data-attr="whats-new-button"
+                    targetBlank
+                >
+                    What's new?
+                </LemonButton>
+                <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
                     <FeaturePreviewsButton />
-                </SitePopoverSection>
-            </FlaggedFeature>
+                </FlaggedFeature>
+
+                <LemonButton
+                    onClick={() => setHedgehogModeEnabled(!hedgehogModeEnabled)}
+                    icon={<IconFlare />}
+                    fullWidth
+                    data-attr="hedgehog-mode-button"
+                >
+                    {hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode
+                </LemonButton>
+            </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />
             </SitePopoverSection>

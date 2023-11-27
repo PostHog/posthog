@@ -1,8 +1,9 @@
 import { actions, kea, path } from 'kea'
-import api from 'lib/api'
-import type { kafkaInspectorLogicType } from './kafkaInspectorLogicType'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+
+import type { kafkaInspectorLogicType } from './kafkaInspectorLogicType'
 export interface KafkaMessage {
     topic: string
     partition: number

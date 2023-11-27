@@ -1,4 +1,5 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+
 import { DataNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
 
@@ -10,7 +11,6 @@ export function DateRange({ query, setQuery }: DateRangeProps): JSX.Element | nu
     if (isEventsQuery(query)) {
         return (
             <DateFilter
-                size="medium"
                 dateFrom={query.after ?? undefined}
                 dateTo={query.before ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {

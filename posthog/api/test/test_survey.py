@@ -365,7 +365,7 @@ class TestSurvey(APIBaseTest):
             "groups": [{"variant": None, "properties": [], "rollout_percentage": 20}]
         }
 
-    def test_updating_survey_to_remove_targeting_doesnt_delete_targeting_flag(self):
+    def test_updating_survey_to_send_none_targeting_doesnt_delete_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -409,7 +409,7 @@ class TestSurvey(APIBaseTest):
 
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
-    def test_updating_survey_to_send_none_targeting_deletes_targeting_flag(self):
+    def test_updating_survey_to_remove_targeting_deletes_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -696,6 +696,58 @@ class TestSurvey(APIBaseTest):
         )
         assert deleted_survey.status_code == status.HTTP_204_NO_CONTENT
         assert not FeatureFlag.objects.filter(id=response.json()["targeting_flag"]["id"]).exists()
+
+    def test_inactive_surveys_disables_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+        assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is False
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is True
+        # stop the survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "end_date": datetime.now() + timedelta(days=1),
+            },
+        )
+        assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is False
+        # resume survey again
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "end_date": None,
+            },
+        )
+        assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is True
 
     def test_can_list_surveys(self):
         self.client.post(
@@ -1091,6 +1143,27 @@ class TestSurveyQuestionValidation(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Questions must be a list of objects"
+
+    def test_validate_malformed_question_choices_as_string(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "type": "multiple_choice",
+                        "choices": "these are my question choices",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question choices must be a list of strings"
 
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):

@@ -8,6 +8,11 @@
     }
 }
 
-.SurveyFormAppearance {
-    max-width: 320px;
+.question-choice-open-ended-footer {
+    position: absolute;
+    bottom: -5px;
+    left: 6px;
+    padding: 0 5px;
+    font-size: 10px;
+    background-color: var(--bg-3000);
 }

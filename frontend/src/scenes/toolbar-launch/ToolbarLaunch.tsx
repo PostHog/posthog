@@ -1,12 +1,13 @@
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Link } from 'lib/lemon-ui/Link'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -51,7 +52,7 @@ function ToolbarLaunch(): JSX.Element {
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText={'Add authorized URL'} />
 
             <div className="footer-caption text-muted mt-4 text-center">
-                Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
+                Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
 

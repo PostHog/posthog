@@ -6,6 +6,7 @@
 #
 aiohttp>=3.8.4
 aioboto3==11.1
+aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
 amqp==5.1.1
 boto3==1.26.76
@@ -58,6 +59,7 @@ Pillow==9.2.0
 posthoganalytics==3.0.1
 prance==0.22.2.22.0
 psycopg2-binary==2.9.7
+psycopg==3.1
 pyarrow==12.0.1
 pydantic==2.3.0
 pyjwt==2.4.0
@@ -76,8 +78,9 @@ snowflake-connector-python==3.0.4
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
+structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.1.0
+temporalio==1.4.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1

@@ -1,19 +1,20 @@
+import './ProfilePicture.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
-import { CSSProperties, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
-import './ProfilePicture.scss'
-import { inStorybookTestRunner } from 'lib/utils'
 
 export interface ProfilePictureProps {
     name?: string
     email?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
-    style?: CSSProperties
     className?: string
     title?: string
     index?: number
@@ -25,7 +26,6 @@ export function ProfilePicture({
     email,
     size = 'lg',
     showName,
-    style,
     className,
     index,
     title,
@@ -49,7 +49,7 @@ export function ProfilePicture({
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
             // The image will be cached, so it's best to do GET request check before trying to render it
-            fetch(tentativeUrl).then((response) => {
+            void fetch(tentativeUrl).then((response) => {
                 if (response.status === 200) {
                     setGravatarUrl(tentativeUrl)
                 }
@@ -64,7 +64,6 @@ export function ProfilePicture({
                 src={gravatarUrl}
                 title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                 alt=""
-                style={style}
             />
         )
     } else {
@@ -72,7 +71,7 @@ export function ProfilePicture({
             type === 'bot' ? (
                 <IconRobot className={clsx(pictureClass, 'p-0.5')} />
             ) : (
-                <span className={pictureClass} style={style}>
+                <span className={pictureClass}>
                     <Lettermark
                         name={combinedNameAndEmail}
                         index={index}

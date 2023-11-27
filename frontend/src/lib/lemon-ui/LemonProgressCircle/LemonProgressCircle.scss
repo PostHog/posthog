@@ -1,0 +1,23 @@
+.LemonProgressCircle {
+    position: relative;
+    display: inline-block;
+    vertical-align: text-bottom;
+
+    circle {
+        transition: stroke-dashoffset 0.35s;
+        transform: rotate(-90deg);
+        transform-origin: 50% 50%;
+    }
+
+    .LemonProgressCircle__content {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .LemonButton__icon & {
+        display: inline-flex;
+    }
+}

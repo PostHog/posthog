@@ -1,19 +1,23 @@
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
-import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartDisplayType, ChartParams, GraphType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { combineUrl, router } from 'kea-router'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { trendsDataLogic } from '../trendsDataLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import { combineUrl, router } from 'kea-router'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
+
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
+import { ChartDisplayType, ChartParams, GraphType } from '~/types'
+
+import { InsightEmptyState } from '../../insights/EmptyStates'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -21,6 +25,7 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
@@ -82,7 +87,17 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          if (isLifecycle && query && isInsightVizNode(query) && isLifecycleQuery(query.source)) {
+                          const hogQLInsightsLifecycleFlagEnabled = Boolean(
+                              featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
+                          )
+
+                          if (
+                              hogQLInsightsLifecycleFlagEnabled &&
+                              isLifecycle &&
+                              query &&
+                              isInsightVizNode(query) &&
+                              isLifecycleQuery(query.source)
+                          ) {
                               const newQuery: DataTableNode = {
                                   kind: NodeKind.DataTableNode,
                                   full: true,

@@ -1,9 +1,11 @@
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { DashboardBasicType } from '~/types'
-import { useMocks } from '~/mocks/jest'
-import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { DashboardBasicType } from '~/types'
+
+import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 
 const dashboards: Partial<DashboardBasicType>[] = [
     {

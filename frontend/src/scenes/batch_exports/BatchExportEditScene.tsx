@@ -1,9 +1,10 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useValues } from 'kea'
-import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
-import { batchExportsEditSceneLogic } from './batchExportEditSceneLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { BatchExportsEditForm } from './BatchExportEditForm'
+import { batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
+import { batchExportsEditSceneLogic } from './batchExportEditSceneLogic'
 
 export const scene: SceneExport = {
     component: BatchExportsEditScene,
@@ -19,7 +20,7 @@ export function BatchExportsEditScene(): JSX.Element {
 
     return (
         <>
-            <PageHeader title={`${isNew ? 'New' : 'Edit'} Batch Export`} />
+            <PageHeader title={`${isNew ? 'New' : 'Edit'} batch export`} />
 
             <div className="my-8" />
 
