@@ -325,7 +325,7 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context))
         table_node = cast(ast.SelectQuery, node).select_from.table
         expected = ast.SelectQuery(
-            select=[ast.Field(chain=["event"])],
+            select=[ast.Alias(hidden=True, alias="event", expr=ast.Field(chain=["event"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
         assert clone_expr(table_node, clear_types=True) == expected
