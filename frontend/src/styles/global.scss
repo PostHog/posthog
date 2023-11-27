@@ -399,7 +399,7 @@ input::-ms-clear {
         }
 
         div:nth-child(2) {
-            background: var(--danger);
+            background: var(--brand-blue);
         }
 
         div:nth-child(3) {
@@ -679,6 +679,11 @@ body {
                 background-color: var(--border-3000);
             }
         }
+    }
+
+    .ant-input-number:hover,
+    .ant-input-number-focused {
+        border-color: var(--border-bold);
     }
 
     .ant-input-number-group-addon {

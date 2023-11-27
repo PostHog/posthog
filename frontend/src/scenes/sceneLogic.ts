@@ -16,31 +16,6 @@ import type { sceneLogicType } from './sceneLogicType'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
-/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
-const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.DataManagement,
-    [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.Person]: Scene.PersonsManagement,
-    [Scene.Cohort]: Scene.PersonsManagement,
-    [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.PersonsManagement,
-    [Scene.Dashboard]: Scene.Dashboards,
-    [Scene.FeatureFlag]: Scene.FeatureFlags,
-    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
-    [Scene.Survey]: Scene.Surveys,
-    [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
-    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Apps,
-    [Scene.ReplaySingle]: Scene.Replay,
-    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
-    [Scene.Site]: Scene.ToolbarLaunch,
-}
-
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -142,10 +117,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
-        ],
-        aliasedActiveScene: [
-            (s) => [s.activeScene],
-            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
