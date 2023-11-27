@@ -27,7 +27,7 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
             return (
                 <>
                     <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
-                        {name || derived_name || '(Untitled)'}
+                        {name || derived_name || 'Unnamed'}
                     </Link>
                     {description ? <div className="truncate">{description}</div> : null}
                 </>
