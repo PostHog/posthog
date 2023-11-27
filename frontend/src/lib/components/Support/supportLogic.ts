@@ -207,7 +207,7 @@ export const supportLogic = kea<supportLogicType>([
                     : 'Leave a message with PostHog',
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             actions.resetSendSupportRequest({
@@ -308,23 +308,6 @@ export const supportLogic = kea<supportLogicType>([
 
         closeSupportForm: () => {
             props.onClose?.()
-        },
-        setSidePanelOptions: ({ options }) => {
-            const [kind, target_area] = (options || '').split(':')
-            if (
-                kind &&
-                values.sendSupportRequest.kind !== kind &&
-                Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind)
-            ) {
-                actions.setSendSupportRequestValue('kind', kind)
-            }
-            if (
-                target_area &&
-                values.sendSupportRequest.target_area !== target_area &&
-                Object.keys(TARGET_AREA_TO_NAME).includes(target_area)
-            ) {
-                actions.setSendSupportRequestValue('area', target_area)
-            }
         },
     })),
 
