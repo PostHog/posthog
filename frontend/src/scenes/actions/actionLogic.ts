@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ActionType, Breadcrumb } from '~/types'
 
+import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
@@ -22,16 +23,13 @@ export const actionLogic = kea<actionLogicType>([
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setIsComplete: (isComplete) => ({ isComplete }),
     })),
-    loaders(({ actions, props }) => ({
+    loaders(({ props }) => ({
         action: {
             loadAction: async () => {
-                actions.setIsComplete(false)
                 if (!props.id) {
                     throw new Error('Cannot fetch an unsaved action from the API.')
                 }
-                const action = await api.actions.get(props.id)
-                actions.checkIsFinished(action)
-                return action
+                return await api.actions.get(props.id)
             },
         },
     })),
@@ -51,8 +49,12 @@ export const actionLogic = kea<actionLogicType>([
     })),
     selectors({
         breadcrumbs: [
-            (s) => [s.action],
-            (action): Breadcrumb[] => [
+            (s) => [
+                s.action,
+                (state, props) =>
+                    actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
+            ],
+            (action, inProgressName): Breadcrumb[] => [
                 {
                     key: Scene.DataManagement,
                     name: `Data Management`,
@@ -65,8 +67,16 @@ export const actionLogic = kea<actionLogicType>([
                 },
                 {
                     key: action?.id || 'new',
-                    name: action?.name || 'Unnamed',
-                    path: action ? urls.action(action.id) : undefined,
+                    name: inProgressName ?? (action?.name || ''),
+                    onRename: async (name: string) => {
+                        const id = action?.id
+                        const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
+                        actionEditLogicActions.actions.setActionValue('name', name)
+                        if (id) {
+                            await actionEditLogicActions.asyncActions.submitAction()
+                        }
+                    },
+                    forceEditMode: !action?.id,
                 },
             ],
         ],
@@ -79,6 +89,10 @@ export const actionLogic = kea<actionLogicType>([
                 actions.setIsComplete(new Date())
                 values.pollTimeout && clearTimeout(values.pollTimeout)
             }
+        },
+        loadActionSuccess: ({ action }) => {
+            actions.setIsComplete(false)
+            actions.checkIsFinished(action)
         },
     })),
     events(({ values, actions, props }) => ({

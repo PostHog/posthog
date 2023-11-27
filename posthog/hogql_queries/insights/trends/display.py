@@ -6,8 +6,11 @@ from posthog.schema import ChartDisplayType
 class TrendsDisplay:
     display_type: ChartDisplayType
 
-    def __init__(self, display_type: ChartDisplayType) -> None:
-        self.display_type = display_type
+    def __init__(self, display_type: ChartDisplayType | None) -> None:
+        if display_type:
+            self.display_type = display_type
+        else:
+            self.display_type = ChartDisplayType.ActionsAreaGraph
 
     def should_aggregate_values(self) -> bool:
         return (
