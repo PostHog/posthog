@@ -25,7 +25,6 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: 'var(--z-command-palette)',
-                // background: 'color-mix(in srgb, var(--bg-light) 75%, transparent)',
                 backgroundColor: 'var(--modal-backdrop-color)',
                 backdropFilter: 'blur(var(--modal-backdrop-blur))',
             }}
