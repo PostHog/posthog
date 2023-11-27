@@ -19,6 +19,8 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub burst_limit: NonZeroU32,
 
+    pub overflow_forced_keys: Option<String>, // Coma-delimited keys
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 

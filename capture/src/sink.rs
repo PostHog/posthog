@@ -301,8 +301,11 @@ mod tests {
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
             .await;
-        let limiter =
-            PartitionLimiter::new(NonZeroU32::new(10).unwrap(), NonZeroU32::new(10).unwrap());
+        let limiter = PartitionLimiter::new(
+            NonZeroU32::new(10).unwrap(),
+            NonZeroU32::new(10).unwrap(),
+            None,
+        );
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,

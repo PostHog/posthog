@@ -30,6 +30,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     redis_url: "redis://localhost:6379/".to_string(),
     burst_limit: NonZeroU32::new(5).unwrap(),
     per_second_limit: NonZeroU32::new(10).unwrap(),
+    overflow_forced_keys: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
