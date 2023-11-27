@@ -1,7 +1,7 @@
 from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr
 from django.db import models
 from posthog.models.team import Team
-from encrypted_fields.fields import EncryptedJSONField
+import encrypted_fields
 
 
 class ExternalDataSource(CreatedMetaFields, UUIDModel):
@@ -14,7 +14,9 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     status: models.CharField = models.CharField(max_length=400)
     source_type: models.CharField = models.CharField(max_length=128, choices=Type.choices)
-    job_inputs: EncryptedJSONField = EncryptedJSONField(null=True, blank=True)
+    job_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(
+        null=True, blank=True
+    )
     are_tables_created: models.BooleanField = models.BooleanField(default=False)
 
     __repr__ = sane_repr("source_id")
