@@ -71,7 +71,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         node = parse_select(self.query["query"])
         context.database = create_hogql_database(context.team_id)
 
-        node = resolve_types(node, context)
+        node = resolve_types(node, context, dialect="clickhouse")
         table_collector = S3TableVisitor()
         table_collector.visit(node)
 
