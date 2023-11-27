@@ -30,16 +30,6 @@ export function validateFromMobile(data: unknown): {
 
 const webSchemaValidator = ajv.compile(webSchema)
 
-export class TransformationError implements Error {
-    name = 'TransformationError'
-    message = 'Failed to transform to web schema'
-    errors: ErrorObject<string, Record<string, unknown>, unknown>[] | null | undefined
-
-    constructor(_errors: ErrorObject<string, Record<string, unknown>, unknown>[] | null | undefined) {
-        this.errors = _errors
-    }
-}
-
 function couldBeEventWithTime(x: unknown): x is eventWithTime | mobileEventWithTime {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
@@ -75,7 +65,8 @@ export function validateAgainstWebSchema(data: unknown): boolean {
     const validationResult = webSchemaValidator(data)
     if (!validationResult) {
         console.error(webSchemaValidator.errors)
-        throw new TransformationError(webSchemaValidator.errors)
     }
-    return validationResult
+    // we are passing all data through this validation now and don't know how safe the schema is
+    // TODO would we ever want to reject here?
+    return true
 }

@@ -18,7 +18,7 @@ import { makePositionStyles, makeStylesString, makeSvgBorder } from './wireframe
  * we reserve a range of ids because we need nodes to have stable ids across snapshots
  * in order for incremental snapshots to work
  * some mobile elements have to be wrapped in other elements in order to be styled correctly
- * which means the web version of a mobile replay will use ids that don't exist in the mobile replay
+ * which means the web version of a mobile replay will use ids that don't exist in the mobile replay,
  * and we need to ensure they don't clash
  * -----
  * id is typed as a number in rrweb
@@ -134,6 +134,13 @@ export const makeFullEvent = (
     timestamp: number
     delay?: number
 } => {
+    if (!('wireframes' in mobileEvent.data)) {
+        return mobileEvent as unknown as fullSnapshotEvent & {
+            timestamp: number
+            delay?: number
+        }
+    }
+
     return {
         type: EventType.FullSnapshot,
         timestamp: mobileEvent.timestamp,

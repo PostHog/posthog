@@ -272,6 +272,29 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
 ]
 `;
 
+exports[`replay/transform transform can short-circuit non-mobile full snapshot 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "https://my-awesome.site",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "node": {
+        "the": "payload",
+      },
+    },
+    "timestamp": 1,
+    "type": 10,
+  },
+]
+`;
+
 exports[`replay/transform transform text is wrapped in a div to apply styling 1`] = `
 [
   {

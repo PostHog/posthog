@@ -87,6 +87,24 @@ describe('replay/transform', () => {
             expect(unexpectedWireframeType).toMatchSnapshot()
         })
 
+        test('can short-circuit non-mobile full snapshot', () => {
+            const allWeb = posthogEE.mobileReplay?.transformToWeb([
+                {
+                    data: { href: 'https://my-awesome.site', width: 300, height: 600 },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 10,
+                    data: {
+                        node: { the: 'payload' },
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(allWeb).toMatchSnapshot()
+        })
+
         test('can convert images', () => {
             const exampleWithImage = posthogEE.mobileReplay?.transformToWeb([
                 {
