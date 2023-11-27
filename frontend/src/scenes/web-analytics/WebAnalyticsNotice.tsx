@@ -16,11 +16,11 @@ export const WebAnalyticsNotice = (): JSX.Element => {
             <p>PostHog Web Analytics is in opt-in Beta. Thanks for taking part! We'd love to hear what you think.</p>
             {showSupportOptions ? (
                 <p>
-                    <Link onClick={() => openSupportForm('bug')}>
+                    <Link onClick={() => openSupportForm({ kind: 'bug' })}>
                         <IconBugReport /> Report a bug
                     </Link>{' '}
                     -{' '}
-                    <Link onClick={() => openSupportForm('feedback')}>
+                    <Link onClick={() => openSupportForm({ kind: 'feedback' })}>
                         <IconFeedback /> Give feedback
                     </Link>
                 </p>

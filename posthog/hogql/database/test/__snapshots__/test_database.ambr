@@ -46,27 +46,6 @@
               ]
           },
           {
-              "key": "override",
-              "type": "lazy_table",
-              "table": "person_overrides",
-              "fields": [
-                  "team_id",
-                  "old_person_id",
-                  "override_person_id",
-                  "oldest_event",
-                  "merged_at",
-                  "created_at"
-              ]
-          },
-          {
-              "key": "override_person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "override",
-                  "override_person_id"
-              ]
-          },
-          {
               "key": "poe",
               "type": "virtual_table",
               "table": "events",
@@ -838,27 +817,6 @@
                   "distinct_id",
                   "person_id",
                   "person"
-              ]
-          },
-          {
-              "key": "override",
-              "type": "lazy_table",
-              "table": "person_overrides",
-              "fields": [
-                  "team_id",
-                  "old_person_id",
-                  "override_person_id",
-                  "oldest_event",
-                  "merged_at",
-                  "created_at"
-              ]
-          },
-          {
-              "key": "override_person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "override",
-                  "override_person_id"
               ]
           },
           {

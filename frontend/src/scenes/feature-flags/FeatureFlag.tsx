@@ -533,7 +533,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     }
                                     buttons={
                                         <>
-                                            <div className="flex items-center gap-2 mb-2">
+                                            <div className="flex items-center gap-2">
                                                 <More
                                                     loading={newCohortLoading}
                                                     overlay={
