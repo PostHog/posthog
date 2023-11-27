@@ -448,13 +448,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         sidebarContentsFlattened: [
-            (s) => [(state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state) || null],
+            (s) => [(state) => s.activeNavbarItem(state)?.logic?.findMounted()?.selectors.contents(state) || null],
             (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
                 sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
         ],
         normalizedActiveListItemKey: [
             (s) => [
-                (state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.activeListItemKey?.(state) || null,
+                (state) =>
+                    s.activeNavbarItem(state)?.logic?.findMounted()?.selectors.activeListItemKey?.(state) || null,
             ],
             (activeListItemKey): string | number | string[] | null =>
                 activeListItemKey
@@ -464,21 +465,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     : null,
         ],
         activeNavbarItemId: [
-            (s) => [
-                s.activeNavbarItemIdRaw,
-                sceneLogic.selectors.aliasedActiveScene,
-                featureFlagLogic.selectors.featureFlags,
-            ],
-            (activeNavbarItemIdRaw, aliasedActiveScene, featureFlags): string | null => {
+            (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
+            (activeNavbarItemIdRaw, featureFlags): string | null => {
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
-                    return aliasedActiveScene
+                    return null
                 }
                 return activeNavbarItemIdRaw
             },
         ],
         newItemCategory: [
             (s) => [
-                (state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state) || null,
+                (state) => s.activeNavbarItem(state)?.logic?.findMounted()?.selectors.contents(state) || null,
                 s.newItemInlineCategory,
                 router.selectors.location,
             ],

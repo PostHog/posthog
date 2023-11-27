@@ -164,6 +164,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 return breadcrumbs
             },
         ],
+        sceneBreadcrumbKeys: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): Breadcrumb['key'][] => sceneBreadcrumbs.map((breadcrumb) => breadcrumb.key),
+        ],
         breadcrumbs: [
             (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
             (appBreadcrumbs, sceneBreadcrumbs): FinalizedBreadcrumb[] => {

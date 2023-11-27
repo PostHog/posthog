@@ -2,6 +2,8 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useLayoutEffect, useRef } from 'react'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -120,7 +122,7 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
 }
 
 export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | null => {
-    const { type, extra_fields } = result
+    const { result_id, type, extra_fields } = result
     if (type === 'feature_flag') {
         return extra_fields.name && extra_fields.name !== extra_fields.key ? (
             <span>{extra_fields.name}</span>
@@ -128,7 +130,14 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
             <i>No description.</i>
         )
     } else if (type === 'notebook') {
-        return <span className="whitespace-pre">{extra_fields.text_content}</span>
+        return (
+            <Notebook
+                shortId={result_id}
+                mode="notebook"
+                editable={false}
+                initialContent={extra_fields.content as JSONContent}
+            />
+        )
     } else {
         return extra_fields.description ? <span>{extra_fields.description}</span> : <i>No description.</i>
     }

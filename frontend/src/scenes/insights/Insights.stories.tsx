@@ -23,16 +23,6 @@ const meta: Meta = {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
-                '/api/projects/:team_id/notebooks': () => {
-                    // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
-                    return [
-                        200,
-                        {
-                            count: 0,
-                            results: [],
-                        },
-                    ]
-                },
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
