@@ -1,6 +1,6 @@
 import { EventType } from '@rrweb/types'
 
-import { TransformationError, validateAgainstWebSchema, validateFromMobile } from './index'
+import { validateAgainstWebSchema, validateFromMobile } from './index'
 
 describe('validation', () => {
     test('example of validating incoming _invalid_ data', () => {
@@ -26,8 +26,8 @@ describe('validation', () => {
     })
 
     describe('validate web schema', () => {
-        test('should be invalid if...', () => {
-            expect(() => validateAgainstWebSchema({})).toThrow(TransformationError)
+        test('does not block when invalid', () => {
+            expect(validateAgainstWebSchema({})).toBeFalsy()
         })
 
         test('should be valid when...', () => {

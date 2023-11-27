@@ -64,9 +64,10 @@ export function transformToWeb(mobileData: (eventWithTime | mobileEventWithTime)
 export function validateAgainstWebSchema(data: unknown): boolean {
     const validationResult = webSchemaValidator(data)
     if (!validationResult) {
+        // we are passing all data through this validation now and don't know how safe the schema is
+        // TODO would we ever want to reject here?
         console.error(webSchemaValidator.errors)
     }
-    // we are passing all data through this validation now and don't know how safe the schema is
-    // TODO would we ever want to reject here?
-    return true
+
+    return validationResult
 }
