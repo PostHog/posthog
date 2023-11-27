@@ -134,15 +134,20 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             create_external_data_job_model,
             create_external_data_job_inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
             id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None
         )
 
-        # TODO: can make this a child workflow for separate worker pool
         try:
+            # TODO: can make this a child workflow for separate worker pool
             source_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 inputs,
@@ -177,6 +182,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 external_data_source_id=inputs.external_data_source_id,
             )
 
+            await workflow.execute_activity(
+                move_draft_to_production_activity,
+                move_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
@@ -193,17 +205,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
-        else:
-            await workflow.execute_activity(
-                move_draft_to_production_activity,
-                move_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
         finally:
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
