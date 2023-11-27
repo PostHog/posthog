@@ -490,12 +490,6 @@ input::-ms-clear {
     }
 }
 
-// Main app/body styles
-
-.fullscreen-scroll {
-    overflow-y: auto;
-}
-
 .main-app-content {
     position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
     flex: 1;

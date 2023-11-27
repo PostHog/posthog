@@ -1,9 +1,9 @@
-.Breadcrumbs3000 {
+.TopBar3000 {
     --breadcrumbs-compaction-rate: 0;
 
     position: sticky;
     top: 0;
-    z-index: var(--z-main-nav);
+    z-index: var(--z-top-navigation);
     display: flex;
     align-items: start;
     height: var(--breadcrumbs-height-full);
@@ -11,8 +11,9 @@
     pointer-events: none;
 }
 
-.Breadcrumbs3000__content {
+.TopBar3000__content {
     display: flex;
+    gap: 0.5rem;
     align-items: center;
     width: 100%;
     height: calc(
@@ -29,13 +30,17 @@
     border-bottom: 1px solid var(--glass-border-3000);
 }
 
-.Breadcrumbs3000__trail {
+.TopBar3000__hamburger {
+    margin-left: -0.5rem;
+}
+
+.TopBar3000__breadcrumbs {
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
 }
 
-.Breadcrumbs3000__crumbs {
+.TopBar3000__trail {
     display: flex;
     align-items: center;
     height: 1rem;
@@ -43,7 +48,7 @@
     overflow: visible;
 }
 
-.Breadcrumbs3000__here {
+.TopBar3000__here {
     position: relative;
     box-sizing: content-box;
     height: calc(1.2em * (1 - var(--breadcrumbs-compaction-rate)));
@@ -63,7 +68,7 @@
     }
 }
 
-.Breadcrumbs3000__breadcrumb {
+.TopBar3000__breadcrumb {
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -76,7 +81,7 @@
         color: inherit;
     }
 
-    &.Breadcrumbs3000__breadcrumb--here {
+    &.TopBar3000__breadcrumb--here {
         cursor: default;
         visibility: var(--breadcrumbs-title-small-visibility);
 
@@ -86,11 +91,11 @@
         }
     }
 
-    &.Breadcrumbs3000__breadcrumb--actionable {
+    &.TopBar3000__breadcrumb--actionable {
         cursor: pointer;
 
         &:hover > span,
-        &.Breadcrumbs3000__breadcrumb--open > span {
+        &.TopBar3000__breadcrumb--open > span {
             opacity: 1;
         }
     }
@@ -111,7 +116,7 @@
     }
 }
 
-.Breadcrumbs3000__separator {
+.TopBar3000__separator {
     flex-shrink: 0;
     margin: 0 0.5rem;
     opacity: 0.5;
@@ -121,15 +126,14 @@
     }
 }
 
-.Breadcrumbs3000__more {
+.TopBar3000__more {
     margin-left: 0.5rem;
 }
 
-.Breadcrumbs3000__actions {
+.TopBar3000__actions {
     display: flex;
     flex-grow: 1;
     gap: 0.5rem;
     align-items: center;
     justify-content: flex-end;
-    margin-left: 0.5rem;
 }
