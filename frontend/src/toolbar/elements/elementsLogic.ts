@@ -154,9 +154,10 @@ export const elementsLogic = kea<elementsLogicType>([
             (buttonActionsVisible) => buttonActionsVisible,
         ],
 
-        allActionElements: [
+        _actionElements: [
             (s) => [s.displayActionElements, s.actionForm],
             (displayActionElements, actionForm): ElementWithMetadata[] => {
+                // This function is expensive so should be calculated as rarely as possible
                 if (displayActionElements && actionForm?.steps) {
                     const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
@@ -176,9 +177,9 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         actionElements: [
-            (s) => [s.allActionElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
-            (allActionElements) =>
-                allActionElements.map((element) =>
+            (s) => [s._actionElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
+            (actionElements) =>
+                actionElements.map((element) =>
                     element.element ? { ...element, rect: getRectForElement(element.element) } : element
                 ),
         ],
@@ -200,13 +201,10 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
 
-        actionsForElementMap: [
-            (s) => [
-                actionsLogic.selectors.sortedActions,
-                s.rectUpdateCounter,
-                toolbarConfigLogic.selectors.buttonVisible,
-            ],
+        _actionsForElementMap: [
+            () => [actionsLogic.selectors.sortedActions],
             (sortedActions): ActionElementMap => {
+                // This function is expensive so should be calculated as rarely as possible
                 const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
@@ -225,6 +223,20 @@ export const elementsLogic = kea<elementsLogicType>([
                             }
                         })
                 })
+                return actionsForElementMap
+            },
+        ],
+
+        actionsForElementMap: [
+            (s) => [s._actionsForElementMap, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
+            (actionsForElementMap): ActionElementMap => {
+                // We recalculate the rects here to avoid calling the expensive getElementForStep
+                actionsForElementMap.forEach((actions, element) => {
+                    actions.forEach((action) => {
+                        action.rect = getRectForElement(element)
+                    })
+                })
+
                 return actionsForElementMap
             },
         ],
