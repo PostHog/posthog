@@ -158,11 +158,6 @@ body:not(.posthog-3000) {
 
         &.LemonSegmentedButton__option--selected {
             .LemonButton {
-                padding-bottom: 0;
-                background: none;
-                border-top-width: 0;
-                border-bottom-width: 0;
-
                 .LemonButton__icon,
                 .LemonButton__content {
                     opacity: 1;
@@ -170,7 +165,6 @@ body:not(.posthog-3000) {
             }
 
             .LemonButton__chrome {
-                top: 1px !important; // Keep the same in hover/acive states
                 background-color: var(--bg-light);
             }
         }
