@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '../../themeLogic'
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 type Menu = {
