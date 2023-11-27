@@ -344,7 +344,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         showOtherRecordings: [
             !props.pinnedRecordings?.length,
             {
-                loadPinnedRecordingsSuccess: (_, { pinnedRecordings }) => pinnedRecordings.length === 0,
+                // Only change it to showing if we unpin all recordings
+                loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
+                    pinnedRecordings.length === 0 ? true : state,
                 toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
             },
         ],
