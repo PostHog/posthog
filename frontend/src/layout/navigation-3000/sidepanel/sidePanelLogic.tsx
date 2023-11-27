@@ -22,7 +22,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
 
     selectors({
