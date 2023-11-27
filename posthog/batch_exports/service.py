@@ -399,6 +399,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
+            # TODO: should have batch exports specific task queue
             task_queue=settings.TEMPORAL_TASK_QUEUE,
         ),
         spec=ScheduleSpec(

@@ -1,5 +1,4 @@
 from datetime import timedelta
-from posthog import settings
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
@@ -9,6 +8,7 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleOverlapPolicy,
 )
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from dataclasses import asdict
 from posthog.warehouse.models import ExternalDataSource
 
@@ -35,7 +35,7 @@ def sync_external_data_job_workflow(external_data_source: ExternalDataSource, cr
             ExternalDataJobWorkflow.run,
             asdict(inputs),
             id=str(external_data_source.pk),
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=24))]),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_source.pk}"),
