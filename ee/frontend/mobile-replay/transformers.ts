@@ -5,6 +5,8 @@ import {
     metaEvent as MobileMetaEvent,
     NodeType,
     serializedNodeWithId,
+    wireframe,
+    wireframeDiv,
     wireframeImage,
     wireframeRectangle,
     wireframeText,
@@ -51,7 +53,24 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function makeTextElement(wireframe: wireframeText): serializedNodeWithId | null {
+function _isPositiveInteger(id: unknown): boolean {
+    return typeof id === 'number' && id > 0 && id % 1 === 0
+}
+
+function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    const _id = _isPositiveInteger(wireframe.id) ? wireframe.id : idSequence.next().value
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+        },
+        id: _id,
+        childNodes: children,
+    }
+}
+
+function makeTextElement(wireframe: wireframeText, children: serializedNodeWithId[]): serializedNodeWithId | null {
     if (wireframe.type !== 'text') {
         console.error('Passed incorrect wireframe type to makeTextElement')
         return null
@@ -72,11 +91,12 @@ function makeTextElement(wireframe: wireframeText): serializedNodeWithId | null 
                 textContent: wireframe.text,
                 id: wireframe.id,
             },
+            ...children,
         ],
     }
 }
 
-function makeImageElement(wireframe: wireframeImage): serializedNodeWithId | null {
+function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
     const src = wireframe.base64
     if (!src.startsWith('data:image/')) {
         console.error('Expected base64 to start with data:image/')
@@ -93,11 +113,14 @@ function makeImageElement(wireframe: wireframeImage): serializedNodeWithId | nul
             style: makeStylesString(wireframe),
         },
         id: wireframe.id,
-        childNodes: [],
+        childNodes: children,
     }
 }
 
-function makeRectangleElement(wireframe: wireframeRectangle): serializedNodeWithId | null {
+function makeRectangleElement(
+    wireframe: wireframeRectangle,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
     return {
         type: NodeType.Element,
         tagName: 'svg',
@@ -119,10 +142,61 @@ function makeRectangleElement(wireframe: wireframeRectangle): serializedNodeWith
                     ...makeSvgBorder(wireframe.style),
                 },
                 id: idSequence.next().value,
-                childNodes: [],
+                childNodes: children,
             },
         ],
     }
+}
+
+function chooseConverter<T extends wireframe>(
+    wireframe: T
+): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
+    // in theory type is always present
+    // but since this is coming over the wire we can't really be sure
+    // and so we default to div
+    const converterType = wireframe.type || 'div'
+    switch (converterType) {
+        case 'text':
+            return makeTextElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'image':
+            return makeImageElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'rectangle':
+            return makeRectangleElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'div':
+            return makeDivElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+    }
+}
+
+function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
+    if (!wireframes) {
+        return []
+    }
+
+    return wireframes.reduce((acc, wireframe) => {
+        const children = convertWireframesFor(wireframe.childWireframes)
+        const converter = chooseConverter(wireframe)
+        if (!converter) {
+            console.error(`No converter for wireframe type ${wireframe.type}`)
+            return acc
+        }
+        const convertedEl = converter(wireframe, children)
+        if (convertedEl !== null) {
+            acc.push(convertedEl)
+        }
+        return acc
+    }, [] as serializedNodeWithId[])
 }
 
 export const makeFullEvent = (
@@ -179,33 +253,14 @@ export const makeFullEvent = (
                                         tagName: 'div',
                                         attributes: {},
                                         id: idSequence.next().value,
-                                        childNodes: mobileEvent.data.wireframes.reduce((acc, wireframe) => {
-                                            if (wireframe.type === 'text') {
-                                                const textEl = makeTextElement(wireframe)
-                                                if (textEl !== null) {
-                                                    acc.push(textEl)
-                                                }
-                                                acc.push()
-                                            } else if (wireframe.type === 'image') {
-                                                const imgEl = makeImageElement(wireframe)
-                                                if (imgEl !== null) {
-                                                    acc.push(imgEl)
-                                                }
-                                            } else if (wireframe.type === 'rectangle') {
-                                                const rectEl = makeRectangleElement(wireframe)
-                                                if (rectEl !== null) {
-                                                    acc.push(rectEl)
-                                                }
-                                            }
-                                            return acc
-                                        }, [] as serializedNodeWithId[]),
+                                        childNodes: convertWireframesFor(mobileEvent.data.wireframes),
                                     },
                                 ],
                             },
                         ],
                     },
                 ],
-                id: 12345, // where from?
+                id: 1,
             },
             initialOffset: {
                 top: 0,

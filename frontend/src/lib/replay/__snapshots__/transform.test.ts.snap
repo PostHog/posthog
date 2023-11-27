@@ -53,7 +53,7 @@ exports[`replay/transform transform can convert images 1`] = `
                             "type": 3,
                           },
                         ],
-                        "id": 104,
+                        "id": 102,
                         "tagName": "div",
                         "type": 2,
                       },
@@ -70,7 +70,7 @@ exports[`replay/transform transform can convert images 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 103,
+                    "id": 101,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -85,7 +85,7 @@ exports[`replay/transform transform can convert images 1`] = `
             "type": 2,
           },
         ],
-        "id": 12345,
+        "id": 1,
         "type": 0,
       },
     },
@@ -155,7 +155,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                               "y": 0,
                             },
                             "childNodes": [],
-                            "id": 106,
+                            "id": 104,
                             "tagName": "rect",
                             "type": 2,
                           },
@@ -175,12 +175,12 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                             "type": 3,
                           },
                         ],
-                        "id": 107,
+                        "id": 105,
                         "tagName": "div",
                         "type": 2,
                       },
                     ],
-                    "id": 105,
+                    "id": 103,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -195,7 +195,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
             "type": 2,
           },
         ],
-        "id": 12345,
+        "id": 1,
         "type": 0,
       },
     },
@@ -247,7 +247,7 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
                   {
                     "attributes": {},
                     "childNodes": [],
-                    "id": 102,
+                    "id": 100,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -262,7 +262,7 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
             "type": 2,
           },
         ],
-        "id": 12345,
+        "id": 1,
         "type": 0,
       },
     },
@@ -295,7 +295,7 @@ exports[`replay/transform transform can short-circuit non-mobile full snapshot 1
 ]
 `;
 
-exports[`replay/transform transform text is wrapped in a div to apply styling 1`] = `
+exports[`replay/transform transform child wireframes are processed 1`] = `
 [
   {
     "data": {
@@ -339,21 +339,71 @@ exports[`replay/transform transform text is wrapped in a div to apply styling 1`
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "color: red;background-color: yellow;border-width: 4px;border-radius: 10px;border-color: blue;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                          "style": "overflow:hidden;white-space:nowrap;",
                         },
                         "childNodes": [
                           {
-                            "id": 12345,
-                            "textContent": "Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ",
-                            "type": 3,
+                            "attributes": {
+                              "style": "overflow:hidden;white-space:nowrap;",
+                            },
+                            "childNodes": [
+                              {
+                                "attributes": {
+                                  "style": "color: red;background-color: yellow;border-width: 4px;border-radius: 10px;border-color: blue;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                                },
+                                "childNodes": [
+                                  {
+                                    "id": 12345,
+                                    "textContent": "first nested",
+                                    "type": 3,
+                                  },
+                                ],
+                                "id": 107,
+                                "tagName": "div",
+                                "type": 2,
+                              },
+                              {
+                                "attributes": {
+                                  "style": "color: red;background-color: blue;border-width: 4px;border-radius: 10px;border-color: yellow;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                                },
+                                "childNodes": [
+                                  {
+                                    "id": 12345,
+                                    "textContent": "second nested",
+                                    "type": 3,
+                                  },
+                                ],
+                                "id": 108,
+                                "tagName": "div",
+                                "type": 2,
+                              },
+                            ],
+                            "id": 98765,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {
+                              "style": "color: red;background-color: green;border-width: 4px;border-radius: 10px;border-color: red;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                            },
+                            "childNodes": [
+                              {
+                                "id": 12345,
+                                "textContent": "third (different level) nested",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 109,
+                            "tagName": "div",
+                            "type": 2,
                           },
                         ],
-                        "id": 101,
+                        "id": 123456789,
                         "tagName": "div",
                         "type": 2,
                       },
                     ],
-                    "id": 100,
+                    "id": 106,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -368,7 +418,7 @@ exports[`replay/transform transform text is wrapped in a div to apply styling 1`
             "type": 2,
           },
         ],
-        "id": 12345,
+        "id": 1,
         "type": 0,
       },
     },

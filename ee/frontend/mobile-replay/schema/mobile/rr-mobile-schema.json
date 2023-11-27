@@ -53,8 +53,10 @@
                         "height": {
                             "type": "number"
                         },
+                        "href": {
+                            "type": "string"
+                        },
                         "width": {
-                            "description": "This mimics the RRWeb meta event type, except does not report href.",
                             "type": "number"
                         }
                     },
@@ -153,8 +155,46 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeRectangle"
+                },
+                {
+                    "$ref": "#/definitions/wireframeDiv"
                 }
             ]
+        },
+        "wireframeDiv": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
         },
         "wireframeImage": {
             "additionalProperties": false,

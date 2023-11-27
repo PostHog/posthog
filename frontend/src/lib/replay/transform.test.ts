@@ -6,47 +6,6 @@ const heartEyesEmojiURL =
 
 describe('replay/transform', () => {
     ifEeDescribe('transform', () => {
-        test('text is wrapped in a div to apply styling', () => {
-            const helloWorld = posthogEE.mobileReplay?.transformToWeb([
-                {
-                    data: { screen: 'App Home Page', width: 300, height: 600 },
-                    timestamp: 1,
-                    type: 4,
-                },
-                {
-                    type: 10,
-                    data: {
-                        wireframes: [
-                            {
-                                id: 12345,
-                                x: 11,
-                                y: 12,
-                                width: 100,
-                                height: 30,
-                                // clip: {
-                                //   bottom: 83,
-                                //   right: 44,
-                                // },
-                                type: 'text',
-                                text: 'Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ',
-                                style: {
-                                    // family: '疴ꖻ䖭㋑⁃⻋ꑧٹ㧕Ⓖ',
-                                    // size: 4220431756569966319,
-                                    color: 'red',
-                                    backgroundColor: 'yellow',
-                                    borderWidth: '4px',
-                                    borderColor: 'blue',
-                                    borderRadius: '10px',
-                                },
-                            },
-                        ],
-                    },
-                    timestamp: 1,
-                },
-            ])
-            expect(helloWorld).toMatchSnapshot()
-        })
-
         test('can ignore unknown types', () => {
             expect(
                 posthogEE.mobileReplay?.transformToWeb([
@@ -55,9 +14,17 @@ describe('replay/transform', () => {
                         timestamp: 1,
                         type: 4,
                     },
+                    {
+                        data: { href: 'included when present', width: 300, height: 600 },
+                        timestamp: 1,
+                        type: 4,
+                    },
                     { type: 9999 },
                 ])
-            ).toStrictEqual([{ type: 4, data: { href: '', width: 300, height: 600 }, timestamp: 1 }])
+            ).toStrictEqual([
+                { type: 4, data: { href: '', width: 300, height: 600 }, timestamp: 1 },
+                { type: 4, data: { href: 'included when present', width: 300, height: 600 }, timestamp: 1 },
+            ])
         })
 
         test('can ignore unknown wireframe types', () => {
@@ -206,6 +173,89 @@ describe('replay/transform', () => {
                 },
             ])
             expect(exampleWithRectAndText).toMatchSnapshot()
+        })
+
+        test('child wireframes are processed', () => {
+            const textEvent = posthogEE.mobileReplay?.transformToWeb([
+                {
+                    data: { screen: 'App Home Page', width: 300, height: 600 },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 10,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 123456789,
+                                childWireframes: [
+                                    {
+                                        id: 98765,
+                                        childWireframes: [
+                                            {
+                                                id: 12345,
+                                                x: 11,
+                                                y: 12,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'text',
+                                                text: 'first nested',
+                                                style: {
+                                                    color: 'red',
+                                                    backgroundColor: 'yellow',
+                                                    borderWidth: '4px',
+                                                    borderColor: 'blue',
+                                                    borderRadius: '10px',
+                                                },
+                                            },
+                                            {
+                                                id: 12345,
+                                                x: 11,
+                                                y: 12,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'text',
+                                                text: 'second nested',
+                                                style: {
+                                                    color: 'red',
+                                                    backgroundColor: 'blue',
+                                                    borderWidth: '4px',
+                                                    borderColor: 'yellow',
+                                                    borderRadius: '10px',
+                                                },
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        id: 12345,
+                                        x: 11,
+                                        y: 12,
+                                        width: 100,
+                                        height: 30,
+                                        // clip: {
+                                        //   bottom: 83,
+                                        //   right: 44,
+                                        // },
+                                        type: 'text',
+                                        text: 'third (different level) nested',
+                                        style: {
+                                            // family: '疴ꖻ䖭㋑⁃⻋ꑧٹ㧕Ⓖ',
+                                            // size: 4220431756569966319,
+                                            color: 'red',
+                                            backgroundColor: 'green',
+                                            borderWidth: '4px',
+                                            borderColor: 'red',
+                                            borderRadius: '10px',
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(textEvent).toMatchSnapshot()
         })
     })
 })
