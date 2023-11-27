@@ -12,7 +12,7 @@
         border-color: transparent;
         border-style: solid;
         border-width: var(--lemon-button-border-width);
-        border-radius: 6px;
+        border-radius: var(--radius);
         outline: none;
         transition: var(--transition);
 
@@ -35,7 +35,7 @@
             border-color: transparent;
             border-style: solid;
             border-width: var(--lemon-button-border-width);
-            border-radius: 6px;
+            border-radius: var(--radius);
             transition: var(--transition);
 
             .LemonButton__icon {

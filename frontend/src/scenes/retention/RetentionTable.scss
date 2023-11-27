@@ -41,7 +41,7 @@
         margin: 2px;
         text-align: right;
         background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
-        border-radius: 0.25rem;
+        border-radius: var(--radius);
         transition: transform 200ms ease-out;
 
         &:hover {

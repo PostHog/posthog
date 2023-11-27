@@ -31,7 +31,7 @@
     font-size: 14px;
     color: black;
     background: white;
-    border-radius: 6px;
+    border-radius: var(--radius);
     outline: none;
 }
 
@@ -54,7 +54,7 @@
     cursor: pointer;
     user-select: none;
     border: 1.5px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius);
     outline: 0;
     box-shadow: 0 2px 0 rgb(0 0 0 / 4.5%);
 }
@@ -141,7 +141,7 @@
 .rating-options-buttons {
     display: grid;
     overflow: hidden;
-    border-radius: 6px;
+    border-radius: var(--radius);
 }
 
 .rating-options-buttons > .ratings-number {
@@ -241,7 +241,7 @@
     cursor: pointer;
     background: white;
     border: 1.5px solid rgb(0 0 0 / 25%);
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
 .multiple-choice-options .choice-option-open label {

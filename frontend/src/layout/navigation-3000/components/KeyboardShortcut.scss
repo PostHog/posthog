@@ -14,14 +14,13 @@
     user-select: none;
     background: var(--accent-3000);
     border-width: 1px;
-    border-radius: 0.125rem;
+    border-radius: 0.25rem;
 
     .posthog-3000 & {
         padding: 0.125rem 0.25rem;
         font-size: 0.625rem;
         border-color: var(--secondary-3000-button-border-hover);
         border-bottom-width: 2px;
-        border-radius: 0.25rem;
     }
 
     .KeyboardShortcut--muted > & {
