@@ -132,7 +132,7 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
     const processPropertyGroupFilterValue = (
         propertyGroupFilterValue: PropertyGroupFilterValue
     ): PropertyGroupFilterValue => {
-        if (propertyGroupFilterValue.values.length === 0) {
+        if (propertyGroupFilterValue.values?.length === 0 || !propertyGroupFilterValue.values) {
             return propertyGroupFilterValue
         }
 
