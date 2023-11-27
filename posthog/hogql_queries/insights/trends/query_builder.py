@@ -13,7 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, ChartDisplayType, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, TrendsQuery
 
 
 class TrendsQueryBuilder:
@@ -430,9 +430,9 @@ class TrendsQueryBuilder:
 
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
-        if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
-            display = ChartDisplayType.ActionsLineGraph
-        else:
-            display = self.query.trendsFilter.display
-
+        display = (
+            self.query.trendsFilter.display
+            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            else None
+        )
         return TrendsDisplay(display)
