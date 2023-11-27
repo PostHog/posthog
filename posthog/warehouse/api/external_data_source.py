@@ -66,9 +66,9 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
             team=self.team,
             status="running",
             source_type="Stripe",

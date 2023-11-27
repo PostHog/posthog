@@ -44,7 +44,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )
+    )  # type: ignore
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
@@ -64,16 +64,16 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )
+    )  # type: ignore
 
-    new_job = await sync_to_async(create_external_data_job)(team_id=team.id, external_data_source_id=new_source.pk)
+    new_job = await sync_to_async(create_external_data_job)(team_id=team.id, external_data_source_id=new_source.pk)  # type: ignore
 
     inputs = UpdateExternalDataJobStatusInputs(
         id=str(new_job.id), run_id=str(new_job.id), status=ExternalDataJob.Status.COMPLETED, latest_error=None
     )
 
     await activity_environment.run(update_external_data_job_model, inputs)
-    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(new_job.refresh_from_db)()  # type: ignore
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
 
@@ -89,7 +89,7 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )
+    )  # type: ignore
 
     inputs = ExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
@@ -135,7 +135,7 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )
+    )  # type: ignore
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
@@ -174,7 +174,7 @@ async def test_is_schema_valid_activity_failed(activity_environment, team, **kwa
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )
+    )  # type: ignore
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
@@ -216,7 +216,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )
+    )  # type: ignore
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
@@ -243,7 +243,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
 
         assert mock_get_columns.call_count == 5
         all_tables = DataWarehouseTable.objects.all()
-        table_length = await sync_to_async(len)(all_tables)
+        table_length = await sync_to_async(len)(all_tables)  # type: ignore
         assert table_length == 5
 
         # Should still have one after
@@ -267,7 +267,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         )
 
         all_tables = DataWarehouseTable.objects.all()
-        table_length = await sync_to_async(len)(all_tables)
+        table_length = await sync_to_async(len)(all_tables)  # type: ignore
 
         assert table_length == 5
 
@@ -291,7 +291,7 @@ async def test_external_data_job_workflow(team):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )
+    )  # type: ignore
 
     inputs = ExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
@@ -352,11 +352,11 @@ async def test_external_data_job_workflow(team):
             assert mock_get_columns.call_count == 10
 
             all_tables = DataWarehouseTable.objects.all()
-            table_length = await sync_to_async(len)(all_tables)
+            table_length = await sync_to_async(len)(all_tables)  # type: ignore
 
             assert table_length == 5
 
             assert mock_move_draft_to_production.call_count == 1
 
-            new_job = await sync_to_async(ExternalDataJob.objects.first)()
+            new_job = await sync_to_async(ExternalDataJob.objects.first)()  # type: ignore
             assert new_job.status == ExternalDataJob.Status.COMPLETED

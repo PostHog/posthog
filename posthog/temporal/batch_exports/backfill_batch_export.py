@@ -3,6 +3,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
+import collections.abc
 
 import temporalio
 import temporalio.activity
@@ -12,7 +13,6 @@ import temporalio.exceptions
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
 from posthog.batch_exports.service import BackfillBatchExportInputs
 from posthog.temporal.common.client import connect
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -31,11 +31,40 @@ class TemporalScheduleNotFoundError(Exception):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-class BackfillHeartbeatDetails(AsyncHeartbeatDetails):
+class HeartbeatDetails(typing.NamedTuple):
+    """Details sent over in a Temporal Activity heartbeat."""
+
     schedule_id: str
     start_at: str
     end_at: str
     wait_start_at: str
+
+    def make_activity_heartbeat_while_running(
+        self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
+    ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
+        """Return a callable that returns a coroutine that heartbeats with these HeartbeatDetails.
+
+        The returned callable wraps 'function_to_run' while heartbeating every 'heartbeat_every'
+        seconds.
+        """
+
+        async def heartbeat() -> None:
+            """Heartbeat every 'heartbeat_every' seconds."""
+            while True:
+                await asyncio.sleep(heartbeat_every.total_seconds())
+                temporalio.activity.heartbeat(self)
+
+        async def heartbeat_while_running(*args, **kwargs):
+            """Wrap 'function_to_run' to asynchronously heartbeat while awaiting."""
+            heartbeat_task = asyncio.create_task(heartbeat())
+
+            try:
+                return await function_to_run(*args, **kwargs)
+            finally:
+                heartbeat_task.cancel()
+                await asyncio.wait([heartbeat_task])
+
+        return heartbeat_while_running
 
 
 @temporalio.activity.defn
@@ -110,9 +139,9 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     if details:
         # If we receive details from a previous run, it means we were restarted for some reason.
         # Let's not double-backfill and instead wait for any outstanding runs.
-        last_activity_details = BackfillHeartbeatDetails(*details[0])
+        last_activity_details = HeartbeatDetails(*details[0])
 
-        details = BackfillHeartbeatDetails(
+        details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
             start_at=last_activity_details.start_at,
             end_at=last_activity_details.end_at,
@@ -145,7 +174,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         )
         await handle.backfill(backfill)
 
-        details = BackfillHeartbeatDetails(
+        details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
             start_at=backfill_start_at.isoformat(),
             end_at=backfill_end_at.isoformat(),
@@ -156,7 +185,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
 
 async def wait_for_schedule_backfill_in_range_with_heartbeat(
-    heartbeat_details: BackfillHeartbeatDetails,
+    heartbeat_details: HeartbeatDetails,
     client: temporalio.client.Client,
     heartbeat_timeout: dt.timedelta | None = None,
     wait_delay: float = 5.0,

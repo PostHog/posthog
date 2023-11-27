@@ -1,6 +1,6 @@
 import typing
 import collections.abc
-import temporalio
+import temporalio.activity
 import asyncio
 import datetime as dt
 
