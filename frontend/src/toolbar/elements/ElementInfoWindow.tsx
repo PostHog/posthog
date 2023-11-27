@@ -4,7 +4,7 @@ import { IconClose } from 'lib/lemon-ui/icons'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export function InfoWindow(): JSX.Element | null {
+export function ElementInfoWindow(): JSX.Element | null {
     const {
         hoverElement,
         hoverElementMeta,

@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -15,6 +15,7 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -83,7 +84,14 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes', 'showGroupsOptions']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
+            sceneLogic,
+            ['activeScene'],
+        ],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -300,7 +308,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (response?.id) {
                         actions.updateExperiments(response)
                         actions.setEditExperiment(false)
-                        actions.setExperiment(response)
+                        actions.loadExperimentSuccess(response)
                         return
                     }
                 } else {
@@ -381,7 +389,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        // // sync form value `filters` with query
+        // sync form value `filters` with query
         setExposureQuery: ({ query }) => {
             actions.setExperiment({
                 parameters: {
@@ -1016,6 +1024,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
+    })),
+    beforeUnload(({ values, props }) => ({
+        enabled: () => values.activeScene === Scene.Experiment && props.experimentId === 'new',
+        message: `Leave experiment?\nChanges you made will be discarded.`,
     })),
 ])
 

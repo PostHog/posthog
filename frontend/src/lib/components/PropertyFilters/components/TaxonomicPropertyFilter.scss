@@ -4,8 +4,8 @@
 
     &--in-dropdown {
         width: 900px;
-        max-width: 100%;
         min-width: 300px;
+        max-width: 100%;
         background: var(--bg-light);
 
         .TaxonomicPropertyFilter__row__items {
@@ -21,33 +21,33 @@
         overflow: hidden;
 
         .TaxonomicPropertyFilter__row__operator {
-            flex-shrink: 0;
-            width: 4.5rem;
             display: flex;
-            justify-content: flex-end;
+            flex-shrink: 0;
             align-items: center;
+            justify-content: flex-end;
+            width: 4.5rem;
             height: 40px; // Matches typical row height
 
             .arrow {
-                color: #c4c4c4;
+                position: relative;
                 font-size: 18px;
                 font-weight: bold;
-                position: relative;
+                color: #c4c4c4;
                 user-select: none;
             }
         }
 
         .TaxonomicPropertyFilter__row__items {
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-wrap: wrap;
-            align-items: flex-start;
             gap: 0.5rem;
+            align-items: flex-start;
             overflow: hidden;
 
             > * {
-                overflow: hidden;
                 max-width: 100%;
+                overflow: hidden;
             }
         }
 
