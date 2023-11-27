@@ -136,7 +136,11 @@ function DashboardScene(): JSX.Element {
                                     )}
                                 />
                                 <PropertyFilters
-                                    onChange={setProperties}
+                                    onChange={(properties) => {
+                                        setProperties(properties);
+                                        // Fetch dashboard data when property filters change
+                                        fetchDashboardData();
+                                    }}
                                     pageKey={'dashboard_' + dashboard?.id}
                                     propertyFilters={dashboard?.filters.properties}
                                     taxonomicGroupTypes={[
