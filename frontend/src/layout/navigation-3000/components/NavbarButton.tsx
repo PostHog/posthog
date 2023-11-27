@@ -17,7 +17,7 @@ export interface NavbarButtonProps {
     icon: ReactElement
     title?: string
     shortTitle?: string
-    alwaysShowTitle?: boolean
+    forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
@@ -35,7 +35,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             identifier,
             shortTitle,
             title,
-            alwaysShowTitle,
+            forceTooltipOnHover,
             tag,
             onClick,
             persistentTooltip,
@@ -125,7 +125,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 ) : (
                     <Tooltip
                         title={
-                            alwaysShowTitle || isNavCollapsedActually
+                            forceTooltipOnHover || isNavCollapsedActually
                                 ? here
                                     ? `${title} (you are here)`
                                     : title

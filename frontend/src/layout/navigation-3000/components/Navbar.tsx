@@ -100,8 +100,8 @@ export function Navbar(): JSX.Element {
                                     ? 'Switch to light mode'
                                     : 'Switch to dark mode'
                             }
-                            alwaysShowTitle
                             shortTitle="Toggle theme"
+                            forceTooltipOnHover
                             onClick={() => toggleTheme()}
                             persistentTooltip
                         />
