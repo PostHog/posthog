@@ -245,7 +245,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             if (values.isDev) {
-                // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
                 return false
             }
 
