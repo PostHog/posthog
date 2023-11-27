@@ -1,10 +1,10 @@
 @import '../styles/mixins';
 
 .Exporter {
-    padding: 1rem;
-    min-height: 100vh;
     display: flex;
     flex-direction: column;
+    min-height: 100vh;
+    padding: 1rem;
 
     &--recording {
         height: 100vh;
@@ -18,9 +18,9 @@
 
         @include screen($md) {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
             gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
 
             .SharedDashboard-header-title {
                 max-width: 50%;
@@ -52,7 +52,7 @@ html.export-type-embed {
     overflow-y: auto;
 
     .Exporter {
-        padding: 0;
         min-height: 100vh;
+        padding: 0;
     }
 }

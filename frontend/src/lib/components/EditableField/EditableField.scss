@@ -12,9 +12,9 @@
     }
 
     .EditableField__notice {
+        margin-left: 0.5rem;
         font-size: 1.5rem;
         color: var(--muted);
-        margin-left: 0.5rem;
     }
 
     .EditableField__highlight {
@@ -25,8 +25,8 @@
         max-width: calc(100% + 0.5rem);
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
-        white-space: pre-wrap;
         overflow: auto;
+        white-space: pre-wrap;
     }
 
     &.EditableField--editing .EditableField__highlight {
@@ -34,8 +34,8 @@
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
-        outline: 1px solid var(--border);
         border-radius: var(--radius);
+        outline: 1px solid var(--border);
     }
 
     &.EditableField--underlined {
@@ -64,29 +64,29 @@
         position: absolute;
         top: 0;
         left: 0;
-        visibility: hidden;
         height: 0;
         overflow: scroll;
         white-space: pre;
+        visibility: hidden;
     }
 
     .EditableField__actions {
-        flex-shrink: 0;
         display: flex;
-        align-items: center;
+        flex-shrink: 0;
         gap: 0.5rem;
+        align-items: center;
         margin-left: 0.5rem;
     }
 
     input,
     textarea {
         max-width: 100%;
-        border: none;
-        background: transparent;
+        padding: 0;
         font: inherit;
         color: var(--default);
+        background: transparent;
+        border: none;
         outline: none;
-        padding: 0;
     }
 
     textarea {

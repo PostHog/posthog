@@ -1,8 +1,8 @@
 .events-definition-table {
     .LemonTable__content > table > tbody {
         td.definition-column-icon {
-            padding-right: 0.5rem;
             width: 36px;
+            padding-right: 0.5rem;
 
             .definition-column-name-icon {
                 display: flex;
@@ -31,19 +31,19 @@
             align-items: center;
 
             .definition-column-name-content {
+                position: relative;
                 display: flex;
                 flex-direction: column;
-                position: relative;
-                min-height: 32px;
                 justify-content: center;
+                min-height: 32px;
 
                 .definition-column-name-content-title {
-                    align-items: center;
-                    display: flex;
-                    font-weight: 600;
-                    gap: 0.25rem;
-                    overflow: visible;
                     position: relative;
+                    display: flex;
+                    gap: 0.25rem;
+                    align-items: center;
+                    overflow: visible;
+                    font-weight: 600;
 
                     svg {
                         color: var(--success);
@@ -62,17 +62,17 @@
             display: flex;
             align-items: center;
             width: fit-content;
+            max-width: 300px;
             padding: 0.125rem 0.25rem;
-            letter-spacing: 0.25px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-light);
-            background: var(--mid);
-            color: var(--muted-alt);
             font-size: 0.625rem;
             font-weight: 500;
+            color: var(--muted-alt);
+            letter-spacing: 0.25px;
             word-break: break-all;
-            max-width: 300px;
             cursor: text;
+            background: var(--mid);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
         }
 
         .LemonTable__expansion {

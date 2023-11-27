@@ -55,6 +55,18 @@ class CleanTableNameFromChain(CloningVisitor):
         return super().visit_field(node)
 
 
+class ContainsLazyJoinType(TraversingVisitor):
+    contains_lazy_join: bool
+
+    def __init__(self, expr: ast.Expr):
+        super().__init__()
+        self.contains_lazy_join = False
+        super().visit(expr)
+
+    def visit_lazy_join_type(self, node: ast.LazyJoinType):
+        self.contains_lazy_join = True
+
+
 class WhereClauseExtractor:
     compare_operators: List[ast.Expr]
 
@@ -109,14 +121,30 @@ class WhereClauseExtractor:
     def run(self, expr: ast.Expr) -> List[ast.Expr]:
         exprs_to_apply: List[ast.Expr] = []
 
+        def should_add(expression: ast.Expr, fields: List[ast.Field]) -> bool:
+            for field in fields:
+                on_table = self._is_field_on_table(field)
+                if not on_table:
+                    return False
+
+                # Ignore comparisons on the `event` field for session durations
+                if field.chain[-1] == "event":
+                    return False
+
+                # Ignore if there's a lazy join involved
+                if ContainsLazyJoinType(expression).contains_lazy_join:
+                    return False
+
+            return True
+
         if isinstance(expr, ast.And):
             for expression in expr.exprs:
                 if not isinstance(expression, ast.CompareOperation):
                     continue
 
                 fields = GetFieldsTraverser(expression).fields
-                res = [self._is_field_on_table(field) for field in fields]
-                if all(res):
+
+                if should_add(expression, fields):
                     exprs_to_apply.append(expression)
         elif isinstance(expr, ast.CompareOperation):
             exprs_to_apply.extend(self.run(ast.And(exprs=[expr])))

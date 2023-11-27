@@ -55,7 +55,7 @@ export function CommandBar(): JSX.Element | null {
     }
 
     return (
-        <CommandBarOverlay barStatus={barStatus}>
+        <CommandBarOverlay barStatus={barStatus} ref={containerRef}>
             {barStatus === BarStatus.SHOW_SEARCH && <SearchBar />}
             {barStatus === BarStatus.SHOW_ACTIONS && <ActionBar />}
             {barStatus === BarStatus.SHOW_SHORTCUTS && <Shortcuts />}

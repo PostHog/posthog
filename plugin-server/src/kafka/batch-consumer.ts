@@ -29,6 +29,7 @@ export const startBatchConsumer = async ({
     topic,
     autoCommit,
     sessionTimeout,
+    maxPollIntervalMs,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
@@ -44,6 +45,7 @@ export const startBatchConsumer = async ({
     topic: string
     autoCommit: boolean
     sessionTimeout: number
+    maxPollIntervalMs: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
@@ -78,6 +80,7 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
+        'max.poll.interval.ms': maxPollIntervalMs,
         'enable.auto.commit': autoCommit,
         'enable.auto.offset.store': false,
         /**
