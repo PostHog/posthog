@@ -347,14 +347,14 @@ async def test_external_data_job_workflow(team):
                     dataset_name=new_source.draft_folder_path,
                 )
             )
-            mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key")
+            mock_run_stripe.assert_called_once_with(stripe_secret_key="test-key", endpoints=ENDPOINTS)
 
-            assert mock_get_columns.call_count == 2
+            assert mock_get_columns.call_count == 10
 
             all_tables = DataWarehouseTable.objects.all()
             table_length = await sync_to_async(len)(all_tables)
 
-            assert table_length == 1
+            assert table_length == 5
 
             assert mock_move_draft_to_production.call_count == 1
 
