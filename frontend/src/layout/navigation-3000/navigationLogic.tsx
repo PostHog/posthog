@@ -464,14 +464,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     : null,
         ],
         activeNavbarItemId: [
-            (s) => [
-                s.activeNavbarItemIdRaw,
-                sceneLogic.selectors.aliasedActiveScene,
-                featureFlagLogic.selectors.featureFlags,
-            ],
-            (activeNavbarItemIdRaw, aliasedActiveScene, featureFlags): string | null => {
+            (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
+            (activeNavbarItemIdRaw, featureFlags): string | null => {
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
-                    return aliasedActiveScene
+                    return null
                 }
                 return activeNavbarItemIdRaw
             },
