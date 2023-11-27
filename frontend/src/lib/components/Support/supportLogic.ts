@@ -16,6 +16,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
+import { openSupportModal } from './SupportModal'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -109,92 +110,68 @@ export type SupportFormLogicProps = {
     onClose?: () => void
 }
 
+export type SupportFormFields = {
+    name: string
+    email: string
+    kind: SupportTicketKind
+    target_area: SupportTicketTargetArea | null
+    message: string
+}
+
 export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (kind: SupportTicketKind = 'support', target_area: SupportTicketTargetArea | null = null) => ({
-            kind,
-            target_area,
-        }),
-        openSupportLoggedOutForm: (
-            name: string | null = null,
-            email: string | null = null,
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({ name, email, kind, target_area }),
-        submitZendeskTicket: (
-            name: string,
-            email: string,
-            kind: SupportTicketKind | null,
-            target_area: string | null,
-            message: string
-        ) => ({
-            name,
-            email,
-            kind,
-            target_area,
-            message,
-        }),
+        openSupportForm: (values: Partial<SupportFormFields>) => values,
+        submitZendeskTicket: (form: SupportFormFields) => form,
     })),
     reducers(() => ({
         isSupportFormOpen: [
             false,
             {
                 openSupportForm: () => true,
-                openSupportLoggedOutForm: () => true,
                 closeSupportForm: () => false,
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         sendSupportRequest: {
             defaults: {
-                kind: 'support' as SupportTicketKind,
-                target_area: null as SupportTicketTargetArea | null,
+                name: '',
+                email: '',
+                kind: 'support',
+                target_area: null,
                 message: '',
-            },
-            errors: ({ message, kind, target_area }) => {
-                return {
-                    message: !message ? 'Please enter a message' : '',
-                    kind: !kind ? 'Please choose' : undefined,
-                    target_area: !target_area ? 'Please choose' : undefined,
-                }
-            },
-            submit: async ({ kind, target_area, message }) => {
-                const name = userLogic.values.user?.first_name
-                const email = userLogic.values.user?.email
-                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
-            },
-        },
-        sendSupportLoggedOutRequest: {
-            defaults: {} as unknown as {
-                name: string
-                email: string
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
-            },
+            } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area }) => {
                 return {
-                    name: !name ? 'Please enter your name' : '',
-                    email: !email ? 'Please enter your email' : '',
+                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
+                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
                     message: !message ? 'Please enter a message' : '',
                     kind: !kind ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
                 }
             },
-            submit: async ({ name, email, kind, target_area, message }) => {
-                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
+            submit: async (formValues) => {
+                formValues.name = values.user?.first_name ?? formValues.name ?? ''
+                formValues.email = values.user?.email ?? formValues.email ?? ''
+                actions.submitZendeskTicket(formValues as SupportFormFields)
                 actions.closeSupportForm()
-                actions.resetSendSupportLoggedOutRequest()
+                actions.resetSendSupportRequest()
             },
         },
     })),
@@ -207,28 +184,24 @@ export const supportLogic = kea<supportLogicType>([
                     : 'Leave a message with PostHog',
         ],
     }),
-    listeners(({ actions, props }) => ({
-        openSupportForm: async ({ kind, target_area }) => {
+    listeners(({ actions, props, values }) => ({
+        openSupportForm: async ({ name, email, kind, target_area, message }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
+                name: name ?? '',
+                email: email ?? '',
                 kind,
                 target_area: area,
-                message: '',
+                message: message ?? '',
             })
 
-            const panelOptions = [kind ?? '', area ?? ''].join(':')
-
-            actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
-        },
-        openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
-            actions.resetSendSupportLoggedOutRequest({
-                name: name ? name : '',
-                email: email ? email : '',
-                kind: kind ? kind : null,
-                target_area: target_area ? target_area : null,
-                message: '',
-            })
+            if (values.sidePanelAvailable) {
+                const panelOptions = [kind ?? '', area ?? ''].join(':')
+                actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
+            } else {
+                openSupportModal()
+            }
         },
         submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
@@ -323,10 +296,10 @@ export const supportLogic = kea<supportLogicType>([
             if (hashParams['panel'] === SidePanelTab.Support) {
                 const [kind, area] = (hashParams['panelOptions'] || '').split(':')
 
-                actions.openSupportForm(
-                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
-                )
+                actions.openSupportForm({
+                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                })
                 return
             }
 
@@ -334,10 +307,10 @@ export const supportLogic = kea<supportLogicType>([
             if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
-                actions.openSupportForm(
-                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
-                )
+                actions.openSupportForm({
+                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                })
             }
         },
     })),
@@ -371,6 +344,8 @@ export const supportLogic = kea<supportLogicType>([
 
                 const hashParams = router.values.hashParams
                 delete hashParams['supportModal'] // legacy value
+                delete hashParams['panel']
+                delete hashParams['panelOptions']
 
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },

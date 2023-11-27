@@ -14,9 +14,16 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
         setSidePanelOpen: (open: boolean) => ({ open }),
         setSidePanelOptions: (options: string | null) => ({ options }),
+        setSidePanelAvailable: (available: boolean) => ({ available }),
     }),
 
     reducers(() => ({
+        sidePanelAvailable: [
+            false,
+            {
+                setSidePanelAvailable: (_, { available }) => available,
+            },
+        ],
         selectedTab: [
             null as SidePanelTab | null,
             { persist: true },

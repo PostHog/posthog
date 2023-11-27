@@ -37,8 +37,8 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                         with the person who sent you here
                         {preflight?.cloud ? (
                             <>
-                                , or <Link onClick={() => openSupportForm('support')}>contact support</Link> if you
-                                think this is a mistake
+                                , or <Link onClick={() => openSupportForm({ kind: 'support' })}>contact support</Link>{' '}
+                                if you think this is a mistake
                             </>
                         ) : null}
                         .
