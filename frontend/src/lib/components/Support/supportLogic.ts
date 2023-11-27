@@ -169,7 +169,7 @@ export const supportLogic = kea<supportLogicType>([
             submit: async (formValues) => {
                 formValues.name = values.user?.first_name ?? formValues.name ?? ''
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues as SupportFormFields)
+                actions.submitZendeskTicket(formValues)
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
             },
