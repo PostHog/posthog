@@ -1,98 +1,98 @@
 .LemonTag {
-    align-items: center;
-    background: var(--border);
-    border-radius: var(--radius);
-    color: var(--default);
     display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.25rem;
     font-size: 0.75rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
-    padding: 0.125rem 0.25rem;
+    color: var(--default);
     white-space: nowrap;
+    background: var(--border);
+    border-radius: var(--radius);
 
     .posthog-3000 & {
+        padding: 0.075rem 0.25rem;
+        font-size: 0.688rem;
         background: none;
-        border-radius: calc(var(--radius) * 0.75);
         border-style: solid;
         border-width: 1px;
-        font-size: 0.688rem;
-        padding: 0.075rem 0.25rem;
+        border-radius: calc(var(--radius) * 0.75);
     }
 
     &.primary {
-        background-color: var(--primary-3000);
         color: #fff;
+        background-color: var(--primary-3000);
 
         .posthog-3000 & {
+            color: var(--primary-3000);
             background: none;
             border-color: var(--primary-3000);
-            color: var(--primary-3000);
         }
     }
 
     &.highlight {
-        background-color: var(--mark);
         color: var(--bg-charcoal);
+        background-color: var(--mark);
 
         .posthog-3000 & {
+            color: var(--mark);
             background: none;
             border-color: var(--mark);
-            color: var(--mark);
         }
     }
 
     &.warning {
-        background-color: var(--warning);
         color: var(--bg-charcoal);
+        background-color: var(--warning);
 
         .posthog-3000 & {
+            color: var(--warning);
             background: none;
             border-color: var(--warning);
-            color: var(--warning);
         }
     }
 
     &.danger {
-        background-color: var(--danger);
         color: #fff;
+        background-color: var(--danger);
 
         .posthog-3000 & {
+            color: var(--danger);
             background: none;
             border-color: var(--danger);
-            color: var(--danger);
         }
     }
 
     &.success {
-        background-color: var(--success);
         color: #fff;
+        background-color: var(--success);
 
         .posthog-3000 & {
+            color: var(--success);
             background: none;
             border-color: var(--success);
-            color: var(--success);
         }
     }
 
     &.completion {
-        background-color: var(--purple-light);
         color: var(--bg-charcoal);
+        background-color: var(--purple-light);
 
         .posthog-3000 & {
+            color: var(--purple-light);
             background: none;
             border-color: var(--purple-light);
-            color: var(--purple-light);
         }
     }
 
     &.caution {
-        background-color: var(--danger-lighter);
         color: var(--bg-charcoal);
+        background-color: var(--danger-lighter);
 
         .posthog-3000 & {
+            color: var(--danger-lighter);
             background: none;
             border-color: var(--danger-lighter);
-            color: var(--danger-lighter);
         }
     }
 
@@ -101,19 +101,19 @@
     }
 
     &.LemonTag--size-small {
-        font-size: 0.625rem;
         padding: 0.0625rem 0.1875rem;
+        font-size: 0.625rem;
     }
 
     .LemonTag__icon {
-        font-size: 0.875rem;
-        margin-right: 0.125rem;
         display: flex;
+        margin-right: 0.125rem;
+        font-size: 0.875rem;
     }
 
     .LemonTag__right-button {
-        margin-left: 0.25rem;
         min-height: 1.5rem !important;
         padding: 0.125rem !important;
+        margin-left: 0.25rem;
     }
 }

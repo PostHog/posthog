@@ -101,6 +101,7 @@ export function Navbar(): JSX.Element {
                                     : 'Switch to dark mode'
                             }
                             shortTitle="Toggle theme"
+                            forceTooltipOnHover
                             onClick={() => toggleTheme()}
                             persistentTooltip
                         />

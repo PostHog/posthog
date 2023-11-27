@@ -51,7 +51,7 @@ def join_with_person_overrides_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "person_id"]),
+            left=ast.Field(chain=[from_table, "event_person_id"]),
             right=ast.Field(chain=[to_table, "old_person_id"]),
         )
     )

@@ -25,7 +25,7 @@ import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter
-let redis: Redis.Redis
+export let redis: Redis.Redis
 let graphileWorker: WorkerUtils
 
 beforeAll(async () => {

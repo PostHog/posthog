@@ -379,7 +379,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                     type="secondary"
                     fullWidth
                     center
-                    disabledReason={!isThereMoreToLoad ? "There's nothing mote to load" : undefined}
+                    disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
                     {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>

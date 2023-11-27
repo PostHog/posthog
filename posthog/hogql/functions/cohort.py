@@ -15,6 +15,10 @@ def cohort_subquery(cohort_id, is_static) -> ast.Expr:
     return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
+def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+    return cohort(node, [node], context)
+
+
 def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
     arg = args[0]
     if not isinstance(arg, ast.Constant):

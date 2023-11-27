@@ -527,12 +527,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                   return (
                                                       <EventDetails
                                                           event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                          useReactJsonView
                                                       />
                                                   )
                                               }
                                               if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} useReactJsonView />
+                                                  return <EventDetails event={result as EventType} />
                                               }
                                           },
                                           rowExpandable: ({ result }) => !!result,

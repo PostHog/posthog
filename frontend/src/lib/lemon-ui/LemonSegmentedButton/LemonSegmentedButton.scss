@@ -6,9 +6,9 @@
 
     > ul {
         z-index: 1; // Place above slider
-        list-style: none;
         display: flex;
         align-items: stretch;
+        list-style: none;
     }
 
     &.LemonSegmentedButton--full-width {
@@ -32,16 +32,17 @@ body:not(.posthog-3000) {
     }
 
     .LemonSegmentedButton__slider {
-        // This is a real element and not ::after to avoid initial transition from 0 width
-        transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
-        will-change: width, transform, border-radius;
         position: absolute;
         top: -1px; // 1px of border
         left: -1px; // 1px of border
-        height: calc(100% + 2px); // 1px of border (top + bottom)
         width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
-        transform: translateX(var(--lemon-segmented-button-slider-offset));
+        height: calc(100% + 2px); // 1px of border (top + bottom)
         background: var(--primary);
+
+        // This is a real element and not ::after to avoid initial transition from 0 width
+        transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
+        transform: translateX(var(--lemon-segmented-button-slider-offset));
+        will-change: width, transform, border-radius;
 
         &.LemonSegmentedButton__slider--first {
             border-top-left-radius: var(--radius);
@@ -56,12 +57,13 @@ body:not(.posthog-3000) {
 
     .LemonSegmentedButton__option {
         .LemonButton {
+            min-height: calc(var(--lemon-button-height) - 2px);
+            border-radius: 0;
+            outline: 1px solid transparent;
+
             // Original transition with outline added
             transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
                 outline 200ms ease;
-            outline: 1px solid transparent;
-            border-radius: 0;
-            min-height: calc(var(--lemon-button-height) - 2px);
 
             &:hover {
                 > span {

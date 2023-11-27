@@ -1,29 +1,28 @@
 .LemonTextArea {
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    display: block;
+    width: 100%;
     min-height: 2.5rem;
     padding: 0.5rem;
-    background: none;
-    border-radius: var(--radius);
     font-size: 0.875rem;
-    text-align: left;
     line-height: 1.25rem;
-    cursor: text;
     color: var(--default);
-    border: 1px solid var(--border);
+    text-align: left;
+    text-overflow: ellipsis;
+    cursor: text;
+    background: none;
     background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     outline: none;
-    display: block;
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
 
     &:not(:disabled):hover {
         border: 1px solid var(--primary-3000-hover);
     }
 
-    width: 100%;
-    text-overflow: ellipsis;
-
     &:disabled {
-        opacity: var(--opacity-disabled);
         cursor: not-allowed;
+        opacity: var(--opacity-disabled);
     }
 
     &:focus:not(:disabled) {
@@ -37,12 +36,12 @@
 
 .LemonTextArea--preview {
     ul {
-        list-style-type: disc;
         list-style-position: inside;
+        list-style-type: disc;
     }
 
     ol {
-        list-style-type: decimal;
         list-style-position: inside;
+        list-style-type: decimal;
     }
 }

@@ -397,7 +397,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][3], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_select_person_with_poe_without_joins(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
@@ -473,7 +473,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
-            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -521,7 +521,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
             cohort.insert_users_by_list(["some_id"])
 
-            with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
+            with override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -539,7 +539,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk})))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
                 )
 
-            with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -550,11 +550,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         )
                     },
                 )
-                self.assertEqual(response.results, [("$pageview", 1)])
                 self.assertEqual(
                     response.clickhouse,
                     f"SELECT events.event, count(*) FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
                 )
+                self.assertEqual(response.results, [("$pageview", 1)])
 
     def test_join_with_property_materialized_session_id(self):
         with freeze_time("2020-01-10"):
@@ -1043,7 +1043,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT "
-                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS string, "
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), "
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s, %(hogql_val_4)s), ''), 'null'), '^\"|\"$', ''), "
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), "

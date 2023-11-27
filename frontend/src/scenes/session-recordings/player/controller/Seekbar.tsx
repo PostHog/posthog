@@ -21,7 +21,7 @@ export function Seekbar(): JSX.Element {
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
+    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(logicProps))
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
@@ -80,7 +80,16 @@ export function Seekbar(): JSX.Element {
                             style={{ transform: `translateX(${thumbLeftPos}px)` }}
                         />
 
-                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} seekBarRef={seekBarRef} />
+                        <PlayerSeekbarPreview
+                            minMs={0}
+                            maxMs={sessionPlayerData.durationMs}
+                            seekBarRef={seekBarRef}
+                            activeMs={
+                                sessionPlayerMetaData?.active_seconds
+                                    ? sessionPlayerMetaData.active_seconds * 1000
+                                    : null
+                            }
+                        />
                     </div>
                 </div>
             </div>

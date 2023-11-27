@@ -89,6 +89,7 @@ const config: Config = {
         '^~/(.*)$': '<rootDir>/$1',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/../@posthog/lemon-ui/src/$1',
         '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/src/$1',
+        '^@posthog/ee/exports': ['<rootDir>/../../ee/frontend/exports', '<rootDir>/../@posthog/ee/exports'],
         '^lib/(.*)$': '<rootDir>/lib/$1',
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',

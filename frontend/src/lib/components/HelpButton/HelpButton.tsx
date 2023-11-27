@@ -21,7 +21,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { HelpType } from '~/types'
 
 import { supportLogic } from '../Support/supportLogic'
-import { SupportModal } from '../Support/SupportModal'
 import type { helpButtonLogicType } from './HelpButtonType'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
@@ -117,7 +116,7 @@ export function HelpButton({
                                 icon: <IconBugReport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('bug')
+                                    openSupportForm({ kind: 'bug' })
                                     hideHelp()
                                 },
                             },
@@ -126,7 +125,7 @@ export function HelpButton({
                                 icon: <IconFeedback />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('feedback')
+                                    openSupportForm({ kind: 'feedback' })
                                     hideHelp()
                                 },
                             },
@@ -135,7 +134,7 @@ export function HelpButton({
                                 icon: <IconSupport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('support')
+                                    openSupportForm({ kind: 'support' })
                                     hideHelp()
                                 },
                             },
@@ -183,7 +182,6 @@ export function HelpButton({
                     )}
                 </div>
             </LemonMenu>
-            <SupportModal />
         </>
     )
 }
