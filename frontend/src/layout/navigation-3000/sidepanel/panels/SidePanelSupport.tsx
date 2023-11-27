@@ -4,7 +4,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 export const SidePanelSupport = (): JSX.Element => {
@@ -16,9 +16,8 @@ export const SidePanelSupport = (): JSX.Element => {
 
     return (
         <>
-            <SidePanelPaneHeader>
-                <h4 className="flex-1 font-semibold px-2 mb-0">{title}</h4>
-            </SidePanelPaneHeader>
+            <SidePanelPaneHeader title={title} />
+
             <div className="p-3 max-w-160 w-full mx-auto">
                 <SupportForm />
                 <div className="flex items-center justify-end gap-2 mt-4">
