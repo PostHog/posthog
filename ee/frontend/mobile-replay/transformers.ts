@@ -152,7 +152,7 @@ function chooseConverter<T extends wireframe>(
     wireframe: T
 ): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
     // in theory type is always present
-    // but since this is coming over the wire we can't really be sure,
+    // but since this is coming over the wire we can't really be sure
     // and so we default to div
     const converterType = wireframe.type || 'div'
     switch (converterType) {

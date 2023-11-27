@@ -12,7 +12,7 @@ const ajv = new Ajv({
 
 const transformers: Record<number, (x: any) => eventWithTime> = {
     4: makeMetaEvent,
-    2: makeFullEvent,
+    10: makeFullEvent,
 }
 
 const mobileSchemaValidator = ajv.compile(mobileSchema)

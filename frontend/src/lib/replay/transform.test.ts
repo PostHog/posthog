@@ -1,24 +1,14 @@
-import { importPostHogEE } from '@posthog/ee/exports'
+import posthogEE from '@posthog/ee/exports'
 import { ifEeDescribe } from 'lib/ee.test'
 
 const heartEyesEmojiURL =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
 
 describe('replay/transform', () => {
-    let importedPostHogEE: any
-    beforeEach(async () => {
-        try {
-            const importPostHogEE1 = importPostHogEE
-            importedPostHogEE = await importPostHogEE1()
-        } catch (e) {
-            console.warn('PostHog EE frontend code is not available', e)
-        }
-    })
-
     ifEeDescribe('transform', () => {
-        test('can ignore unknown types', async () => {
+        test('can ignore unknown types', () => {
             expect(
-                importedPostHogEE?.transformToWeb([
+                posthogEE.mobileReplay?.transformToWeb([
                     {
                         data: { width: 300, height: 600 },
                         timestamp: 1,
@@ -37,15 +27,15 @@ describe('replay/transform', () => {
             ])
         })
 
-        test('can ignore unknown wireframe types', async () => {
-            const unexpectedWireframeType = importedPostHogEE.mobileReplay?.transformToWeb([
+        test('can ignore unknown wireframe types', () => {
+            const unexpectedWireframeType = posthogEE.mobileReplay?.transformToWeb([
                 {
                     data: { screen: 'App Home Page', width: 300, height: 600 },
                     timestamp: 1,
                     type: 4,
                 },
                 {
-                    type: 2,
+                    type: 10,
                     data: {
                         wireframes: [
                             {
@@ -64,15 +54,15 @@ describe('replay/transform', () => {
             expect(unexpectedWireframeType).toMatchSnapshot()
         })
 
-        test('can short-circuit non-mobile full snapshot', async () => {
-            const allWeb = importedPostHogEE.mobileReplay?.transformToWeb([
+        test('can short-circuit non-mobile full snapshot', () => {
+            const allWeb = posthogEE.mobileReplay?.transformToWeb([
                 {
                     data: { href: 'https://my-awesome.site', width: 300, height: 600 },
                     timestamp: 1,
                     type: 4,
                 },
                 {
-                    type: 2,
+                    type: 10,
                     data: {
                         node: { the: 'payload' },
                     },
@@ -82,8 +72,8 @@ describe('replay/transform', () => {
             expect(allWeb).toMatchSnapshot()
         })
 
-        test('can convert images', async () => {
-            const exampleWithImage = importedPostHogEE.mobileReplay?.transformToWeb([
+        test('can convert images', () => {
+            const exampleWithImage = posthogEE.mobileReplay?.transformToWeb([
                 {
                     data: {
                         screen: 'App Home Page',
@@ -94,7 +84,7 @@ describe('replay/transform', () => {
                     type: 4,
                 },
                 {
-                    type: 2,
+                    type: 10,
                     data: {
                         wireframes: [
                             {
@@ -136,8 +126,8 @@ describe('replay/transform', () => {
             expect(exampleWithImage).toMatchSnapshot()
         })
 
-        test('can convert rect with text', async () => {
-            const exampleWithRectAndText = importedPostHogEE.mobileReplay?.transformToWeb([
+        test('can convert rect with text', () => {
+            const exampleWithRectAndText = posthogEE.mobileReplay?.transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -147,7 +137,7 @@ describe('replay/transform', () => {
                     type: 4,
                 },
                 {
-                    type: 2,
+                    type: 10,
                     data: {
                         wireframes: [
                             {
@@ -185,15 +175,15 @@ describe('replay/transform', () => {
             expect(exampleWithRectAndText).toMatchSnapshot()
         })
 
-        test('child wireframes are processed', async () => {
-            const textEvent = importedPostHogEE.mobileReplay?.transformToWeb([
+        test('child wireframes are processed', () => {
+            const textEvent = posthogEE.mobileReplay?.transformToWeb([
                 {
                     data: { screen: 'App Home Page', width: 300, height: 600 },
                     timestamp: 1,
                     type: 4,
                 },
                 {
-                    type: 2,
+                    type: 10,
                     data: {
                         wireframes: [
                             {

@@ -6,14 +6,14 @@ export const ifFossIt = !eeFolderExists ? it : it.skip
 export const ifEeDescribe = eeFolderExists ? describe : describe.skip
 export const ifFossDescribe = !eeFolderExists ? describe : describe.skip
 
-import { importPostHogEE } from '@posthog/ee/exports'
+import posthogEE from '@posthog/ee/exports'
 
 describe('ee importing', () => {
-    ifEeIt('should import actual ee code', async () => {
-        expect((await importPostHogEE()).enabled).toBe(true)
+    ifEeIt('should import actual ee code', () => {
+        expect(posthogEE.enabled).toBe(true)
     })
 
-    ifFossIt('should import actual ee code', async () => {
-        expect((await importPostHogEE()).enabled).toBe(false)
+    ifFossIt('should import actual ee code', () => {
+        expect(posthogEE.enabled).toBe(false)
     })
 })
