@@ -196,7 +196,7 @@ describe('transforms', () => {
             import * as fetch2 from 'node-fetch'
             console.log(bla, bla2, bla4, fetch1, fetch2);
         `
-            const usedImports = new Set()
+            const usedImports = new Set<string>()
             const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } }, usedImports)
             expect(usedImports).toEqual(new Set(['node-fetch']))
 

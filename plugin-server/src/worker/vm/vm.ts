@@ -3,7 +3,6 @@ import { randomBytes } from 'crypto'
 import { VM } from 'vm2'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
-import { status } from '../../utils/status'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
@@ -29,17 +28,6 @@ export class TimeoutError extends RetryError {
     }
 }
 
-const DEPRECATED_IMPORTS = new Set([
-    '@google-cloud/bigquery',
-    'ethers',
-    'faker',
-    'generic-pool',
-    'jsonwebtoken',
-    'pg',
-    'snowflake-sdk',
-    'zlib',
-])
-
 export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
@@ -57,14 +45,6 @@ export function createPluginConfigVM(
 
     const usedImports: Set<string> = new Set()
     const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
-
-    const usedDeprecatedImports = [...usedImports].filter((i) => DEPRECATED_IMPORTS.has(i))
-    if (usedDeprecatedImports.length > 0) {
-        status.warn('⚠️', 'Plugin used deprecated import(s)', {
-            imports: usedDeprecatedImports,
-            pluginConfig: pluginConfig.id,
-        })
-    }
 
     // Create virtual machine
     const vm = new VM({
@@ -263,5 +243,6 @@ export function createPluginConfigVM(
         methods,
         tasks,
         vmResponseVariable: responseVar,
+        usedImports,
     }
 }
