@@ -84,7 +84,7 @@ class MoveDraftToProductionExternalDataJobInputs:
 
 @activity.defn
 async def move_draft_to_production_activity(inputs: MoveDraftToProductionExternalDataJobInputs) -> None:
-    await sync_to_async(move_draft_to_production)(
+    await sync_to_async(move_draft_to_production)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
     )
