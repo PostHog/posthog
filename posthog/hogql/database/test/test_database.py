@@ -7,7 +7,11 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import FieldTraverser, StringDatabaseField
+from posthog.hogql.database.models import FieldTraverser, StringDatabaseField, ExpressionField
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import print_ast
+from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
@@ -80,3 +84,35 @@ class TestDatabase(BaseTest):
         db = create_hogql_database(team_id=self.team.pk)
 
         assert db.events.fields["event"] == StringDatabaseField(name="event")
+
+    def test_database_expression_fields(self):
+        db = create_hogql_database(team_id=self.team.pk)
+        db.numbers.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
+        db.numbers.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+        sql = "select number, double, expression + number from numbers(2)"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            query
+            == "SELECT numbers.number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000"
+        ), query
+
+        sql = "select double from (select double from numbers(2))"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            query
+            == "SELECT double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+        ), query
+
+        sql = "select double from (select * from numbers(2))"
+        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        assert (
+            query
+            == "SELECT double FROM (SELECT numbers.number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+        ), query

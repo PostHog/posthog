@@ -5,7 +5,7 @@
         width: 700px;
         padding: 0.5rem;
         background-color: var(--side);
-        border-radius: 0.25rem;
+        border-radius: var(--radius);
 
         @media (max-width: 960px) {
             display: block;

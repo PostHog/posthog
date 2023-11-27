@@ -400,7 +400,6 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string

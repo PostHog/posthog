@@ -2,7 +2,7 @@
     .property-group {
         padding: 0.5rem;
         background-color: var(--side);
-        border-radius: 4px;
+        border-radius: var(--radius);
 
         .posthog-3000 & {
             border-width: 1px;

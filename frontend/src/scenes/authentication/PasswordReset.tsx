@@ -106,7 +106,7 @@ function ResetForm(): JSX.Element {
             </Field>
             <LemonButton
                 fullWidth
-                type="primary"
+                type="onboarding"
                 center
                 htmlType="submit"
                 data-attr="password-reset"
@@ -130,7 +130,7 @@ function ResetSuccess(): JSX.Element {
             you’ll receive an email with a reset link soon.
             <div className="mt-4">
                 <LemonButton
-                    type="primary"
+                    type="onboarding"
                     data-attr="back-to-login"
                     center
                     fullWidth
@@ -159,7 +159,7 @@ function ResetThrottled(): JSX.Element {
             if you think this has been a mistake.
             <div className="mt-4">
                 <LemonButton
-                    type="primary"
+                    type="onboarding"
                     data-attr="back-to-login"
                     center
                     fullWidth

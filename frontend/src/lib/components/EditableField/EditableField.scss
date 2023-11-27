@@ -40,17 +40,18 @@
 
     &.EditableField--underlined {
         .EditableField__highlight {
-            padding: 0;
-            margin: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: 0;
+            margin-bottom: 0;
         }
 
         &.EditableField--editing .EditableField__highlight {
             outline: none;
 
             input {
-                text-decoration: underline;
-                text-decoration-color: var(--muted);
-                text-underline-offset: 0.5em;
+                margin-bottom: -1px;
+                border-bottom: 1px dashed var(--muted);
             }
         }
     }
@@ -58,6 +59,7 @@
     .EditableField__autosize {
         align-self: center;
         min-width: 0;
+        padding: 1px 0;
     }
 
     .EditableField__autosize__sizer {

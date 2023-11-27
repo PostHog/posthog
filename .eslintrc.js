@@ -251,6 +251,10 @@ module.exports = {
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
+                    {
+                        element: 'ReactJson',
+                        message: 'use <JSONViewer> for dark mode support instead',
+                    },
                 ],
             },
         ],
