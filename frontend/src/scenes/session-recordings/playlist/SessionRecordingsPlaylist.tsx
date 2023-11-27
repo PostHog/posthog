@@ -223,7 +223,7 @@ function RecordingsLists(): JSX.Element {
                             </div>
                         ))}
 
-                        {pinnedRecordings.length && otherRecordings.length ? (
+                        {pinnedRecordings.length ? (
                             <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
                                 Other recordings
                                 <LemonButton size="xsmall" onClick={() => toggleShowOtherRecordings()}>

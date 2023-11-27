@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
@@ -341,10 +342,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        // If we initialise with pinned recordings then we don't show others by default
+        // but if we go down to 0 pinned recordings then we show others
         showOtherRecordings: [
             !props.pinnedRecordings?.length,
             {
-                // Only change it to showing if we unpin all recordings
                 loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
                     pinnedRecordings.length === 0 ? true : state,
                 toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
@@ -724,9 +726,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
+    subscriptions(({ actions }) => ({
+        showOtherRecordings: (showOtherRecordings: boolean) => {
+            if (showOtherRecordings) {
+                actions.loadSessionRecordings()
+            }
+        },
+    })),
+
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
-        actions.loadSessionRecordings()
+    afterMount(({ actions, values }) => {
+        if (values.showOtherRecordings) {
+            actions.loadSessionRecordings()
+        }
         actions.loadPinnedRecordings()
     }),
 ])
