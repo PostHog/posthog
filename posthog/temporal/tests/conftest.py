@@ -125,7 +125,7 @@ async def activities(request):
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
-        task_queue=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=workflows,
         activities=activities,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),

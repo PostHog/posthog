@@ -11,17 +11,13 @@ with workflow.unsafe.imports_passed_through():
 from posthog.temporal.common.worker import start_worker
 from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORT_ACTIVITIES
 from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS, ACTIVITIES as DATA_SYNC_ACTIVITIES
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 
 
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--workflow-group",
-            default=settings.WORKFLOW_GROUP,
-            help="Group of temporal workflows and activities to execute (batch-exports, data-sync)",
-        )
         parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
@@ -39,7 +35,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--task-queue",
-            default=settings.TEMPORAL_BATCH_EXPORTS_TASK_QUEUE,
+            default=settings.TEMPORAL_TASK_QUEUE,
             help="Task queue to service",
         )
         parser.add_argument(
@@ -71,9 +67,8 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
-        workflow_group = options["workflow_group"]
 
-        if workflow_group == "data-sync":
+        if task_queue == DATA_WAREHOUSE_TASK_QUEUE:
             workflows = DATA_SYNC_WORKFLOWS
             activities = DATA_SYNC_ACTIVITIES
         else:

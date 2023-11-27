@@ -300,3 +300,4 @@ class FlagRequestType(str, Enum):
 
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
+DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
