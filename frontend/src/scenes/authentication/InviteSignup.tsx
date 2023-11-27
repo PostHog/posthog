@@ -269,7 +269,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </Field>
 
                 <LemonButton
-                    type="primary"
+                    type="onboarding"
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}
