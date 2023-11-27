@@ -9,3 +9,4 @@ members = [
 
 [workspace.dependencies]
 sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "json" ] }
+tokio = { version = "1.34.0", features = ["full"] }
