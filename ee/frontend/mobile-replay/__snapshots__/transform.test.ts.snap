@@ -290,7 +290,7 @@ exports[`replay/transform transform can short-circuit non-mobile full snapshot 1
       },
     },
     "timestamp": 1,
-    "type": 10,
+    "type": 2,
   },
 ]
 `;
