@@ -239,7 +239,7 @@
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--bg-3000);
+                background-color: var(--glass-border-3000);
             }
         }
     }
