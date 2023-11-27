@@ -240,6 +240,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
+        toggleShowOtherRecordings: (show?: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.filters, oldProps.filters)) {
@@ -340,6 +341,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        showOtherRecordings: [
+            !props.pinnedRecordings?.length,
+            {
+                loadPinnedRecordingsSuccess: (_, { pinnedRecordings }) => pinnedRecordings.length === 0,
+                toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
+            },
+        ],
+
         unusableEventsInFilter: [
             [] as string[],
             {

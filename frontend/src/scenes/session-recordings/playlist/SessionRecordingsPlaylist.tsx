@@ -75,6 +75,7 @@ function RecordingsLists(): JSX.Element {
         showAdvancedFilters,
         hasAdvancedFilters,
         logicProps,
+        showOtherRecordings,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -84,6 +85,7 @@ function RecordingsLists(): JSX.Element {
         setShowSettings,
         resetFilters,
         setShowAdvancedFilters,
+        toggleShowOtherRecordings,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -124,6 +126,10 @@ function RecordingsLists(): JSX.Element {
 
     const notebookNode = useNotebookNode()
 
+    const recordingCount = showOtherRecordings
+        ? otherRecordings.length + pinnedRecordings.length
+        : pinnedRecordings.length
+
     return (
         <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
             {
@@ -139,7 +145,7 @@ function RecordingsLists(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Showing {otherRecordings.length + pinnedRecordings.length} results.
+                                        Showing {recordingCount} results.
                                         <br />
                                         Scrolling to the bottom or the top of the list will load older or newer
                                         recordings respectively.
@@ -147,9 +153,7 @@ function RecordingsLists(): JSX.Element {
                                 }
                             >
                                 <span>
-                                    <CounterBadge>
-                                        {Math.min(999, otherRecordings.length + pinnedRecordings.length)}+
-                                    </CounterBadge>
+                                    <CounterBadge>{Math.min(999, recordingCount)}+</CounterBadge>
                                 </span>
                             </Tooltip>
                         </span>
@@ -220,36 +224,50 @@ function RecordingsLists(): JSX.Element {
                         ))}
 
                         {pinnedRecordings.length && otherRecordings.length ? (
-                            <div className="px-3 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
+                            <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
                                 Other recordings
+                                <LemonButton size="xsmall" onClick={() => toggleShowOtherRecordings()}>
+                                    {showOtherRecordings ? 'Hide' : 'Show'}
+                                </LemonButton>
                             </div>
                         ) : null}
 
-                        {otherRecordings.map((rec) => (
-                            <div key={rec.id} className="border-b">
-                                <SessionRecordingPreview
-                                    recording={rec}
-                                    onClick={() => onRecordingClick(rec)}
-                                    onPropertyClick={onPropertyClick}
-                                    isActive={activeSessionRecordingId === rec.id}
-                                    pinned={false}
-                                />
-                            </div>
-                        ))}
+                        {showOtherRecordings ? (
+                            <>
+                                {otherRecordings.map((rec) => (
+                                    <div key={rec.id} className="border-b">
+                                        <SessionRecordingPreview
+                                            recording={rec}
+                                            onClick={() => onRecordingClick(rec)}
+                                            onPropertyClick={onPropertyClick}
+                                            isActive={activeSessionRecordingId === rec.id}
+                                            pinned={false}
+                                        />
+                                    </div>
+                                ))}
 
-                        <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                            {sessionRecordingsResponseLoading ? (
-                                <>
-                                    <Spinner textColored /> Loading older recordings
-                                </>
-                            ) : hasNext ? (
-                                <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
-                                    Load more
-                                </LemonButton>
-                            ) : (
-                                'No more results'
-                            )}
-                        </div>
+                                <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                    {sessionRecordingsResponseLoading ? (
+                                        <>
+                                            <Spinner textColored /> Loading older recordings
+                                        </>
+                                    ) : hasNext ? (
+                                        <LemonButton
+                                            status="primary"
+                                            onClick={() => maybeLoadSessionRecordings('older')}
+                                        >
+                                            Load more
+                                        </LemonButton>
+                                    ) : (
+                                        'No more results'
+                                    )}
+                                </div>
+                            </>
+                        ) : totalFiltersCount ? (
+                            <div className="text-muted-alt p-4 italic text-sm">
+                                Filters do not apply to pinned recordings
+                            </div>
+                        ) : null}
                     </ul>
                 ) : sessionRecordingsResponseLoading ? (
                     <>
