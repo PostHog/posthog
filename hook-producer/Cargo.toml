@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true }
 axum = { version="0.7.1", features=["http2"] }
+eyre = "0.6.9"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
