@@ -260,6 +260,22 @@ export async function buildOrWatch(config) {
     const activitySuccess = (count) => (count === 1 ? 'Built' : 'Rebuilt')
     const activityError = (count) => (count === 1 ? 'Building failed' : 'Rebuilding failed ')
 
+    const log = (logOpts) => {
+        const icon = logOpts.success === undefined ? '🧱' : logOpts.success ? '🥇' : '🛑'
+        let timingSuffix = ''
+        if (logOpts.time) {
+            timingSuffix = ` in ${(new Date() - logOpts.time) / 1000}s`
+        }
+        const message =
+            logOpts.success === undefined
+                ? 'Building'
+                : logOpts.success
+                ? activitySuccess(buildCount)
+                : activityError(buildCount)
+
+        console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
+    }
+
     async function runBuild() {
         if (!esbuildContext) {
             esbuildContext = await context({ ...commonConfig, ..._config })
@@ -267,21 +283,20 @@ export async function buildOrWatch(config) {
 
         buildCount++
         const time = new Date()
-        console.log(`🧱 ${name ? `"${name}": ` : ''}Building`)
+        log({ name })
         try {
             const buildResult = await esbuildContext.rebuild()
             inputFiles = getInputFiles(buildResult)
 
-            console.log(
-                `🥇 ${name ? `"${name}": ` : ''}${activitySuccess(buildCount)} in ${(new Date() - time) / 1000}s`
-            )
+            log({ success: true, name, time })
+
             return {
                 entrypoints: getBuiltEntryPoints(config, buildResult),
                 chunks: getChunks(buildResult),
                 ...buildResult.metafile,
             }
         } catch (e) {
-            console.log(`🛑 ${name ? `"${name}": ` : ''}${activityError(buildCount)} in ${(new Date() - time) / 1000}s`)
+            log({ success: false, name, time })
         }
     }
 
