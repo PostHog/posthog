@@ -7,7 +7,6 @@ import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
@@ -24,7 +23,6 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    noTitle?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -34,7 +32,6 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    noTitle,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -47,7 +44,7 @@ export function PropertyGroupFilters({
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
-    const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
+    const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
 
     return (
         <div className="space-y-2 PropertyGroupFilters">
@@ -57,7 +54,6 @@ export function PropertyGroupFilters({
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
-                                {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
                                     <AndOrFilterSelect
                                         value={propertyGroupFilter.type}

@@ -6,7 +6,7 @@
         "*:8001": {
             "pass": "routes/metrics"
         },
-        "*:8081": {
+        "*:8181": {
             "pass": "routes/status"
         }
     },
