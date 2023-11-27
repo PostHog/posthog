@@ -210,13 +210,16 @@ export const supportLogic = kea<supportLogicType>([
     listeners(({ actions, props }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 kind,
                 target_area: area,
                 message: '',
             })
 
-            actions.openSidePanel(SidePanelTab.Support, `${kind}:${area}`)
+            const panelOptions = [kind ?? '', area ?? ''].join(':')
+
+            actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
@@ -341,16 +344,19 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values, actions }) => {
         const updateUrl = (): any => {
             const hashParams = router.values.hashParams
-            const panelOptions = `${values.sendSupportRequest.kind || ''}:${
-                values.sendSupportRequest.target_area || ''
-            }`
+            const panelOptions = [
+                values.sendSupportRequest.kind ?? '',
+                values.sendSupportRequest.target_area ?? '',
+            ].join(':')
 
-            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-                actions.setSidePanelOptions(panelOptions)
-                return
-            } else {
-                // Legacy values
-                hashParams['supportModal'] = `support:${panelOptions}`
+            if (panelOptions !== ':') {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                    actions.setSidePanelOptions(panelOptions)
+                    return
+                } else {
+                    // Legacy values
+                    hashParams['supportModal'] = `support:${panelOptions}`
+                }
             }
 
             return [router.values.location.pathname, router.values.searchParams, hashParams]
