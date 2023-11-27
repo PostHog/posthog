@@ -106,7 +106,7 @@ export const cleanHiddenLegendSeries = (
 }
 
 const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
-    if (!parentProperties) {
+    if (!parentProperties || !parentProperties.values) {
         return parentProperties
     }
 
