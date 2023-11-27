@@ -12,7 +12,7 @@ export type ResultTypeWithAll = ResultType | 'all'
 export type SearchResult = {
     result_id: string
     type: ResultType
-    name: string | null
+    rank: number | null
     extra_fields: Record<string, unknown>
 }
 
