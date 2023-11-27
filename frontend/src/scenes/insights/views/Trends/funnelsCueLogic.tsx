@@ -1,14 +1,16 @@
-import { kea, props, key, path, connect, actions, reducers, listeners, selectors, events } from 'kea'
-import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { FEATURE_FLAGS } from 'lib/constants'
-import type { funnelsCueLogicType } from './funnelsCueLogicType'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
 import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { InsightLogicProps } from '~/types'
+
+import type { funnelsCueLogicType } from './funnelsCueLogicType'
 
 export const funnelsCueLogic = kea<funnelsCueLogicType>([
     props({} as InsightLogicProps),
@@ -89,7 +91,7 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
         ],
     }),
     events(({ actions, values }) => ({
-        afterMount: async () => {
+        afterMount: () => {
             if (values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
                 actions.setPermanentOptOut()
             }

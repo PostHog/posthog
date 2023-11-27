@@ -1,18 +1,21 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import './SidePanel.scss'
-import { useActions, useValues } from 'kea'
-import { sidePanelLogic } from './sidePanelLogic'
+
+import { IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { useRef } from 'react'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { IconNotebook, IconInfo, IconSupport, IconGear } from '@posthog/icons'
-import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelSupport } from './panels/SidePanelSupport'
+import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
-import { SidePanelSettings } from './panels/SidePanelSettings'
+
 import { SidePanelTab } from '~/types'
+
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
+import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelSupport } from './panels/SidePanelSupport'
+import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
@@ -47,7 +50,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -66,6 +69,13 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+
+    useEffect(() => {
+        setSidePanelAvailable(true)
+        return () => {
+            setSidePanelAvailable(false)
+        }
+    }, [])
 
     if (!visibleTabs.length) {
         return null
@@ -98,6 +108,8 @@ export function SidePanel(): JSX.Element | null {
                                 }
                                 data-attr={`sidepanel-tab-${tab}`}
                                 active={activeTab === tab}
+                                type="secondary"
+                                stealth={true}
                             >
                                 {label}
                             </LemonButton>

@@ -1,9 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { forms } from 'kea-forms'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 
 import type { duplicateDashboardLogicType } from './duplicateDashboardLogicType'

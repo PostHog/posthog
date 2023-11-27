@@ -1,3 +1,16 @@
+import { urls } from '@posthog/apps-common'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconPlus } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useMemo, useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
 import {
     AnyPropertyFilter,
     EntityTypes,
@@ -6,18 +19,6 @@ import {
     PropertyOperator,
     RecordingFilters,
 } from '~/types'
-import { useMemo, useState } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { teamLogic } from 'scenes/teamLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { urls } from '@posthog/apps-common'
-import { IconPlus } from 'lib/lemon-ui/icons'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,

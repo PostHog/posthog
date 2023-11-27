@@ -1,10 +1,10 @@
 .InsightViz {
     display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    gap: 1rem;
-    container-type: inline-size;
     flex: 1; // important for when rendered within a flex parent
+    flex-direction: column;
+    gap: 1rem;
+    overflow: hidden;
+    container-type: inline-size;
 
     &.InsightViz--horizontal {
         flex-flow: row wrap;
@@ -29,14 +29,14 @@
     flex-direction: column;
 
     .NotebookNode & {
-        height: 100%;
         flex: 1;
+        height: 100%;
     }
 
     .InsightVizDisplay__content {
+        position: relative;
         display: flex;
         flex: 1;
-        position: relative;
         flex-direction: column;
 
         &--with-legend {
@@ -44,35 +44,41 @@
         }
 
         .InsightVizDisplay__content__left {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
             position: relative;
+            display: flex;
+            flex: 1;
+            flex-direction: column;
             width: 100%;
         }
 
         .InsightVizDisplay__content__right {
+            display: flex;
             flex-shrink: 1;
+            align-items: center;
+            width: fit-content;
             max-width: 45%;
             max-height: var(--insight-viz-min-height);
-            width: fit-content;
             margin: 1rem;
-            display: flex;
-            align-items: center;
         }
     }
 
     .InsightDisplayConfig {
-        border-bottom-width: 1px;
         padding: 0.5rem;
+        border-bottom-width: 1px;
+    }
+}
+
+.WebAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 25rem;
     }
 }
 
 .RetentionContainer {
-    width: 100%;
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
+    width: 100%;
 
     .RetentionContainer__graph {
         flex: 1;
@@ -99,11 +105,11 @@
 
 .TrendsInsight {
     position: relative;
-    flex: 1;
-    margin: 0.5rem;
     display: flex;
+    flex: 1;
     flex-direction: column;
     min-height: var(--insight-viz-min-height);
+    margin: 0.5rem;
 
     .NotebookNode & {
         min-height: auto;
@@ -112,8 +118,8 @@
     &--ActionsTable,
     &--WorldMap,
     &--BoldNumber {
-        margin: 0;
         min-height: auto;
+        margin: 0;
     }
 
     &--BoldNumber {
@@ -125,8 +131,8 @@
 
 .FunnelInsight {
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
     width: 100%;
 
     &--type-steps-vertical,
@@ -142,8 +148,8 @@
 
 .funnel-significance-highlight {
     display: inline-flex;
-    background: var(--primary);
     color: var(--bg-light);
+    background: var(--primary);
 
     .LemonIcon {
         color: var(--bg-light);

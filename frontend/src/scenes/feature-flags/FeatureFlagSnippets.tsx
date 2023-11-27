@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { GroupType } from '~/types'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'

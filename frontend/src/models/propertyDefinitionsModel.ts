@@ -1,5 +1,12 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { colonDelimitedDuration } from 'lib/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { teamLogic } from 'scenes/teamLogic'
+
 import {
     BreakdownKeyType,
     PropertyDefinition,
@@ -8,13 +15,8 @@ import {
     PropertyFilterValue,
     PropertyType,
 } from '~/types'
+
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
-import { dayjs } from 'lib/dayjs'
-import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { colonDelimitedDuration } from 'lib/utils'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { teamLogic } from 'scenes/teamLogic'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 

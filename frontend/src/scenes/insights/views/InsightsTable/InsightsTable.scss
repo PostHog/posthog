@@ -3,9 +3,9 @@
     align-items: center;
 
     .edit-icon {
-        color: var(--primary);
-        cursor: pointer;
         font-size: 1rem;
+        color: var(--primary-3000);
+        cursor: pointer;
     }
 
     .insights-label {
@@ -13,8 +13,8 @@
             cursor: pointer;
 
             .EntityFilterInfo {
-                color: var(--primary);
                 font-weight: 500;
+                color: var(--primary-3000);
             }
         }
     }

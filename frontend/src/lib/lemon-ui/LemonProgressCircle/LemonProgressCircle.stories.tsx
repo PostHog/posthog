@@ -1,9 +1,10 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
-import { useEffect, useState } from 'react'
-import { LemonButton } from '../LemonButton'
 import { IconGear } from '@posthog/icons'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useEffect, useState } from 'react'
+
+import { LemonButton } from '../LemonButton'
 import { LemonCheckbox } from '../LemonCheckbox'
+import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
 
 type Story = StoryObj<typeof LemonProgressCircle>
 const meta: Meta<typeof LemonProgressCircle> = {

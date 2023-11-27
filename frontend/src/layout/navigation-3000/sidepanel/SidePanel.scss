@@ -1,16 +1,19 @@
 .SidePanel3000 {
     position: relative;
-    flex-shrink: 0;
-    box-sizing: content-box;
     z-index: var(--z-main-nav);
-    width: 3rem;
+    box-sizing: content-box;
     display: flex;
+    flex-shrink: 0;
+    width: 3rem;
     background: var(--accent-3000);
 
     &--open {
         position: relative;
-        max-width: 60%;
+
+        // NOTE: This is only a default, as the resizer will override this
+        width: min(30%, 40rem);
         min-width: 30rem;
+        max-width: 60%;
 
         @media (max-width: 1200px) {
             position: fixed;
@@ -23,9 +26,6 @@
                 box-shadow: none;
             }
         }
-
-        // NOTE: This is only a default, as the resizer will override this
-        width: min(30%, 40rem);
     }
 
     &--resizing {
@@ -37,11 +37,11 @@
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        height: 100vh;
         width: 3rem;
-        border-left-width: 1px;
+        height: 100vh;
         overflow-y: auto;
         user-select: none;
+        border-left-width: 1px;
 
         .LemonButton {
             min-height: 2.25rem !important; // Reduce minimum height

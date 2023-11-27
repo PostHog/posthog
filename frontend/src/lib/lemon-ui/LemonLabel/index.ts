@@ -1,2 +1,2 @@
-export { LemonLabel } from './LemonLabel'
 export type { LemonLabelProps } from './LemonLabel'
+export { LemonLabel } from './LemonLabel'

@@ -1,15 +1,17 @@
-import { Link, LemonButton, LemonBadge } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { IconLink, IconSettings, IconEllipsis, IconLegend, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconErrorOutline, IconLegend, IconLink, IconSettings } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTypeWithConfig, PluginRepositoryEntry } from 'scenes/plugins/types'
+import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { urls } from 'scenes/urls'
+
 import { PluginType } from '~/types'
+
 import { PluginTags } from './components'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function AppView({
     plugin,

@@ -1,45 +1,20 @@
-import { BuiltLogic, kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
-import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from './userLogic'
-import { handleLoginRedirect } from './authentication/loginLogic'
-import { teamLogic } from './teamLogic'
-import { urls } from 'scenes/urls'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { organizationLogic } from './organizationLogic'
-import { appContextLogic } from './appContextLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
-const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.DataManagement,
-    [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.Person]: Scene.PersonsManagement,
-    [Scene.Cohort]: Scene.PersonsManagement,
-    [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.PersonsManagement,
-    [Scene.Dashboard]: Scene.Dashboards,
-    [Scene.FeatureFlag]: Scene.FeatureFlags,
-    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
-    [Scene.Survey]: Scene.Surveys,
-    [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
-    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Apps,
-    [Scene.ReplaySingle]: Scene.Replay,
-    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
-    [Scene.Site]: Scene.ToolbarLaunch,
-}
+import { AvailableFeature } from '~/types'
+
+import { appContextLogic } from './appContextLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
+import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import type { sceneLogicType } from './sceneLogicType'
+import { teamLogic } from './teamLogic'
+import { userLogic } from './userLogic'
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -142,10 +117,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
-        ],
-        aliasedActiveScene: [
-            (s) => [s.activeScene],
-            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
@@ -256,20 +227,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !location.pathname.startsWith('/settings')
                     ) {
                         if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===
-                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                             !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
                         ) {
-                            console.warn('No onboarding completed, redirecting to products')
+                            console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
-                            return
-                        } else if (
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
-                                'test' &&
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding
-                        ) {
-                            console.warn('Ingestion tutorial not completed, redirecting to it')
-                            router.actions.replace(urls.ingestion())
                             return
                         }
                     }

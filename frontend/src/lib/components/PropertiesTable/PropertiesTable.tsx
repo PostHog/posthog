@@ -1,20 +1,23 @@
-import { useMemo, useState } from 'react'
-
-import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
-import { PropertyKeyInfo } from '../PropertyKeyInfo'
-import { Dropdown, Input, Menu, Popconfirm } from 'antd'
-import { isURL } from 'lib/utils'
-import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import { CopyToClipboardInline } from '../CopyToClipboard'
-import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { NewProperty } from 'scenes/persons/NewProperty'
+
+import { IconPencil } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { IconDeleteForever } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
+import { isURL } from 'lib/utils'
+import { useMemo, useState } from 'react'
+import { NewProperty } from 'scenes/persons/NewProperty'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType } from '~/types'
+
+import { CopyToClipboardInline } from '../CopyToClipboard'
+import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -85,18 +88,19 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                valueString
+                <span>{valueString}</span>
             ) : (
                 <Link to={value} target="_blank" className="value-link" targetBlankIcon>
                     {valueString}
                 </Link>
             )}
+            {canEdit && <IconPencil />}
         </span>
     )
 
@@ -283,13 +287,10 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object) {
-                    return false
-                }
                 return (
                     <CopyToClipboardInline
                         description="property value"
-                        explicitValue={item[1]}
+                        explicitValue={typeof item[1] === 'object' ? JSON.stringify(item[1]) : String(item[1])}
                         selectable
                         isValueSensitive
                         style={{ verticalAlign: 'middle' }}

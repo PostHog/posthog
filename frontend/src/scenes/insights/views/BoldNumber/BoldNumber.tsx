@@ -1,25 +1,27 @@
-import { useValues } from 'kea'
-import { useLayoutEffect, useRef, useState } from 'react'
+import './BoldNumber.scss'
+import './BoldNumber.scss'
+
+import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
+import React from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
+import { groupsModel } from '~/models/groupsModel'
+import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-import { ChartParams, TrendResult } from '~/types'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { ensureTooltip } from '../LineGraph/LineGraph'
-import { groupsModel } from '~/models/groupsModel'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
-import { percentage } from 'lib/utils'
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-
-import './BoldNumber.scss'
-import { useEffect } from 'react'
-import Textfit from './Textfit'
+import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -94,29 +96,29 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit min={32} max={120}>
-                <div
-                    className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
-                    onClick={
-                        // != is intentional to catch undefined too
-                        showPersonsModal && resultSeries.aggregated_value != null
-                            ? () => {
-                                  if (resultSeries.persons?.url) {
-                                      openPersonsModal({
-                                          url: resultSeries.persons?.url,
-                                          title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
-                                      })
-                                  }
+            <div
+                className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                onClick={
+                    // != is intentional to catch undefined too
+                    showPersonsModal && resultSeries.aggregated_value != null
+                        ? () => {
+                              if (resultSeries.persons?.url) {
+                                  openPersonsModal({
+                                      url: resultSeries.persons?.url,
+                                      title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
+                                  })
                               }
-                            : undefined
-                    }
-                    onMouseLeave={() => setIsTooltipShown(false)}
-                    ref={valueRef}
-                    onMouseEnter={() => setIsTooltipShown(true)}
-                >
+                          }
+                        : undefined
+                }
+                onMouseLeave={() => setIsTooltipShown(false)}
+                ref={valueRef}
+                onMouseEnter={() => setIsTooltipShown(true)}
+            >
+                <Textfit min={32} max={120}>
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
-                </div>
-            </Textfit>
+                </Textfit>
+            </div>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
         </div>
     ) : (

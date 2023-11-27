@@ -204,6 +204,7 @@ export class IngestionConsumer {
             groupId: this.consumerGroupId,
             autoCommit: true,
             sessionTimeout: this.pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,

@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -163,6 +164,14 @@ class BatchExportServiceRPCError(BatchExportServiceError):
     """Exception raised when the underlying Temporal RPC fails."""
 
 
+class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
+    """Exception raised when the underlying Temporal RPC fails because a schedule was not found."""
+
+    def __init__(self, schedule_id: str):
+        self.schedule_id = schedule_id
+        super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
+
+
 def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
     """Pause this BatchExport.
 
@@ -250,7 +259,14 @@ async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None 
 async def delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
-    await handle.delete()
+
+    try:
+        await handle.delete()
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise BatchExportServiceScheduleNotFound(schedule_id)
+        else:
+            raise BatchExportServiceRPCError() from e
 
 
 @async_to_sync

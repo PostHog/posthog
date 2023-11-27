@@ -1,15 +1,17 @@
-import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
-import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
-import { useActions, useValues } from 'kea'
-import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { urls } from 'scenes/urls'
+
+import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasNotifications, notifications, isNotificationPopoverOpen, hasUnread } =

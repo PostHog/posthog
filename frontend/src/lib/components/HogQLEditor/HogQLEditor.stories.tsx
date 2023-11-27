@@ -1,6 +1,7 @@
-import { StoryFn, Meta, StoryObj } from '@storybook/react'
-import { HogQLEditor } from './HogQLEditor'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
+import { HogQLEditor } from './HogQLEditor'
 
 type Story = StoryObj<typeof HogQLEditor>
 const meta: Meta<typeof HogQLEditor> = {

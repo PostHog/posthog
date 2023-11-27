@@ -1,6 +1,6 @@
-import { useValues, useActions } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)

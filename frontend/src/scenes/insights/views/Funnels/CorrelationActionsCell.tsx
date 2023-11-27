@@ -1,15 +1,14 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useState } from 'react'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 
 export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)

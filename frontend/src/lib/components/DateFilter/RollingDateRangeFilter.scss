@@ -1,13 +1,13 @@
 .RollingDateRangeFilter {
     display: flex;
-    min-height: 2rem;
-    height: 2rem;
-    padding: 1.25rem 0.5rem;
     align-items: center;
-    color: var(--default);
-    font-weight: normal;
+    height: 2rem;
+    min-height: 2rem;
+    padding: 1.25rem 0.5rem;
     font-size: 0.875rem;
+    font-weight: normal;
     line-height: 1.375em;
+    color: var(--default);
     cursor: pointer;
     transition: background 0.3s ease;
 
@@ -17,8 +17,8 @@
 
     input::-webkit-outer-spin-button,
     input::-webkit-inner-spin-button {
-        appearance: none;
         margin: 0;
+        appearance: none;
     }
 
     /* Firefox */
@@ -33,27 +33,33 @@
 }
 
 .RollingDateRangeFilter__counter {
-    display: flex;
-    margin: 0;
-    height: 2rem;
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    background-color: var(--bg-light);
     box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    height: 2rem;
+    margin: 0;
     margin-right: 0.25rem;
     margin-left: 0.25rem;
     line-height: 1.25rem;
-    align-items: center;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
 
-    input {
+    .LemonInput {
         width: 3rem;
-        text-align: center;
+        min-height: 0;
+        padding: 0;
+        border: none;
+
+        input {
+            text-align: center;
+        }
     }
 
     .RollingDateRangeFilter__counter__step {
+        padding: 0.25rem;
         margin: 0 0.25rem;
         border-radius: var(--radius);
-        padding: 0.25rem;
 
         &:hover {
             background-color: var(--primary-highlight);

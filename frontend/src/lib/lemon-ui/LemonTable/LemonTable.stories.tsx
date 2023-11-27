@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTable, LemonTableProps } from './LemonTable'
-import { LemonButton } from '../LemonButton'
 import { useEffect } from 'react'
+
+import { LemonButton } from '../LemonButton'
+import { LemonTable, LemonTableProps } from './LemonTable'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {

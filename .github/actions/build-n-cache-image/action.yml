@@ -49,8 +49,8 @@ runs:
           with:
               buildx-fallback: false # buildx is so slow it's better to just fail
               file: production-unit.Dockerfile
-              tags: ${{ steps.emit.outputs.tag }}
-              platforms: linux/amd64
+              tags: posthog/posthog:unit-${{ github.sha }}
+              platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
           env:

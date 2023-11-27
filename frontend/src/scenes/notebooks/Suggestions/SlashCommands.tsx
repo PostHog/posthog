@@ -1,8 +1,9 @@
-import { IconPlus } from 'lib/lemon-ui/icons'
-import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlus } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 
 const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)

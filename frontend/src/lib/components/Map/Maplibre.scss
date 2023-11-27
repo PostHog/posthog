@@ -1,12 +1,12 @@
 .maplibregl-ctrl-attrib-button:focus,
 .maplibregl-ctrl-group button:focus {
-    box-shadow: 0 0 2px 2px var(--primary);
+    box-shadow: 0 0 2px 2px var(--primary-3000);
 }
 
 @media screen {
     .maplibregl-ctrl-attrib.maplibregl-compact {
-        background-color: var(--bg-light);
         color: var(--muted-3000);
+        background-color: var(--bg-light);
     }
 
     .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {

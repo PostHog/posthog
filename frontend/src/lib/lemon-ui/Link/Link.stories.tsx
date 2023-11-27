@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { Link, LinkProps } from './Link'
 import { urls } from 'scenes/urls'
+
+import { Link, LinkProps } from './Link'
 
 type Story = StoryObj<typeof Link>
 const meta: Meta<typeof Link> = {

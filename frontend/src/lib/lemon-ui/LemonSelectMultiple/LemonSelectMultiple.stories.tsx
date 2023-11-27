@@ -1,8 +1,9 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
-import { ProfilePicture } from '../ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useState } from 'react'
+
+import { ProfilePicture } from '../ProfilePicture'
+import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
 
 type Story = StoryObj<typeof LemonSelectMultiple>
 const meta: Meta<typeof LemonSelectMultiple> = {

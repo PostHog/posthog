@@ -1,9 +1,10 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DOMAIN_REGEX } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { DOMAIN_REGEX } from 'lib/constants'
 import { useState } from 'react'
+
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function AddDomainModal(): JSX.Element {

@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './Spinner.scss'
+
+import clsx from 'clsx'
 
 export interface SpinnerProps {
     textColored?: boolean

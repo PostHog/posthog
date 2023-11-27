@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+
 import { NodeKind } from '~/queries/schema'
 import { NotebookNodeType, NotebookType } from '~/types'
 

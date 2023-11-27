@@ -1,11 +1,12 @@
-import { kea, path, selectors, connect } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
+import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { SidePanelTab } from '~/types'
 
 import type { sidePanelLogicType } from './sidePanelLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
-import { SidePanelTab } from '~/types'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -18,6 +19,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             activationLogic,
             ['isReady', 'hasCompletedAllTasks'],
+            sidePanelStateLogic,
+            ['selectedTab', 'sidePanelOpen'],
         ],
     }),
 
@@ -44,13 +47,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                sidePanelStateLogic.selectors.selectedTab,
-                sidePanelStateLogic.selectors.sidePanelOpen,
-                s.isReady,
-                s.hasCompletedAllTasks,
-            ],
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
             (enabledTabs, selectedTab, sidePanelOpen, isReady, hasCompletedAllTasks): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {

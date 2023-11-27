@@ -135,6 +135,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
 
+            choices = raw_question.get("choices")
+            if choices and not isinstance(choices, list):
+                raise serializers.ValidationError("Question choices must be a list of strings")
+
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions
@@ -221,19 +225,29 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
             else:
-                new_flag = self._create_new_targeting_flag(instance.name, new_filters)
+                new_flag = self._create_new_targeting_flag(instance.name, new_filters, bool(instance.start_date))
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
+        end_date = validated_data.get("end_date")
+        if instance.targeting_flag:
+            # turn off feature flag if survey is ended
+            if end_date is None:
+                instance.targeting_flag.active = True
+            else:
+                instance.targeting_flag.active = False
+            instance.targeting_flag.save()
+
         return super().update(instance, validated_data)
 
-    def _create_new_targeting_flag(self, name, filters):
+    def _create_new_targeting_flag(self, name, filters, active=False):
         feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,
                 "name": f"Targeting flag for survey {name}",
                 "filters": filters,
+                "active": active,
             },
             context=self.context,
         )

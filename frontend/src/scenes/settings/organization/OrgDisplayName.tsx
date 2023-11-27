@@ -1,5 +1,5 @@
-import { LemonInput, LemonButton } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useState } from 'react'

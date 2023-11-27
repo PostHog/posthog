@@ -47,7 +47,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         ]
 
     def get_columns(self) -> Dict[str, str]:
-        from posthog.api.query import process_query
+        from posthog.api.services.query import process_query
 
         # TODO: catch and raise error
         response = process_query(self.team, self.query)
@@ -71,7 +71,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         node = parse_select(self.query["query"])
         context.database = create_hogql_database(context.team_id)
 
-        node = resolve_types(node, context)
+        node = resolve_types(node, context, dialect="clickhouse")
         table_collector = S3TableVisitor()
         table_collector.visit(node)
 

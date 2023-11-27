@@ -1,7 +1,9 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { urls } from 'scenes/urls'
-import { singularName } from './pipelineLogic'
+
 import { PipelineTabs } from '~/types'
+
+import { singularName } from './pipelineLogic'
 
 type NewButtonProps = {
     tab: PipelineTabs

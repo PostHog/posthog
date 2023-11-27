@@ -1,7 +1,8 @@
-import { ActionFilter, EntityFilter } from '~/types'
+import clsx from 'clsx'
 import { getKeyMapping } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
-import clsx from 'clsx'
+
+import { ActionFilter, EntityFilter } from '~/types'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter
