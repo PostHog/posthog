@@ -257,9 +257,6 @@ export async function buildOrWatch(config) {
 
     let esbuildContext = null
     let buildCount = 0
-    const activitySuccess = (count) => (count === 1 ? 'Built' : 'Rebuilt')
-    const activityError = (count) => (count === 1 ? 'Building failed' : 'Rebuilding failed ')
-
     const log = (logOpts) => {
         const icon = logOpts.success === undefined ? '🧱' : logOpts.success ? '🥇' : '🛑'
         let timingSuffix = ''
@@ -268,10 +265,16 @@ export async function buildOrWatch(config) {
         }
         const message =
             logOpts.success === undefined
-                ? 'Building'
+                ? buildCount === 1
+                    ? 'Building'
+                    : 'Rebuilding'
                 : logOpts.success
-                ? activitySuccess(buildCount)
-                : activityError(buildCount)
+                ? buildCount === 1
+                    ? 'Built'
+                    : 'Rebuilt'
+                : buildCount === 1
+                ? 'Building failed'
+                : 'Rebuilding failed '
 
         console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }
