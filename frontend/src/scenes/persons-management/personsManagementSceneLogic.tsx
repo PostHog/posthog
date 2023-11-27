@@ -95,7 +95,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     ...(showGroupsIntroductionPage
                         ? [
                               {
-                                  key: 'groups-intro',
+                                  key: 'groups-0',
                                   label: 'Groups',
                                   url: urls.groups(0),
                                   content: <Groups groupTypeIndex={0} />,

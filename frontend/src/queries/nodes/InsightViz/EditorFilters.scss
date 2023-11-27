@@ -7,9 +7,9 @@
     background: var(--bg-light);
 
     &:not(.EditorFiltersWrapper--embedded) {
+        padding: 1rem;
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: 1rem;
     }
 
     .EditorFilters {

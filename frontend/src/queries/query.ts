@@ -29,13 +29,13 @@ import {
     isLifecycleQuery,
     isPersonsNode,
     isPersonsQuery,
-    isQueryWithHogQLSupport,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
+    isTrendsQuery,
 } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
@@ -115,14 +115,8 @@ async function executeQuery<N extends DataNode = DataNode>(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await delay(currentDelay)
+        await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-
-        if (methodOptions?.signal?.aborted) {
-            const customAbortError = new Error('Query aborted')
-            customAbortError.name = 'AbortError'
-            throw customAbortError
-        }
 
         const statusResponse = await api.queryStatus.get(response.id)
 
@@ -148,8 +142,11 @@ export async function query<N extends DataNode = DataNode>(
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
-    const hogQLInsightsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    const hogQLInsightsLifecycleFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
+    )
+    const hogQLInsightsTrendsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
@@ -191,7 +188,10 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else if (isInsightQueryNode(queryNode)) {
-            if (hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode)) {
+            if (
+                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+            ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse
                     ;[response, legacyResponse] = await Promise.all([

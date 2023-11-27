@@ -892,7 +892,10 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise HogQLException(f"Unknown FieldType table type: {type.table_type.__class__.__name__}")
+            error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
+            if isinstance(type.table_type, ast.LazyJoinType):
+                error += f" Lazy joins should have all been replaced in the resolver."
+            raise HogQLException(error)
 
         return field_sql
 
