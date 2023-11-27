@@ -1,9 +1,356 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`replay/transform transform can convert images 1`] = `"[{"type":4,"data":{"href":"","width":300,"height":600},"timestamp":1},{"type":2,"timestamp":1,"data":{"node":{"type":0,"childNodes":[{"type":1,"name":"html","publicId":"","systemId":"","id":2},{"type":2,"tagName":"html","attributes":{},"id":3,"childNodes":[{"type":2,"tagName":"head","attributes":{},"id":4,"childNodes":[]},{"type":2,"tagName":"body","attributes":{},"id":5,"childNodes":[{"type":2,"tagName":"div","attributes":{},"id":103,"childNodes":[{"type":2,"tagName":"div","attributes":{"style":"color: red;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;"},"id":104,"childNodes":[{"type":3,"textContent":"Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ","id":12345}]},{"type":2,"tagName":"img","attributes":{"src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=","width":100,"height":30,"style":"width: 100px;height: 30px;position: absolute;left: 25px;top: 42px;"},"id":12345,"childNodes":[]}]}]}]}],"id":12345},"initialOffset":{"top":0,"left":0}}}]"`;
+exports[`replay/transform transform can convert images 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {},
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {},
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "color: red;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                        },
+                        "childNodes": [
+                          {
+                            "id": 12345,
+                            "textContent": "Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 104,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                      {
+                        "attributes": {
+                          "height": 30,
+                          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=",
+                          "style": "width: 100px;height: 30px;position: absolute;left: 25px;top: 42px;",
+                          "width": 100,
+                        },
+                        "childNodes": [],
+                        "id": 12345,
+                        "tagName": "img",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 103,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 12345,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
 
-exports[`replay/transform transform can convert rect with text 1`] = `"[{"type":4,"data":{"href":"","width":300,"height":600},"timestamp":1},{"type":2,"timestamp":1,"data":{"node":{"type":0,"childNodes":[{"type":1,"name":"html","publicId":"","systemId":"","id":2},{"type":2,"tagName":"html","attributes":{},"id":3,"childNodes":[{"type":2,"tagName":"head","attributes":{},"id":4,"childNodes":[]},{"type":2,"tagName":"body","attributes":{},"id":5,"childNodes":[{"type":2,"tagName":"div","attributes":{},"id":105,"childNodes":[{"type":2,"tagName":"svg","attributes":{"style":"width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;","viewBox":"0 0 100 30"},"id":12345,"childNodes":[{"type":2,"tagName":"rect","attributes":{"x":0,"y":0,"width":100,"height":30,"fill":"transparent","stroke-width":"4","stroke":"blue","rx":"10px"},"id":106,"childNodes":[]}]},{"type":2,"tagName":"div","attributes":{"style":"width: 100px;height: 30px;position: absolute;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;"},"id":107,"childNodes":[{"type":3,"textContent":"i am in the box","id":12345}]}]}]}]}],"id":12345},"initialOffset":{"top":0,"left":0}}}]"`;
+exports[`replay/transform transform can convert rect with text 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {},
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {},
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;",
+                          "viewBox": "0 0 100 30",
+                        },
+                        "childNodes": [
+                          {
+                            "attributes": {
+                              "fill": "transparent",
+                              "height": 30,
+                              "rx": "10px",
+                              "stroke": "blue",
+                              "stroke-width": "4",
+                              "width": 100,
+                              "x": 0,
+                              "y": 0,
+                            },
+                            "childNodes": [],
+                            "id": 106,
+                            "tagName": "rect",
+                            "type": 2,
+                          },
+                        ],
+                        "id": 12345,
+                        "tagName": "svg",
+                        "type": 2,
+                      },
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: absolute;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;",
+                        },
+                        "childNodes": [
+                          {
+                            "id": 12345,
+                            "textContent": "i am in the box",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 107,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 105,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 12345,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
 
-exports[`replay/transform transform can ignore unknown wireframe types 1`] = `"[{"type":4,"data":{"href":"","width":300,"height":600},"timestamp":1},{"type":2,"timestamp":1,"data":{"node":{"type":0,"childNodes":[{"type":1,"name":"html","publicId":"","systemId":"","id":2},{"type":2,"tagName":"html","attributes":{},"id":3,"childNodes":[{"type":2,"tagName":"head","attributes":{},"id":4,"childNodes":[]},{"type":2,"tagName":"body","attributes":{},"id":5,"childNodes":[{"type":2,"tagName":"div","attributes":{},"id":102,"childNodes":[]}]}]}],"id":12345},"initialOffset":{"top":0,"left":0}}}]"`;
+exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {},
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {},
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [],
+                    "id": 102,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 12345,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
 
-exports[`replay/transform transform text is wrapped in a div to apply styling 1`] = `"[{"type":4,"data":{"href":"","width":300,"height":600},"timestamp":1},{"type":2,"timestamp":1,"data":{"node":{"type":0,"childNodes":[{"type":1,"name":"html","publicId":"","systemId":"","id":2},{"type":2,"tagName":"html","attributes":{},"id":3,"childNodes":[{"type":2,"tagName":"head","attributes":{},"id":4,"childNodes":[]},{"type":2,"tagName":"body","attributes":{},"id":5,"childNodes":[{"type":2,"tagName":"div","attributes":{},"id":100,"childNodes":[{"type":2,"tagName":"div","attributes":{"style":"color: red;background-color: yellow;border-width: 4px;border-radius: 10px;border-color: blue;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;"},"id":101,"childNodes":[{"type":3,"textContent":"Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ","id":12345}]}]}]}]}],"id":12345},"initialOffset":{"top":0,"left":0}}}]"`;
+exports[`replay/transform transform text is wrapped in a div to apply styling 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {},
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {},
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "color: red;background-color: yellow;border-width: 4px;border-radius: 10px;border-color: blue;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                        },
+                        "childNodes": [
+                          {
+                            "id": 12345,
+                            "textContent": "Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 101,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 12345,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;

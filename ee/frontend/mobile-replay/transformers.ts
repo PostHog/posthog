@@ -43,8 +43,8 @@ export const makeMetaEvent = (
 } => ({
     type: EventType.Meta,
     data: {
-        href: '', // the replay doesn't use the href, so we don't need it
-        // instead we only need width and height in order to size the viewport
+        href: mobileMetaEvent.data.href || '', // the replay doesn't use the href, so we safely ignore any absence
+        // mostly we need width and height in order to size the viewport
         width: mobileMetaEvent.data.width,
         height: mobileMetaEvent.data.height,
     },

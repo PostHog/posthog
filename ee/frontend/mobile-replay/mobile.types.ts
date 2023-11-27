@@ -134,9 +134,7 @@ export type fullSnapshotEvent = {
 export type metaEvent = {
     type: EventType.Meta
     data: {
-        /**
-         * @description This mimics the RRWeb meta event type, except does not report href.
-         */
+        href?: string
         width: number
         height: number
     }

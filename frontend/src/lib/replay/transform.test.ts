@@ -57,7 +57,7 @@ describe('replay/transform', () => {
                     },
                     { type: 9999 },
                 ])
-            ).toBe('[{"type":4,"data":{"href":"","width":300,"height":600},"timestamp":1}]')
+            ).toStrictEqual([{ type: 4, data: { href: '', width: 300, height: 600 }, timestamp: 1 }])
         })
 
         test('can ignore unknown wireframe types', () => {
