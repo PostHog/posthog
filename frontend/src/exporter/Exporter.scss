@@ -3,7 +3,6 @@
 body.ExporterBody {
     &.posthog-3000 {
         overflow-y: auto;
-        background-color: #fff;
     }
 }
 
@@ -12,7 +11,6 @@ body.ExporterBody {
     flex-direction: column;
     min-height: 100vh;
     padding: 1rem;
-    background-color: #fff;
 
     &--recording {
         height: 100vh;
