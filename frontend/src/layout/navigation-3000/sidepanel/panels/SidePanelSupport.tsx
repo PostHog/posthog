@@ -1,10 +1,10 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm, SupportFormButtons } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { SidePanelTab } from '~/types'
 
+import { SidePanelPaneHeader } from '../components/SidePanelPane'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 export const SidePanelSupport = (): JSX.Element => {
@@ -15,13 +15,16 @@ export const SidePanelSupport = (): JSX.Element => {
     const { closeSupportForm } = useActions(theLogic)
 
     return (
-        <div className="p-3 max-w-160 w-full mx-auto">
-            <h2 className="text-lg font-bold mb-2">{title}</h2>
-            <LemonDivider />
-            <SupportForm />
-            <div className="flex items-center justify-end gap-2 mt-4">
-                <SupportFormButtons onClose={() => closeSupportForm()} />
+        <>
+            <SidePanelPaneHeader>
+                <h4 className="flex-1 font-semibold px-2 mb-0">{title}</h4>
+            </SidePanelPaneHeader>
+            <div className="p-3 max-w-160 w-full mx-auto">
+                <SupportForm />
+                <div className="flex items-center justify-end gap-2 mt-4">
+                    <SupportFormButtons onClose={() => closeSupportForm()} />
+                </div>
             </div>
-        </div>
+        </>
     )
 }

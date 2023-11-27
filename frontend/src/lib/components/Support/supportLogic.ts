@@ -334,6 +334,16 @@ export const supportLogic = kea<supportLogicType>([
                 return
             }
 
+            if (hashParams['panel'] === SidePanelTab.Support) {
+                const [kind, area] = (hashParams['panelOptions'] || '').split(':')
+
+                actions.openSupportForm(
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
+                )
+                return
+            }
+
             // Legacy supportModal param
             if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
