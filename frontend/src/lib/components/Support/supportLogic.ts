@@ -293,8 +293,10 @@ export const supportLogic = kea<supportLogicType>([
                 return
             }
 
-            if (hashParams['panel'] === SidePanelTab.Support) {
-                const [kind, area] = (hashParams['panelOptions'] || '').split(':')
+            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
+
+            if (panel === SidePanelTab.Support) {
+                const [kind, area] = panelOptions
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
@@ -345,7 +347,6 @@ export const supportLogic = kea<supportLogicType>([
                 const hashParams = router.values.hashParams
                 delete hashParams['supportModal'] // legacy value
                 delete hashParams['panel']
-                delete hashParams['panelOptions']
 
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },

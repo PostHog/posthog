@@ -71,28 +71,34 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
                 delete hashParams['supportModal'] // legacy value
-                hashParams['panel'] = `support`
-                hashParams['panelOptions'] = `${kind ?? ''}:${area ?? ''}`
+                hashParams['panel'] = `support:${kind ?? ''}:${area ?? ''}`
                 router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
                 return
             }
 
-            const panel = hashParams['panel'] as string | undefined
+            const panelHash = hashParams['panel'] as string | undefined
+            if (panelHash) {
+                const [panel, ...panelOptions] = panelHash.split(':')
 
-            if (panel && (panel !== values.selectedTab || !values.sidePanelOpen)) {
-                actions.openSidePanel(panel as SidePanelTab, hashParams['panelOptions'])
+                if (panel && (panel !== values.selectedTab || !values.sidePanelOpen)) {
+                    actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
+                }
             }
         },
     })),
     actionToUrl(({ values }) => {
         const updateUrl = (): any => {
+            let panelHash: string = values.selectedTab ?? ''
+
+            if (values.selectedTabOptions) {
+                panelHash += `:${values.selectedTabOptions}`
+            }
             return [
                 router.values.location.pathname,
                 router.values.searchParams,
                 {
                     ...router.values.hashParams,
-                    panel: values.selectedTab,
-                    panelOptions: values.selectedTabOptions ?? undefined,
+                    panel: panelHash,
                 },
                 { replace: true },
             ]
@@ -103,7 +109,6 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             closeSidePanel: () => {
                 const hashParams = { ...router.values.hashParams }
                 delete hashParams['panel']
-                delete hashParams['panelOptions']
                 return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]
             },
         }
