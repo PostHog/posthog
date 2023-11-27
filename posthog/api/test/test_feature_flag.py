@@ -14,7 +14,7 @@ from rest_framework import status
 from posthog import redis
 
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_workflow, start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
@@ -3574,6 +3574,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @freeze_time("2021-01-01")
     def test_creating_static_cohort(self):
+        flagkey = "some-feature222"
         flag = FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=100,
@@ -3582,7 +3583,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "multivariate": None,
             },
             name="some feature",
-            key="some-feature222",
+            key=flagkey,
             created_by=self.user,
             active=True,
             deleted=False,
@@ -3613,9 +3614,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-            # fires an async task for computation, but celery runs sync in tests
             cohort_id = response.json()["cohort"]["id"]
+
+            workflow_id = f"{self.team.id}-cohort-{cohort_id}-for-flag-{flagkey}"
+            execution = describe_workflow(temporal, workflow_id)
+            assert execution is not None
+            assert execution.status == 1  # WORKFLOW_EXECUTION_STATUS_RUNNING
+            assert execution.raw_info.type.name == "cohort_for_flag"
+
             cohort = Cohort.objects.get(id=cohort_id)
             self.assertEqual(cohort.name, "Users with feature flag some-feature222 enabled at 2021-01-01 00:00:00")
 
