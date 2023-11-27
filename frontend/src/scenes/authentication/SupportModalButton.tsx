@@ -16,6 +16,7 @@ export function SupportModalButton({ name, email }: { name?: string; email?: str
                         openSupportForm({
                             name,
                             email,
+                            kind: 'bug',
                             target_area: 'login',
                         })
                     }}
