@@ -17,11 +17,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--workflow-group",
-            default=settings.WORKFLOW_GROUP,
-            help="Group of temporal workflows and activities to execute (batch-exports)",
-        )
-        parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
             help="Hostname for Temporal Scheduler",
@@ -70,13 +65,12 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
-        workflow_group = options["workflow_group"]
 
-        if workflow_group == "batch-exports":
+        if task_queue == "no-sandbox-python-django":
             workflows = WORKFLOWS
             activities = ACTIVITIES
         else:
-            raise ValueError(f"Unknown workflow group: {workflow_group}")
+            raise ValueError(f"Unknown task queue: {task_queue}")
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
