@@ -28,11 +28,20 @@ def _insight_to_query(insight: Insight, team: Team) -> InsightQueryNode:
         filter = LegacyStickinessFilter(data=insight.filters, team=team)
     else:
         filter = LegacyFilter(data=insight.filters, team=team)
-    return filter_to_query(filter)
+    return filter_to_query(filter.to_dict())
 
 
 def _cached_response_to_insight_result(response: CachedQueryResponse) -> InsightResult:
-    result = InsightResult(**response.model_dump())
+    response_dict = response.model_dump()
+    result_keys = InsightResult.__annotations__.keys()
+
+    # replace 'result' with 'results' for schema compatibility
+    response_keys = ["results" if key == "result" else key for key in result_keys]
+
+    # use only the keys of the response that are also present in the result
+    result = InsightResult(
+        **{result_key: response_dict[response_key] for result_key, response_key in zip(result_keys, response_keys)}
+    )
     return result
 
 
