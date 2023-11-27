@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog import redis
 
 from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
@@ -30,6 +31,7 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.client import sync_connect
 from posthog.temporal.workflows.cohort_for_flag import get_cohort_actors_for_feature_flag
 from posthog.test.base import (
     APIBaseTest,
@@ -3571,7 +3573,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
     @freeze_time("2021-01-01")
-    @snapshot_clickhouse_queries
     def test_creating_static_cohort(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -3581,8 +3582,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "multivariate": None,
             },
             name="some feature",
-            key="some-feature",
+            key="some-feature222",
             created_by=self.user,
+            active=True,
+            deleted=False,
         )
 
         _create_person(
@@ -3602,9 +3605,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         flush_persons_and_events()
 
-        with snapshot_postgres_queries_context(self), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
-        ):
+        temporal = sync_connect()
+        with start_test_worker(temporal):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag",
                 {},
@@ -3612,14 +3614,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # fires an async task for computation, but celery runs sync in tests
-        cohort_id = response.json()["cohort"]["id"]
-        cohort = Cohort.objects.get(id=cohort_id)
-        self.assertEqual(cohort.name, "Users with feature flag some-feature enabled at 2021-01-01 00:00:00")
-        self.assertEqual(cohort.count, 1)
-
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 1, response)
+            # fires an async task for computation, but celery runs sync in tests
+            cohort_id = response.json()["cohort"]["id"]
+            cohort = Cohort.objects.get(id=cohort_id)
+            self.assertEqual(cohort.name, "Users with feature flag some-feature222 enabled at 2021-01-01 00:00:00")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

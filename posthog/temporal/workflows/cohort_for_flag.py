@@ -5,7 +5,9 @@ from typing import Dict
 from django.conf import settings
 from django.db import DatabaseError
 from rest_framework.exceptions import ValidationError
-from asgiref.sync import sync_to_async
+from asgiref.sync import sync_to_async, async_to_sync
+from temporalio.client import Client
+
 import structlog
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -44,6 +46,19 @@ class CreateCohortForFlagWorkflowInputs:
     batchsize: int
 
 
+@async_to_sync
+async def start_cohort_from_flag_workflow(temporal: Client, inputs: CreateCohortForFlagWorkflowInputs) -> str:
+    workflow_id = f"{inputs.team_id}-cohort-{inputs.cohort_id}-for-flag-{inputs.flag}"
+    await temporal.start_workflow(
+        "cohort_for_flag",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+    )
+
+    return workflow_id
+
+
 @workflow.defn(name="cohort_for_flag")
 class CreateCohortForFlagWorkflow(PostHogWorkflow):
     @staticmethod
@@ -65,14 +80,7 @@ class CreateCohortForFlagWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             cohort_for_flag,
             cohort_for_flag_inputs,
-            schedule_to_close_timeout=datetime.timedelta(hours=10),
-            # start_to_close_timeout=datetime.timedelta(minutes=5),
-            # retry_policy=RetryPolicy(
-            #     initial_interval=dt.timedelta(seconds=10),
-            #     maximum_interval=dt.timedelta(seconds=60),
-            #     maximum_attempts=0,
-            #     non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            # ),
+            schedule_to_close_timeout=datetime.timedelta(hours=24),
         )
 
 
@@ -97,8 +105,6 @@ class CohortForFlagInputs:
 # So if we need to retry, due to say network partitions, it's only that specific batch that is retried, and not the whole thing.
 # and then we can have much smaller timeouts per batch
 # TODO: Does logging & sentry capture exception work as usual?
-# TODO: Confirm the temporal worker is in a django-like environment, with same setup as posthog-web,
-#  so it has sentry configured & access to all models
 @activity.defn
 async def cohort_for_flag(inputs: CohortForFlagInputs) -> None:
     """Populate a cohort with persons that match a feature flag.
@@ -107,7 +113,7 @@ async def cohort_for_flag(inputs: CohortForFlagInputs) -> None:
         inputs: The inputs to the activity.
     """
 
-    return await sync_to_async(get_cohort_actors_for_feature_flag)(
+    await sync_to_async(get_cohort_actors_for_feature_flag)(  # type: ignore
         cohort_id=inputs.cohort_id,
         flag=inputs.flag,
         team_id=inputs.team_id,

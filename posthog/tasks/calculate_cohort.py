@@ -8,15 +8,9 @@ from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
-from temporalio.client import Client
-
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople
-from posthog.temporal.client import sync_connect
-
-from posthog.temporal.workflows.cohort_for_flag import CreateCohortForFlagWorkflowInputs
 
 
 logger = structlog.get_logger(__name__)
@@ -78,25 +72,3 @@ def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any
 
     insert_cohort_actors_into_ch(cohort, filter_data)
     insert_cohort_people_into_pg(cohort=cohort)
-
-
-@shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
-    client = sync_connect()
-
-    start_cohort_from_flag_workflow(
-        client, CreateCohortForFlagWorkflowInputs(team_id=team_id, cohort_id=cohort_id, flag=flag_key, batchsize=10_000)
-    )
-
-
-@async_to_sync
-async def start_cohort_from_flag_workflow(temporal: Client, inputs: CreateCohortForFlagWorkflowInputs) -> str:
-    workflow_id = f"{inputs.team_id}-cohort-{inputs.cohort_id}-for-flag-{inputs.flag}"
-    await temporal.start_workflow(
-        "cohort_for_flag",
-        inputs,
-        id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-    )
-
-    return workflow_id

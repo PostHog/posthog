@@ -70,9 +70,13 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
-    insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     update_cohort,
+)
+from posthog.temporal.client import sync_connect
+from posthog.temporal.workflows.cohort_for_flag import (
+    CreateCohortForFlagWorkflowInputs,
+    start_cohort_from_flag_workflow,
 )
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
@@ -123,7 +127,16 @@ class CohortSerializer(serializers.ModelSerializer):
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
-            insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
+            client = sync_connect()
+            start_cohort_from_flag_workflow(
+                client,
+                CreateCohortForFlagWorkflowInputs(
+                    team_id=self.context["team_id"],
+                    cohort_id=cohort.pk,
+                    flag=context["from_feature_flag_key"],
+                    batchsize=10_000,
+                ),
+            )
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
