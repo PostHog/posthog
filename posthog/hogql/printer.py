@@ -96,15 +96,15 @@ def prepare_ast_for_printing(
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
     with context.timings.measure("resolve_types"):
-        node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
     if context.modifiers.inCohortVia == "leftjoin":
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

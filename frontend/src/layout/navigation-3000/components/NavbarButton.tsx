@@ -7,6 +7,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/navigation/SideBar/SidebarChangeNotice'
 
 import { navigation3000Logic } from '../navigationLogic'
@@ -17,6 +18,7 @@ export interface NavbarButtonProps {
     icon: ReactElement
     title?: string
     shortTitle?: string
+    forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
@@ -30,16 +32,27 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(
     (
-        { identifier, shortTitle, title, tag, onClick, persistentTooltip, keyboardShortcut, ...buttonProps },
+        {
+            identifier,
+            shortTitle,
+            title,
+            forceTooltipOnHover,
+            tag,
+            onClick,
+            persistentTooltip,
+            keyboardShortcut,
+            ...buttonProps
+        },
         ref
     ): JSX.Element => {
-        const { aliasedActiveScene } = useValues(sceneLogic)
+        const { activeScene } = useValues(sceneLogic)
+        const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
         const { isNavCollapsed } = useValues(navigation3000Logic)
         const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
         const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-        const here = aliasedActiveScene === identifier
+        const here = activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
         const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
 
         if (!isUsingNewNav) {
@@ -113,7 +126,13 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     </Tooltip>
                 ) : (
                     <Tooltip
-                        title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
+                        title={
+                            forceTooltipOnHover || isNavCollapsedActually
+                                ? here
+                                    ? `${title} (you are here)`
+                                    : title
+                                : null
+                        }
                         placement="right"
                         delayMs={0}
                         visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click

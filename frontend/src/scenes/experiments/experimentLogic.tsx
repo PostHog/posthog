@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -1024,10 +1024,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-    })),
-    beforeUnload(({ values, props }) => ({
-        enabled: () => values.activeScene === Scene.Experiment && props.experimentId === 'new',
-        message: `Leave experiment?\nChanges you made will be discarded.`,
     })),
 ])
 

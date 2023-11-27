@@ -20,6 +20,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
+    ExpressionField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -68,6 +69,8 @@ class BaseTableType(Type):
                 return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExpressionField):
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -279,6 +282,13 @@ class AsteriskType(Type):
 @dataclass(kw_only=True)
 class FieldTraverserType(Type):
     chain: List[str | int]
+    table_type: TableOrSelectType
+
+
+@dataclass(kw_only=True)
+class ExpressionFieldType(Type):
+    name: str
+    expr: Expr
     table_type: TableOrSelectType
 
 

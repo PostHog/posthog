@@ -1,10 +1,10 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast
+from typing import List, Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.errors import ResolverException
+from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -55,20 +56,27 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 def resolve_types(
     node: ast.Expr,
     context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
-    return Resolver(scopes=scopes, context=context).visit(node)
+    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        scopes: Optional[List[ast.SelectQueryType]] = None,
+    ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
+        self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
 
@@ -326,7 +334,8 @@ class Resolver(CloningVisitor):
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
-        scope.aliases[node.alias] = node.type
+        if not node.hidden:
+            scope.aliases[node.alias] = node.type
         return node
 
     def visit_call(self, node: ast.Call):
@@ -458,6 +467,14 @@ class Resolver(CloningVisitor):
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
 
+        if isinstance(node.type, ast.ExpressionFieldType):
+            # only swap out expression fields in ClickHouse
+            if self.dialect == "clickhouse":
+                new_expr = clone_expr(node.type.expr)
+                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node = self.visit(new_node)
+                return new_node
+
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
                 start=node.start,
@@ -552,28 +569,13 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and self._is_events_table(self.visit(node.left))
-            and self._is_s3_cluster(self.visit(node.right))
-        ):
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GlobalIn
-                    if node.op == ast.CompareOperationOp.In
-                    else ast.CompareOperationOp.GlobalNotIn,
-                    left=node.left,
-                    right=node.right,
-                )
-            )
-
-        if self.context.modifiers.inCohortVia != "leftjoin":
+        if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
             elif node.op == ast.CompareOperationOp.NotInCohort:
@@ -581,12 +583,23 @@ class Resolver(CloningVisitor):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotIn,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
+
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(node.left)
+            and self._is_s3_cluster(node.right)
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:

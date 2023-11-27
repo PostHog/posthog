@@ -1,6 +1,6 @@
-import ReactJson from '@microlink/react-json-view'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -52,7 +52,7 @@ export function renderColumn(
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
@@ -61,7 +61,7 @@ export function renderColumn(
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
@@ -87,9 +87,9 @@ export function renderColumn(
                     }
                 }
 
-                return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+                return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -249,7 +249,7 @@ export function renderColumn(
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
         if (typeof value === 'object' && value !== null) {
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

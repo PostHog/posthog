@@ -35,7 +35,7 @@
     "applications": {
         "posthog": {
             "type": "python 3.10",
-            "processes": 1,
+            "processes": 4,
             "working_directory": "/code",
             "path": ".",
             "module": "posthog.wsgi",
