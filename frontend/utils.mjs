@@ -1,11 +1,11 @@
-import { sassPlugin } from 'esbuild-sass-plugin'
-import { lessLoader } from 'esbuild-plugin-less'
-import * as path from 'path'
-import express from 'express'
-import cors from 'cors'
-import fse from 'fs-extra'
-import { build, analyzeMetafile } from 'esbuild'
 import chokidar from 'chokidar'
+import cors from 'cors'
+import { analyzeMetafile, build } from 'esbuild'
+import { lessLoader } from 'esbuild-plugin-less'
+import { sassPlugin } from 'esbuild-sass-plugin'
+import express from 'express'
+import fse from 'fs-extra'
+import * as path from 'path'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -190,7 +190,7 @@ function getBuiltEntryPoints(config, result) {
             path
                 .resolve(config.absWorkingDir, file)
                 .replace('/src/', '/dist/')
-                .replace(/\.[^\.]+$/, '.js')
+                .replace(/\.[^.]+$/, '.js')
         )
     } else if (config.outfile) {
         outfiles = [path.resolve(config.absWorkingDir, config.outfile)]
@@ -289,7 +289,7 @@ export async function buildOrWatch(config) {
 
     if (isDev) {
         chokidar
-            .watch(path.resolve(absWorkingDir, 'src'), {
+            .watch([path.resolve(absWorkingDir, 'src'), path.resolve(absWorkingDir, '../ee/frontend')], {
                 ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
                 ignoreInitial: true,
             })
@@ -315,7 +315,7 @@ export async function printResponse(response, { compact = true, color = true, ve
     if (compact) {
         text = text
             .split('\n')
-            .filter((l) => !l.match(/^   [^\n]+$/g) && l.trim())
+            .filter((l) => !l.match(/^ {3}[^\n]+$/g) && l.trim())
             .join('\n')
     }
     console.log(text)

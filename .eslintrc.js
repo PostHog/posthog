@@ -314,6 +314,17 @@ module.exports = {
             },
         },
         {
+            files: ['*.mjs'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+                '@typescript-eslint/explicit-function-return-type': 'off',
+                '@typescript-eslint/explicit-module-boundary-types': 'off',
+                '@typescript-eslint/no-misused-promises': 'off',
+                'no-console': 'off',
+            },
+            globals: { ...globals, process: 'readonly' },
+        },
+        {
             files: 'eslint-rules/**/*',
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
