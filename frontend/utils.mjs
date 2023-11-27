@@ -189,8 +189,7 @@ function getBuiltEntryPoints(config, result) {
             path
                 .resolve(config.absWorkingDir, file)
                 .replace('/src/', '/dist/')
-                // eslint-disable-next-line no-useless-escape
-                .replace(/\.[^\.]+$/, '.js')
+                .replace(/\.[^.]+$/, '.js')
         )
     } else if (config.outfile) {
         outfiles = [path.resolve(config.absWorkingDir, config.outfile)]
