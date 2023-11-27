@@ -10,12 +10,15 @@ import { commandBarLogic } from './commandBarLogic'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
+const DEBOUNCE_MS = 300
+
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
         actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar']],
     }),
     actions({
+        search: true,
         setSearchQuery: (query: string) => ({ query }),
         setActiveTab: (tab: ResultTypeWithAll) => ({ tab }),
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
@@ -30,7 +33,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             null as SearchResponse | null,
             {
                 loadSearchResponse: async (_, breakpoint) => {
-                    await breakpoint(300)
+                    await breakpoint(DEBOUNCE_MS)
 
                     if (values.activeTab === 'all') {
                         const length = values.searchQuery.length
@@ -59,6 +62,16 @@ export const searchBarLogic = kea<searchBarLogicType>([
                             `api/projects/@current/search?q=${values.searchQuery}&entities=${values.activeTab}`
                         )
                     }
+                },
+            },
+        ],
+        personsResponse: [
+            null,
+            {
+                loadPersonsResponse: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+
+                    return Promise.resolve([{ a: 1 }])
                 },
             },
         ],
@@ -117,13 +130,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        setSearchQuery: actions.search,
+        setActiveTab: actions.search,
+        search: [actions.loadSearchResponse, actions.loadPersonsResponse],
         openResult: ({ index }) => {
             const result = values.searchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
-        setSearchQuery: actions.loadSearchResponse,
-        setActiveTab: actions.loadSearchResponse,
     })),
     afterMount(({ actions, values, cache }) => {
         // load initial results
