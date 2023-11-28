@@ -5,9 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  node-rdkafka@2.18.0:
+  node-rdkafka@2.17.0:
     hash: p4aetcvho53cvjti6c3zi7tfaq
-    path: patches/node-rdkafka@2.18.0.patch
+    path: patches/node-rdkafka@2.17.0.patch
   pg@8.10.0:
     hash: ju7a73s3qkmrf666u3aacfrooi
     path: patches/pg@8.10.0.patch
@@ -116,8 +116,8 @@ dependencies:
     specifier: ^2.6.1
     version: 2.6.9
   node-rdkafka:
-    specifier: ^2.18.0
-    version: 2.18.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    specifier: ^2.17.0
+    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -8161,8 +8161,8 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.18.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
-    resolution: {integrity: sha512-jYkmO0sPvjesmzhv1WFOO4z7IMiAFpThR6/lcnFDWgSPkYL95CtcuVNo/R5PpjujmqSgS22GMkL1qvU4DTAvEQ==}
+  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
+    resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true
     dependencies:
