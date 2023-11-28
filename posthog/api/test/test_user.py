@@ -1,6 +1,7 @@
 import datetime
 import uuid
-from typing import cast, Dict, List
+from typing import Dict, List, cast
+from unittest import mock
 from unittest.mock import ANY, Mock, patch
 from urllib.parse import quote
 
@@ -13,7 +14,7 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.models import Team, User, Dashboard
+from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
@@ -204,7 +205,8 @@ class TestUserAPI(APIBaseTest):
                     "first_name",
                     "has_seen_product_intro_for",
                     "partial_notification_settings",
-                ]
+                ],
+                "$set": mock.ANY,
             },
             groups={
                 "instance": ANY,
@@ -470,7 +472,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "user updated",
-            properties={"updated_attrs": ["current_organization", "current_team"]},
+            properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
                 "organization": str(self.new_org.id),
@@ -498,7 +500,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "user updated",
-            properties={"updated_attrs": ["current_organization", "current_team"]},
+            properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
                 "organization": str(self.new_org.id),
@@ -640,7 +642,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
-            properties={"updated_attrs": ["password"]},
+            properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -679,7 +681,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
-            properties={"updated_attrs": ["password"]},
+            properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),

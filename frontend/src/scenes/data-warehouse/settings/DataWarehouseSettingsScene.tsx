@@ -127,7 +127,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     },
                 ]}
             />
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

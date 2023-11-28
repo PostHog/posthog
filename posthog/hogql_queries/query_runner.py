@@ -66,6 +66,8 @@ class CachedQueryResponse(QueryResponse):
     is_cached: bool
     last_refresh: str
     next_allowed_client_refresh: str
+    cache_key: str
+    timezone: str
 
 
 RunnableQueryNode = Union[
@@ -235,6 +237,8 @@ class QueryRunner(ABC):
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        fresh_response_dict["cache_key"] = cache_key
+        fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedQueryResponse(**fresh_response_dict)
         cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()

@@ -19,6 +19,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             activationLogic,
             ['isReady', 'hasCompletedAllTasks'],
+            sidePanelStateLogic,
+            ['selectedTab', 'sidePanelOpen'],
         ],
     }),
 
@@ -45,13 +47,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                sidePanelStateLogic.selectors.selectedTab,
-                sidePanelStateLogic.selectors.sidePanelOpen,
-                s.isReady,
-                s.hasCompletedAllTasks,
-            ],
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
             (enabledTabs, selectedTab, sidePanelOpen, isReady, hasCompletedAllTasks): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {

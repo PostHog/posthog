@@ -5,27 +5,27 @@
     --lemon-badge-position-offset: 0.5rem;
     --lemon-badge-border-width: 0.125rem;
 
-    flex-shrink: 0;
+    position: absolute;
+    z-index: 1; // Make sure it is at least in front of non-absolute items
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    color: var(--bg-light);
-    border: var(--lemon-badge-border-width) solid var(--bg-light);
-    background: var(--lemon-badge-color);
     width: fit-content;
     min-width: var(--lemon-badge-size); // This is a minimum to accomodate multiple digits
     height: var(--lemon-badge-size);
-    font-size: var(--lemon-badge-font-size);
-    line-height: var(--lemon-badge-size);
 
     // Just enough so the overall size is unaffected with a single digit (i.e. badge stays round)
     padding: calc(var(--lemon-badge-size) / 8);
-    border-radius: calc(var(--lemon-badge-size) / 2);
-    user-select: none;
-    pointer-events: none;
-    position: absolute;
+    font-size: var(--lemon-badge-font-size);
     font-weight: 700;
-    z-index: 1; // Make sure it is at least in front of non-absolute items
+    line-height: var(--lemon-badge-size);
+    color: var(--bg-light);
+    pointer-events: none;
+    user-select: none;
+    background: var(--lemon-badge-color);
+    border: var(--lemon-badge-border-width) solid var(--bg-light);
+    border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {
         // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
@@ -70,8 +70,8 @@
     }
 
     &.LemonBadge--position-bottom-right {
-        bottom: calc(var(--lemon-badge-position-offset) * -1);
         right: calc(var(--lemon-badge-position-offset) * -1);
+        bottom: calc(var(--lemon-badge-position-offset) * -1);
     }
 
     &.LemonBadge--small {
@@ -85,19 +85,19 @@
     }
 
     &.LemonBadge--dot {
-        min-width: 0;
         width: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
+        min-width: 0;
         height: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
     }
 
     &.LemonBadge--active {
-        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
+        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
     }
 
     .posthog-3000 & {
-        border-color: var(--accent-3000);
         background: var(--muted);
+        border-color: var(--accent-3000);
 
         &.LemonBadge--small {
             --lemon-badge-size: 1.125rem;
@@ -105,24 +105,24 @@
     }
 
     &.LemonBadge--enter {
-        transform: scale(0.5);
         opacity: 0;
+        transform: scale(0.5);
     }
 
     &.LemonBadge--enter-active {
-        transform: scale(1);
         opacity: 1;
         transition: all 200ms ease-out;
+        transform: scale(1);
     }
 
     &.LemonBadge--exit {
-        transform: scale(1);
         opacity: 1;
+        transform: scale(1);
     }
 
     &.LemonBadge--exit-active {
-        transform: scale(0.5);
         opacity: 0;
         transition: all 200ms ease-in;
+        transform: scale(0.5);
     }
 }

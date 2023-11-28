@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { SidePanelTab } from '~/types'
@@ -50,7 +50,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -69,6 +69,13 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+
+    useEffect(() => {
+        setSidePanelAvailable(true)
+        return () => {
+            setSidePanelAvailable(false)
+        }
+    }, [])
 
     if (!visibleTabs.length) {
         return null

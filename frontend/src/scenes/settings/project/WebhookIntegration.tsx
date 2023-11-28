@@ -28,7 +28,9 @@ export function WebhookIntegration(): JSX.Element {
             <div>
                 <p>
                     Webhooks are currently not available for your organization.{' '}
-                    <Link onClick={() => openSupportForm('support', 'apps')}>Contact support</Link>
+                    <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'apps' })}>
+                        Contact support
+                    </Link>
                 </p>
             </div>
         )

@@ -391,8 +391,16 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
-export function delay(ms: number): Promise<number> {
-    return new Promise((resolve) => window.setTimeout(resolve, ms))
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(resolve, ms)
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId)
+                reject(new DOMException('Aborted', 'AbortError'))
+            })
+        }
+    })
 }
 
 export function clearDOMTextSelection(): void {
@@ -1544,4 +1552,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
         }
     }
     return toReturn
+}
+
+export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
 }

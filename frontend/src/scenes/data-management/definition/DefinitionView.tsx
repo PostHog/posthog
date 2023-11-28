@@ -119,43 +119,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                         buttons={
                             <>
-                                {
-                                    <LemonButton
-                                        data-attr="delete-definition"
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Delete this ${singular} definition?`,
-                                                description: (
-                                                    <>
-                                                        <p>
-                                                            <strong>{getPropertyLabel(definition.name)}</strong> will
-                                                            no longer appear in selectors. Associated data will remain
-                                                            in the database.
-                                                        </p>
-                                                        <p>
-                                                            This definition will be recreated if the {singular} is ever
-                                                            seen again in the event stream.
-                                                        </p>
-                                                    </>
-                                                ),
-                                                primaryButton: {
-                                                    status: 'danger',
-                                                    children: 'Delete definition',
-                                                    onClick: () => deleteDefinition(),
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                                width: 448,
-                                            })
-                                        }
-                                        tooltip="Delete this definition. Associated data will remain."
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                }
                                 {isEvent && (
                                     <LemonButton
                                         type="secondary"
@@ -179,7 +142,41 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                         View recordings
                                     </LemonButton>
                                 )}
-
+                                <LemonButton
+                                    data-attr="delete-definition"
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete this ${singular} definition?`,
+                                            description: (
+                                                <>
+                                                    <p>
+                                                        <strong>{getPropertyLabel(definition.name)}</strong> will
+                                                        no longer appear in selectors. Associated data will remain
+                                                        in the database.
+                                                    </p>
+                                                    <p>
+                                                        This definition will be recreated if the {singular} is ever seen
+                                                        again in the event stream.
+                                                    </p>
+                                                </>
+                                            ),
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete definition',
+                                                onClick: () => deleteDefinition(),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                            width: 448,
+                                        })
+                                    }
+                                    tooltip="Delete this definition. Associated data will remain."
+                                >
+                                    Delete
+                                </LemonButton>
                                 {(hasTaxonomyFeatures || isProperty) && (
                                     <LemonButton
                                         data-attr="edit-definition"

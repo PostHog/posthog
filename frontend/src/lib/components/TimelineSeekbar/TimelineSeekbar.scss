@@ -8,8 +8,8 @@
 
 .TimelineSeekbar__meta {
     display: flex;
-    justify-content: space-between;
     gap: 0.5rem;
+    justify-content: space-between;
 }
 
 .TimelineSeekbar__note {
@@ -22,12 +22,12 @@
 .TimelineSeekbar__current {
     width: fit-content;
     padding: 0 0.25rem;
-    border-radius: var(--radius);
-    background: var(--primary-3000);
-    color: var(--bg-light);
-    line-height: 1.25rem;
     font-size: 0.75rem;
     font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--bg-light);
+    background: var(--primary-3000);
+    border-radius: var(--radius);
 
     &::selection {
         background: var(--primary-3000-hover); // Default selection background is invisible on primary
@@ -45,25 +45,26 @@
 }
 
 .TimelineSeekbar__points {
-    display: flex;
-    height: 100%;
     position: relative;
     top: 0;
     left: calc(var(--timeline-seekbar-thickness) * 2);
+    display: flex;
     width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) * 3 - 1.25rem);
+    height: 100%;
 
     .LemonBadge:not(.LemonBadge--active) {
+        background-clip: padding-box;
+
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
-        background-clip: padding-box;
     }
 }
 
 .TimelineSeekbar__section {
     position: absolute;
-    cursor: pointer;
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
+    cursor: pointer;
     border-left: var(--timeline-seekbar-thickness) solid var(--bg-light);
 
     &:last-child {
@@ -75,8 +76,8 @@
     position: absolute;
     top: calc(50% - var(--timeline-seekbar-thickness) / 2);
     left: 0;
-    height: var(--timeline-seekbar-thickness);
     width: calc(100% - var(--timeline-seekbar-arrow-width));
+    height: var(--timeline-seekbar-thickness);
     background: var(--primary-3000);
 }
 
@@ -87,10 +88,10 @@
     height: 1.25rem;
 
     &::before {
-        content: '';
         display: block;
-        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         height: var(--timeline-seekbar-arrow-height);
+        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
+        content: '';
         background: var(--primary-3000);
     }
 }

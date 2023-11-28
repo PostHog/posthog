@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -132,7 +133,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         },
     })),
 
-    selectors(() => ({
+    selectors(({ asyncActions }) => ({
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
@@ -148,8 +149,14 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 },
                 {
                     key: playlist?.short_id || 'new',
-                    name: playlist?.name || playlist?.derived_name || '(Untitled)',
-                    path: urls.replayPlaylist(playlist?.short_id || ''),
+                    name: playlist?.name || playlist?.derived_name || 'Unnamed',
+                    onRename: async (name: string) => {
+                        if (!playlist) {
+                            lemonToast.error('Cannot rename unsaved playlist')
+                            return
+                        }
+                        await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
+                    },
                 },
             ],
         ],
@@ -161,8 +168,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],
-            (filters, cohortsById) =>
-                summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || '(Untitled)',
+            (filters, cohortsById) => summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || 'Unnamed',
         ],
     })),
 

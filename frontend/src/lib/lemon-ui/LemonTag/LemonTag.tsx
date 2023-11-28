@@ -15,6 +15,7 @@ export type LemonTagType =
     | 'completion'
     | 'caution'
     | 'none'
+    | 'breakdown'
 
 export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagType
@@ -61,7 +62,7 @@ export function LemonTag({
                     icon={<IconClose className="h-3.5 w-3.5" />}
                     onClick={onClose}
                     status="primary"
-                    size="small"
+                    size="xsmall"
                     className="LemonTag__right-button"
                 />
             )}
