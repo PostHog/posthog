@@ -14,6 +14,9 @@ import { BarStatus, PersonResult, SearchResult } from './types'
 const DEBOUNCE_MS = 300
 
 function rankPersons(persons: PersonType[], query: string): PersonResult[] {
+    // We know each person matches the query. To rank them
+    // between the other results, we rank them higher, when the
+    // query is longer.
     const personsRank = query.length / (query.length + 2.0)
     return persons.map((person) => ({
         type: 'person',
