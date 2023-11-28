@@ -25,7 +25,7 @@ class EmailVerifier:
         try:
             send_email_verification(user.pk, token)
         except Exception as e:
-            capture_exception(e)
+            capture_exception(f"Verification email failed: {e}")
             raise exceptions.APIException(
                 detail="Could not send email verification email. Please try again by logging in with your email and password."
             )
