@@ -10,7 +10,8 @@
         stroke-width: 0.125rem;
 
         &:hover {
-            color: var(--primary-3000-hover) !important;
+            color: var(--primary) !important;
+            opacity: 0.9;
         }
     }
 }
