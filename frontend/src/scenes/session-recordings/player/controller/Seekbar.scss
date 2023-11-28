@@ -160,7 +160,7 @@
             white-space: nowrap;
             visibility: hidden;
             background-color: var(--tick-color);
-            border-radius: 0.25rem;
+            border-radius: var(--radius);
             opacity: 0;
             transition: opacity 150ms ease-in-out;
             transform: translateX(-50%);

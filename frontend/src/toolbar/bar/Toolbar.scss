@@ -21,7 +21,7 @@
 
         ::-webkit-scrollbar-thumb {
             background: var(--trace-3000);
-            border-radius: 0.25rem;
+            border-radius: var(--radius);
 
             &:hover {
                 background: var(--muted-3000);
