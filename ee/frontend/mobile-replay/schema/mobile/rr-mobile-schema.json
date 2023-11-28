@@ -125,6 +125,7 @@
             "additionalProperties": false,
             "properties": {
                 "backgroundColor": {
+                    "description": "maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
                     "type": "string"
                 },
                 "borderColor": {
@@ -140,6 +141,7 @@
                     "type": ["string", "number"]
                 },
                 "color": {
+                    "description": "maps to CSS color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
                     "type": "string"
                 },
                 "horizontalAlign": {
