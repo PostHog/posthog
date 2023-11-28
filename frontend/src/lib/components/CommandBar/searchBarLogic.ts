@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { InsightShortId, PersonType, SearchResponse } from '~/types'
+import { InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
 import { Tab } from './constants'
@@ -48,13 +48,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
 
                     if (values.activeTab === Tab.All) {
                         return await api.search.list({ q: values.searchQuery })
-                    } else if (values.activeTab !== Tab.Person) {
+                    } else {
                         return await api.search.list({
                             q: values.searchQuery,
-                            entities: [values.activeTab.toLowerCase()],
+                            entities: [values.activeTab.toLowerCase() as SearchableEntity],
                         })
-                    } else {
-                        return null
                     }
                 },
             },
@@ -65,17 +63,25 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    if ([Tab.All, Tab.Person].includes(values.activeTab) && values.searchQuery.length > 0) {
-                        return await api.persons.list({ search: values.searchQuery })
-                    } else {
-                        return null
-                    }
+                    return await api.persons.list({ search: values.searchQuery })
                 },
             },
         ],
     })),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
+        rawSearchResponse: [
+            null as SearchResponse | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawPersonsResponse: [
+            null as CountedPaginatedResponse<PersonType> | null,
+            {
+                search: () => null,
+            },
+        ],
         keyboardResultIndex: [
             0,
             {
@@ -116,7 +122,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 return [
                     ...(searchResponse ? searchResponse.results : []),
                     ...(personsResponse ? rankPersons(personsResponse.results, query) : []),
-                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : -1))
+                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
             },
         ],
         combinedSearchLoading: [
@@ -172,7 +178,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
     listeners(({ values, actions }) => ({
         setSearchQuery: actions.search,
         setActiveTab: actions.search,
-        search: [actions.loadSearchResponse, actions.loadPersonsResponse],
+        search: () => {
+            if (values.activeTab === Tab.All || values.activeTab !== Tab.Person) {
+                actions.loadSearchResponse()
+            }
+            if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
+                actions.loadPersonsResponse()
+            }
+        },
         openResult: ({ index }) => {
             const result = values.combinedSearchResults![index]
             router.actions.push(urlForResult(result))
