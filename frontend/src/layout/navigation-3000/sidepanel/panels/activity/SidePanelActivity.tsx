@@ -1,4 +1,4 @@
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -57,16 +57,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <SidePanelPaneHeader
-                title={
-                    <>
-                        Activity{' '}
-                        <LemonTag type="warning" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                }
-            />
+            <SidePanelPaneHeader title="Activity" />
             <div className="flex flex-col overflow-hidden">
                 <div className="shrink-0 mx-2">
                     <LemonTabs

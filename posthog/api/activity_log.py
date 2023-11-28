@@ -171,6 +171,11 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
             .order_by("-created_at")
         )
 
+        if params.get("unread") == "true":
+            other_peoples_changes = other_peoples_changes.filter(
+                created_at__gt=last_read_date.last_viewed_activity_date
+            )
+
         serialized_data = ActivityLogSerializer(
             instance=other_peoples_changes[:10], many=True, context={"user": user}
         ).data
