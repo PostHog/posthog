@@ -744,7 +744,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                           </PureField>
                                                                           <PureField
                                                                               label="Thank you description"
-                                                                              className="mt-1"
+                                                                              className="mt-3"
                                                                           >
                                                                               <HTMLEditor
                                                                                   value={
@@ -765,6 +765,20 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       setWritingHTMLDescription
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
+                                                                              />
+                                                                          </PureField>
+                                                                          <PureField className="mt-2">
+                                                                              <LemonCheckbox
+                                                                                  checked={
+                                                                                      !!survey.appearance.autoDisappear
+                                                                                  }
+                                                                                  label="Auto disappear"
+                                                                                  onChange={(checked) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          autoDisappear: checked,
+                                                                                      })
+                                                                                  }
                                                                               />
                                                                           </PureField>
                                                                       </>
