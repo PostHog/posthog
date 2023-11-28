@@ -202,10 +202,8 @@ describe('replay/transform', () => {
                                 y: 17,
                                 width: 100,
                                 height: 30,
-                                // clip: {
-                                //   bottom: 83,
-                                //   right: 44,
-                                // },
+                                verticalAlign: 'top',
+                                horizontalAlign: 'right',
                                 type: 'text',
                                 text: 'i am in the box',
                             },

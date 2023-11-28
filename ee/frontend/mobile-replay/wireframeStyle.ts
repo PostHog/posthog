@@ -62,6 +62,24 @@ export function makePositionStyles(wireframe: wireframe): string {
     return styles
 }
 
+function makeLayoutStyles(wireframe: wireframe): string {
+    let styles = ''
+    if (wireframe.style?.verticalAlign) {
+        styles += `align-items: ${
+            { top: 'flex-start', center: 'center', bottom: 'flex-end' }[wireframe.style.verticalAlign]
+        };`
+    }
+    if (wireframe.style?.horizontalAlign) {
+        styles += `justify-content: ${
+            { left: 'flex-start', center: 'center', right: 'flex-end' }[wireframe.style.horizontalAlign]
+        };`
+    }
+    if (styles.length) {
+        styles += `display: flex;`
+    }
+    return styles
+}
+
 export function makeStylesString(wireframe: wireframe): string {
     let styles = ''
     if (wireframe.style?.color) {
@@ -72,5 +90,6 @@ export function makeStylesString(wireframe: wireframe): string {
     }
     styles += makeBorderStyles(wireframe)
     styles += makePositionStyles(wireframe)
+    styles += makeLayoutStyles(wireframe)
     return styles
 }
