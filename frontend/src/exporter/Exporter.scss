@@ -2,7 +2,7 @@
 
 body.ExporterBody {
     &.posthog-3000 {
-        overflow-y: auto;
+        overflow: initial;
     }
 }
 
