@@ -9,7 +9,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { notificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsLogic'

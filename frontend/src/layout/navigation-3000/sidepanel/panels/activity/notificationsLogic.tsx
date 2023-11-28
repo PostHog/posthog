@@ -85,7 +85,6 @@ export const notificationsLogic = kea<notificationsLogicType>([
                                 toParams({ unread: onlyUnread })
                         )
 
-                        response.results[0].unread = true
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
