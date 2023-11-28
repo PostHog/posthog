@@ -16,7 +16,6 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog import settings
 from posthog.batch_exports.models import (
     BatchExport,
     BatchExportBackfill,
@@ -30,6 +29,7 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     delete_schedule,
 )
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 
 
 class BatchExportsInputsProtocol(typing.Protocol):
@@ -327,7 +327,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -399,8 +399,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            # TODO: should have batch exports specific task queue
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=BATCH_EXPORTS_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             start_at=batch_export.start_at,
