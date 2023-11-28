@@ -233,7 +233,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
     return {
         description: ['changed query definition'],
         extendedDescription: (
-            <div className="summary-card">
+            <div className="ActivityDescription">
                 <QuerySummary filters={filtersAfter} />
                 <FiltersSummary filters={filtersAfter} />
                 {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}

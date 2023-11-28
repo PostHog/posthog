@@ -23,6 +23,11 @@ export interface ChangesResponse {
     last_read: string
 }
 
+export enum SidePanelActivityTab {
+    Unread = 'unread',
+    All = 'all',
+}
+
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
     actions({
@@ -33,6 +38,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
         incrementErrorCount: true,
         clearErrorCount: true,
         markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
+        setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
+        loadAllActivity: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -76,8 +83,29 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 },
             },
         ],
+        allActivityResponse: [
+            null as ChangesResponse | null,
+            {
+                loadAllActivity: async (_, breakpoint) => {
+                    await breakpoint(1)
+
+                    clearTimeout(values.pollTimeout)
+
+                    const response = await api.get<ChangesResponse>(
+                        `api/projects/${teamLogic.values.currentTeamId}/activity_log`
+                    )
+                    return response
+                },
+            },
+        ],
     })),
     reducers({
+        activeTab: [
+            SidePanelActivityTab.Unread,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         errorCounter: [
             0,
             {
@@ -131,8 +159,19 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 }
             }
         },
+        setActiveTab: ({ tab }) => {
+            if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
+                actions.loadAllActivity()
+            }
+        },
     })),
     selectors({
+        allActivity: [
+            (s) => [s.allActivityResponse],
+            (allActivityResponse): HumanizedActivityLogItem[] => {
+                return humanize(allActivityResponse?.results || [], describerFor, true)
+            },
+        ],
         notifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
@@ -183,6 +222,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 }
             },
         ],
+
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
         unread: [
             (s) => [s.notifications],

@@ -1,12 +1,13 @@
-.activity-log {
+.ActivityLog {
     &.notifications-menu {
         max-width: 25rem;
     }
 
-    .summary-card {
+    .ActivityDescription {
         padding: 1rem;
         border: 1px solid var(--border);
         border-radius: var(--radius);
+        background: var(--bg-light);
 
         .taxonomic-breakdown-filter.tag-pill {
             padding: 0;
@@ -22,47 +23,46 @@
         }
     }
 
-    .activity-log-row {
-        display: flex;
-        gap: 0.5rem;
+    .page-caption {
         max-width: 50rem;
-        padding: 0.5rem;
+    }
+}
+
+.ActivityLogRow {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 50rem;
+    padding: 0.5rem;
+    line-height: 24px;
+    overflow-wrap: anywhere;
+
+    &--unread {
+        background-color: var(--primary-highlight);
+    }
+
+    &:first-of-type {
         margin-top: 0.5rem;
-        line-height: 24px;
-        overflow-wrap: anywhere;
+    }
 
-        &.unread {
-            background-color: var(--primary-highlight);
-        }
+    .ProfilePicture {
+        flex-grow: 0;
+    }
 
-        &:first-of-type {
-            margin-top: 0.5rem;
-        }
+    .ActivityLogRow__details {
+        flex-grow: 1;
 
-        .ProfilePicture {
-            flex-grow: 0;
-        }
+        .highlighted-activity {
+            display: inline;
+            background-color: var(--mark);
 
-        .details {
-            flex-grow: 1;
-
-            .highlighted-activity {
-                display: inline;
-                background-color: var(--mark);
-
-                & > .PersonDisplay {
-                    min-width: 5.5rem;
-                }
+            & > .PersonDisplay {
+                min-width: 5.5rem;
             }
         }
     }
 
-    .activity-description-extended {
+    .ActivityLogRow__description__extended {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;
-    }
-
-    .page-caption {
-        max-width: 50rem;
     }
 }

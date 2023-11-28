@@ -51,7 +51,7 @@ export enum ActivityScope {
 }
 
 export type ActivityLogItem = {
-    user: ActivityUser
+    user?: ActivityUser
     activity: string
     created_at: string
     scope: ActivityScope
@@ -109,9 +109,9 @@ export function humanize(
 
         if (description !== null) {
             logLines.push({
-                email: logItem.user.email,
-                name: logItem.user.first_name,
-                isSystem: logItem.user.is_system,
+                email: logItem.user?.email,
+                name: logItem.user?.first_name,
+                isSystem: logItem.is_system,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
