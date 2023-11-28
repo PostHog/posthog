@@ -166,3 +166,44 @@ async fn it_does_not_partition_limit_different_ids() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn it_trims_distinct_id() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id1 = random_string("id", 200 - 3);
+    let distinct_id2 = random_string("id", 222);
+    let (trimmed_distinct_id2, _) = distinct_id2.split_at(200); // works because ascii chars
+
+    let topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topic(&topic);
+
+    let event = json!([{
+        "token": token,
+        "event": "event1",
+        "distinct_id": distinct_id1
+    },{
+        "token": token,
+        "event": "event2",
+        "distinct_id": distinct_id2
+    }]);
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    assert_json_include!(
+        actual: topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id1
+        })
+    );
+    assert_json_include!(
+        actual: topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": trimmed_distinct_id2
+        })
+    );
+
+    Ok(())
+}

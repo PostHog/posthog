@@ -172,6 +172,12 @@ pub fn process_single_event(
             _ => return Err(CaptureError::MissingDistinctId),
         },
     };
+    // Limit the size of distinct_id to 200 chars
+    let distinct_id: String = match distinct_id.len() {
+        0..=200 => distinct_id.to_owned(),
+        _ => distinct_id.chars().take(200).collect(),
+    };
+
     if event.event.is_empty() {
         return Err(CaptureError::MissingEventName);
     }
@@ -183,7 +189,7 @@ pub fn process_single_event(
 
     Ok(ProcessedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id: distinct_id.to_string(),
+        distinct_id,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
