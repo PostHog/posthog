@@ -80,8 +80,6 @@ module.exports = {
             },
         ],
         '@typescript-eslint/prefer-ts-expect-error': 'error',
-        '@typescript-eslint/explicit-function-return-type': 'off',
-        '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
         '@typescript-eslint/ban-ts-comment': 'off',
@@ -304,6 +302,17 @@ module.exports = {
                 '@typescript-eslint/explicit-function-return-type': 'off',
                 '@typescript-eslint/explicit-module-boundary-types': 'off',
             },
+        },
+        {
+            files: ['*.mjs'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+                '@typescript-eslint/explicit-function-return-type': 'off',
+                '@typescript-eslint/explicit-module-boundary-types': 'off',
+                '@typescript-eslint/no-misused-promises': 'off',
+                'no-console': 'off',
+            },
+            globals: { ...globals, process: 'readonly' },
         },
         {
             files: 'eslint-rules/**/*',
