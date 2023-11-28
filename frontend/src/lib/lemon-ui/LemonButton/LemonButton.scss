@@ -59,13 +59,6 @@
 
     &.LemonButton--full-width {
         width: 100%;
-        padding-right: 0.5rem;
-        padding-left: 0.5rem;
-
-        > span,
-        .LemonButton__content {
-            overflow: hidden;
-        }
     }
 
     &.LemonButton--centered {
