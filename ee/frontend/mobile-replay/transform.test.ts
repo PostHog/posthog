@@ -144,7 +144,7 @@ describe('replay/transform', () => {
                                 style: {
                                     // family: '疴ꖻ䖭㋑⁃⻋ꑧٹ㧕Ⓖ',
                                     // size: 4220431756569966319,
-                                    color: 'red',
+                                    color: '#ffffff',
                                 },
                             },
                             {
@@ -190,8 +190,8 @@ describe('replay/transform', () => {
                                 height: 30,
                                 type: 'rectangle',
                                 style: {
-                                    color: 'red',
-                                    borderColor: 'blue',
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
                                     borderWidth: '4',
                                     borderRadius: '10px',
                                 },
@@ -243,10 +243,10 @@ describe('replay/transform', () => {
                                                 type: 'text',
                                                 text: 'first nested',
                                                 style: {
-                                                    color: 'red',
-                                                    backgroundColor: 'yellow',
+                                                    color: '#ffffff',
+                                                    backgroundColor: '#000000',
                                                     borderWidth: '4px',
-                                                    borderColor: 'blue',
+                                                    borderColor: '#000ddd',
                                                     borderRadius: '10px',
                                                 },
                                             },
@@ -259,10 +259,10 @@ describe('replay/transform', () => {
                                                 type: 'text',
                                                 text: 'second nested',
                                                 style: {
-                                                    color: 'red',
-                                                    backgroundColor: 'blue',
+                                                    color: '#ffffff',
+                                                    backgroundColor: '#000000',
                                                     borderWidth: '4px',
-                                                    borderColor: 'yellow',
+                                                    borderColor: '#000ddd',
                                                     borderRadius: '10px',
                                                 },
                                             },
@@ -283,11 +283,11 @@ describe('replay/transform', () => {
                                         style: {
                                             // family: '疴ꖻ䖭㋑⁃⻋ꑧٹ㧕Ⓖ',
                                             // size: 4220431756569966319,
-                                            color: 'red',
-                                            backgroundColor: 'green',
+                                            color: '#ffffff',
+                                            backgroundColor: '#000000',
                                             borderWidth: '4px',
-                                            borderColor: 'red',
-                                            borderRadius: '10px',
+                                            borderColor: '#000ddd',
+                                            borderRadius: '10', // you can omit the pixels
                                         },
                                     },
                                 ],

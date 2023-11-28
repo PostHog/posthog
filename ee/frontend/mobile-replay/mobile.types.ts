@@ -81,15 +81,26 @@ export type MobileStyles = {
      * @description if borderColor is present, then border style is assumed to be solid
      */
     borderColor?: string
+    /**
+     * @description vertical alignment with respect to its parent
+     */
+    verticalAlign?: 'top' | 'bottom' | 'center'
+    /**
+     * @description horizontal alignment with respect to its parent
+     */
+    horizontalAlign?: 'left' | 'right' | 'center'
 }
 
 type wireframeBase = {
     id: number
     /**
-     * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned
+     * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
     x: number
     y: number
+    /*
+     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     */
     width: number
     height: number
     childWireframes?: wireframe[]

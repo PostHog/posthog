@@ -1,7 +1,7 @@
 import { MobileStyles, wireframe } from './mobile.types'
 
 function ensureUnit(value: string | number): string {
-    return typeof value === 'number' ? `${value}px` : value
+    return typeof value === 'number' ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
 function makeBorderStyles(wireframe: wireframe): string {
@@ -36,7 +36,7 @@ export function makeSvgBorder(style: MobileStyles | undefined): Record<string, s
         svgBorderStyles.stroke = style.borderColor
     }
     if (style?.borderRadius) {
-        svgBorderStyles.rx = style.borderRadius.toString()
+        svgBorderStyles.rx = ensureUnit(style.borderRadius)
     }
 
     return svgBorderStyles
@@ -45,18 +45,18 @@ export function makeSvgBorder(style: MobileStyles | undefined): Record<string, s
 export function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
     if (wireframe.width) {
-        styles += `width: ${wireframe.width}px;`
+        styles += `width: ${ensureUnit(wireframe.width)};`
     }
     if (wireframe.height) {
-        styles += `height: ${wireframe.height}px;`
+        styles += `height: ${ensureUnit(wireframe.height)};`
     }
     if (wireframe.x || wireframe.y) {
         styles += `position: absolute;`
         if (wireframe.x) {
-            styles += `left: ${wireframe.x}px;`
+            styles += `left: ${ensureUnit(wireframe.x)};`
         }
         if (wireframe.y) {
-            styles += `top: ${wireframe.y}px;`
+            styles += `top: ${ensureUnit(wireframe.y)};`
         }
     }
     return styles

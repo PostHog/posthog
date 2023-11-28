@@ -141,6 +141,16 @@
                 },
                 "color": {
                     "type": "string"
+                },
+                "horizontalAlign": {
+                    "description": "horizontal alignment with respect to its parent",
+                    "enum": ["left", "right", "center"],
+                    "type": "string"
+                },
+                "verticalAlign": {
+                    "description": "vertical alignment with respect to its parent",
+                    "enum": ["top", "bottom", "center"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -186,7 +196,7 @@
                     "type": "number"
                 },
                 "x": {
-                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned",
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
                     "type": "number"
                 },
                 "y": {
@@ -225,7 +235,7 @@
                     "type": "number"
                 },
                 "x": {
-                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned",
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
                     "type": "number"
                 },
                 "y": {
@@ -260,7 +270,7 @@
                     "type": "number"
                 },
                 "x": {
-                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned",
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
                     "type": "number"
                 },
                 "y": {
@@ -298,7 +308,7 @@
                     "type": "number"
                 },
                 "x": {
-                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned",
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
                     "type": "number"
                 },
                 "y": {
