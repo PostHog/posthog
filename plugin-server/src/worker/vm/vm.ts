@@ -58,7 +58,13 @@ export function createPluginConfigVM(
 
     // Add non-PostHog utilities to virtual machine
     vm.freeze(AVAILABLE_IMPORTS['node-fetch'], 'fetch')
-    vm.freeze(AVAILABLE_IMPORTS, '__pluginHostImports')
+
+    // Add used imports to the virtual machine
+    const pluginHostImports: Record<string, any> = {}
+    for (const usedImport of usedImports) {
+        pluginHostImports[usedImport] = (AVAILABLE_IMPORTS as Record<string, any>)[usedImport]
+    }
+    vm.freeze(pluginHostImports, '__pluginHostImports')
 
     if (process.env.NODE_ENV === 'test') {
         vm.freeze(setTimeout, '__jestSetTimeout')

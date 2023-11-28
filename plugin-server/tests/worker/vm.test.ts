@@ -1284,7 +1284,14 @@ describe('vm tests', () => {
             async function processEvent (event, meta) {
                 event.properties = {
                     imports: {
+                        // Injected because it was imported
                         url: 'URL' in urlImport,
+
+                        // Available via plugin host imports because it was imported
+                        urlViaPluginHostImports: 'URL' in __pluginHostImports.url,
+
+                        // Not in plugin host imports because it was not imported
+                        cryptoUndefined: __pluginHostImports.crypto === undefined,
                     },
                 }
                 return event
@@ -1296,6 +1303,8 @@ describe('vm tests', () => {
 
         expect(event?.properties?.imports).toEqual({
             url: true,
+            urlViaPluginHostImports: true,
+            cryptoUndefined: true,
         })
     })
 })
