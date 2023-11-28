@@ -320,7 +320,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     [
                         {
                             identifier: Scene.ProjectHomepage,
-                            label: 'Project homepage',
+                            label: 'Home',
                             icon: <IconHome />,
                             to: urls.projectHomepage(),
                         },
@@ -340,16 +340,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Events,
-                            label: 'Event explorer',
+                            label: 'Events',
                             icon: <IconLive />,
                             to: urls.events(),
-                        },
-                        {
-                            identifier: Scene.DataManagement,
-                            label: 'Data management',
-                            icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
                             identifier: Scene.PersonsManagement,
@@ -357,6 +350,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
+                        },
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                     ],
                     [

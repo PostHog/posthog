@@ -41,7 +41,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
         groups: [
             { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
-                loadGroups: async ({ url }) => {
+                loadGroups: async ({ url }, breakpoint) => {
+                    await breakpoint(300)
+
                     if (!values.groupsEnabled) {
                         return values.groups
                     }
