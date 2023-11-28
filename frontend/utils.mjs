@@ -178,6 +178,10 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
             })
         )
     )
+
+    if (!isDev) {
+        process.exit(0)
+    }
 }
 
 /** Get the main ".js" and ".css" files for a build */
