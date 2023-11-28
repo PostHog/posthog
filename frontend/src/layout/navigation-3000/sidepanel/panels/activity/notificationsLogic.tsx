@@ -20,6 +20,7 @@ export interface ChangelogFlagPayload {
 
 export interface ChangesResponse {
     results: ActivityLogItem[]
+    next: string | null
     last_read: string
 }
 
@@ -40,6 +41,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
         markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
         setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
         loadAllActivity: true,
+        loadOlderActivity: true,
+        maybeLoadOlderActivity: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -53,6 +56,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
 
                     return {
                         last_read: bookmarkDate,
+                        next: current.next,
                         results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
                 },
@@ -89,11 +93,23 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 loadAllActivity: async (_, breakpoint) => {
                     await breakpoint(1)
 
-                    clearTimeout(values.pollTimeout)
-
                     const response = await api.get<ChangesResponse>(
                         `api/projects/${teamLogic.values.currentTeamId}/activity_log`
                     )
+                    return response
+                },
+
+                loadOlderActivity: async (_, breakpoint) => {
+                    await breakpoint(1)
+
+                    if (!values.allActivityResponse?.next) {
+                        return values.allActivityResponse
+                    }
+
+                    const response = await api.get<ChangesResponse>(values.allActivityResponse.next)
+
+                    response.results = [...values.allActivityResponse.results, ...response.results]
+
                     return response
                 },
             },
@@ -101,7 +117,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
     })),
     reducers({
         activeTab: [
-            SidePanelActivityTab.Unread,
+            SidePanelActivityTab.Unread as SidePanelActivityTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -164,6 +180,12 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 actions.loadAllActivity()
             }
         },
+
+        maybeLoadOlderActivity: () => {
+            if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
+                actions.loadOlderActivity()
+            }
+        },
     })),
     selectors({
         allActivity: [
@@ -172,6 +194,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 return humanize(allActivityResponse?.results || [], describerFor, true)
             },
         ],
+        allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
         notifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {

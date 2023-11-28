@@ -13,7 +13,7 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     return (
-        <header className="border-b flex-0 p-1 flex items-center justify-end gap-1 h-10">
+        <header className="border-b shrink-0 p-1 flex items-center justify-end gap-1 h-10">
             {title ? (
                 <h4 className="flex-1 flex items-center gap-1 font-semibold px-2 mb-0 truncate">{title}</h4>
             ) : null}

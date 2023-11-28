@@ -36,14 +36,6 @@
     line-height: 24px;
     overflow-wrap: anywhere;
 
-    &--unread {
-        background-color: var(--primary-highlight);
-    }
-
-    &:first-of-type {
-        margin-top: 0.5rem;
-    }
-
     .ProfilePicture {
         flex-grow: 0;
     }
