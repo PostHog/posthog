@@ -171,7 +171,7 @@ def join_with_events_table_session_duration(
         """
             select "$session_id" as id, dateDiff('second', min(timestamp), max(timestamp)) as duration
             from events
-                group by id
+            group by id
         """
     )
 

@@ -162,12 +162,18 @@
         UNION ALL SELECT count(e.uuid) AS total,
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), in(e.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT cohortpeople.person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 5))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))))
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 5))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -194,7 +200,8 @@
                  groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -296,7 +303,8 @@
                  groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -359,7 +367,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -414,7 +423,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -469,7 +479,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -553,7 +564,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -679,7 +691,8 @@
                                                                                                                                                               GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                               HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -780,7 +793,8 @@
                  groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -865,7 +879,8 @@
                  groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -894,10 +909,16 @@
              (SELECT [NULL, 'uh', 'oh'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
-        UNION ALL SELECT count(DISTINCT e.person_id) AS total,
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS breakdown_value
         FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
         LEFT JOIN
           (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
                   groups.group_type_index AS index,
@@ -928,7 +949,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -996,7 +1018,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -1346,7 +1369,8 @@
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -1435,7 +1459,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -1476,9 +1501,15 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.person_id AS actor_id,
+                     ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id) AS actor_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS breakdown_value
               FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                        person_overrides.old_person_id AS old_person_id
+                 FROM person_overrides
+                 WHERE equals(person_overrides.team_id, 2)
+                 GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
               WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'some_val2'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'some_val'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
@@ -1564,7 +1595,8 @@
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -1649,14 +1681,21 @@
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
             count(e.uuid) AS count
      FROM events AS e
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), in(e.person_id,
-                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id
-                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
-                                                                                                                                                                                                                                                                                                                                                          GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                          HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))))
+     LEFT OUTER JOIN
+       (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+               person_overrides.old_person_id AS old_person_id
+        FROM person_overrides
+        WHERE equals(person_overrides.team_id, 2)
+        GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
+                                                                                                                                                                                                                                                                                                                                                                 GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                 HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -1689,12 +1728,18 @@
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), in(e.person_id,
-                                                                                                                                                                                                                                                                                                                                                            (SELECT cohortpeople.person_id
-                                                                                                                                                                                                                                                                                                                                                             FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
-                                                                                                                                                                                                                                                                                                                                                             GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                             HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                    FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
+                                                                                                                                                                                                                                                                                                                                                                    GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                    HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1984,9 +2029,15 @@
         FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
         UNION ALL SELECT 0 AS total,
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
-        UNION ALL SELECT count(DISTINCT e.person_id) AS total,
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2149,7 +2200,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -2360,7 +2412,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 06:01:01', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -2571,7 +2624,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 22:01:01', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3009,7 +3063,8 @@
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__pdi__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'safari'), 0))))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3102,7 +3157,8 @@
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3262,7 +3318,8 @@
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3412,7 +3469,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3519,7 +3577,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3592,7 +3651,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3626,10 +3686,16 @@
                 (SELECT [NULL, 'value', 'other_value'] AS breakdown_value) ARRAY
               JOIN breakdown_value AS breakdown_value) AS sec
            ORDER BY sec.breakdown_value ASC, day_start ASC
-           UNION ALL SELECT count(DISTINCT e.person_id) AS total,
+           UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
                             toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
            FROM events AS e SAMPLE 1
+           LEFT OUTER JOIN
+             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                     person_overrides.old_person_id AS old_person_id
+              FROM person_overrides
+              WHERE equals(person_overrides.team_id, 2)
+              GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
            GROUP BY day_start,
                     breakdown_value)
@@ -3652,7 +3718,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:33', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3715,7 +3782,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3922,8 +3990,14 @@
            FROM
              (SELECT count(e.uuid) AS total
               FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                        person_overrides.old_person_id AS old_person_id
+                 FROM person_overrides
+                 WHERE equals(person_overrides.team_id, 2)
+                 GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-              GROUP BY e.person_id))))
+              GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))))
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3939,7 +4013,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -4072,8 +4147,14 @@
              (SELECT count(e.uuid) AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                        person_overrides.old_person_id AS old_person_id
+                 FROM person_overrides
+                 WHERE equals(person_overrides.team_id, 2)
+                 GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-              GROUP BY e.person_id,
+              GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                        day_start)
            GROUP BY day_start))
      GROUP BY day_start
@@ -4140,7 +4221,8 @@
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -4400,7 +4482,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -4469,7 +4552,8 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:05', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY value
-     ORDER BY count DESC, value DESC)
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1

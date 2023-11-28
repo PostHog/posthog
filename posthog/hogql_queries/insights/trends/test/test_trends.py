@@ -7213,7 +7213,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [2.0])
+        self.assertEqual(response[0]["data"], [1.0])
 
     @pytest.mark.skip(reason="PoE V2 doesnt work with HogQL yet")
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)

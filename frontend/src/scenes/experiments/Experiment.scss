@@ -74,7 +74,7 @@
             font-weight: 500;
             color: #fff;
             letter-spacing: 0.01em;
-            border-radius: 4px;
+            border-radius: var(--radius);
         }
     }
 
@@ -150,10 +150,10 @@
         }
 
         .ant-progress-inner {
-            border-radius: 4px;
+            border-radius: var(--radius);
 
             .ant-progress-bg {
-                border-radius: 4px;
+                border-radius: var(--radius);
             }
         }
     }
@@ -176,6 +176,7 @@
 }
 
 .preview-conversion-goal-num {
+    flex-shrink: 0;
     width: 24px;
     height: 24px;
     margin-right: 0.5rem;
@@ -202,5 +203,5 @@
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
