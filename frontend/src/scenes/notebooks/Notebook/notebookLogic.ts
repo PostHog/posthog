@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
     actions,
+    beforeUnmount,
     BuiltLogic,
     connect,
     kea,
@@ -517,7 +518,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     router.values.currentLocation.searchParams,
                     {
                         ...router.values.currentLocation.hashParams,
-                        state: cache.lastState,
+                        '🦔': cache.lastState,
                     }
                 )
             }
@@ -595,13 +596,23 @@ export const notebookLogic = kea<notebookLogicType>([
 
     urlToAction(({ values, actions, cache }) => ({
         '*': (_, _search, hashParams) => {
-            if (values.mode === 'canvas' && hashParams?.state) {
-                if (cache.lastState === hashParams.state) {
+            if (values.mode === 'canvas' && hashParams?.['🦔']) {
+                if (cache.lastState === hashParams['🦔']) {
                     return
                 }
 
-                actions.setLocalContent(JSON.parse(atob(hashParams.state)))
+                actions.setLocalContent(JSON.parse(atob(hashParams['🦔'])))
             }
         },
     })),
+
+    beforeUnmount(() => {
+        const hashParams = router.values.currentLocation.hashParams
+        delete hashParams['🦔']
+        router.actions.replace(
+            router.values.currentLocation.pathname,
+            router.values.currentLocation.searchParams,
+            hashParams
+        )
+    }),
 ])
