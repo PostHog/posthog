@@ -1,3 +1,5 @@
+import { Gauge } from 'prom-client'
+
 import { Hub, StatelessVmMap } from '../../types'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
@@ -6,7 +8,14 @@ import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
+export const importUsedGauge = new Gauge({
+    name: 'plugin_import_used',
+    help: 'Imports used by plugins, broken down by import name and plugin_id',
+    labelNames: ['name', 'plugin_id'],
+})
+
 export async function setupPlugins(hub: Hub): Promise<void> {
+    const startTime = Date.now()
     status.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
@@ -50,6 +59,18 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     hub.pluginConfigs = pluginConfigs
     hub.pluginConfigsPerTeam = pluginConfigsPerTeam
 
+    importUsedGauge.reset()
+    const seenPlugins = new Set<number>()
+    for (const pluginConfig of pluginConfigs.values()) {
+        const usedImports = pluginConfig.vm?.usedImports
+        if (usedImports && !seenPlugins.has(pluginConfig.plugin_id)) {
+            seenPlugins.add(pluginConfig.plugin_id)
+            for (const importName of usedImports) {
+                importUsedGauge.set({ name: importName, plugin_id: pluginConfig.plugin_id }, 1)
+            }
+        }
+    }
+
     for (const teamId of hub.pluginConfigsPerTeam.keys()) {
         hub.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
@@ -59,5 +80,8 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         await loadSchedule(hub)
     }
 
-    status.info('✅', `Loaded ${pluginConfigs.size} configs for ${plugins.size} plugins`)
+    status.info(
+        '✅',
+        `Loaded ${pluginConfigs.size} configs for ${plugins.size} plugins, took ${Date.now() - startTime}ms`
+    )
 }
