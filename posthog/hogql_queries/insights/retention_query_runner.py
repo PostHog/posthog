@@ -13,7 +13,7 @@ from posthog.constants import (
     RetentionQueryType,
 )
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -75,37 +75,18 @@ class RetentionQueryRunner(QueryRunner):
         ]
         params = {}
 
-        # If we didn't have a breakdown specified, we default to the
-        # initial event interval
-        # NOTE: we wrap as an array to maintain the same structure as
-        # for typical breakdowns
-        # NOTE: we could add support for specifying expressions to
-        # `get_single_or_multi_property_string_expr` or an abstraction
-        # over the top somehow
-        # NOTE: we use the datediff rather than the date to make our
-        # lives easier when zero filling the response. We could however
-        # handle this WITH FILL within the query.
+        if self.event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
+            source_timestamp = (
+                "min(e.timestamp)" if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME else "e.timestamp"
+            )
 
-        if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             _fields += [
                 f"""
                 [
                     dateDiff(
                         {{period}},
                         {self.get_start_of_interval_sql(source='{start_date}')},
-                        {self.get_start_of_interval_sql(source='min(e.timestamp)')}
-                    )
-                ] as breakdown_values
-                """
-            ]
-        elif self.event_query_type == RetentionQueryType.TARGET:
-            _fields += [
-                f"""
-                [
-                    dateDiff(
-                        {{period}},
-                        {self.get_start_of_interval_sql(source='{start_date}')},
-                        {self.get_start_of_interval_sql(source='e.timestamp')}
+                        {self.get_start_of_interval_sql(source=source_timestamp)}
                     )
                 ] as breakdown_values
                 """
@@ -134,17 +115,21 @@ class RetentionQueryRunner(QueryRunner):
             )
         )
 
-        # make hogql constants for all params
         hogql_params = {key: ast.Constant(value=value) for key, value in params.items()}
 
-        query = f"""
-            SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            WHERE
-            {{filter_where}}
-            {f"AND {date_query}" if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {f"GROUP BY target HAVING {date_query}" if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {f"GROUP BY target, event_date" if self.event_query_type == RetentionQueryType.RETURNING else ''}
-        """
+        data_query_hogql = parse_expr(date_query, placeholders=hogql_params)
+        if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
+            filter_expressions.append(data_query_hogql)
+
+        group_by_fields = None
+        having_expr = None
+        if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+            group_by_fields = [ast.Field(chain=["target"])]
+            having_expr = data_query_hogql
+        if self.event_query_type == RetentionQueryType.RETURNING:
+            group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
+
+        query = f"SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}"
         result = parse_select(
             query,
             placeholders={
@@ -155,6 +140,9 @@ class RetentionQueryRunner(QueryRunner):
             },
             timings=self.timings,
         )
+        result.where = ast.And(exprs=filter_expressions)
+        result.group_by = group_by_fields
+        result.having = having_expr
 
         sampling_factor = self.query.samplingFactor
         if sampling_factor is not None and isinstance(sampling_factor, float):
