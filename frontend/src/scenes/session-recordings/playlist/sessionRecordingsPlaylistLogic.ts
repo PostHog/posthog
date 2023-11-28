@@ -667,6 +667,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return [...pinnedRecordings, ...otherRecordings]
             },
         ],
+
+        recordingsCount: [
+            (s) => [s.pinnedRecordings, s.otherRecordings, s.showOtherRecordings],
+            (pinnedRecordings, otherRecordings, showOtherRecordings): number => {
+                return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
+            },
+        ],
     }),
 
     actionToUrl(({ props, values }) => {
