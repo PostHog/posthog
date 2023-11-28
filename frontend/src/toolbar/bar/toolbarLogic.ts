@@ -20,7 +20,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
     connect(() => ({
         actions: [
             actionsTabLogic,
-            ['showButtonActions', 'hideButtonActions'],
+            ['showButtonActions', 'hideButtonActions', 'selectAction'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -183,7 +183,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.disableInspect()
                 actions.disableHeatmap()
                 actions.hideButtonActions()
-                actionsTabLogic.actions.selectAction(null)
+                actions.selectAction(null)
             }
         },
 

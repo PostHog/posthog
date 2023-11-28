@@ -2,6 +2,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
 from posthog.schema import HogQLMetadata, HogQLMetadataResponse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from django.test import override_settings
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -135,6 +136,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
         cohort = Cohort.objects.create(team=self.team, name="cohort_name")
         query = (

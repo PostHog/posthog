@@ -19,7 +19,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         values: [notebookLogic(props), ['notebook', 'notebookLoading'], notebooksModel, ['notebooksLoading']],
         actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.shortId],
 
         loading: [
@@ -38,11 +38,6 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                 {
                     key: notebook?.short_id || 'new',
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
-                    onRename: !notebook?.is_template
-                        ? async (title: string) => {
-                              await notebookLogic(props).asyncActions.renameNotebook(title)
-                          }
-                        : undefined,
                 },
             ],
         ],

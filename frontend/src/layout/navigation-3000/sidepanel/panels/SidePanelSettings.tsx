@@ -7,7 +7,7 @@ import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
 import { urls } from 'scenes/urls'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 
 export const SidePanelSettings = (): JSX.Element => {

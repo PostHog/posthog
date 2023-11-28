@@ -43,7 +43,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
+export function SupportForm(): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -64,12 +64,12 @@ export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.El
     return (
         <Form
             logic={supportLogic}
-            formKey={loggedIn ? 'sendSupportRequest' : 'sendSupportLoggedOutRequest'}
+            formKey={'sendSupportRequest'}
             id="support-modal-form"
             enableFormOnSubmit
             className="space-y-4"
         >
-            {!loggedIn && (
+            {!user && (
                 <>
                     <Field name="name" label="Name">
                         <LemonInput data-attr="name" placeholder="Jane" />

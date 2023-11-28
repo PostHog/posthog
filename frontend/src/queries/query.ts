@@ -29,10 +29,10 @@ import {
     isLifecycleQuery,
     isPersonsNode,
     isPersonsQuery,
-    isQueryWithHogQLSupport,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
+    isTrendsQuery,
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
@@ -103,7 +103,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 
@@ -142,8 +142,11 @@ export async function query<N extends DataNode = DataNode>(
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
-    const hogQLInsightsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    const hogQLInsightsLifecycleFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
+    )
+    const hogQLInsightsTrendsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
@@ -185,7 +188,10 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else if (isInsightQueryNode(queryNode)) {
-            if (hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode)) {
+            if (
+                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+            ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse
                     ;[response, legacyResponse] = await Promise.all([
@@ -193,14 +199,17 @@ export async function query<N extends DataNode = DataNode>(
                         fetchLegacyInsights(),
                     ])
 
-                    const res1 = response?.result || response?.results
-                    const res2 = legacyResponse?.result || legacyResponse?.results
+                    let res1 = response?.result || response?.results
+                    let res2 = legacyResponse?.result || legacyResponse?.results
 
                     if (isLifecycleQuery(queryNode)) {
                         // Results don't come back in a predetermined order for the legacy lifecycle insight
                         const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
                         res1.sort((a: any, b: any) => order[a.status] - order[b.status])
                         res2.sort((a: any, b: any) => order[a.status] - order[b.status])
+                    } else if (isTrendsQuery(queryNode)) {
+                        res1 = res1?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                        res2 = res2?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
                     }
 
                     const results = flattenObject(res1)

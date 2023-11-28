@@ -1,11 +1,13 @@
 @import '../../styles/vars';
 
 #button-toolbar {
-    // default to light theme
-    @include light-mode-3000-variables;
-    @include posthog-3000-variables;
-
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2147483020;
     user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+    opacity: 1;
+    transition: opacity ease 0.5s;
 
     * > {
         ::-webkit-scrollbar {
@@ -18,8 +20,8 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            border-radius: 0.25rem;
             background: var(--trace-3000);
+            border-radius: var(--radius);
 
             &:hover {
                 background: var(--muted-3000);
@@ -27,48 +29,45 @@
         }
     }
 
-    position: fixed;
-    left: 0;
-    top: 0;
-    z-index: 2147483020;
-    opacity: 1;
-    transition: opacity ease 0.5s;
-
     & + .HedgehogBuddy {
         z-index: 2147483020;
     }
+
+    // default to light theme
+    @include light-mode-3000-variables;
+    @include posthog-3000-variables;
 }
 
 #button-toolbar[theme='dark'] {
-    @include dark-mode-3000-variables;
-
     // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
     --mark: var(--secondary-3000-hover-dark);
+
+    @include dark-mode-3000-variables;
 }
 
 .ToolbarMenu {
     position: fixed;
+    z-index: 2;
     max-width: calc(100% - 2rem);
     height: 0;
-    z-index: 2;
 
     .ToolbarMenu__content {
         position: absolute;
-        background-color: var(--bg-3000);
-        color: var(--text-3000);
-        border-radius: var(--radius);
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        width: 30rem;
 
         // transition: height 0.5s ease, border 0.5s ease;
 
         max-height: 0;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        filter: drop-shadow(0 5px 10px var(--trace-3000));
-        bottom: 0;
-        width: 30rem;
         margin-left: -15rem;
+        overflow: hidden;
         overflow-y: auto;
+        color: var(--text-3000);
+        background-color: var(--bg-3000);
+        filter: drop-shadow(0 5px 10px var(--trace-3000));
+        border-radius: var(--radius);
     }
 
     &--visible {
@@ -92,23 +91,28 @@
 }
 
 .Toolbar {
+    --toolbar-button-x: 0;
+    --toolbar-button-y: 0;
+    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
+
+    position: fixed;
+    z-index: 1;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-    z-index: 1;
-    background-color: var(--bg-3000);
-    color: var(--text-3000);
-    transition-property: filter, width, transform;
-    transition-duration: 150ms;
-    transition-timing-function: ease;
-    filter: drop-shadow(0 5px 10px var(--trace-3000));
-    border: 1px solid var(--border-bold-3000);
-    border-radius: var(--radius);
-    overflow: hidden;
-    position: fixed;
 
     // fixed width so that animations work when changing width
     width: 15.2rem;
+    overflow: hidden;
+    color: var(--text-3000);
+    background-color: var(--bg-3000);
+    filter: drop-shadow(0 5px 10px var(--trace-3000));
+    border: 1px solid var(--border-bold-3000);
+    border-radius: var(--radius);
+    transition-timing-function: ease;
+    transition-duration: 150ms;
+    transition-property: filter, width, transform;
+    transform: var(--toolbar-translate);
 
     > :first-child {
         border-right: 1px solid var(--border-bold-3000);
@@ -117,12 +121,6 @@
     > :last-child {
         border-left: 1px solid var(--border-bold-3000);
     }
-
-    --toolbar-button-x: 0;
-    --toolbar-button-y: 0;
-    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
-
-    transform: var(--toolbar-translate);
 
     &--dragging {
         // Disable transform transition whilst dragging

@@ -774,7 +774,7 @@ class TestPrinter(BaseTest):
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
@@ -1280,3 +1280,80 @@ class TestPrinter(BaseTest):
         """
         )
         assert printed == self.snapshot
+
+    def test_print_hidden_aliases_timestamp(self):
+        query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
+            f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
+            f"LIMIT 10000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
+
+    def test_print_hidden_aliases_column_override(self):
+        query = parse_select("select * from (SELECT timestamp as event, event FROM events)")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
+            f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
+            f"LIMIT 10000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
+
+    def test_print_hidden_aliases_properties(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+
+        query = parse_select("select * from (SELECT properties.$browser FROM events)")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT 10000 "
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
+
+    def test_print_hidden_aliases_double_property(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+
+        query = parse_select("select * from (SELECT properties.$browser, properties.$browser FROM events)")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
+            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
+            f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT 10000 "
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
