@@ -16,7 +16,6 @@
         --lemon-button-gap: 0.5rem;
 
         position: relative;
-        min-height: var(--lemon-button-height);
         padding: 0;
         cursor: pointer;
         background-color: transparent;
@@ -33,9 +32,8 @@
             align-items: center;
             justify-content: flex-start;
             width: 100%;
-
-            // min-height: 2.125rem;
             height: 100%;
+            min-height: var(--lemon-button-height);
             padding: 0.25rem var(--lemon-button-horizontal-padding);
             font-size: var(--lemon-button-font-size);
             font-weight: 500;
@@ -329,6 +327,7 @@
         .LemonButton__chrome {
             justify-content: center !important;
             padding: 0 !important;
+
             // top: 0 !important;
             // margin: auto !important;
             // background: none !important;
