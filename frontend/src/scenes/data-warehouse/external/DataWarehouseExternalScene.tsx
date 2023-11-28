@@ -55,7 +55,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         </LemonButtonWithSideAction>
                     ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
                         <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
-                            New Table
+                            New table
                         </LemonButton>
                     ) : undefined
                 }
@@ -89,7 +89,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 />
             )}
             {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

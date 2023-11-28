@@ -73,7 +73,7 @@ function MoreMenu(): JSX.Element {
                             window.open(HELP_URL, '_blank')?.focus()
                         },
                     },
-                    { icon: <IconX />, label: 'Logout', onClick: logout },
+                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
                 ].filter(Boolean) as LemonMenuItems
             }
             maxContentWidth={true}

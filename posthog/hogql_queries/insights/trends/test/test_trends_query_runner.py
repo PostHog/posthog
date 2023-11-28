@@ -963,3 +963,49 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             10,
             10,
         ]
+
+    def test_breakdown_values_limit(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
+        )
+
+        assert len(response.results) == 25
+
+    def test_breakdown_values_world_map_limit(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.WorldMap),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
+        )
+
+        assert len(response.results) == 30

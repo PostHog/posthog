@@ -51,28 +51,28 @@ class TestModifiers(BaseTest):
                 "events.event",
                 "events__pdi__person.id",
                 "events__pdi__person.properties",
-                "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s)",
+                "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v1_enabled,
                 "events.event",
                 "events.person_id",
                 "events.person_properties",
-                "toTimeZone(events.person_created_at, %(hogql_val_0)s)",
+                "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v1_mixed,
                 "events.event",
                 "events__pdi.person_id",
                 "events.person_properties",
-                "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s)",
+                "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v2_enabled,
                 "events.event",
-                "events.person_id",
+                "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
                 "events.person_properties",
-                "toTimeZone(events.person_created_at, %(hogql_val_0)s)",
+                "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
             ),
         ]
 
@@ -159,21 +159,25 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.auto),
         )
-        assert "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') FROM events" in response.clickhouse
+        assert (
+            "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
+        )
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_null),
         )
-        assert "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') FROM events" in response.clickhouse
+        assert (
+            "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
+        )
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
         )
-        assert "SELECT nullIf(events.`mat_$browser`, '') FROM events" in response.clickhouse
+        assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
@@ -181,6 +185,6 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
         )
         assert (
-            "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') FROM events"
+            "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"
             in response.clickhouse
         )
