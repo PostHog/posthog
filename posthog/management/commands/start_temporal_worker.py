@@ -9,7 +9,14 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.temporal.common.worker import start_worker
-from posthog.temporal import WORKFLOWS_DICT, ACTIVITIES_DICT
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
+
+WORKFLOWS_DICT = {
+    "no-sandbox-python-django": BATCH_EXPORTS_WORKFLOWS,
+}
+ACTIVITIES_DICT = {
+    "no-sandbox-python-django": BATCH_EXPORTS_ACTIVITIES,
+}
 
 
 class Command(BaseCommand):
