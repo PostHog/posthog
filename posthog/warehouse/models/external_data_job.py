@@ -2,7 +2,6 @@ from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
-from posthog.warehouse.models import ExternalDataSource
 
 
 class ExternalDataJob(CreatedMetaFields, UUIDModel):
@@ -13,7 +12,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         CANCELLED = "Cancelled", "Cancelled"
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    pipeline: models.ForeignKey = models.ForeignKey(ExternalDataSource, on_delete=models.CASCADE)
+    pipeline: models.ForeignKey = models.ForeignKey("posthog.ExternalDataSource", on_delete=models.CASCADE)
     status: models.CharField = models.CharField(max_length=400)
     rows_synced: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
     latest_error: models.TextField = models.TextField(
