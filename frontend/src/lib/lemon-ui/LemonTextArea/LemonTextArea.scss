@@ -31,6 +31,10 @@
 
     &:focus:not(:disabled) {
         border: 1px solid var(--primary-3000);
+
+        .posthog-3000 & {
+            border-color: var(--border-active);
+        }
     }
 
     .Field--error & {
