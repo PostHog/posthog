@@ -17,7 +17,7 @@ function rankPersons(persons: PersonType[], query: string): PersonResult[] {
     const personsRank = query.length / (query.length + 2.0)
     return persons.map((person) => ({
         type: 'person',
-        result_id: person.uuid,
+        result_id: person.distinct_ids[0],
         extra_fields: { ...person },
         rank: personsRank,
     }))
@@ -263,7 +263,7 @@ export const urlForResult = (result: SearchResult): string => {
         case 'notebook':
             return urls.notebook(result.result_id)
         case 'person':
-            return urls.personByUUID(result.result_id)
+            return urls.personByDistinctId(result.result_id)
         default:
             // @ts-expect-error
             throw new Error(`No action for type '${result?.type}' defined.`)
