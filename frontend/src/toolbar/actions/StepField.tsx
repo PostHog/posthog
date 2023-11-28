@@ -20,22 +20,22 @@ interface StepFieldProps {
 
 function hrefSelector(step: ActionStepForm): string | null {
     if (!step.href) {
-        return ''
+        return null
     }
     // see https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#links
-    const matchOperator = step.href_matching
-        ? {
-              // Link whose value is exactly step.href.
-              [StringMatching.Exact]: '=',
-              // Links with step.href anywhere in the URL
-              [StringMatching.Contains]: '*=',
-              // CSS selector can't match on regex
-              [StringMatching.Regex]: null,
-          }[step.href_matching]
-        : null
+    const matchOperator = {
+        // Link whose value is exactly step.href.
+        [StringMatching.Exact]: '=',
+        // Links with step.href anywhere in the URL
+        [StringMatching.Contains]: '*=',
+        // CSS selector can't match on regex
+        [StringMatching.Regex]: null,
+    }[step.href_matching || StringMatching.Exact]
+
     if (!matchOperator) {
         return null
     }
+
     return `a[href${matchOperator}"${cssEscape(step.href)}"]`
 }
 
