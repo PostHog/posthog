@@ -63,15 +63,7 @@ export const SidePanelActivity = (): JSX.Element => {
                 }
             />
             <div className="flex flex-col overflow-hidden">
-                <div className="shrink-0 mx-2 mt-2">
-                    <LemonBanner type="info">
-                        Notifications shows you changes others make to{' '}
-                        <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
-                        <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                        <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what else
-                        should be here!
-                    </LemonBanner>
-
+                <div className="shrink-0 mx-2">
                     <LemonTabs
                         activeKey={activeTab as SidePanelActivityTab}
                         onChange={(key) => setActiveTab(key)}
@@ -91,6 +83,13 @@ export const SidePanelActivity = (): JSX.Element => {
                 <div className="flex-1 overflow-y-auto px-2">
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <div className="flex-1 overflow-y-auto space-y-px">
+                            <LemonBanner type="info" className="mb-2">
+                                Notifications shows you changes others make to{' '}
+                                <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
+                                <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
+                                <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what
+                                else should be here!
+                            </LemonBanner>
                             {hasNotifications ? (
                                 notifications.map((logItem, index) => (
                                     <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
