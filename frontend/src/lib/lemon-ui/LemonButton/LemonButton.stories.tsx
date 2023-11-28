@@ -74,6 +74,83 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
+export const Types3000: Story = () => {
+    return (
+        <div className="space-y-2">
+            <h5>type=BLOCK</h5>
+            <div className="border rounded">
+                <div className="flex gap-2 flex-wrap p-2">
+                    <LemonButton type={'onboarding'} icon={<IconCalculate />}>
+                        Onboarding
+                    </LemonButton>
+                    <LemonButton type={'primary'} icon={<IconCalculate />}>
+                        Primary
+                    </LemonButton>
+                    <LemonButton type={'secondary'} icon={<IconCalculate />}>
+                        Secondary
+                    </LemonButton>
+                    <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
+                        Destroy
+                    </LemonButton>
+                    <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                        Stealth
+                    </LemonButton>
+                </div>
+                <div className="p-2">
+                    <h5>Active</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <LemonButton active type={'onboarding'} icon={<IconCalculate />}>
+                            Onboarding
+                        </LemonButton>
+                        <LemonButton active type={'primary'} icon={<IconCalculate />}>
+                            Primary
+                        </LemonButton>
+                        <LemonButton active type={'secondary'} icon={<IconCalculate />}>
+                            Secondary
+                        </LemonButton>
+                        <LemonButton active type={'secondary'} status="danger" icon={<IconCalculate />}>
+                            Destroy
+                        </LemonButton>
+                        <LemonButton active stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                            Stealth
+                        </LemonButton>
+                    </div>
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <LemonButton type={'onboarding'} icon={<IconCalculate />}>
+                            Onboarding
+                        </LemonButton>
+                        <LemonButton type={'primary'} icon={<IconCalculate />}>
+                            Primary
+                        </LemonButton>
+                        <LemonButton type={'secondary'} icon={<IconCalculate />}>
+                            Secondary
+                        </LemonButton>
+                        <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
+                            Destroy
+                        </LemonButton>
+                        <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                            Stealth
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+            <h5>type=MENU</h5>
+            <div className="flex gap-2 border rourounded p-2 flex-wrap">
+                <LemonButton type="tertiary" icon={<IconCalculate />}>
+                    Primary
+                </LemonButton>
+                <LemonButton type="tertiary" status="danger" icon={<IconCalculate />}>
+                    Danger
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+Types3000.args = { ...Default.args }
+
 export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = { ...Default.args }
 

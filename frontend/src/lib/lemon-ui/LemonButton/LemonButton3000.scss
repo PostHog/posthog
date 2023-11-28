@@ -5,11 +5,18 @@
     .LemonButton {
         --lemon-button-border-width: 0;
         --lemon-button-chrome-depth: 0.25rem;
+        --button-bg-color: transparent;
+        --button-border-color: none;
+        --button-border-color-hover: none;
+        --button-frame-bg-color: none;
+
+        // --button-frame-border-color: none;
 
         position: relative;
         min-height: 2.125rem;
         padding: 0;
         cursor: pointer;
+        background-color: transparent;
         border-radius: 6px;
         outline: none;
         transition: var(--transition);
@@ -23,6 +30,7 @@
             align-items: center;
             justify-content: flex-start;
             width: 100%;
+
             // min-height: 2.125rem;
             height: 100%;
             padding: 0.25rem 0.75rem;
@@ -131,85 +139,114 @@
         }
 
         &.LemonButton--onboarding {
-            --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
+            --button-bg-color: var(--primary-3000-frame-bg-light);
+            --button-border-color: var(--primary-3000-button-border);
+            --button-border-color-hover: var(--primary-3000-button-border-hover);
+            --button-frame-bg-color: var(--primary-3000-button-bg-dark);
 
-            background: var(--primary-3000-button-bg-dark);
-            // border-color: var(--primary-3000-button-border);
+            // --button-frame-border-color: var(--primary-3000-button-border);
+
+            // background: var(--primary-3000-frame-bg-light);
 
             .LemonButton__chrome {
                 font-weight: 600;
-                color: var(--text-3000-light);
-                background-color: var(--primary-3000-frame-bg-light);
-                border-color: var(--primary-3000-button-border);
+
+                // color: var(--text-3000-light);
+                // background-color: var(--primary-3000-frame-bg-light);
+                // border-color: var(--primary-3000-button-border);
             }
         }
 
         &.LemonButton--primary {
             --lemon-button-border-width: 1px;
+            --button-bg-color: var(--bg-light);
+            --button-border-color: var(--primary-3000-button-border);
+            --button-border-color-hover: var(--primary-3000-button-border-hover);
+            --button-frame-bg-color: var(--primary-3000-frame-bg);
 
-            background: var(--primary-3000-frame-bg);
+            // --button-frame-border-color: var(--primary-3000-frame-border);
+
+            // background: var(--bg-light);
 
             .LemonButton__chrome {
                 font-weight: 600;
                 color: #111;
                 background: var(--primary-3000-button-bg);
 
-                &:after {
-                    border-color: var(--primary-3000-frame-border);
-                }
+                // &:after {
+                //     border-color: var(--primary-3000-frame-border);
+                // }
 
-                &:before {
-                    border-color: var(--primary-3000-button-border);
-                }
+                // &:before {
+                //     border-color: var(--primary-3000-button-border);
+                // }
 
-                &:not([aria-disabled='true']):hover,
-                &.LemonButton--active {
-                    border-color: var(--primary-3000-button-border-hover);
-                }
+                // &:not([aria-disabled='true']):hover,
+                // &.LemonButton--active {
+                //     border-color: var(--primary-3000-button-border-hover);
+                // }
             }
         }
 
+        &.LemonButton--is-stealth.LemonButton--active,
+        &.LemonButton--is-stealth:hover,
+        &.LemonButton--secondary:not(.LemonButton--is-stealth) {
+            --button-border-color: var(--secondary-3000-button-border);
+            --button-border-color-hover: var(--secondary-3000-button-border-hover);
+            --button-frame-bg-color: var(--secondary-3000-frame-bg);
+
+            // --button-frame-border-color: var(--secondary-3000-frame-border);
+        }
+
+        &.LemonButton--primary.LemonButton--status-danger,
+        &.LemonButton--secondary.LemonButton--status-danger {
+            --button-border-color: var(--danger-light);
+            --button-border-color-hover: var(--danger-dark);
+            --button-frame-bg-color: var(--danger-lighter);
+
+            // --button-frame-border-color: purple;
+        }
+
+        &.LemonButton--primary,
         &.LemonButton--secondary,
-        &.LemonButton--primary {
+        &.LemonButton--onboarding {
             --lemon-button-border-width: 1px;
 
             &:not([aria-disabled='true']):hover .LemonButton__chrome {
-                &:after {
-                    border-color: var(--secondary-3000-button-border-hover);
+                &::after {
+                    border-color: var(--button-border-color-hover);
                 }
             }
 
             .LemonButton__chrome {
-                color: var(--default);
-                background: transparent;
-                // border-color: var(--secondary-3000-button-border);
                 padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5) 0.75rem
                     calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5) 0.75rem;
+                color: var(--default);
+                background: transparent;
 
-                &:before {
-                    content: '';
-                    position: absolute;
-                    top: -1px;
-                    left: -1px;
-                    right: -1px;
-                    bottom: -1px;
-                    border-radius: 6px;
-                    border: 1px solid var(--secondary-3000-button-border);
-                    z-index: 0;
+                & > * {
+                    z-index: 1; // Places button content above the ::after element
                 }
 
-                &:after {
-                    content: '';
+                &::before {
                     position: absolute;
-                    top: -1px;
-                    left: -1px;
-                    right: -1px;
-                    bottom: calc(var(--lemon-button-chrome-depth) - 1px);
-                    border-radius: 6px;
-                    border: 1px solid var(--secondary-3000-button-border);
-                    box-shadow: 0px 4px 0px -1px var(--secondary-3000-frame-bg);
-                    transition: opacity 200ms ease;
+                    inset: -1px;
                     z-index: 0;
+                    content: '';
+                    border: 1px solid var(--button-border-color);
+                    border-radius: 6px;
+                }
+
+                &::after {
+                    position: absolute;
+                    inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px) -1px;
+                    z-index: 0;
+                    content: '';
+                    background: var(--button-bg-color);
+                    border: 1px solid var(--button-border-color);
+                    border-radius: 6px;
+                    box-shadow: 0 4px 0 -1px var(--button-frame-bg-color);
+                    transition: opacity 200ms ease;
                 }
             }
 
@@ -225,12 +262,13 @@
                 .LemonButton__chrome {
                     transform: translateY(1px);
 
-                    &:after {
-                        box-shadow: 0px 3px 0px -1px var(--secondary-3000-frame-bg);
+                    &::after {
+                        border: 1px solid var(--button-border-color-hover);
+                        box-shadow: 0 3px 0 -1px var(--button-frame-bg-color);
                     }
 
-                    &:before {
-                        bottom: 0px;
+                    &::before {
+                        bottom: 0;
                     }
                 }
             }
@@ -239,29 +277,36 @@
                 .LemonButton__chrome {
                     color: var(--default);
                     background: var(--bg-light);
-                    border-color: var(--secondary-3000-button-border-hover);
+                    border-color: var(--button-border-color-hover);
                 }
             }
         }
 
-        &.LemonButton--is-stealth:not(.LemonButton--active) {
-            &:hover {
-                .LemonButton__chrome {
-                    border-color: var(--secondary-3000-button-border);
-                }
-            }
+        // &.LemonButton--is-stealth:not(.LemonButton--active) {
+        //     --button-border-color: transparent;
+        //     --button-border-color-hover: transparent;
+        //     --button-frame-bg-color: transparent;
+        //     --button-frame-border-color: transparent;
+        // }
 
-            &:not(:hover) {
-                background-color: transparent;
-                border-color: transparent;
+        // &.LemonButton--is-stealth:not(.LemonButton--active) {
+        //     &:hover {
+        //         .LemonButton__chrome {
+        //             border-color: var(--secondary-3000-button-border);
+        //         }
+        //     }
 
-                .LemonButton__chrome {
-                    color: var(--muted);
-                    background-color: transparent;
-                    border-color: transparent;
-                }
-            }
-        }
+        //     &:not(:hover) {
+        //         background-color: transparent;
+        //         border-color: transparent;
+
+        //         .LemonButton__chrome {
+        //             color: var(--muted);
+        //             background-color: transparent;
+        //             border-color: transparent;
+        //         }
+        //     }
+        // }
 
         &.LemonButton--tertiary {
             color: var(--default);
