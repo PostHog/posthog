@@ -9,7 +9,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.temporal.common.worker import start_worker
-from posthog.temporal.batch_exports import WORKFLOWS, ACTIVITIES
+from posthog.temporal import WORKFLOWS_DICT, ACTIVITIES_DICT
 
 
 class Command(BaseCommand):
@@ -66,11 +66,11 @@ class Command(BaseCommand):
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
 
-        if task_queue == "no-sandbox-python-django":
-            workflows = WORKFLOWS
-            activities = ACTIVITIES
-        else:
-            raise ValueError(f"Unknown task queue: {task_queue}")
+        try:
+            workflows = WORKFLOWS_DICT[task_queue]
+            activities = ACTIVITIES_DICT[task_queue]
+        except KeyError:
+            raise ValueError(f"Task queue {task_queue} not found in WORKFLOWS_DICT or ACTIVITIES_DICT")
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
