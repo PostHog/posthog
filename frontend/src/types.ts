@@ -831,6 +831,29 @@ export interface PersonListParams {
     include_total?: boolean // PostHog 3000-only
 }
 
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResult = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResult[]
+    counts: Record<SearchableEntity, number | null>
+}
+
 export interface MatchedRecordingEvent {
     uuid: string
 }

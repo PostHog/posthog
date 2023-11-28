@@ -1,16 +1,34 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { InsightShortId } from '~/types'
+import { InsightShortId, PersonType, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
+import { Tab } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus, ResultTypeWithAll, SearchResponse, SearchResult } from './types'
+import { BarStatus } from './types'
 
 const DEBOUNCE_MS = 300
+
+type RankedPerson = {
+    type: 'person'
+    result_id: string
+    extra_fields: PersonType
+    rank: number
+}
+
+function rankPersons(persons: PersonType[], query: string): RankedPerson[] {
+    const personsRank = query.length / (query.length + 2.0)
+    return persons.map((person) => ({
+        type: 'person',
+        result_id: person.uuid,
+        extra_fields: { ...person },
+        rank: personsRank,
+    }))
+}
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
@@ -20,7 +38,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
     actions({
         search: true,
         setSearchQuery: (query: string) => ({ query }),
-        setActiveTab: (tab: ResultTypeWithAll) => ({ tab }),
+        setActiveTab: (tab: Tab) => ({ tab }),
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
@@ -29,49 +47,36 @@ export const searchBarLogic = kea<searchBarLogicType>([
         openResult: (index: number) => ({ index }),
     }),
     loaders(({ values }) => ({
-        searchResponse: [
+        rawSearchResponse: [
             null as SearchResponse | null,
             {
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    if (values.activeTab === 'all') {
-                        const length = values.searchQuery.length
-                        const A = 2.0
-                        const personsRank = length / (length + A)
-                        const personsResponse = await api.get(
-                            `api/projects/@current/persons?search=${values.searchQuery}`
-                        )
-                        personsResponse.results = personsResponse.results.map((p) => ({
-                            type: 'person',
-                            result_id: p.uuid,
-                            extra_fields: { name: p.name },
-                            rank: personsRank,
-                        }))
-
-                        const searchResponse = await api.get(`api/projects/@current/search?q=${values.searchQuery}`)
-
-                        searchResponse.results = [...personsResponse.results, ...searchResponse.results].sort(
-                            (a, b) => a.rank - b.rank
-                        )
-                        searchResponse.counts = { ...searchResponse.counts, person: 9999 }
-
-                        return searchResponse
+                    if (values.activeTab === Tab.All) {
+                        return await api.search.list({ q: values.searchQuery })
+                    } else if (values.activeTab !== Tab.Person) {
+                        return await api.search.list({
+                            q: values.searchQuery,
+                            entities: [values.activeTab.toLowerCase()],
+                        })
                     } else {
-                        return await api.get(
-                            `api/projects/@current/search?q=${values.searchQuery}&entities=${values.activeTab}`
-                        )
+                        return null
                     }
                 },
             },
         ],
-        personsResponse: [
-            null,
+        rawPersonsResponse: [
+            null as CountedPaginatedResponse<PersonType> | null,
             {
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    return Promise.resolve([{ a: 1 }])
+                    if ([Tab.All, Tab.Person].includes(values.activeTab) && values.searchQuery.length > 0) {
+                        return await api.persons.list({ search: values.searchQuery })
+                    } else {
+                        return null
+                    }
                 },
             },
         ],
@@ -100,7 +105,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             },
         ],
         activeTab: [
-            'all' as ResultTypeWithAll,
+            Tab.All as Tab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -108,25 +113,67 @@ export const searchBarLogic = kea<searchBarLogicType>([
         isAutoScrolling: [false, { setIsAutoScrolling: (_, { scrolling }) => scrolling }],
     }),
     selectors({
-        searchResults: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.results],
-        searchCounts: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.counts],
-        filterSearchResults: [
-            (s) => [s.searchResults, s.activeTab],
-            (searchResults, activeTab) => {
-                if (activeTab === 'all') {
-                    return searchResults
+        combinedSearchResults: [
+            (s) => [s.rawSearchResponse, s.rawPersonsResponse, s.searchQuery],
+            (searchResponse, personsResponse, query) => {
+                if (!searchResponse && !personsResponse) {
+                    return null
                 }
-                return searchResults?.filter((r) => r.type === activeTab)
+
+                return [
+                    ...(searchResponse ? searchResponse.results : []),
+                    ...(personsResponse ? rankPersons(personsResponse.results, query) : []),
+                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : -1))
             },
         ],
-        maxIndex: [(s) => [s.filterSearchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
+        combinedSearchLoading: [
+            (s) => [s.rawSearchResponseLoading, s.rawPersonsResponseLoading],
+            (searchLoading, personsLoading) => searchLoading && personsLoading,
+        ],
+        tabsCount: [
+            (s) => [s.rawSearchResponse, s.rawPersonsResponse],
+            (searchResponse, personsResponse): Record<Tab, string | null> => {
+                const counts = {}
+                const personsResults = personsResponse?.results
+
+                Object.values(Tab).forEach((tab) => {
+                    counts[tab] = searchResponse?.counts[tab]?.toString() || null
+                })
+
+                if (personsResults !== undefined) {
+                    counts[Tab.Person] = personsResults.length === 100 ? '>=100' : personsResults.length.toString()
+                }
+
+                return counts as Record<Tab, string | null>
+            },
+        ],
+        tabsLoading: [
+            (s) => [s.rawSearchResponseLoading, s.rawPersonsResponseLoading, s.activeTab],
+            (searchLoading, personsLoading, activeTab): Tab[] => {
+                const tabs: Tab[] = []
+
+                if (searchLoading) {
+                    if (activeTab === Tab.All) {
+                        tabs.push(...Object.values(Tab).filter((tab) => ![Tab.All, Tab.Person].includes(tab)))
+                    } else {
+                        tabs.push(activeTab)
+                    }
+                }
+
+                if (personsLoading) {
+                    tabs.push(Tab.Person)
+                }
+
+                return tabs
+            },
+        ],
+        maxIndex: [
+            (s) => [s.combinedSearchResults],
+            (combinedResults) => (combinedResults ? combinedResults.length - 1 : 0),
+        ],
         activeResultIndex: [
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
             (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex || keyboardResultIndex,
-        ],
-        tabs: [
-            (s) => [s.searchCounts],
-            (counts): ResultTypeWithAll[] => ['all', ...(Object.keys(counts || {}) as ResultTypeWithAll[])],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -134,7 +181,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setActiveTab: actions.search,
         search: [actions.loadSearchResponse, actions.loadPersonsResponse],
         openResult: ({ index }) => {
-            const result = values.searchResults![index]
+            const result = values.combinedSearchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
