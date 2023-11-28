@@ -46,7 +46,7 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
 
         if create:
             exists = DataWarehouseTable.objects.filter(
-                name=table_name, team_id=resource.team_id, format="Parquet"
+                name=table_name, team_id=resource.team_id, format="Parquet", deleted=False
             ).exists()
             if exists:
                 table = DataWarehouseTable.objects.get(name=table_name, team_id=resource.team_id, format="Parquet")
