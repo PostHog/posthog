@@ -43,6 +43,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activation)
+                tabs.push(SidePanelTab.Activity)
 
                 if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
                     tabs.push(SidePanelTab.FeaturePreviews)

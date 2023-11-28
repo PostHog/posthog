@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconFeatures, IconGear, IconInfo, IconNotebook, IconNotification, IconSupport } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -12,6 +12,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
+import { SidePanelActivity } from './panels/SidePanelActivity'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
@@ -50,6 +51,11 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         label: 'Previews',
         Icon: IconFeatures,
         Content: SidePanelFeaturePreviews,
+    },
+    [SidePanelTab.Activity]: {
+        label: 'Activity',
+        Icon: IconNotification,
+        Content: SidePanelActivity,
     },
 }
 
