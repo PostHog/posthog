@@ -25,15 +25,16 @@ export const SidePanelActivity = (): JSX.Element => {
         importantChangesLoading,
         hasUnread,
     } = useValues(notificationsLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead } = useActions(notificationsLogic)
+    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges } =
+        useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
     })
 
     useEffect(() => {
+        loadImportantChanges(false)
         return () => {
-            console.log('UNMOINTING')
             markAllAsRead()
             togglePolling(false)
         }

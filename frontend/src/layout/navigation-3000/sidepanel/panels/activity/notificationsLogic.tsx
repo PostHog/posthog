@@ -5,6 +5,7 @@ import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -33,7 +34,6 @@ export const notificationsLogic = kea<notificationsLogicType>([
     actions({
         toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
-        setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
         markAllAsRead: true,
@@ -41,13 +41,13 @@ export const notificationsLogic = kea<notificationsLogicType>([
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
+        loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
                 markAllAsRead: async () => {
-                    console.log('marlAllAsRead', values.importantChanges)
                     const current = values.importantChanges
                     if (!current) {
                         return null
@@ -56,8 +56,6 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     const latestNotification = values.notifications.reduce((a, b) =>
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
-
-                    console.log('marlAllAsRead', latestNotification)
 
                     if (!latestNotification.unread) {
                         return current
@@ -76,14 +74,15 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
                 },
-                loadImportantChanges: async (_, breakpoint) => {
+                loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
-                    clearTimeout(values.pollTimeout)
+                    clearTimeout(cache.pollTimeout)
 
                     try {
                         const response = await api.get<ChangesResponse>(
-                            `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
+                            `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes?` +
+                                toParams({ unread: onlyUnread })
                         )
 
                         response.results[0].unread = true
@@ -99,8 +98,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
-                        const timeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
-                        actions.setPollTimeout(timeout)
+                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
                     }
                 },
             },
@@ -151,19 +149,6 @@ export const notificationsLogic = kea<notificationsLogicType>([
             false,
             {
                 toggleNotificationsPopover: (state) => !state,
-            },
-        ],
-        isPolling: [true, { togglePolling: (_, { pageIsVisible }) => pageIsVisible }],
-        pollTimeout: [
-            0,
-            {
-                setPollTimeout: (_, payload) => payload.pollTimeout,
-            },
-        ],
-        markReadTimeout: [
-            0,
-            {
-                setMarkReadTimeout: (_, payload) => payload.markReadTimeout,
             },
         ],
     }),
@@ -252,10 +237,10 @@ export const notificationsLogic = kea<notificationsLogicType>([
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    events(({ actions, values }) => ({
-        afterMount: () => actions.loadImportantChanges(null),
+    events(({ actions, cache }) => ({
+        afterMount: () => actions.loadImportantChanges(),
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            clearTimeout(cache.pollTimeout)
         },
     })),
 ])

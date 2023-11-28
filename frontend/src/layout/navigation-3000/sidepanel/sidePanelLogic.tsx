@@ -6,6 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelTab } from '~/types'
 
+import { notificationsLogic } from './panels/activity/notificationsLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -23,6 +24,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isReady', 'hasCompletedAllTasks'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
+            // We need to mount this to ensure that marking as read works when the panel closes
+            notificationsLogic,
+            ['unreadCount'],
         ],
     }),
 

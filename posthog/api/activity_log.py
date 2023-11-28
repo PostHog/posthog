@@ -65,6 +65,8 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
     @action(methods=["GET"], detail=False)
     def important_changes(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = self.request.user
+        params = self.request.GET.dict()
+
         if not isinstance(user, User):
             # this is for mypy
             return Response(status=status.HTTP_401_UNAUTHORIZED)
@@ -119,6 +121,9 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
 
         last_read_date = NotificationViewed.objects.filter(user=user).first()
         last_read_filter = ""
+
+        if params.get("unread") == "true":
+            last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
         # before we filter to include only the important changes, we need to deduplicate too frequent changes
         candidate_ids = ActivityLog.objects.raw(
