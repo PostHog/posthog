@@ -11,8 +11,8 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { SidePanelTab } from '~/types'
 
+import { SidePanelActivity } from './panels/activity/SidePanelActivity'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
-import { SidePanelActivity } from './panels/SidePanelActivity'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'

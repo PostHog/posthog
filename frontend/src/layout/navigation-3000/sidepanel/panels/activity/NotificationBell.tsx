@@ -11,7 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { urls } from 'scenes/urls'
 
-import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
+import { notificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsLogic'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasNotifications, notifications, isNotificationPopoverOpen, hasUnread } =
