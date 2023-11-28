@@ -2,7 +2,6 @@ import dataclasses
 import datetime as dt
 import json
 import uuid
-from typing import List
 
 from asgiref.sync import sync_to_async
 from temporalio import activity, exceptions, workflow
@@ -65,7 +64,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 @dataclasses.dataclass
 class ValidateSchemaInputs:
-    source_schemas: List[SourceSchema]
+    source_schemas: list[SourceSchema]
     external_data_source_id: str
     create: bool
 
@@ -100,7 +99,7 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> List[SourceSchema]:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> list[SourceSchema]:
     model: ExternalDataSource = await sync_to_async(get_external_data_source)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
