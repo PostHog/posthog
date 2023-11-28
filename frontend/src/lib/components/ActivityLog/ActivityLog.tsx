@@ -39,7 +39,7 @@ const Empty = ({ scope }: { scope: string }): JSX.Element => {
 
 const SkeletonLog = (): JSX.Element => {
     return (
-        <div className="activity-log-row items-start">
+        <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />
             <div className="details space-y-4 mt-2">
                 <LemonSkeleton className="w-1/2 h-4" />

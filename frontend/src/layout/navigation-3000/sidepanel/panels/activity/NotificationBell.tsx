@@ -27,7 +27,7 @@ export function NotificationBell(): JSX.Element {
             visible={isNotificationPopoverOpen}
             onClickOutside={() => (isNotificationPopoverOpen ? toggleNotificationsPopover() : null)}
             overlay={
-                <div className="activity-log notifications-menu">
+                <div className="ActivityLog notifications-menu">
                     <h5>
                         Notifications{' '}
                         <LemonTag type="warning" className="ml-1">
