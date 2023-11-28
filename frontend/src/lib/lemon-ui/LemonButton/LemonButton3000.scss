@@ -1,20 +1,20 @@
-.posthog-3000.posthog-3000.posthog-3000 {
-    // The repetition is a specificity hack, so that we override .LemonButton
-    --transition: opacity 200ms ease, transform 200ms ease;
-
-    .LemonButton {
+.posthog-3000 {
+    .LemonButton,
+    .Link.LemonButton {
+        --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
         --lemon-button-border-width: 0;
 
         position: relative;
         min-height: 2.125rem;
         padding: 0;
+        font-family: var(--font-title);
         cursor: pointer;
         border-color: transparent;
         border-style: solid;
         border-width: var(--lemon-button-border-width);
         border-radius: var(--radius);
         outline: none;
-        transition: var(--transition);
+        transition: var(--lemon-button-transition);
 
         .LemonButton__chrome {
             position: relative;

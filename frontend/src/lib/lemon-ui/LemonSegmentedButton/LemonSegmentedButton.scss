@@ -117,11 +117,11 @@ body:not(.posthog-3000) {
 .posthog-3000 {
     .LemonSegmentedButton__option {
         & .LemonButton,
-        & .LemonButton > span {
+        & .LemonButton > .LemonButton__chrome {
             border-radius: 0;
         }
 
-        .LemonButton > span {
+        .LemonButton > .LemonButton__chrome {
             background: var(--bg-3000);
 
             .LemonButton__icon,
@@ -131,21 +131,21 @@ body:not(.posthog-3000) {
         }
 
         .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
-            > span {
+            > .LemonButton__chrome {
                 border-color: var(--secondary-3000-button-border);
             }
         }
 
         &:first-child,
         &:first-child .LemonButton,
-        &:first-child .LemonButton > span {
+        &:first-child .LemonButton > .LemonButton__chrome {
             border-top-left-radius: var(--radius);
             border-bottom-left-radius: var(--radius);
         }
 
         &:last-child,
         &:last-child .LemonButton,
-        &:last-child .LemonButton > span {
+        &:last-child .LemonButton > .LemonButton__chrome {
             border-top-right-radius: var(--radius);
             border-bottom-right-radius: var(--radius);
         }
@@ -157,13 +157,15 @@ body:not(.posthog-3000) {
         }
 
         &.LemonSegmentedButton__option--selected {
-            .LemonButton > span {
-                background-color: var(--bg-light);
-
+            .LemonButton {
                 .LemonButton__icon,
                 .LemonButton__content {
                     opacity: 1;
                 }
+            }
+
+            .LemonButton__chrome {
+                background-color: var(--bg-light);
             }
         }
     }
