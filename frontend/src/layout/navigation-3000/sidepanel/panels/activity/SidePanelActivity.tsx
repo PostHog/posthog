@@ -21,10 +21,11 @@ export const SidePanelActivity = (): JSX.Element => {
         activeTab,
         allActivity,
         allActivityResponseLoading,
-
         allActivityHasNext,
+        importantChangesLoading,
+        hasUnread,
     } = useValues(notificationsLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity } = useActions(notificationsLogic)
+    const { togglePolling, setActiveTab, maybeLoadOlderActivity, maybeMarkAllAsRead } = useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
@@ -33,6 +34,7 @@ export const SidePanelActivity = (): JSX.Element => {
     useEffect(() => {
         return () => {
             togglePolling(false)
+            maybeMarkAllAsRead()
         }
     })
     const lastScrollPositionRef = useRef(0)
@@ -90,7 +92,20 @@ export const SidePanelActivity = (): JSX.Element => {
                                 <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what
                                 else should be here!
                             </LemonBanner>
-                            {hasNotifications ? (
+
+                            {hasUnread ? (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => maybeMarkAllAsRead()}
+                                    loading={importantChangesLoading}
+                                >
+                                    Mark all as read
+                                </LemonButton>
+                            ) : null}
+
+                            {importantChangesLoading && !hasNotifications ? (
+                                <LemonSkeleton className="my-2 h-12" repeat={10} fade />
+                            ) : hasNotifications ? (
                                 notifications.map((logItem, index) => (
                                     <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
                                 ))

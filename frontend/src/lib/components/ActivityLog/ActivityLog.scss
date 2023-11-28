@@ -36,6 +36,11 @@
     line-height: 24px;
     overflow-wrap: anywhere;
 
+    &--unread {
+        border-radius: var(--radius);
+        background-color: var(--primary-3000-highlight);
+    }
+
     .ProfilePicture {
         flex-grow: 0;
     }

@@ -43,6 +43,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
+        maybeMarkAllAsRead: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -154,25 +155,28 @@ export const notificationsLogic = kea<notificationsLogicType>([
             if (!values.isNotificationPopoverOpen) {
                 clearTimeout(values.markReadTimeout)
             } else {
-                if (values.notifications?.[0]) {
-                    const bookmarkDate = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    ).created_at
-                    actions.setMarkReadTimeout(
-                        window.setTimeout(() => {
-                            void api
-                                .create(
-                                    `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
-                                    {
-                                        bookmark: bookmarkDate.toISOString(),
-                                    }
-                                )
-                                .then(() => {
-                                    actions.markAllAsRead(bookmarkDate.toISOString())
-                                })
-                        }, MARK_READ_TIMEOUT)
-                    )
-                }
+                actions.maybeMarkAllAsRead()
+            }
+        },
+        maybeMarkAllAsRead: () => {
+            if (values.notifications?.[0]) {
+                const bookmarkDate = values.notifications.reduce((a, b) =>
+                    a.created_at.isAfter(b.created_at) ? a : b
+                ).created_at
+                actions.setMarkReadTimeout(
+                    window.setTimeout(() => {
+                        void api
+                            .create(
+                                `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                                {
+                                    bookmark: bookmarkDate.toISOString(),
+                                }
+                            )
+                            .then(() => {
+                                actions.markAllAsRead(bookmarkDate.toISOString())
+                            })
+                    }, MARK_READ_TIMEOUT)
+                )
             }
         },
         setActiveTab: ({ tab }) => {

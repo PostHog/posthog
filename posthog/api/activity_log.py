@@ -119,8 +119,6 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
 
         last_read_date = NotificationViewed.objects.filter(user=user).first()
         last_read_filter = ""
-        if last_read_date:
-            last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
         # before we filter to include only the important changes, we need to deduplicate too frequent changes
         candidate_ids = ActivityLog.objects.raw(
@@ -167,11 +165,6 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
             .filter(id__in=[c.id for c in candidate_ids])
             .order_by("-created_at")
         )
-
-        if last_read_date:
-            other_peoples_changes = other_peoples_changes.filter(
-                created_at__gt=last_read_date.last_viewed_activity_date
-            )
 
         serialized_data = ActivityLogSerializer(
             instance=other_peoples_changes[:10], many=True, context={"user": user}
