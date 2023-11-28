@@ -137,35 +137,27 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                if operator in [PropertyOperator.exact, PropertyOperator.is_not]:
-                    op = (
-                        ast.CompareOperationOp.In
-                        if operator == PropertyOperator.exact
-                        else ast.CompareOperationOp.NotIn
+                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                exprs = [
+                    property_to_expr(
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=property.operator,
+                            value=v,
+                        ),
+                        team,
+                        scope,
                     )
-
-                    return ast.CompareOperation(
-                        op=op,
-                        left=field,
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
-                    )
-                else:
-                    exprs = [
-                        property_to_expr(
-                            Property(
-                                type=property.type,
-                                key=property.key,
-                                operator=property.operator,
-                                value=v,
-                            ),
-                            team,
-                            scope,
-                        )
-                        for v in value
-                    ]
-                    if operator == PropertyOperator.not_icontains or operator == PropertyOperator.not_regex:
-                        return ast.And(exprs=exprs)
-                    return ast.Or(exprs=exprs)
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.not_icontains
+                    or operator == PropertyOperator.not_regex
+                    or operator == PropertyOperator.is_not
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
 
         properties_field = ast.Field(chain=chain)
 

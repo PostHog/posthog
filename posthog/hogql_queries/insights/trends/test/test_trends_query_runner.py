@@ -24,6 +24,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
 )
 
 
@@ -159,6 +160,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter],
         breakdown: Optional[BreakdownFilter],
+        filter_test_accounts: Optional[bool],
     ) -> TrendsQueryRunner:
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -167,6 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             trendsFilter=trends_filters,
             breakdown=breakdown,
+            filterTestAccounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query)
 
@@ -178,8 +181,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
     ):
-        return self._create_query_runner(date_from, date_to, interval, series, trends_filters, breakdown).calculate()
+        return self._create_query_runner(
+            date_from, date_to, interval, series, trends_filters, breakdown, filter_test_accounts
+        ).calculate()
 
     def test_trends_query_label(self):
         self._create_test_events()
@@ -1009,3 +1015,88 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 30
+
+    def test_previous_period_with_number_display(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BoldNumber, compare=True),
+            None,
+        )
+
+        assert len(response.results) == 2
+
+    def test_trends_query_formula_rounding(self):
+        _create_event(
+            team=self.team,
+            event="$pageleave",
+            distinct_id="person_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_3",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_4",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11T00:00:00Z",
+            "2020-01-11T23:59:59Z",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="B/A"),
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertEqual([0.33], response.results[0]["data"])
+
+    @also_test_with_materialized_columns(["$some_property"])
+    def test_properties_filtering_with_materialized_columns_and_empty_string_as_property(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$some_property": ""},
+        )
+
+        self.team.test_account_filters = [
+            {
+                "key": "$some_property",
+                "value": ["other_value", "yet_another_value"],
+                "operator": "is_not",
+                "type": "event",
+            },
+        ]
+        self.team.save()
+
+        response = self._run_trends_query(
+            date_from="2020-01-11T00:00:00Z",
+            date_to="2020-01-11T23:59:59Z",
+            interval=IntervalType.day,
+            series=[EventsNode(event="$pageview")],
+            filter_test_accounts=True,
+        )
+
+        assert response.results[0]["data"] == [1]

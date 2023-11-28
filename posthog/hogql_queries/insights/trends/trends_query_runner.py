@@ -234,7 +234,7 @@ class TrendsQueryRunner(QueryRunner):
                         self.query.interval if self.query.interval is not None else "day",
                         i,
                     )
-                    for i in range(len(series_object["labels"]))
+                    for i in range(len(series_object.get("labels", [])))
                 ]
 
                 series_object["compare"] = True
@@ -373,7 +373,7 @@ class TrendsQueryRunner(QueryRunner):
                 new_series_data = FormulaAST(series_data).call(formula)
 
                 new_result = group_list[0]
-                new_result["data"] = new_series_data
+                new_result["data"] = [round(value, 2) for value in new_series_data]
                 new_result["count"] = float(sum(new_series_data))
                 new_result["label"] = f"Formula ({formula})"
 
@@ -384,7 +384,7 @@ class TrendsQueryRunner(QueryRunner):
         new_series_data = FormulaAST(series_data).call(formula)
         new_result = results[0]
 
-        new_result["data"] = new_series_data
+        new_result["data"] = [round(value, 2) for value in new_series_data]
         new_result["count"] = float(sum(new_series_data))
         new_result["label"] = f"Formula ({formula})"
 
