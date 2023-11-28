@@ -3,7 +3,7 @@
     padding-top: 1rem;
     margin: 0.5rem 0;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
 
     &.CohortCriteriaGroups__matching-group--error {
         border: 1px solid var(--danger);

@@ -361,7 +361,7 @@ input::-ms-clear {
         height: 23px;
         font-size: unset;
         color: var(--primary-alt);
-        background-color: white;
+        background-color: var(--bg-light);
         border-color: var(--border);
     }
 }
@@ -544,6 +544,7 @@ body {
     --bg-light: #fff;
     --bg-table: var(--bg-light);
     --link: var(--primary-3000);
+    --tooltip-bg: var(--bg-charcoal);
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
@@ -586,7 +587,7 @@ body {
 
             ::-webkit-scrollbar-thumb {
                 background: var(--trace-3000);
-                border-radius: 0.25rem;
+                border-radius: var(--radius);
 
                 &:hover {
                     background: var(--muted-3000);
@@ -727,7 +728,11 @@ body {
 
     // Tooltip styles
     .ant-tooltip-inner {
-        background-color: var(--bg-charcoal);
+        background-color: var(--tooltip-bg);
+    }
+
+    .ant-tooltip-arrow-content {
+        background-color: var(--tooltip-bg);
     }
 
     .ant-tooltip {

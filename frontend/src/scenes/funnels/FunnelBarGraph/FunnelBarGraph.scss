@@ -63,7 +63,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 left: 0;
                 box-sizing: border-box;
                 width: calc(#{$series_container_width} / 2 + 1px);
-                border-right: 2px solid var(--mid);
+                border-right: 2px solid var(--border);
+                opacity: 0.5;
 
                 &.before {
                     top: 0;
@@ -115,7 +116,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         height: 32px;
         margin: 4px 0;
         background-color: var(--funnel-background);
-        border-radius: 4px;
+        border-radius: var(--radius);
 
         .funnel-bar {
             position: relative;
@@ -124,7 +125,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
-                border-radius: 4px 0 0 4px;
+                border-radius: var(--radius) 0 0 4px;
             }
 
             &.last {
@@ -132,7 +133,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             }
 
             &.only {
-                border-radius: 4px;
+                border-radius: var(--radius);
             }
 
             .funnel-bar-percentage {

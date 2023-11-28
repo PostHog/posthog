@@ -41,7 +41,7 @@
         margin: 2px;
         text-align: right;
         background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
-        border-radius: 0.25rem;
+        border-radius: var(--radius);
         transition: transform 200ms ease-out;
 
         &:hover {
@@ -49,9 +49,10 @@
         }
 
         &.RetentionTable__Tab--period {
+            color: var(--muted);
             background-color: var(--bg-light);
-            border: 1px solid var(--retention-table-color);
-            opacity: 0.75;
+            border: 1px solid var(--border);
+            border-style: dashed;
         }
     }
 

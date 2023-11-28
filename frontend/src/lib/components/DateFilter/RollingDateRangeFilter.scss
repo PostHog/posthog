@@ -43,7 +43,7 @@
     line-height: 1.25rem;
     background-color: var(--bg-light);
     border: 1px solid var(--border);
-    border-radius: 0.25rem;
+    border-radius: var(--radius);
 
     .LemonInput {
         width: 3rem;
