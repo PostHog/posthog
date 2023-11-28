@@ -1,4 +1,4 @@
-import { SearchableEntity } from '~/types'
+import { PersonType, SearchableEntity, SearchResultType } from '~/types'
 
 export enum BarStatus {
     HIDDEN = 'hidden',
@@ -8,3 +8,12 @@ export enum BarStatus {
 }
 
 export type ResultType = SearchableEntity | 'person'
+
+export type PersonResult = {
+    type: 'person'
+    result_id: string
+    extra_fields: PersonType
+    rank: number
+}
+
+export type SearchResult = SearchResultType | PersonResult

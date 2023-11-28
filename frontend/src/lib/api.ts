@@ -52,7 +52,6 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
-    SearchableEntity,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,

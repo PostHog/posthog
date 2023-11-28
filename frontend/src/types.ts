@@ -842,7 +842,7 @@ export type SearchableEntity =
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
 
-export type SearchResult = {
+export type SearchResultType = {
     result_id: string
     type: SearchableEntity
     rank: number | null
@@ -850,7 +850,7 @@ export type SearchResult = {
 }
 
 export type SearchResponse = {
-    results: SearchResult[]
+    results: SearchResultType[]
     counts: Record<SearchableEntity, number | null>
 }
 

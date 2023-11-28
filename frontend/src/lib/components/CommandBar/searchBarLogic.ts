@@ -9,18 +9,11 @@ import { InsightShortId, PersonType, SearchResponse } from '~/types'
 import { commandBarLogic } from './commandBarLogic'
 import { Tab } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus } from './types'
+import { BarStatus, PersonResult, SearchResult } from './types'
 
 const DEBOUNCE_MS = 300
 
-type RankedPerson = {
-    type: 'person'
-    result_id: string
-    extra_fields: PersonType
-    rank: number
-}
-
-function rankPersons(persons: PersonType[], query: string): RankedPerson[] {
+function rankPersons(persons: PersonType[], query: string): PersonResult[] {
     const personsRank = query.length / (query.length + 2.0)
     return persons.map((person) => ({
         type: 'person',
@@ -221,13 +214,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 }
             } else if (event.key === 'Tab') {
                 event.preventDefault()
-                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                const tabs = Object.values(Tab)
+                const currentIndex = tabs.findIndex((tab) => tab === values.activeTab)
                 if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(values.tabs[prevIndex])
+                    const prevIndex = currentIndex === 0 ? tabs.length - 1 : currentIndex - 1
+                    actions.setActiveTab(tabs[prevIndex])
                 } else {
-                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(values.tabs[nextIndex])
+                    const nextIndex = currentIndex === tabs.length - 1 ? 0 : currentIndex + 1
+                    actions.setActiveTab(tabs[nextIndex])
                 }
             }
         }
@@ -258,6 +252,7 @@ export const urlForResult = (result: SearchResult): string => {
         case 'person':
             return urls.personByUUID(result.result_id)
         default:
-            throw new Error(`No action for type '${result.type}' defined.`)
+            // @ts-expect-error
+            throw new Error(`No action for type '${result?.type}' defined.`)
     }
 }

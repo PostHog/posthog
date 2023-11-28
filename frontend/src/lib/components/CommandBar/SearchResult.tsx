@@ -7,11 +7,10 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { Node } from '~/queries/schema'
-import { FilterType } from '~/types'
+import { FilterType, SearchResultType } from '~/types'
 
 import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
-import { SearchResult as SearchResultType } from './types'
 
 type SearchResultProps = {
     result: SearchResultType
