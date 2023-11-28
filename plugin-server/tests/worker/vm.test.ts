@@ -1280,11 +1280,11 @@ describe('vm tests', () => {
 
     test('imports', async () => {
         const indexJs = `
-            import jwt from 'jsonwebtoken'
+            const urlImport = require('url');
             async function processEvent (event, meta) {
                 event.properties = {
                     imports: {
-                        jsonwebtoken: 'sign' in jwt,
+                        url: 'URL' in urlImport,
                     },
                 }
                 return event
@@ -1295,7 +1295,7 @@ describe('vm tests', () => {
         const event = await vm.methods.processEvent!({ ...defaultEvent })
 
         expect(event?.properties?.imports).toEqual({
-            jsonwebtoken: true,
+            url: true,
         })
     })
 })
