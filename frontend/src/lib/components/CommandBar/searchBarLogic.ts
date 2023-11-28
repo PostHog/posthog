@@ -178,12 +178,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
     listeners(({ values, actions }) => ({
         setSearchQuery: actions.search,
         setActiveTab: actions.search,
-        search: () => {
+        search: (_) => {
             if (values.activeTab === Tab.All || values.activeTab !== Tab.Person) {
-                actions.loadSearchResponse()
+                actions.loadSearchResponse(_)
             }
             if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
-                actions.loadPersonsResponse()
+                actions.loadPersonsResponse(_)
             }
         },
         openResult: ({ index }) => {
