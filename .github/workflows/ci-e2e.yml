@@ -171,7 +171,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
               with:
-                  build-id: ${{ needs.container.outputs.build-id }} # TODO: Use unit-build-id when the Unit image works
+                  build-id: ${{ needs.container.outputs.unit-build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
