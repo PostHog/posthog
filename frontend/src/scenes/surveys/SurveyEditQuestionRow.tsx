@@ -15,8 +15,8 @@ type SurveyQuestionHeaderProps = {
     setSurveyValue: (key: string, value: any) => void
 }
 
-const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="SurveyQuestionDragHandle" {...props}>
+const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | undefined }): JSX.Element => (
+    <span className="SurveyQuestionDragHandle" {...listeners}>
         <SortableDragIcon />
     </span>
 )
@@ -30,7 +30,10 @@ export function SurveyEditQuestionHeader({
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
-    const questionsStartElements = [survey.questions.length > 1 ? <DragHandle {...listeners} /> : null].filter(Boolean)
+
+    const questionsStartElements = [
+        survey.questions.length > 1 ? <DragHandle key={index} listeners={listeners} /> : null,
+    ].filter(Boolean)
 
     return (
         <div
