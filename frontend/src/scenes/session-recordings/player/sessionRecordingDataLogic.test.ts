@@ -1,7 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import {
+    prepareRecordingSnapshots,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -234,24 +238,23 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe.skip('prepareRecordingSnapshots', () => {
-        // this is using convertSnapshotsByWindowId but the actual code doesn't
-        // it('should remove duplicate snapshots and sort by timestamp', () => {
-        //     const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-        //     const snapshotsWithDuplicates = snapshots
-        //         .slice(0, 2)
-        //         .concat(snapshots.slice(0, 2))
-        //         .concat(snapshots.slice(2))
-        //
-        //     expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
-        //
-        //     expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
-        // })
-        //
-        // it('should match snapshot', () => {
-        //     const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-        //
-        //     expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
-        // })
+    describe('prepareRecordingSnapshots', () => {
+        it('should remove duplicate snapshots and sort by timestamp', () => {
+            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
+            const snapshotsWithDuplicates = snapshots
+                .slice(0, 2)
+                .concat(snapshots.slice(0, 2))
+                .concat(snapshots.slice(2))
+
+            expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
+
+            expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
+        })
+
+        it('should match snapshot', () => {
+            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
+
+            expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
+        })
     })
 })
