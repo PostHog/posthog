@@ -55,9 +55,6 @@ services:
             service: kafka
         ports:
             - '9092:9092'
-        environment:
-            - KAFKA_CFG_OVERRIDE_MESSAGE_MAX_BYTES=20971520
-            - KAFKA_CFG_OVERRIDE_REPLICA_FETCH_MAX_BYTES=20971520
 
     object_storage:
         extends:
