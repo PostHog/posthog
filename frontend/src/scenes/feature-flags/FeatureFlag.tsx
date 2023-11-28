@@ -494,17 +494,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </div>
                                         </div>
                                     }
-                                    description={
-                                        <>
-                                            {featureFlag.name ? (
-                                                <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
-                                            ) : (
-                                                'There is no description for this feature flag.'
-                                            )}
-                                        </>
-                                    }
                                     caption={
                                         <>
+                                            <span>{featureFlag.name || <i>Description (optional)</i>}</span>
                                             {featureFlag?.tags && (
                                                 <>
                                                     {featureFlag.can_edit ? (

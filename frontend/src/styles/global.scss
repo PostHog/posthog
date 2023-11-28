@@ -82,11 +82,6 @@ ul {
     @extend .text-sm;
 }
 
-.page-description {
-    font-style: italic;
-    color: var(--muted);
-}
-
 .page-buttons {
     display: flex;
     flex-grow: 1;
