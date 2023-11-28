@@ -250,13 +250,18 @@
         &.LemonButton--tertiary {
             color: var(--default);
 
-            &.LemonButton--status-danger {
-                color: var(--danger);
-            }
-
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background-color: var(--glass-border-3000);
+            }
+
+            &.LemonButton--status-danger {
+                color: var(--danger);
+
+                &:not([aria-disabled='true']):hover,
+                &.LemonButton--active {
+                    background-color: var(--danger-highlight);
+                }
             }
         }
     }
