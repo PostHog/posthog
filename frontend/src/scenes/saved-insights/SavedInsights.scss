@@ -23,7 +23,7 @@
         cursor: pointer;
         background-color: var(--primary-3000);
         border: 1px solid var(--border);
-        border-radius: 4px;
+        border-radius: var(--radius);
     }
 
     .saved-insight-empty-state {
