@@ -7,13 +7,14 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { Node } from '~/queries/schema'
-import { FilterType, SearchResultType } from '~/types'
+import { FilterType } from '~/types'
 
 import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
+import { SearchResult as ResultType } from './types'
 
 type SearchResultProps = {
-    result: SearchResultType
+    result: ResultType
     resultIndex: number
     focused: boolean
     keyboardFocused: boolean
@@ -88,7 +89,7 @@ export const SearchResultSkeleton = (): JSX.Element => (
 )
 
 type ResultNameProps = {
-    result: SearchResultType
+    result: ResultType
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
@@ -129,6 +130,6 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
     } else if (type === 'notebook') {
         return <span className="whitespace-pre">{extra_fields.text_content}</span>
     } else {
-        return extra_fields.description ? <span>{extra_fields.description}</span> : <i>No description.</i>
+        return 'description' in extra_fields ? <span>{extra_fields.description}</span> : <i>No description.</i>
     }
 }
