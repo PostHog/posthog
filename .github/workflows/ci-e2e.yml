@@ -278,6 +278,6 @@ jobs:
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v3
               with:
-                  name: logs
+                  name: logs-${{ strategy.job-index }}
                   path: /tmp/logs
               if: ${{ failure() }}
