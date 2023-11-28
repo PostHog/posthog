@@ -104,6 +104,7 @@ export function PersonDisplay({
                             return
                         }
                     }}
+                    subtle
                     data-attr={`goto-person-email-${person?.distinct_id || person?.distinct_ids?.[0]}`}
                 >
                     {content}
