@@ -1,17 +1,15 @@
 .posthog-3000.posthog-3000.posthog-3000 {
     // The repetition is a specificity hack, so that we override .LemonButton
-    --transition: opacity 200ms ease, transform 200ms ease;
+    --transition: opacity 200ms ease;
 
     .LemonButton {
         --lemon-button-border-width: 0;
+        --lemon-button-chrome-depth: 0.25rem;
 
         position: relative;
         min-height: 2.125rem;
         padding: 0;
         cursor: pointer;
-        border-color: transparent;
-        border-style: solid;
-        border-width: var(--lemon-button-border-width);
         border-radius: 6px;
         outline: none;
         transition: var(--transition);
@@ -25,7 +23,8 @@
             align-items: center;
             justify-content: flex-start;
             width: 100%;
-            min-height: 2.125rem;
+            // min-height: 2.125rem;
+            height: 100%;
             padding: 0.25rem 0.75rem;
             font-size: 0.875rem;
             font-weight: 500;
@@ -131,33 +130,11 @@
             }
         }
 
-        &:not(.LemonButton--tertiary) {
-            padding-bottom: 1px;
-
-            .LemonButton__chrome {
-                top: -1px;
-                margin: 0 -1px;
-            }
-
-            &:not([aria-disabled='true']):hover,
-            &.LemonButton--active {
-                .LemonButton__chrome {
-                    top: -1.5px;
-                }
-            }
-
-            &:not([aria-disabled='true']):active {
-                .LemonButton__chrome {
-                    top: -0.5px;
-                }
-            }
-        }
-
         &.LemonButton--onboarding {
             --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
 
             background: var(--primary-3000-button-bg-dark);
-            border-color: var(--primary-3000-button-border);
+            // border-color: var(--primary-3000-button-border);
 
             .LemonButton__chrome {
                 font-weight: 600;
@@ -171,13 +148,19 @@
             --lemon-button-border-width: 1px;
 
             background: var(--primary-3000-frame-bg);
-            border-color: var(--primary-3000-frame-border);
 
             .LemonButton__chrome {
                 font-weight: 600;
                 color: #111;
                 background: var(--primary-3000-button-bg);
-                border-color: var(--primary-3000-button-border);
+
+                &:after {
+                    border-color: var(--primary-3000-frame-border);
+                }
+
+                &:before {
+                    border-color: var(--primary-3000-button-border);
+                }
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
@@ -186,20 +169,70 @@
             }
         }
 
-        &.LemonButton--secondary {
+        &.LemonButton--secondary,
+        &.LemonButton--primary {
             --lemon-button-border-width: 1px;
 
-            background: var(--secondary-3000-frame-bg);
-            border-color: var(--secondary-3000-frame-border);
-
             &:not([aria-disabled='true']):hover .LemonButton__chrome {
-                border-color: var(--secondary-3000-button-border-hover);
+                &:after {
+                    border-color: var(--secondary-3000-button-border-hover);
+                }
             }
 
             .LemonButton__chrome {
                 color: var(--default);
-                background: var(--accent-3000);
-                border-color: var(--secondary-3000-button-border);
+                background: transparent;
+                // border-color: var(--secondary-3000-button-border);
+                padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5) 0.75rem
+                    calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5) 0.75rem;
+
+                &:before {
+                    content: '';
+                    position: absolute;
+                    top: -1px;
+                    left: -1px;
+                    right: -1px;
+                    bottom: -1px;
+                    border-radius: 6px;
+                    border: 1px solid var(--secondary-3000-button-border);
+                    z-index: 0;
+                }
+
+                &:after {
+                    content: '';
+                    position: absolute;
+                    top: -1px;
+                    left: -1px;
+                    right: -1px;
+                    bottom: calc(var(--lemon-button-chrome-depth) - 1px);
+                    border-radius: 6px;
+                    border: 1px solid var(--secondary-3000-button-border);
+                    box-shadow: 0px 4px 0px -1px var(--secondary-3000-frame-bg);
+                    transition: opacity 200ms ease;
+                    z-index: 0;
+                }
+            }
+
+            &:not([aria-disabled='true']):hover,
+            &.LemonButton--active {
+                .LemonButton__chrome {
+                    // --lemon-button-chrome-depth: 0.1rem;
+                    // transform: translateY(-2px);
+                }
+            }
+
+            &:not([aria-disabled='true']):active {
+                .LemonButton__chrome {
+                    transform: translateY(1px);
+
+                    &:after {
+                        box-shadow: 0px 3px 0px -1px var(--secondary-3000-frame-bg);
+                    }
+
+                    &:before {
+                        bottom: 0px;
+                    }
+                }
             }
 
             &.LemonButton--active {
