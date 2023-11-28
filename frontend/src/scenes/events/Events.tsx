@@ -15,7 +15,7 @@ export function Events(): JSX.Element {
     return (
         <>
             <PageHeader title={'Event explorer'} />
-            <div className="pt-4 border-t" />
+            <div className="non-3000 pt-4 border-t" />
             <EventsScene />
         </>
     )
