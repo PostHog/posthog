@@ -118,7 +118,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle"],
+            "enum": ["text", "image", "rectangle", "div"],
             "type": "string"
         },
         "MobileStyles": {
