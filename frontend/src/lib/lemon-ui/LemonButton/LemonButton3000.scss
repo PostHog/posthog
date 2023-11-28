@@ -142,7 +142,6 @@
         }
 
         &.LemonButton--primary {
-            --lemon-button-border-width: 1px;
             --button-bg-color: var(--bg-light);
             --button-bg-color-active: var(--bg-light);
             --button-border-color: var(--primary-3000-button-border);
@@ -170,6 +169,12 @@
             --button-bg-color-active: transparent;
             --button-border-color-hover: var(--danger-dark);
             --button-frame-bg-color: var(--danger-lighter);
+        }
+
+        &.LemonButton--is-stealth:not(.LemonButton--active, :hover) {
+            .LemonButton__chrome {
+                color: var(--muted);
+            }
         }
 
         &.LemonButton--primary,
