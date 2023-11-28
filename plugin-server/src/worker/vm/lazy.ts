@@ -12,7 +12,7 @@ import {
     PluginTaskType,
     VMMethods,
 } from '../../types'
-import { clearError, processError } from '../../utils/db/error'
+import { processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
@@ -36,6 +36,7 @@ export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
+    usedImports: Set<string> | undefined
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
     ready: boolean
@@ -125,6 +126,7 @@ export class LazyPluginVM {
             this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+                    this.usedImports = vm.usedImports
                     this.vmResponseVariable = vm.vmResponseVariable
 
                     if (!this.pluginConfig.plugin) {
@@ -242,8 +244,6 @@ export class LazyPluginVM {
                 `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
                 PluginLogEntryType.Debug
             )
-
-            void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
