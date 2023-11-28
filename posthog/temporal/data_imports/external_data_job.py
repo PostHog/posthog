@@ -190,7 +190,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
-
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
@@ -199,12 +198,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             update_inputs.latest_error = str(e.cause)
             raise
-        except Exception as e:
-            if isinstance(e, SchemaValidationError):
-                update_inputs.latest_error = "Schema validation failed"
-            else:
-                update_inputs.latest_error = "An unexpected error has ocurred"
-
+        except SchemaValidationError as e:
+            update_inputs.latest_error = str(e)
+            update_inputs.status = ExternalDataJob.Status.FAILED
+            raise
+        except Exception:
+            # Catch all
+            update_inputs.latest_error = "An unexpected error has ocurred"
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import dlt
+from dlt.pipeline.exceptions import PipelineStepFailed
 import s3fs
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -63,7 +64,12 @@ def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
         stripe_secret_key=inputs.stripe_secret_key,
         endpoints=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE],
     )
-    pipeline.run(source, loader_file_format="parquet")
+    try:
+        pipeline.run(source, loader_file_format="parquet")
+    except PipelineStepFailed:
+        # TODO: log
+        raise
+
     return get_schema(pipeline)
 
 
@@ -108,14 +114,29 @@ def move_draft_to_production(team_id: int, external_data_source_id: str):
     model = ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
     bucket_name = settings.BUCKET_URL
     s3 = get_s3fs()
-    s3.copy(
-        f"{bucket_name}/{model.draft_folder_path}", f"{bucket_name}/{model.draft_folder_path}_success", recursive=True
-    )
+    try:
+        s3.copy(
+            f"{bucket_name}/{model.draft_folder_path}",
+            f"{bucket_name}/{model.draft_folder_path}_success",
+            recursive=True,
+        )
+    except FileNotFoundError:
+        # TODO: log
+        pass
+
     try:
         s3.delete(f"{bucket_name}/{model.folder_path}", recursive=True)
-    except:
+    except FileNotFoundError:
+        # This folder won't exist on initial run
         pass
-    s3.copy(f"{bucket_name}/{model.draft_folder_path}_success", f"{bucket_name}/{model.folder_path}", recursive=True)
+
+    try:
+        s3.copy(
+            f"{bucket_name}/{model.draft_folder_path}_success", f"{bucket_name}/{model.folder_path}", recursive=True
+        )
+    except FileNotFoundError:
+        pass
+
     s3.delete(f"{bucket_name}/{model.draft_folder_path}_success", recursive=True)
     s3.delete(f"{bucket_name}/{model.draft_folder_path}", recursive=True)
 
