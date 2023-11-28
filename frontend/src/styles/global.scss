@@ -82,11 +82,6 @@ ul {
     @extend .text-sm;
 }
 
-.page-description {
-    font-style: italic;
-    color: var(--muted);
-}
-
 .page-buttons {
     display: flex;
     flex-grow: 1;
@@ -555,6 +550,11 @@ body {
 
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
         background: var(--bg-3000);
+
+        .non-3000 {
+            // Helper to hide non-3000 elements without JS
+            display: none;
+        }
 
         .LemonButton,
         .Link {

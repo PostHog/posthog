@@ -77,11 +77,8 @@
         overflow-y: auto;
         background: var(--accent-3000);
 
-        .LemonButton {
-            .LemonButton__chrome {
-                padding: 0.25rem !important;
-                font-size: 0.8125rem;
-            }
+        .LemonButton__chrome {
+            padding: 0.25rem !important;
         }
 
         ul {

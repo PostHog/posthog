@@ -10,7 +10,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 
 interface PageHeaderProps {
     title: string | JSX.Element
-    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     style?: React.CSSProperties
@@ -22,7 +21,6 @@ interface PageHeaderProps {
 export function PageHeader({
     title,
     caption,
-    description,
     buttons,
     style,
     tabbedPage,
@@ -34,7 +32,7 @@ export function PageHeader({
 
     return (
         <>
-            {(!is3000 || description) && (
+            {!is3000 && (
                 <div className="page-title-row flex justify-between" style={style}>
                     <div className="min-w-0">
                         {!is3000 &&
@@ -45,7 +43,6 @@ export function PageHeader({
                             ) : (
                                 <h1 className="page-title">{title}</h1>
                             ))}
-                        {description && <span className="page-description">{description}</span>}
                     </div>
                     {!is3000 && <div className="page-buttons">{buttons}</div>}
                 </div>

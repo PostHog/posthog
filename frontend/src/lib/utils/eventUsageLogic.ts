@@ -616,8 +616,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.mode = insightMode // View or edit
-            // eslint-disable-next-line no-constant-binary-expression
-            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.viewer_is_creator =
+                insightModel.created_by?.uuid && values.user?.uuid
+                    ? insightModel.created_by?.uuid === values.user?.uuid
+                    : null
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
             properties.tags_count = insightModel.tags?.length ?? 0
