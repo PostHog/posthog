@@ -1,4 +1,5 @@
 import type { Config } from 'jest'
+import fs from 'fs'
 
 process.env.TZ = process.env.TZ || 'UTC'
 
@@ -8,6 +9,14 @@ process.env.TZ = process.env.TZ || 'UTC'
  */
 
 const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv']
+const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
+function rootDirectories() {
+    const rootDirectories = ['<rootDir>/frontend/src']
+    if (eeFolderExists) {
+        rootDirectories.push('<rootDir>/ee/frontend')
+    }
+    return rootDirectories
+}
 
 const config: Config = {
     // All imported modules in your tests should be mocked automatically
@@ -133,7 +142,7 @@ const config: Config = {
     modulePaths: ['<rootDir>/'],
 
     // A list of paths to directories that Jest should use to search for files in
-    roots: ['<rootDir>/frontend/src', '<rootDir>/ee/frontend'],
+    roots: rootDirectories(),
 
     // Allows you to use a custom runner instead of Jest's default test runner
     // runner: "jest-runner",

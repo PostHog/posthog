@@ -1,5 +1,4 @@
 import { EventType, fullSnapshotEvent, metaEvent } from '@rrweb/types'
-import { logger } from 'posthog-js/lib/src/utils/logger'
 
 import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
@@ -100,7 +99,6 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
     let src = wireframe.base64
     if (!src.startsWith('data:image/')) {
-        logger.info('[MobileReplay] transformer defaulting image to png')
         src = 'data:image/png;base64,' + src
     }
     return {
