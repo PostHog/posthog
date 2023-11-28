@@ -121,3 +121,10 @@ export function humanize(
     }
     return logLines
 }
+
+export function userNameForLogItem(logItem: ActivityLogItem): string {
+    if (logItem.is_system) {
+        return 'PostHog'
+    }
+    return logItem.user?.first_name ?? 'A user'
+}

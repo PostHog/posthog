@@ -11,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { notificationsLogicType } from './notificationsLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
-const MARK_READ_TIMEOUT = 2500
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -35,28 +34,44 @@ export const notificationsLogic = kea<notificationsLogicType>([
         toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
-        setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
-        markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
+        markAllAsRead: true,
         setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
-        maybeMarkAllAsRead: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
-                markAllAsRead: ({ bookmarkDate }) => {
+                markAllAsRead: async () => {
+                    console.log('marlAllAsRead', values.importantChanges)
                     const current = values.importantChanges
                     if (!current) {
                         return null
                     }
 
+                    const latestNotification = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    )
+
+                    console.log('marlAllAsRead', latestNotification)
+
+                    if (!latestNotification.unread) {
+                        return current
+                    }
+
+                    await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                        {
+                            bookmark: latestNotification.created_at.toISOString(),
+                        }
+                    )
+
                     return {
-                        last_read: bookmarkDate,
+                        last_read: latestNotification.created_at.toISOString(),
                         next: current.next,
                         results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
@@ -70,6 +85,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const response = await api.get<ChangesResponse>(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )
+
+                        response.results[0].unread = true
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
@@ -153,30 +170,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
     listeners(({ values, actions }) => ({
         toggleNotificationsPopover: () => {
             if (!values.isNotificationPopoverOpen) {
-                clearTimeout(values.markReadTimeout)
-            } else {
-                actions.maybeMarkAllAsRead()
-            }
-        },
-        maybeMarkAllAsRead: () => {
-            if (values.notifications?.[0]) {
-                const bookmarkDate = values.notifications.reduce((a, b) =>
-                    a.created_at.isAfter(b.created_at) ? a : b
-                ).created_at
-                actions.setMarkReadTimeout(
-                    window.setTimeout(() => {
-                        void api
-                            .create(
-                                `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
-                                {
-                                    bookmark: bookmarkDate.toISOString(),
-                                }
-                            )
-                            .then(() => {
-                                actions.markAllAsRead(bookmarkDate.toISOString())
-                            })
-                    }, MARK_READ_TIMEOUT)
-                )
+                actions.markAllAsRead()
             }
         },
         setActiveTab: ({ tab }) => {
@@ -262,7 +256,6 @@ export const notificationsLogic = kea<notificationsLogicType>([
         afterMount: () => actions.loadImportantChanges(null),
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout)
-            clearTimeout(values.markReadTimeout)
         },
     })),
 ])

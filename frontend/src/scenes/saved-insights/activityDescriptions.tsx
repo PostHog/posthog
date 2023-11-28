@@ -8,6 +8,7 @@ import {
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -240,13 +241,6 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             </div>
         ),
     }
-}
-
-function userNameForLogItem(logItem: ActivityLogItem): string {
-    if (logItem.is_system) {
-        return 'PostHog'
-    }
-    return logItem.user?.first_name ?? 'A user'
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

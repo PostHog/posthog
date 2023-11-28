@@ -25,7 +25,7 @@ export const SidePanelActivity = (): JSX.Element => {
         importantChangesLoading,
         hasUnread,
     } = useValues(notificationsLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity, maybeMarkAllAsRead } = useActions(notificationsLogic)
+    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead } = useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
@@ -33,10 +33,12 @@ export const SidePanelActivity = (): JSX.Element => {
 
     useEffect(() => {
         return () => {
+            console.log('UNMOINTING')
+            markAllAsRead()
             togglePolling(false)
-            maybeMarkAllAsRead()
         }
-    })
+    }, [])
+
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -96,7 +98,7 @@ export const SidePanelActivity = (): JSX.Element => {
                             {hasUnread ? (
                                 <LemonButton
                                     type="secondary"
-                                    onClick={() => maybeMarkAllAsRead()}
+                                    onClick={() => markAllAsRead()}
                                     loading={importantChangesLoading}
                                 >
                                     Mark all as read
