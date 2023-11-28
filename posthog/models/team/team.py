@@ -360,7 +360,7 @@ class Team(UUIDClassicModel):
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
 
-    @cached_property
+    @property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 

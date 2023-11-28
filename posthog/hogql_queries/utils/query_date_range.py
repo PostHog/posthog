@@ -185,14 +185,14 @@ class QueryDateRange:
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
         self,
+        date_range: Optional[DateRange],
         total_intervals: int,
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
     ) -> None:
         self._total_intervals = total_intervals
-        self._now_without_timezone = now
-        super().__init__(None, team, interval, now)
+        super().__init__(date_range, team, interval, now)
 
     @staticmethod
     def determine_time_delta(total_intervals: int, period: str) -> timedelta:
@@ -225,7 +225,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
     def date_to(self) -> datetime:
         delta = self.determine_time_delta(1, self._interval.name)
-        date_to = self.now_with_timezone + delta
+        date_to = super().date_to() + delta
 
         if self.is_hourly:
             return date_to.replace(minute=0, second=0, microsecond=0)

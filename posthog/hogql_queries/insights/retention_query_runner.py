@@ -313,10 +313,11 @@ class RetentionQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRangeWithIntervals(
+            date_range=self.query.dateRange,
             total_intervals=self.query.retentionFilter.total_intervals,
             team=self.team,
             interval=IntervalType(self.query.retentionFilter.period.lower()),
-            now=datetime.utcnow(),
+            now=datetime.now(),
         )
 
     def _is_stale(self, cached_result_package):
