@@ -1,3 +1,5 @@
+import './EditSurvey.scss'
+
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -48,9 +50,7 @@ export function SurveyEditQuestionHeader({
             }}
         >
             <div className="flex flex-row gap-2 items-center">
-                {questionsStartElements.length ? (
-                    <div className="SurveyQuestionHeader__start">{questionsStartElements}</div>
-                ) : null}
+                {questionsStartElements.length ? <div className="flex">{questionsStartElements}</div> : null}
 
                 <b>
                     Question {index + 1}. {survey.questions[index].question}
