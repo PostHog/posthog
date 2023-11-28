@@ -67,7 +67,13 @@ export type serializedNodeWithId = serializedNode & { id: number }
 export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'div'
 
 export type MobileStyles = {
+    /**
+     * @description maps to CSS color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000
+     */
     color?: string
+    /**
+     * @description maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000
+     */
     backgroundColor?: string
     /**
      * @description if borderWidth is present, then border style is assumed to be solid

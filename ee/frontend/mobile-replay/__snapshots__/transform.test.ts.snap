@@ -44,7 +44,7 @@ exports[`replay/transform transform can convert images 1`] = `
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "color: red;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                          "style": "color: #ffffff;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                         },
                         "childNodes": [
                           {
@@ -148,7 +148,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                               "fill": "transparent",
                               "height": 30,
                               "rx": "10px",
-                              "stroke": "blue",
+                              "stroke": "#ee3ee4",
                               "stroke-width": "4",
                               "width": 100,
                               "x": 0,
@@ -349,7 +349,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                             "childNodes": [
                               {
                                 "attributes": {
-                                  "style": "color: red;background-color: yellow;border-width: 4px;border-radius: 10px;border-color: blue;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                                  "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                                 },
                                 "childNodes": [
                                   {
@@ -364,7 +364,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                               },
                               {
                                 "attributes": {
-                                  "style": "color: red;background-color: blue;border-width: 4px;border-radius: 10px;border-color: yellow;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                                  "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                                 },
                                 "childNodes": [
                                   {
@@ -384,7 +384,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                           },
                           {
                             "attributes": {
-                              "style": "color: red;background-color: green;border-width: 4px;border-radius: 10px;border-color: red;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                              "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: absolute;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                             },
                             "childNodes": [
                               {
