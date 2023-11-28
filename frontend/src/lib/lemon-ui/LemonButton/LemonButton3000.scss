@@ -10,8 +10,6 @@
         --button-border-color-hover: none;
         --button-frame-bg-color: none;
 
-        // --button-frame-border-color: none;
-
         position: relative;
         min-height: 2.125rem;
         padding: 0;
@@ -140,51 +138,27 @@
 
         &.LemonButton--onboarding {
             --button-bg-color: var(--primary-3000-frame-bg-light);
+            --button-bg-color-active: var(--button-bg-color);
             --button-border-color: var(--primary-3000-button-border);
             --button-border-color-hover: var(--primary-3000-button-border-hover);
             --button-frame-bg-color: var(--primary-3000-button-bg-dark);
 
-            // --button-frame-border-color: var(--primary-3000-button-border);
-
-            // background: var(--primary-3000-frame-bg-light);
-
             .LemonButton__chrome {
                 font-weight: 600;
-
-                // color: var(--text-3000-light);
-                // background-color: var(--primary-3000-frame-bg-light);
-                // border-color: var(--primary-3000-button-border);
             }
         }
 
         &.LemonButton--primary {
             --lemon-button-border-width: 1px;
             --button-bg-color: var(--bg-light);
+            --button-bg-color-active: var(--bg-light);
             --button-border-color: var(--primary-3000-button-border);
             --button-border-color-hover: var(--primary-3000-button-border-hover);
             --button-frame-bg-color: var(--primary-3000-frame-bg);
 
-            // --button-frame-border-color: var(--primary-3000-frame-border);
-
-            // background: var(--bg-light);
-
             .LemonButton__chrome {
                 font-weight: 600;
-                color: #111;
                 background: var(--primary-3000-button-bg);
-
-                // &:after {
-                //     border-color: var(--primary-3000-frame-border);
-                // }
-
-                // &:before {
-                //     border-color: var(--primary-3000-button-border);
-                // }
-
-                // &:not([aria-disabled='true']):hover,
-                // &.LemonButton--active {
-                //     border-color: var(--primary-3000-button-border-hover);
-                // }
             }
         }
 
@@ -192,19 +166,17 @@
         &.LemonButton--is-stealth:hover,
         &.LemonButton--secondary:not(.LemonButton--is-stealth) {
             --button-border-color: var(--secondary-3000-button-border);
+            --button-bg-color-active: var(--bg-light);
             --button-border-color-hover: var(--secondary-3000-button-border-hover);
             --button-frame-bg-color: var(--secondary-3000-frame-bg);
-
-            // --button-frame-border-color: var(--secondary-3000-frame-border);
         }
 
         &.LemonButton--primary.LemonButton--status-danger,
         &.LemonButton--secondary.LemonButton--status-danger {
             --button-border-color: var(--danger-light);
+            --button-bg-color-active: transparent;
             --button-border-color-hover: var(--danger-dark);
             --button-frame-bg-color: var(--danger-lighter);
-
-            // --button-frame-border-color: purple;
         }
 
         &.LemonButton--primary,
@@ -250,11 +222,12 @@
                 }
             }
 
-            &:not([aria-disabled='true']):hover,
-            &.LemonButton--active {
+            &.LemonButton--active,
+            &:not([aria-disabled='true']):active {
                 .LemonButton__chrome {
-                    // --lemon-button-chrome-depth: 0.1rem;
-                    // transform: translateY(-2px);
+                    &::after {
+                        border: 1px solid var(--button-border-color-hover);
+                    }
                 }
             }
 
@@ -263,7 +236,6 @@
                     transform: translateY(1px);
 
                     &::after {
-                        border: 1px solid var(--button-border-color-hover);
                         box-shadow: 0 3px 0 -1px var(--button-frame-bg-color);
                     }
 
@@ -275,38 +247,12 @@
 
             &.LemonButton--active {
                 .LemonButton__chrome {
-                    color: var(--default);
-                    background: var(--bg-light);
-                    border-color: var(--button-border-color-hover);
+                    &::after {
+                        background: var(--button-bg-color-active);
+                    }
                 }
             }
         }
-
-        // &.LemonButton--is-stealth:not(.LemonButton--active) {
-        //     --button-border-color: transparent;
-        //     --button-border-color-hover: transparent;
-        //     --button-frame-bg-color: transparent;
-        //     --button-frame-border-color: transparent;
-        // }
-
-        // &.LemonButton--is-stealth:not(.LemonButton--active) {
-        //     &:hover {
-        //         .LemonButton__chrome {
-        //             border-color: var(--secondary-3000-button-border);
-        //         }
-        //     }
-
-        //     &:not(:hover) {
-        //         background-color: transparent;
-        //         border-color: transparent;
-
-        //         .LemonButton__chrome {
-        //             color: var(--muted);
-        //             background-color: transparent;
-        //             border-color: transparent;
-        //         }
-        //     }
-        // }
 
         &.LemonButton--tertiary {
             color: var(--default);
