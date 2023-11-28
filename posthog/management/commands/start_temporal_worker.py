@@ -9,7 +9,19 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.temporal.common.worker import start_worker
-from posthog.temporal import WORKFLOWS_DICT, ACTIVITIES_DICT
+
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
+from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS, ACTIVITIES as DATA_SYNC_ACTIVITIES
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE, BATCH_EXPORTS_TASK_QUEUE
+
+WORKFLOWS_DICT = {
+    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS,
+}
+ACTIVITIES_DICT = {
+    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES,
+}
 
 
 class Command(BaseCommand):
