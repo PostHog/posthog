@@ -5,9 +5,9 @@
 
     .ActivityDescription {
         padding: 1rem;
+        background: var(--bg-light);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        background: var(--bg-light);
 
         .taxonomic-breakdown-filter.tag-pill {
             padding: 0;
@@ -37,8 +37,8 @@
     overflow-wrap: anywhere;
 
     &--unread {
-        border-radius: var(--radius);
         background-color: var(--primary-3000-highlight);
+        border-radius: var(--radius);
     }
 
     .ProfilePicture {
