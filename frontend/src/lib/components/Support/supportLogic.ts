@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/react'
 import * as Sentry from '@sentry/react'
-import { actions, connect, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
