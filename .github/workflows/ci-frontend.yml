@@ -35,7 +35,7 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. 
                         - 'bin/**'
                         - 'frontend/**'
-                        - 'ee/frontend/**'  
+                        - 'ee/frontend/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
