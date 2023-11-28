@@ -1,10 +1,14 @@
-from posthog.warehouse.data_load.pipeline import SourceSchema, PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
-
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
-from django.conf import settings
-import structlog
 from typing import List
+
+import structlog
+from django.conf import settings
+
+from posthog.warehouse.data_load.pipeline import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+    SourceSchema,
+)
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

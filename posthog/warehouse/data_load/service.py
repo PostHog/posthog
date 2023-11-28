@@ -1,26 +1,29 @@
+from dataclasses import asdict
 from datetime import timedelta
+
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleSpec,
     ScheduleIntervalSpec,
-    ScheduleState,
-    SchedulePolicy,
     ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleSpec,
+    ScheduleState,
 )
+
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from dataclasses import asdict
-from posthog.warehouse.models import ExternalDataSource
-
-
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow, ExternalDataJobInputs
 from posthog.temporal.common.schedule import (
     create_schedule,
-    update_schedule,
-    trigger_schedule,
     pause_schedule,
+    trigger_schedule,
+    update_schedule,
 )
+from posthog.temporal.data_imports.external_data_job import (
+    ExternalDataJobInputs,
+    ExternalDataJobWorkflow,
+)
+from posthog.warehouse.models import ExternalDataSource
 
 
 def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:

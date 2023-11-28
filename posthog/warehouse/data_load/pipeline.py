@@ -1,11 +1,14 @@
-import dlt
-from typing import Dict, List
-from django.conf import settings
-from .stripe import stripe_source, ENDPOINTS
 from dataclasses import dataclass
-from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
+from typing import Dict, List
+
+import dlt
 import s3fs
 from asgiref.sync import sync_to_async
+from django.conf import settings
+
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
+
+from .stripe import ENDPOINTS, stripe_source
 
 
 @dataclass

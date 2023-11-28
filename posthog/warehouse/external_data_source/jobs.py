@@ -1,6 +1,7 @@
+from uuid import UUID
+
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from uuid import UUID
 
 
 def get_external_data_source(team_id: str, external_data_source_id: str) -> ExternalDataSource:

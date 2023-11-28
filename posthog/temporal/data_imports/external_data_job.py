@@ -1,30 +1,33 @@
-import json
 import dataclasses
-import uuid
 import datetime as dt
+import json
+import uuid
 from typing import List
-from posthog.warehouse.data_load.pipeline import (
-    PIPELINE_TYPE_INPUTS_MAPPING,
-    PIPELINE_TYPE_RUN_MAPPING,
-    move_draft_to_production,
-    SourceSchema,
-)
-from posthog.warehouse.data_load.sync_table import is_schema_valid, SchemaValidationError
 
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.external_data_source.jobs import (
-    create_external_data_job,
-    update_external_job_status,
-    get_external_data_source,
-)
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+from asgiref.sync import sync_to_async
+from temporalio import activity, exceptions, workflow
+from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
-from temporalio import activity, workflow, exceptions
-from temporalio.common import RetryPolicy
-from asgiref.sync import sync_to_async
+from posthog.warehouse.data_load.pipeline import (
+    PIPELINE_TYPE_INPUTS_MAPPING,
+    PIPELINE_TYPE_RUN_MAPPING,
+    SourceSchema,
+    move_draft_to_production,
+)
+from posthog.warehouse.data_load.sync_table import (
+    SchemaValidationError,
+    is_schema_valid,
+)
+from posthog.warehouse.external_data_source.jobs import (
+    create_external_data_job,
+    get_external_data_source,
+    update_external_job_status,
+)
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 @dataclasses.dataclass

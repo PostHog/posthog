@@ -1,8 +1,9 @@
-import typing
-import collections.abc
-import temporalio.activity
 import asyncio
+import collections.abc
 import datetime as dt
+import typing
+
+import temporalio.activity
 
 
 class AsyncHeartbeatDetails(typing.NamedTuple):

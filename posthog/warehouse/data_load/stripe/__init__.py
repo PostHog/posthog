@@ -1,11 +1,10 @@
 """ This source uses Stripe API and dlt to load data such as Customer, Subscription, Event etc. to the database and to calculate the MRR and churn rate. """
 
-from typing import Any, Dict, Generator, Optional, Tuple, Iterable
+from typing import Any, Dict, Generator, Iterable, Optional, Tuple
 
 import dlt
 import stripe
 from dlt.extract.source import DltResource
-
 from pendulum import DateTime
 
 from .helper import pagination

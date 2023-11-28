@@ -1,7 +1,8 @@
-from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr
-from django.db import models
-from posthog.models.team import Team
 import encrypted_fields
+from django.db import models
+
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 
 
 class ExternalDataSource(CreatedMetaFields, UUIDModel):

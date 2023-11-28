@@ -34,7 +34,6 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
 )
 from posthog.temporal.batch_exports.squash_person_overrides import *
 
-
 WORKFLOWS = [
     BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,

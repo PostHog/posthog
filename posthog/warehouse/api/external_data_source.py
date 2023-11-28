@@ -1,22 +1,24 @@
-from rest_framework import status
-from rest_framework.request import Request
-from rest_framework.response import Response
-from posthog.permissions import OrganizationMemberPermissions
+import uuid
+from typing import Any
+
+import structlog
+from rest_framework import filters, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
-from posthog.warehouse.external_data_source.source import delete_source
-from posthog.warehouse.external_data_source.destination import delete_destination
-from posthog.warehouse.data_load.service import sync_external_data_job_workflow, trigger_external_data_workflow
+from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.routing import StructuredViewSetMixin
-from rest_framework.decorators import action
-import uuid
-
-
 from posthog.models import User
-from typing import Any
-import structlog
+from posthog.permissions import OrganizationMemberPermissions
+from posthog.warehouse.data_load.service import (
+    sync_external_data_job_workflow,
+    trigger_external_data_workflow,
+)
+from posthog.warehouse.external_data_source.destination import delete_destination
+from posthog.warehouse.external_data_source.source import delete_source
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

@@ -1,32 +1,37 @@
-import pytest
-from asgiref.sync import sync_to_async
 import uuid
 from unittest import mock
+
+import pytest
+from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.test import override_settings
-
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, DataWarehouseTable
-
-from posthog.warehouse.data_load.pipeline import StripeJobInputs, SourceColumnType, SourceSchema
-from posthog.warehouse.data_load.service import ExternalDataJobInputs
-from posthog.warehouse.data_load.stripe import ENDPOINTS
-
-from posthog.temporal.data_imports.external_data_job import (
-    create_external_data_job_model,
-    CreateExternalDataJobInputs,
-    UpdateExternalDataJobStatusInputs,
-    update_external_data_job_model,
-    create_external_data_job,
-    run_external_data_job,
-    move_draft_to_production_activity,
-    ExternalDataJobWorkflow,
-    ValidateSchemaInputs,
-    validate_schema_activity,
-)
-
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from django.conf import settings
 
+from posthog.temporal.data_imports.external_data_job import (
+    CreateExternalDataJobInputs,
+    ExternalDataJobWorkflow,
+    UpdateExternalDataJobStatusInputs,
+    ValidateSchemaInputs,
+    create_external_data_job,
+    create_external_data_job_model,
+    move_draft_to_production_activity,
+    run_external_data_job,
+    update_external_data_job_model,
+    validate_schema_activity,
+)
+from posthog.warehouse.data_load.pipeline import (
+    SourceColumnType,
+    SourceSchema,
+    StripeJobInputs,
+)
+from posthog.warehouse.data_load.service import ExternalDataJobInputs
+from posthog.warehouse.data_load.stripe import ENDPOINTS
+from posthog.warehouse.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSource,
+)
 
 AWS_BUCKET_MOCK_SETTINGS = {
     "AIRBYTE_BUCKET_KEY": "test-key",
