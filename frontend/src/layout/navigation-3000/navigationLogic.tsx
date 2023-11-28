@@ -29,6 +29,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
@@ -53,12 +54,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig'], navigationLogic, ['mobileLayout']],
     })),
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
         toggleNavCollapsed: (override?: boolean) => ({ override }),
+        showNavOnMobile: true,
+        hideNavOnMobile: true,
         toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
@@ -92,13 +95,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 toggleSidebar: (isSidebarShown) => !isSidebarShown,
             },
         ],
-        isNavCollapsed: [
-            false,
-            { persist: true },
-            {
-                toggleNavCollapsed: (state, { override }) => override ?? !state,
-            },
-        ],
         sidebarWidth: [
             DEFAULT_SIDEBAR_WIDTH_PX,
             { persist: true },
@@ -118,6 +114,21 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 beginResize: () => true,
                 endResize: () => false,
+            },
+        ],
+        isNavCollapsedDesktop: [
+            false,
+            { persist: true },
+            {
+                toggleNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+        isNavShownMobile: [
+            false,
+            { persist: true },
+            {
+                showNavOnMobile: () => true,
+                hideNavOnMobile: () => false,
             },
         ],
         isSidebarKeyboardShortcutAcknowledged: [
@@ -292,6 +303,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     ? 'full'
                     : 'none'
             },
+        ],
+        isNavShown: [
+            (s) => [s.isNavShownMobile, s.mobileLayout],
+            (isNavShownMobile, mobileLayout): boolean => !mobileLayout || isNavShownMobile,
+        ],
+        isNavCollapsed: [
+            (s) => [s.isNavCollapsedDesktop, s.mobileLayout],
+            (isNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isNavCollapsedDesktop,
         ],
         navbarItems: [
             () => [featureFlagLogic.selectors.featureFlags],
