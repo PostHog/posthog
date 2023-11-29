@@ -1,0 +1,324 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "anyOf": [
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "initialOffset": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "left": {
+                                    "type": "number"
+                                },
+                                "top": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["top", "left"],
+                            "type": "object"
+                        },
+                        "wireframes": {
+                            "description": "This mimics the RRWeb full snapshot event type, except instead of reporting a serialized DOM it reports a wireframe representation of the screen.",
+                            "items": {
+                                "$ref": "#/definitions/wireframe"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["wireframes", "initialOffset"],
+                    "type": "object"
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.FullSnapshot"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "height": {
+                            "type": "number"
+                        },
+                        "href": {
+                            "type": "string"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["width", "height"],
+                    "type": "object"
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.Meta"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "payload": {},
+                        "tag": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["tag", "payload"],
+                    "type": "object"
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.Custom"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
+        }
+    ],
+    "definitions": {
+        "EventType.Custom": {
+            "const": 5,
+            "type": "number"
+        },
+        "EventType.FullSnapshot": {
+            "const": 2,
+            "type": "number"
+        },
+        "EventType.Meta": {
+            "const": 4,
+            "type": "number"
+        },
+        "MobileNodeType": {
+            "enum": ["text", "image", "rectangle", "div"],
+            "type": "string"
+        },
+        "MobileStyles": {
+            "additionalProperties": false,
+            "properties": {
+                "backgroundColor": {
+                    "description": "maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
+                    "type": "string"
+                },
+                "borderColor": {
+                    "description": "if borderColor is present, then border style is assumed to be solid",
+                    "type": "string"
+                },
+                "borderRadius": {
+                    "description": "if borderRadius is present, then border style is assumed to be solid",
+                    "type": ["string", "number"]
+                },
+                "borderWidth": {
+                    "description": "if borderWidth is present, then border style is assumed to be solid",
+                    "type": ["string", "number"]
+                },
+                "color": {
+                    "description": "maps to CSS color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
+                    "type": "string"
+                },
+                "horizontalAlign": {
+                    "description": "horizontal alignment with respect to its parent",
+                    "enum": ["left", "right", "center"],
+                    "type": "string"
+                },
+                "verticalAlign": {
+                    "description": "vertical alignment with respect to its parent",
+                    "enum": ["top", "bottom", "center"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "wireframe": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/wireframeText"
+                },
+                {
+                    "$ref": "#/definitions/wireframeImage"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRectangle"
+                },
+                {
+                    "$ref": "#/definitions/wireframeDiv"
+                }
+            ]
+        },
+        "wireframeDiv": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeImage": {
+            "additionalProperties": false,
+            "properties": {
+                "base64": {
+                    "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG",
+                    "type": "string"
+                },
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["base64", "height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeRectangle": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeText": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "text", "type", "width", "x", "y"],
+            "type": "object"
+        }
+    }
+}

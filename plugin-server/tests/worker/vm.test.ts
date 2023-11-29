@@ -56,7 +56,7 @@ describe('vm tests', () => {
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'usedImports', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'composeWebhook',
             'exportEvents',
@@ -1280,11 +1280,18 @@ describe('vm tests', () => {
 
     test('imports', async () => {
         const indexJs = `
-            import jwt from 'jsonwebtoken'
+            const urlImport = require('url');
             async function processEvent (event, meta) {
                 event.properties = {
                     imports: {
-                        jsonwebtoken: 'sign' in jwt,
+                        // Injected because it was imported
+                        url: 'URL' in urlImport,
+
+                        // Available via plugin host imports because it was imported
+                        urlViaPluginHostImports: 'URL' in __pluginHostImports.url,
+
+                        // Not in plugin host imports because it was not imported
+                        cryptoUndefined: __pluginHostImports.crypto === undefined,
                     },
                 }
                 return event
@@ -1295,7 +1302,9 @@ describe('vm tests', () => {
         const event = await vm.methods.processEvent!({ ...defaultEvent })
 
         expect(event?.properties?.imports).toEqual({
-            jsonwebtoken: true,
+            url: true,
+            urlViaPluginHostImports: true,
+            cryptoUndefined: true,
         })
     })
 })

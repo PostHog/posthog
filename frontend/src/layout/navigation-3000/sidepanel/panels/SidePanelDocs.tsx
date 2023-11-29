@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '../../themeLogic'
-import { SidePanelPaneHeader } from '../components/SidePanelPane'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { POSTHOG_WEBSITE_ORIGIN, sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 type Menu = {
@@ -145,7 +145,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     Open in new tab
                 </LemonButton>
             </SidePanelPaneHeader>
-            <div className="relative flex-1">
+            <div className="relative flex-1 overflow-hidden">
                 <iframe src={iframeSrc} title="Docs" className={clsx('w-full h-full', !ready && 'hidden')} ref={ref} />
 
                 {!ready && <SidePanelDocsSkeleton />}

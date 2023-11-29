@@ -1,7 +1,8 @@
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
-from rest_framework import serializers, status, viewsets, pagination
+
+from rest_framework import serializers, status, viewsets, pagination, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -23,6 +24,9 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
+        if "user" not in self.context:
+            return False
+
         user_bookmark: Optional[NotificationViewed] = NotificationViewed.objects.filter(
             user=self.context["user"]
         ).first()
@@ -35,11 +39,12 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(pagination.LimitOffsetPagination):
-    default_limit = 500
+class ActivityLogPagination(pagination.CursorPagination):
+    ordering = "-created_at"
+    page_size = 100
 
 
-class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
@@ -48,9 +53,20 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         team = self.team
         return queryset.filter(Q(organization_id=team.organization_id) | Q(team_id=team.id))
 
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+        params = self.request.GET.dict()
+
+        if params.get("user"):
+            queryset = queryset.filter(user=params.get("user"))
+
+        return queryset
+
     @action(methods=["GET"], detail=False)
     def important_changes(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = self.request.user
+        params = self.request.GET.dict()
+
         if not isinstance(user, User):
             # this is for mypy
             return Response(status=status.HTTP_401_UNAUTHORIZED)
@@ -105,7 +121,8 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         last_read_date = NotificationViewed.objects.filter(user=user).first()
         last_read_filter = ""
-        if last_read_date:
+
+        if last_read_date and params.get("unread") == "true":
             last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
         # before we filter to include only the important changes, we need to deduplicate too frequent changes
@@ -154,7 +171,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             .order_by("-created_at")
         )
 
-        if last_read_date:
+        if last_read_date and params.get("unread") == "true":
             other_peoples_changes = other_peoples_changes.filter(
                 created_at__gt=last_read_date.last_viewed_activity_date
             )

@@ -18,7 +18,7 @@
 
     &.Lettermark--variant-gray {
         color: var(--default);
-        background: var(--border-light);
+        background: var(--border);
     }
 
     @each $variant in (1, 2, 3, 4, 5, 6, 7, 8) {

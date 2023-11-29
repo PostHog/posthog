@@ -1,8 +1,9 @@
+@import '../../styles/vars';
+
 .Navigation3000 {
     --breadcrumbs-height-full: 3.75rem;
-    --breadcrumbs-height-compact: 2.75rem;
-    --scene-padding-y: 1rem;
-    --scene-padding-x: 1rem;
+    --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
+    --scene-padding: 1rem;
 
     display: flex;
     width: 100%;
@@ -21,17 +22,20 @@
         overflow: visible;
         background: none;
     }
+
+    @media screen and (max-width: $lg) {
+        --scene-padding: 0.5rem;
+    }
 }
 
 .Navigation3000__scene {
     // `relative` is for positioning of the scene-level spinner
     position: relative;
-    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding-y) * 2);
-    margin: var(--scene-padding-y) var(--scene-padding-x);
+    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) * 2);
+    margin: var(--scene-padding);
 
     &.Navigation3000__scene--raw {
-        --scene-padding-y: 0px;
-        --scene-padding-x: 0px;
+        --scene-padding: 0px;
 
         display: flex;
         flex-direction: column;
@@ -46,6 +50,23 @@
     flex-direction: column;
     border-right-width: 1px;
 
+    // This terrible hack makes it so that the .Navbar3000__overlay background is rendered also _underneath_ .Navbar3000
+    // Otherwise when hiding the mobile navbar, there's a flash of un-dimmed area below the navbar as it slides out
+    opacity: 0.99999;
+    transition: transform 100ms ease-out;
+
+    .Navigation3000--mobile & {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-lemon-sidebar);
+    }
+
+    &.Navbar3000--hidden {
+        transform: translateX(-100%);
+    }
+
     .Navbar3000__content {
         z-index: var(--z-main-nav);
         display: flex;
@@ -56,11 +77,8 @@
         overflow-y: auto;
         background: var(--accent-3000);
 
-        .LemonButton {
-            .LemonButton__chrome {
-                padding: 0.25rem !important;
-                font-size: 0.8125rem;
-            }
+        .LemonButton__chrome {
+            padding: 0.25rem !important;
         }
 
         ul {
@@ -74,6 +92,23 @@
         li + li {
             margin-top: -1px;
         }
+    }
+}
+
+.Navbar3000__overlay {
+    position: fixed;
+    z-index: var(--z-mobile-nav-overlay);
+    width: 100%;
+    height: 100%;
+    background-color: var(--modal-backdrop-color);
+    backdrop-filter: blur(var(--modal-backdrop-blur));
+    opacity: 1;
+    transition: background-color 100ms ease-out, backdrop-filter 100ms ease-out;
+
+    &.Navbar3000--hidden {
+        pointer-events: none;
+        background-color: transparent;
+        backdrop-filter: blur(0);
     }
 }
 

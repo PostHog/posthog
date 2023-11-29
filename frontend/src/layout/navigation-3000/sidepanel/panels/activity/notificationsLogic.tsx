@@ -5,13 +5,13 @@ import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { notificationsLogicType } from './notificationsLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
-const MARK_READ_TIMEOUT = 2500
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -20,7 +20,13 @@ export interface ChangelogFlagPayload {
 
 export interface ChangesResponse {
     results: ActivityLogItem[]
+    next: string | null
     last_read: string
+}
+
+export enum SidePanelActivityTab {
+    Unread = 'unread',
+    All = 'all',
 }
 
 export const notificationsLogic = kea<notificationsLogicType>([
@@ -28,36 +34,57 @@ export const notificationsLogic = kea<notificationsLogicType>([
     actions({
         toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
-        setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
-        setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
-        markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
+        markAllAsRead: true,
+        setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
+        loadAllActivity: true,
+        loadOlderActivity: true,
+        maybeLoadOlderActivity: true,
+        loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
-                markAllAsRead: ({ bookmarkDate }) => {
+                markAllAsRead: async () => {
                     const current = values.importantChanges
                     if (!current) {
                         return null
                     }
 
+                    const latestNotification = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    )
+
+                    if (!latestNotification.unread) {
+                        return current
+                    }
+
+                    await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
+                        {
+                            bookmark: latestNotification.created_at.toISOString(),
+                        }
+                    )
+
                     return {
-                        last_read: bookmarkDate,
+                        last_read: latestNotification.created_at.toISOString(),
+                        next: current.next,
                         results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
                 },
-                loadImportantChanges: async (_, breakpoint) => {
+                loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
-                    clearTimeout(values.pollTimeout)
+                    clearTimeout(cache.pollTimeout)
 
                     try {
                         const response = await api.get<ChangesResponse>(
-                            `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
+                            `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes?` +
+                                toParams({ unread: onlyUnread })
                         )
+
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
@@ -70,14 +97,46 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
-                        const timeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
-                        actions.setPollTimeout(timeout)
+                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
                     }
+                },
+            },
+        ],
+        allActivityResponse: [
+            null as ChangesResponse | null,
+            {
+                loadAllActivity: async (_, breakpoint) => {
+                    await breakpoint(1)
+
+                    const response = await api.get<ChangesResponse>(
+                        `api/projects/${teamLogic.values.currentTeamId}/activity_log`
+                    )
+                    return response
+                },
+
+                loadOlderActivity: async (_, breakpoint) => {
+                    await breakpoint(1)
+
+                    if (!values.allActivityResponse?.next) {
+                        return values.allActivityResponse
+                    }
+
+                    const response = await api.get<ChangesResponse>(values.allActivityResponse.next)
+
+                    response.results = [...values.allActivityResponse.results, ...response.results]
+
+                    return response
                 },
             },
         ],
     })),
     reducers({
+        activeTab: [
+            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         errorCounter: [
             0,
             {
@@ -91,48 +150,33 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 toggleNotificationsPopover: (state) => !state,
             },
         ],
-        isPolling: [true, { togglePolling: (_, { pageIsVisible }) => pageIsVisible }],
-        pollTimeout: [
-            0,
-            {
-                setPollTimeout: (_, payload) => payload.pollTimeout,
-            },
-        ],
-        markReadTimeout: [
-            0,
-            {
-                setMarkReadTimeout: (_, payload) => payload.markReadTimeout,
-            },
-        ],
     }),
     listeners(({ values, actions }) => ({
         toggleNotificationsPopover: () => {
             if (!values.isNotificationPopoverOpen) {
-                clearTimeout(values.markReadTimeout)
-            } else {
-                if (values.notifications?.[0]) {
-                    const bookmarkDate = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    ).created_at
-                    actions.setMarkReadTimeout(
-                        window.setTimeout(() => {
-                            void api
-                                .create(
-                                    `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
-                                    {
-                                        bookmark: bookmarkDate.toISOString(),
-                                    }
-                                )
-                                .then(() => {
-                                    actions.markAllAsRead(bookmarkDate.toISOString())
-                                })
-                        }, MARK_READ_TIMEOUT)
-                    )
-                }
+                actions.markAllAsRead()
+            }
+        },
+        setActiveTab: ({ tab }) => {
+            if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
+                actions.loadAllActivity()
+            }
+        },
+
+        maybeLoadOlderActivity: () => {
+            if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
+                actions.loadOlderActivity()
             }
         },
     })),
     selectors({
+        allActivity: [
+            (s) => [s.allActivityResponse],
+            (allActivityResponse): HumanizedActivityLogItem[] => {
+                return humanize(allActivityResponse?.results || [], describerFor, true)
+            },
+        ],
+        allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
         notifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
@@ -183,6 +227,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 }
             },
         ],
+
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
         unread: [
             (s) => [s.notifications],
@@ -191,11 +236,10 @@ export const notificationsLogic = kea<notificationsLogicType>([
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    events(({ actions, values }) => ({
-        afterMount: () => actions.loadImportantChanges(null),
+    events(({ actions, cache }) => ({
+        afterMount: () => actions.loadImportantChanges(),
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
-            clearTimeout(values.markReadTimeout)
+            clearTimeout(cache.pollTimeout)
         },
     })),
 ])

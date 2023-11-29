@@ -10,7 +10,7 @@
     background: var(--border);
     border-radius: var(--radius);
 
-    .posthog-3000 & {
+    .posthog-3000 &:not(.breakdown) {
         padding: 0.075rem 0.25rem;
         font-size: 0.688rem;
         background: none;
@@ -35,9 +35,9 @@
         background-color: var(--mark);
 
         .posthog-3000 & {
-            color: var(--mark);
+            color: var(--highlight);
             background: none;
-            border-color: var(--mark);
+            border-color: var(--highlight);
         }
     }
 
@@ -79,9 +79,9 @@
         background-color: var(--purple-light);
 
         .posthog-3000 & {
-            color: var(--purple-light);
+            color: var(--purple);
             background: none;
-            border-color: var(--purple-light);
+            border-color: var(--purple);
         }
     }
 
@@ -98,6 +98,17 @@
 
     &.none {
         background: none;
+    }
+
+    &.breakdown {
+        padding: 8px 12px;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 16px;
+        color: var(--primary-alt);
+        vertical-align: bottom;
+        background-color: var(--primary-bg-hover);
+        border-radius: 40px;
     }
 
     &.LemonTag--size-small {

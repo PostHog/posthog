@@ -400,7 +400,6 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
@@ -524,6 +523,7 @@ export interface PluginConfigVMResponse {
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
+    usedImports: Set<string>
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {

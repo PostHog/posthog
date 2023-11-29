@@ -11,7 +11,7 @@ export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Elemen
     const [cohortTitle, setCohortTitle] = useState('')
     return (
         <LemonModal
-            title="New Cohort"
+            title="New cohort"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={onCancel}>
