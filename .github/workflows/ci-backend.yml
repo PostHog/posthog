@@ -219,6 +219,7 @@ jobs:
 
             - name: Check migrations
               run: |
+                  # install dependencies on new branch again
                   python -m pip install -r requirements.txt -r requirements-dev.txt
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
