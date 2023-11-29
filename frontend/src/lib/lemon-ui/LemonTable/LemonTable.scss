@@ -4,7 +4,8 @@
 
     --lemon-table-background-color: var(--bg-table);
 
-    .WebAnalyticsDashboard & {
+    .WebAnalyticsDashboard &,
+    .Insight & {
         // Special override for WebAnalytics
         --lemon-table-background-color: var(--bg-light);
     }
