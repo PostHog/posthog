@@ -66,7 +66,10 @@ export function ProfilePicture({
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
-                    className={'absolute top-0 left-0 w-full h-full rounded-full'}
+                    className={clsx(
+                        'absolute top-0 left-0 w-full h-full rounded-full',
+                        gravatarLoaded ? 'opacity-100' : 'opacity-0'
+                    )}
                     src={gravatarUrl}
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
