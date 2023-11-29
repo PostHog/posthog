@@ -6,10 +6,16 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelTab } from '~/types'
 
+import { notificationsLogic } from './panels/activity/notificationsLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-const SECRET_TABS = [SidePanelTab.Settings, SidePanelTab.FeaturePreviews, SidePanelTab.Welcome]
+const ALWAYS_EXTRA_TABS = [
+    SidePanelTab.Settings,
+    SidePanelTab.FeaturePreviews,
+    SidePanelTab.Activity,
+    SidePanelTab.Welcome,
+]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -23,6 +29,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isReady', 'hasCompletedAllTasks'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
+            // We need to mount this to ensure that marking as read works when the panel closes
+            notificationsLogic,
+            ['unreadCount'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel']],
     }),
@@ -69,6 +78,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activation)
+                tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.Welcome)
 
                 if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
@@ -88,7 +98,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     // Hide certain tabs unless they are selected
-                    if (SECRET_TABS.includes(tab)) {
+                    if (ALWAYS_EXTRA_TABS.includes(tab)) {
                         return false
                     }
 
@@ -98,6 +108,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     return true
                 })
+            },
+        ],
+
+        extraTabs: [
+            (s) => [s.enabledTabs, s.visibleTabs],
+            (enabledTabs, visibleTabs): SidePanelTab[] => {
+                return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
     }),
