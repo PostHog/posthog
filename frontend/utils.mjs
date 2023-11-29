@@ -309,7 +309,7 @@ export async function buildOrWatch(config) {
 
     if (isDev) {
         chokidar
-            .watch(path.resolve(absWorkingDir, 'src'), {
+            .watch([path.resolve(absWorkingDir, 'src'), path.resolve(absWorkingDir, '../ee/frontend')], {
                 ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
                 ignoreInitial: true,
             })
