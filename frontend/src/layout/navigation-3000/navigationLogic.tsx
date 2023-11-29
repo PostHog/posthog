@@ -1,8 +1,8 @@
 import {
-    IconApps,
     IconChat,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconGraph,
     IconHome,
     IconLive,
@@ -14,7 +14,6 @@ import {
     IconServer,
     IconTestTube,
     IconToggle,
-    IconToolbar,
 } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
@@ -37,7 +36,6 @@ import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
-import { toolbarSidebarLogic } from './sidebars/toolbar'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
@@ -320,7 +318,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     [
                         {
                             identifier: Scene.ProjectHomepage,
-                            label: 'Project homepage',
+                            label: 'Home',
                             icon: <IconHome />,
                             to: urls.projectHomepage(),
                         },
@@ -340,16 +338,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Events,
-                            label: 'Event explorer',
+                            label: 'Events',
                             icon: <IconLive />,
                             to: urls.events(),
-                        },
-                        {
-                            identifier: Scene.DataManagement,
-                            label: 'Data management',
-                            icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
                             identifier: Scene.PersonsManagement,
@@ -357,6 +348,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
+                        },
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                     ],
                     [
@@ -377,24 +375,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               }
                             : null,
                         {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconServer />,
-                            to: urls.dataWarehouse(),
-                            featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
-                            tag: 'beta' as const,
-                        },
-                        {
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
-                        },
-                        {
-                            identifier: Scene.Surveys,
-                            label: 'Surveys',
-                            icon: <IconChat />,
-                            to: urls.surveys(),
                         },
                         {
                             identifier: Scene.FeatureFlags,
@@ -411,27 +395,32 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.experiments(),
                         },
                         {
+                            identifier: Scene.Surveys,
+                            label: 'Surveys',
+                            icon: <IconChat />,
+                            to: urls.surveys(),
+                        },
+                        {
                             identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
                         },
-                    ].filter(isNotNil),
-                    [
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: urls.dataWarehouse(),
+                            featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
+                            tag: 'beta' as const,
+                        },
                         {
                             identifier: Scene.Apps,
-                            label: 'Apps',
-                            icon: <IconApps />,
+                            label: 'Data pipeline',
+                            icon: <IconDecisionTree />,
                             to: urls.projectApps(),
                         },
-                        {
-                            identifier: Scene.ToolbarLaunch,
-                            label: 'Toolbar',
-                            icon: <IconToolbar />,
-                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
-                        },
-                    ],
+                    ].filter(isNotNil),
                 ]
             },
         ],

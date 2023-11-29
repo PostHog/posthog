@@ -36,6 +36,7 @@ export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
+    usedImports: Set<string> | undefined
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
     ready: boolean
@@ -125,6 +126,7 @@ export class LazyPluginVM {
             this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+                    this.usedImports = vm.usedImports
                     this.vmResponseVariable = vm.vmResponseVariable
 
                     if (!this.pluginConfig.plugin) {

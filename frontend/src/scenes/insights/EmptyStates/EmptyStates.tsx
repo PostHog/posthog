@@ -316,7 +316,6 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <div className="flex justify-center">
                         <Link to={urls.insightNew()}>
                             <LemonButton
-                                size="large"
                                 type="primary"
                                 data-attr="add-insight-button-empty-state"
                                 icon={<PlusCircleOutlined />}
