@@ -55,20 +55,20 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build and cache Docker image in Depot
-              uses: ./.github/actions/build-n-cache-image
-              with:
-                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}              
+            # - name: Build and cache Docker image in Depot
+            #   uses: ./.github/actions/build-n-cache-image
+            #   with:
+            #       actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}              
 
-            - name: Build pr test image
-              id: build-unit
-              uses: depot/build-push-action@v1
-              with:
-                  buildx-fallback: false # buildx is so slow it's better to just fail
-                  push: false
-                  tags: posthog/posthog:pr-test-${{ github.event.pull_request.head.sha }}
-                  platforms: linux/amd64,linux/arm64
-                  build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
+            # - name: Build pr test image
+            #   id: build-unit
+            #   uses: depot/build-push-action@v1
+            #   with:
+            #       buildx-fallback: false # buildx is so slow it's better to just fail
+            #       push: false
+            #       tags: posthog/posthog:pr-test-${{ github.event.pull_request.head.sha }}
+            #       platforms: linux/amd64,linux/arm64
+            #       build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
 
             # - name: Build and push
             #   uses: docker/build-push-action@v5
@@ -80,14 +80,15 @@ jobs:
             #     cache-to: type=gha,mode=max    
             #     platforms: linux/amd64,linux/arm64
 
-            # - name: Build and push PR test image
-            #   id: build-unit
-            #   uses: depot/build-push-action@v1
-            #   with:
-            #       buildx-fallback: false # the fallback is so slow it's better to just fail
-            #       tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
-            #       platforms: linux/arm64,linux/amd64
-            #       build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
+            - name: Build and push PR test image
+              id: build-unit
+              uses: depot/build-push-action@v1
+              with:
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
 
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
