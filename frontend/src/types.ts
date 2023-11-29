@@ -839,6 +839,7 @@ export type SearchableEntity =
     | 'event_definition'
     | 'experiment'
     | 'feature_flag'
+    | 'group'
     | 'notebook'
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
