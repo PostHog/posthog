@@ -83,9 +83,9 @@ export const SidePanelWelcome = (): JSX.Element => {
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconSearch className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Command Bar</h3>
+                        <h3 className="mb-0 font-semibold">Search + commands bar</h3>
                         <span>
-                            A new feature enabling navigation to most of PostHog's built-in features using keyboard
+                            A unified feature enabling navigation to most of PostHog's built-in features using keyboard
                             shortcuts - try it with <KeyboardShortcut shift k />
                         </span>
                     </div>
@@ -93,7 +93,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconGear className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Reorganized Settings</h3>
+                        <h3 className="mb-0 font-semibold">Reorganized settings</h3>
                         <span>
                             An improved organization of the project settings page for easier access and management
                         </span>
