@@ -56,6 +56,9 @@
         margin-bottom: 0;
         line-height: 1.5rem;
         color: var(--muted);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
     }
 
     h4 {
