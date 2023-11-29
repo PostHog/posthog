@@ -90,24 +90,23 @@ function gatherIconProperties(
     })
 }
 
-function ActivityIndicators({
-    recording,
-    onPropertyClick,
-    iconClassnames,
-}: {
-    recording: SessionRecordingType
+export interface PropertyIconsProps {
+    recordingProperties: GatheredProperty[]
+    loading: boolean
     onPropertyClick?: (property: string, value?: string) => void
     iconClassnames: string
-}): JSX.Element {
-    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-    const recordingProperties = recordingPropertiesById[recording.id]
-    const loading = !recordingProperties && recordingPropertiesLoading
-    const iconProperties = gatherIconProperties(recordingProperties, recording)
+}
 
-    const propertyIcons = (
+export function PropertyIcons({
+    recordingProperties,
+    loading,
+    onPropertyClick,
+    iconClassnames,
+}: PropertyIconsProps): JSX.Element {
+    return (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
             {!loading ? (
-                iconProperties.map(({ property, value, tooltipValue }) => {
+                recordingProperties.map(({ property, value, tooltipValue }) => {
                     return (
                         <PropertyIcon
                             key={property}
@@ -135,10 +134,24 @@ function ActivityIndicators({
             )}
         </div>
     )
+}
+
+function ActivityIndicators({
+    recording,
+    ...props
+}: {
+    recording: SessionRecordingType
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames: string
+}): JSX.Element {
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+    const recordingProperties = recordingPropertiesById[recording.id]
+    const loading = !recordingProperties && recordingPropertiesLoading
+    const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     return (
         <div className="flex iems-center gap-2 text-xs text-muted-alt">
-            {propertyIcons}
+            <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
 
             <span
                 title={`Mouse activity: ${recording.mouse_activity_count}`}
