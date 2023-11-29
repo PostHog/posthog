@@ -22,6 +22,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { HTMLAttributes, ReactNode } from 'react'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
+const osIcons = {
+    ['Mac OS X']: <IconMacOS />,
+    ['Windows']: <IconWindows />,
+    ['Linux']: <IconLinux />,
+    ['Android']: <IconAndroidOS />,
+    ['iOS']: <IconAppleIOS />,
+    ['Other']: <IconCogBox />,
+}
 export const PROPERTIES_ICON_MAP = {
     $browser: {
         ['Chrome']: <IconChrome />,
@@ -43,23 +51,9 @@ export const PROPERTIES_ICON_MAP = {
         ['Tablet']: <IconTablet />,
         ['Other']: <IconDevices />,
     },
-    $os: {
-        ['Mac OS X']: <IconMacOS />,
-        ['Windows']: <IconWindows />,
-        ['Linux']: <IconLinux />,
-        ['Android']: <IconAndroidOS />,
-        ['iOS']: <IconAppleIOS />,
-        ['Other']: <IconCogBox />,
-    },
+    $os: osIcons,
     // some SDKs have $os_name instead of $os
-    $os_name: {
-        ['Mac OS X']: <IconMacOS />,
-        ['Windows']: <IconWindows />,
-        ['Linux']: <IconLinux />,
-        ['Android']: <IconAndroidOS />,
-        ['iOS']: <IconAppleIOS />,
-        ['Other']: <IconCogBox />,
-    },
+    $os_name: osIcons,
     $geoip_country_code: {
         ['Other']: <IconWeb />,
     },
