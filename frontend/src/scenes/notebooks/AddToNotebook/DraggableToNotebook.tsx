@@ -27,6 +27,7 @@ export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
 
 export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }: DraggableToNotebookBaseProps): {
     isDragging: boolean
+    draggable: boolean
     elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragEnd'>
 } {
     const { startDropMode, endDropMode } = useActions(notebookPanelLogic)
@@ -44,12 +45,14 @@ export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }:
     if (!hasDragOptions || isInNotebook || !notebooksEnabled || !dragModeActive) {
         return {
             isDragging: false,
+            draggable: false,
             elementProps: {},
         }
     }
 
     return {
         isDragging,
+        draggable: true,
         elementProps: {
             onDragStart: (e: any) => {
                 setIsDragging(true)
@@ -78,7 +81,7 @@ export function DraggableToNotebook({
     className,
     onlyWithModifierKey,
 }: DraggableToNotebookProps): JSX.Element {
-    const { isDragging, elementProps } = useNotebookDrag({ href, node, properties, onlyWithModifierKey })
+    const { isDragging, draggable, elementProps } = useNotebookDrag({ href, node, properties, onlyWithModifierKey })
 
     if (!node && !properties && !href) {
         return <>{children}</>
@@ -89,7 +92,7 @@ export function DraggableToNotebook({
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} fallback={children}>
                 <span
                     className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
-                    draggable={elementProps.onDragEnd ? true : false}
+                    draggable={draggable}
                     {...elementProps}
                 >
                     {children}
