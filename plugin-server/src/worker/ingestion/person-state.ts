@@ -520,7 +520,7 @@ export class PersonState {
                 let personOverrideMessages: ProducerRecord[] = []
                 if (this.poEEmbraceJoin) {
                     personOverrideMessages = [
-                        await new PersonOverrideWriter(this.db.postgres).addPersonOverride(otherPerson, mergeInto, tx),
+                        await new PersonOverrideWriter(this.db.postgres).addPersonOverride(tx, otherPerson, mergeInto),
                     ]
                 }
 
@@ -552,9 +552,9 @@ class PersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     public async addPersonOverride(
+        tx: TransactionClient,
         oldPerson: Person,
-        overridePerson: Person,
-        tx: TransactionClient
+        overridePerson: Person
     ): Promise<ProducerRecord> {
         const mergedAt = DateTime.now()
         const oldestEvent = overridePerson.created_at
@@ -565,8 +565,8 @@ class PersonOverrideWriter {
          2. Add an override from oldPerson to override person
          3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
          */
-        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, tx)
-        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, tx)
+        const oldPersonId = await this.addPersonOverrideMapping(tx, oldPerson)
+        const overridePersonId = await this.addPersonOverrideMapping(tx, overridePerson)
 
         await this.postgres.query(
             tx,
@@ -652,7 +652,7 @@ class PersonOverrideWriter {
         return personOverrideMessages
     }
 
-    private async addPersonOverrideMapping(person: Person, tx: TransactionClient): Promise<number> {
+    private async addPersonOverrideMapping(tx: TransactionClient, person: Person): Promise<number> {
         /**
             Update the helper table that serves as a mapping between a serial ID and a Person UUID.
 
