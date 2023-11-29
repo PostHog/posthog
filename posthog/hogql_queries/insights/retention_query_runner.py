@@ -63,8 +63,17 @@ class RetentionQueryRunner(QueryRunner):
         self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
 
     def retention_events_query(self):
-        _fields = [
-            self.get_timestamp_field(),
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_sql(source="events.timestamp")
+
+        if self.event_query_type == RetentionQueryType.TARGET:
+            timestamp_field = f"DISTINCT {start_of_interval_sql} AS event_date"
+        elif self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+            timestamp_field = f"min({start_of_interval_sql}) as event_date"
+        else:
+            timestamp_field = f"{start_of_interval_sql} AS event_date"
+
+        fields = [
+            timestamp_field,
             "events.person_id as target",
         ]
         params = {}
@@ -76,7 +85,7 @@ class RetentionQueryRunner(QueryRunner):
                 else "events.timestamp"
             )
 
-            _fields += [
+            fields += [
                 f"""
                 [
                     dateDiff(
@@ -113,50 +122,34 @@ class RetentionQueryRunner(QueryRunner):
 
         hogql_params = {key: ast.Constant(value=value) for key, value in params.items()}
 
-        data_query_hogql = parse_expr(date_query, placeholders=hogql_params)
+        date_query_hogql = parse_expr(date_query, placeholders=hogql_params)
         if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
-            filter_expressions.append(data_query_hogql)
+            filter_expressions.append(date_query_hogql)
 
         group_by_fields = None
         having_expr = None
         if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             group_by_fields = [ast.Field(chain=["target"])]
-            having_expr = data_query_hogql
-        if self.event_query_type == RetentionQueryType.RETURNING:
+            having_expr = date_query_hogql
+        elif self.event_query_type == RetentionQueryType.RETURNING:
             group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
 
-        query = f"SELECT {','.join(_fields)} FROM events"
+        fields_str = ", ".join(fields)
         result = parse_select(
-            query,
-            placeholders={
-                **hogql_params,
-                "filter_where": ast.And(exprs=filter_expressions)
-                if len(filter_expressions) > 1
-                else filter_expressions[0],
-            },
+            f"SELECT {fields_str} FROM events",
+            placeholders=hogql_params,
             timings=self.timings,
         )
         result.where = ast.And(exprs=filter_expressions)
         result.group_by = group_by_fields
         result.having = having_expr
 
-        sampling_factor = self.query.samplingFactor
-        if sampling_factor is not None and isinstance(sampling_factor, float):
-            sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
-            result.select_from.sample = sample_expr
+        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
+            result.select_from.sample = ast.SampleExpr(
+                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+            )
 
         return result
-
-    def get_timestamp_field(self) -> str:
-        start_of_interval_sql = self.query_date_range.get_start_of_interval_sql(
-            source="events.timestamp",
-        )
-        if self.event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {start_of_interval_sql} AS event_date"
-        elif self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({start_of_interval_sql}) as event_date"
-        else:
-            return f"{start_of_interval_sql} AS event_date"
 
     def entity_to_expr(self, entity: dict) -> ast.Expr:
         if entity["type"] == TREND_FILTER_TYPE_ACTIONS and entity["id"] is not None:
@@ -225,11 +218,6 @@ class RetentionQueryRunner(QueryRunner):
             event_query_type=RetentionQueryType.RETURNING,
         )
         return runner.retention_events_query()
-
-    # property_to_expr
-    # null person filter -> ignore
-    # format_action_filter -> action_to_expr
-    # startofweek etc -> look into lifecycle query
 
     def actor_query(self) -> ast.SelectQuery:
         placeholders = {
