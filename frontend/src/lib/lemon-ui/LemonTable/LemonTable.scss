@@ -13,7 +13,7 @@
 
     .WebAnalyticsDashboard &,
     .Insight & {
-        // Special override for WebAnalytics
+        // Special override for scenes where the table is primarily next to insights
         --lemon-table-background-color: var(--bg-light);
     }
 
