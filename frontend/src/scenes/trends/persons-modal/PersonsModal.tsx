@@ -77,7 +77,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
     } = useValues(logic)
-    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
+    const { setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -171,13 +171,9 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {actorsResponse?.next && (
+                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
                             <div className="m-4 flex justify-center">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                                    loading={actorsResponseLoading}
-                                >
+                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
                                 </LemonButton>
                             </div>
