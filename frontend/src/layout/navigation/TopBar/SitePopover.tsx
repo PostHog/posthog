@@ -1,4 +1,4 @@
-import { IconLive } from '@posthog/icons'
+import { IconFeatures, IconLive } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -14,7 +14,6 @@ import {
     IconLogout,
     IconOffline,
     IconPlus,
-    IconRedeem,
     IconSettings,
     IconUpdate,
 } from 'lib/lemon-ui/icons'
@@ -218,7 +217,7 @@ function FeaturePreviewsButton(): JSX.Element {
                 }
             }}
             data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
-            icon={<IconRedeem />}
+            icon={<IconFeatures />}
             fullWidth
         >
             Feature previews
