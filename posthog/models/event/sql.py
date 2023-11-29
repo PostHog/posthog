@@ -106,16 +106,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
-# we add the settings to prevent poison pills from stopping ingestion
-# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
-# the max block size to consume from kafka such that we skip _all_ broken messages
-# this is an added safety mechanism given we control payloads to this topic
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """
-    SETTINGS kafka_skip_broken_messages = 100
-"""
-).format(
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
