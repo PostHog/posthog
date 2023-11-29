@@ -11,12 +11,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { Node } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { resultTypeToName } from './constants'
+import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
-import { SearchResult as SearchResultType } from './types'
+import { SearchResult as ResultType } from './types'
 
 type SearchResultProps = {
-    result: SearchResultType
+    result: ResultType
     resultIndex: number
     focused: boolean
     keyboardFocused: boolean
@@ -69,7 +69,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">{resultTypeToName[result.type]}</span>
+                <span className="text-muted-3000 text-xs">{tabToName[result.type]}</span>
                 <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
                 </span>
@@ -91,7 +91,7 @@ export const SearchResultSkeleton = (): JSX.Element => (
 )
 
 type ResultNameProps = {
-    result: SearchResultType
+    result: ResultType
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
@@ -139,6 +139,6 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
             />
         )
     } else {
-        return extra_fields.description ? <span>{extra_fields.description}</span> : <i>No description.</i>
+        return 'description' in extra_fields ? <span>{extra_fields.description}</span> : <i>No description.</i>
     }
 }

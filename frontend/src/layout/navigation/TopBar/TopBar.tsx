@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
-import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
+import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
 import { groupsModel } from '~/models/groupsModel'
 import { Logo } from '~/toolbar/assets/Logo'
 

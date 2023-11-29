@@ -1,7 +1,14 @@
 import { PostHogEE } from './types'
 
-const posthogEE: PostHogEE = {
-    enabled: false,
+export default async (): Promise<PostHogEE> => {
+    // eslint-disable-next-line import/no-restricted-paths
+    return import('../../../ee/frontend/exports')
+        .then((ee) => {
+            return ee.default()
+        })
+        .catch(() => {
+            return {
+                enabled: false,
+            }
+        })
 }
-
-export default posthogEE
