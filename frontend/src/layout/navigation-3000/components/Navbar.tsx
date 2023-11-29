@@ -1,4 +1,4 @@
-import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch } from '@posthog/icons'
+import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch, IconToolbar } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -94,6 +94,12 @@ export function Navbar(): JSX.Element {
                                 keyboardShortcut={{ command: true, k: true }}
                             />
                             <NavbarButton
+                                icon={<IconToolbar />}
+                                identifier={Scene.ToolbarLaunch}
+                                title="Toolbar"
+                                to={urls.toolbarLaunch()}
+                            />
+                            <NavbarButton
                                 icon={<ThemeIcon />}
                                 identifier="theme-button"
                                 title={
@@ -113,7 +119,7 @@ export function Navbar(): JSX.Element {
                             <NavbarButton
                                 icon={<IconGear />}
                                 identifier={Scene.Settings}
-                                title="Project settings"
+                                title="Settings"
                                 to={urls.settings('project')}
                             />
 

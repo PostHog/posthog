@@ -54,6 +54,7 @@ module.exports = {
         'compat',
         'posthog',
         'simple-import-sort',
+        'import',
     ],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
@@ -261,6 +262,19 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'import/no-restricted-paths': [
+            'error',
+            {
+                zones: [
+                    {
+                        target: './frontend/**',
+                        from: './ee/frontend/**',
+                        message:
+                            "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`",
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {
