@@ -2591,7 +2591,9 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RetentionResult"
+                    },
                     "type": "array"
                 },
                 "timings": {
@@ -2604,9 +2606,49 @@
             "required": ["results"],
             "type": "object"
         },
+        "RetentionResult": {
+            "additionalProperties": false,
+            "properties": {
+                "date": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "people_url": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/RetentionValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values", "label", "date", "people_url"],
+            "type": "object"
+        },
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "RetentionValue": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "people": {
+                    "items": {},
+                    "type": "array"
+                },
+                "people_url": {
+                    "type": "string"
+                }
+            },
+            "required": ["count", "people", "people_url"],
+            "type": "object"
         },
         "SavedInsightNode": {
             "additionalProperties": false,

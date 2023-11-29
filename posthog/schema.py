@@ -488,21 +488,18 @@ class RetentionPeriod(str, Enum):
     Month = "Month"
 
 
-class RetentionQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-
-
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
+
+
+class RetentionValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
+    people: List
+    people_url: str
 
 
 class SessionPropertyFilter(BaseModel):
@@ -933,6 +930,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[int] = None
+
+
+class RetentionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: datetime
+    label: str
+    people_url: str
+    values: List[RetentionValue]
 
 
 class SavedInsightNode(BaseModel):
@@ -1384,6 +1391,18 @@ class PropertyGroupFilterValue(BaseModel):
             ],
         ]
     ]
+
+
+class RetentionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class SessionsTimelineQuery(BaseModel):

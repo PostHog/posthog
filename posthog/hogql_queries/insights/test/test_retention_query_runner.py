@@ -72,7 +72,7 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def _run_retention_query(self, query):
         runner = RetentionQueryRunner(team=self.team, query=query)
-        return runner.calculate().results
+        return runner.calculate().model_dump()["results"]
 
     def run_query(self, filter, team, *args, **kwargs):
         filter_dict = {

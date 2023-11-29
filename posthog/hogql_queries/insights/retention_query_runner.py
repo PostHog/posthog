@@ -43,7 +43,6 @@ DEFAULT_TOTAL_INTERVALS = 11
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
     query_type = RetentionQuery
-    EVENT_TABLE_ALIAS = "e"
 
     def __init__(
         self,
@@ -66,13 +65,15 @@ class RetentionQueryRunner(QueryRunner):
     def retention_events_query(self):
         _fields = [
             self.get_timestamp_field(),
-            self.target_field(),
+            "events.person_id as target",
         ]
         params = {}
 
         if self.event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
             source_timestamp = (
-                "min(e.timestamp)" if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME else "e.timestamp"
+                "min(events.timestamp)"
+                if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                else "events.timestamp"
             )
 
             _fields += [
@@ -124,7 +125,7 @@ class RetentionQueryRunner(QueryRunner):
         if self.event_query_type == RetentionQueryType.RETURNING:
             group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
 
-        query = f"SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}"
+        query = f"SELECT {','.join(_fields)} FROM events"
         result = parse_select(
             query,
             placeholders={
@@ -146,12 +147,9 @@ class RetentionQueryRunner(QueryRunner):
 
         return result
 
-    def target_field(self) -> str:
-        return "e.person_id as target"
-
     def get_timestamp_field(self) -> str:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_sql(
-            source=f"{self.EVENT_TABLE_ALIAS}.timestamp",
+            source="events.timestamp",
         )
         if self.event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {start_of_interval_sql} AS event_date"
@@ -172,13 +170,13 @@ class RetentionQueryRunner(QueryRunner):
             else:
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "event"]),
+                    left=ast.Field(chain=["events", "event"]),
                     right=ast.Constant(value=entity.id),
                 )
         else:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "event"]),
+                left=ast.Field(chain=["events", "event"]),
                 right=ast.Constant(value=PAGEVIEW_EVENT),
             )
 
@@ -186,7 +184,7 @@ class RetentionQueryRunner(QueryRunner):
         query = (
             f"event_date >= {{{self.event_query_type}_start_date}} AND event_date <= {{{self.event_query_type}_end_date}}"
             if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"{self.EVENT_TABLE_ALIAS}.timestamp >= {{{self.event_query_type}_start_date}} AND {self.EVENT_TABLE_ALIAS}.timestamp <= {{{self.event_query_type}_end_date}}"
+            else f"events.timestamp >= {{{self.event_query_type}_start_date}} AND events.timestamp <= {{{self.event_query_type}_end_date}}"
         )
         start_date = self.query_date_range.date_from()
         end_date = (
