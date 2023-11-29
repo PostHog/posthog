@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useState } from 'react'
 
@@ -16,6 +17,7 @@ export type DraggableToNotebookBaseProps = {
     href?: string
     node?: NotebookNodeType
     properties?: Record<string, any>
+    onlyWithModifierKey?: boolean
 }
 
 export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
@@ -23,7 +25,7 @@ export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
     className?: string
 }
 
-export function useNotebookDrag({ href, node, properties }: DraggableToNotebookBaseProps): {
+export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }: DraggableToNotebookBaseProps): {
     isDragging: boolean
     elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragEnd'>
 } {
@@ -36,7 +38,10 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     const isInNotebook = useNotebookNode()
     const hasDragOptions = !!(href || node)
 
-    if (!hasDragOptions || isInNotebook || !notebooksEnabled) {
+    const altKeyHeld = useKeyHeld('Alt')
+    const dragModeActive = onlyWithModifierKey ? altKeyHeld : true
+
+    if (!hasDragOptions || isInNotebook || !notebooksEnabled || !dragModeActive) {
         return {
             isDragging: false,
             elementProps: {},
@@ -71,8 +76,9 @@ export function DraggableToNotebook({
     properties,
     href,
     className,
+    onlyWithModifierKey,
 }: DraggableToNotebookProps): JSX.Element {
-    const { isDragging, elementProps } = useNotebookDrag({ href, node, properties })
+    const { isDragging, elementProps } = useNotebookDrag({ href, node, properties, onlyWithModifierKey })
 
     if (!node && !properties && !href) {
         return <>{children}</>
