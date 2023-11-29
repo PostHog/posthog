@@ -505,6 +505,20 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DataVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1934,6 +1948,7 @@
                 "PersonsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
+                "DataVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -2377,6 +2392,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/AnyDataNode"
+                },
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"

@@ -10,11 +10,13 @@ import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
+import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataNode,
     isDataTableNode,
+    isDataVisualizationNode,
     isInsightVizNode,
     isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
@@ -72,6 +74,15 @@ export function Query(props: QueryProps): JSX.Element | null {
                 query={query}
                 setQuery={setQuery}
                 context={queryContext}
+                cachedResults={props.cachedResults}
+                uniqueKey={props.uniqueKey}
+            />
+        )
+    } else if (isDataVisualizationNode(query)) {
+        component = (
+            <DataTableVisualization
+                query={query}
+                setQuery={setQuery}
                 cachedResults={props.cachedResults}
                 uniqueKey={props.uniqueKey}
             />

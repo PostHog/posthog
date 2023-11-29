@@ -339,6 +339,7 @@ class NodeKind(str, Enum):
     PersonsQuery = "PersonsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
+    DataVisualizationNode = "DataVisualizationNode"
     SavedInsightNode = "SavedInsightNode"
     InsightVizNode = "InsightVizNode"
     TrendsQuery = "TrendsQuery"
@@ -1441,6 +1442,14 @@ class ActionsNode(BaseModel):
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
+class DataVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: HogQLQuery
+
+
 class HasPropertiesNode(RootModel):
     root: Union[EventsNode, EventsQuery, PersonsNode]
 
@@ -1901,6 +1910,7 @@ class DataTableNode(BaseModel):
 
 class QuerySchema(RootModel):
     root: Union[
+        DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
         InsightVizNode,
