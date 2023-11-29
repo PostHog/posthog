@@ -1,5 +1,7 @@
 import { LifecycleToggle } from '~/types'
 
+import { LemonTagType } from './lemon-ui/LemonTag'
+
 /** --brand-blue in HSL for saturation mixing */
 export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
 
@@ -22,18 +24,15 @@ const dataColorVars = [
     'color-15',
 ]
 
-export const tagColors = [
-    'blue',
-    'cyan',
-    'orange',
-    'gold',
-    'green',
-    'lime',
-    'volcano',
-    'magenta',
-    'purple',
-    'red',
-    'geekblue',
+export const tagColors: LemonTagType[] = [
+    'primary',
+    'highlight',
+    'warning',
+    'danger',
+    'success',
+    'completion',
+    'caution',
+    'option',
 ]
 
 export function getColorVar(variable: string): string {

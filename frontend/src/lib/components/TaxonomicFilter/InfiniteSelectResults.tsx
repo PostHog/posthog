@@ -1,4 +1,4 @@
-import { Tag } from 'antd'
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
@@ -34,10 +34,11 @@ function CategoryPill({
     const canInteract = totalListCount > 0
 
     return (
-        <Tag
+        <LemonTag
+            type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
-            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
             onClick={canInteract ? onClick : undefined}
+            weight="normal"
         >
             {group?.render ? (
                 group?.name
@@ -48,7 +49,7 @@ function CategoryPill({
                     {totalResultCount ?? '...'}
                 </>
             )}
-        </Tag>
+        </LemonTag>
     )
 }
 
@@ -87,7 +88,7 @@ export function InfiniteSelectResults({
     return (
         <>
             <div className="taxonomic-group-title">Categories</div>
-            <div className="taxonomic-pills">
+            <div className="taxonomic-pills flex gap-0.5 flex-wrap">
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill

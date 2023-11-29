@@ -18,6 +18,7 @@ import {
 } from '~/types'
 
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
 /**
@@ -1114,7 +1115,7 @@ export function hashCodeForString(s: string): number {
     return Math.abs(hash)
 }
 
-export function colorForString(s: string): string {
+export function colorForString(s: string): LemonTagType {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
