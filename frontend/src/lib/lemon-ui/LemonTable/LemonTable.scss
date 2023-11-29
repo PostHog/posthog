@@ -119,14 +119,15 @@
         text-transform: uppercase;
         letter-spacing: 0.03125rem;
         background: var(--mid);
-        border-bottom: 1px solid var(--border);
 
         .posthog-3000 & {
-            background: none;
+            background: var(--bg-table);
         }
 
         > tr {
             > th {
+                // box shadow as a border supports sticky headers
+                box-shadow: inset 0px -1px var(--border);
                 font-weight: 700;
                 text-align: left;
 
@@ -258,7 +259,9 @@
     cursor: default;
 
     .posthog-3000 & {
-        opacity: 0.4;
+        .LemonTable__header-content {
+            opacity: 0.75;
+        }
     }
 
     &.LemonTable__header--actionable {
@@ -266,11 +269,15 @@
 
         .posthog-3000 & {
             &:hover {
-                opacity: 0.7;
+                .LemonTable__header-content {
+                    opacity: 0.5;
+                }
             }
 
             &:active {
-                opacity: 0.9;
+                .LemonTable__header-content {
+                    opacity: 0.9;
+                }
             }
         }
     }
@@ -294,6 +301,23 @@
     border-top: 1px solid var(--border);
 }
 
+// NOTE: this is outside of the storbook check for 3000 selective styling
+.LemonTable__cell--sticky::before {
+    background: var(--bg-light);
+
+    .posthog-3000 & {
+        background: var(--bg-table);
+    }
+}
+
+.LemonTable__header--sticky::before {
+    background: var(--mid);
+
+    .posthog-3000 & {
+        background: var(--bg-table);
+    }
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
@@ -308,9 +332,10 @@ body:not(.storybook-test-runner) {
             position: absolute;
             top: 0;
             left: 0;
+            bottom: 1px; // Leave room for box shadow border
             z-index: -1; // Place below cell content
             width: 100%;
-            height: 100%;
+
             clip-path: inset(0 -16px 0 0);
             content: '';
             box-shadow: -16px 0 16px 16px transparent;
@@ -318,16 +343,8 @@ body:not(.storybook-test-runner) {
         }
     }
 
-    .LemonTable__cell--sticky::before {
-        background: var(--bg-light);
-    }
-
     tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
         background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
-    }
-
-    .LemonTable__header--sticky::before {
-        background: var(--mid);
     }
 
     .scrollable--left {
