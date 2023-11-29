@@ -18,6 +18,7 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     trigger_schedule,
     update_schedule,
+    delete_schedule,
 )
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobInputs,
@@ -61,3 +62,8 @@ def trigger_external_data_workflow(external_data_source: ExternalDataSource):
 def pause_external_data_workflow(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     pause_schedule(temporal, schedule_id=str(external_data_source.id))
+
+
+def delete_external_data_workflow(external_data_source: ExternalDataSource):
+    temporal = sync_connect()
+    delete_schedule(temporal, schedule_id=str(external_data_source.id))

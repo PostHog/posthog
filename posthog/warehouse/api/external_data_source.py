@@ -15,9 +15,8 @@ from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
+    delete_external_data_workflow,
 )
-from posthog.warehouse.external_data_source.destination import delete_destination
-from posthog.warehouse.external_data_source.source import delete_source
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -85,23 +84,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-
-        try:
-            delete_source(instance.source_id)
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Failed to delete source with id: {instance.source_id}",
-                exc_info=e,
-            )
-
-        try:
-            delete_destination(instance.destination_id)
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Failed to delete destination with id: {instance.destination_id}",
-                exc_info=e,
-            )
-
+        delete_external_data_workflow(instance)
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
