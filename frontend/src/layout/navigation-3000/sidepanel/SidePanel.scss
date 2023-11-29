@@ -1,4 +1,5 @@
 .SidePanel3000 {
+    --side-panel-bar-width: 3rem;
     position: relative;
     z-index: var(--z-main-nav);
     box-sizing: content-box;
@@ -19,7 +20,7 @@
             position: fixed;
             top: 0;
             right: 0;
-            max-width: calc(100vw - 3rem);
+            max-width: calc(100vw - var(--side-panel-bar-width));
             box-shadow: 0 0 30px rgb(0 0 0 / 20%);
 
             [theme='dark'] & {
@@ -36,15 +37,32 @@
     .SidePanel3000__bar {
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
-        width: 3rem;
+        width: var(--side-panel-bar-width);
         height: 100vh;
-        overflow-y: auto;
+        overflow: hidden;
         user-select: none;
         border-left-width: 1px;
+        align-items: center;
 
-        .LemonButton {
-            min-height: 2.25rem !important; // Reduce minimum height
+        .SidePanel3000__bar__tabs {
+            flex: 1;
+            width: var(--side-panel-bar-width);
+            overflow-y: auto;
+            overflow-x: hidden;
+
+            &::-webkit-scrollbar {
+                display: none;
+            }
+
+            .SidePanel3000__bar__tabs__rotate {
+                display: flex;
+                gap: 0.25rem;
+                align-items: center;
+                height: var(--side-panel-bar-width);
+                transform: rotate(90deg);
+                transform-origin: bottom left;
+                margin-top: calc(calc(var(--side-panel-bar-width) - 0.25rem) * -1);
+            }
         }
     }
 

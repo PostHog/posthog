@@ -9,7 +9,7 @@ import {
     IconNotification,
     IconSupport,
 } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -103,15 +103,22 @@ export function SidePanel(): JSX.Element | null {
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
 
-    const menuOptions = secretTabs.map((tab) => {
-        const { Icon, label } = SidePanelTabs[tab]
+    const menuOptions: LemonMenuItems | undefined = secretTabs
+        ? [
+              {
+                  title: 'Open in side panel',
+                  items: secretTabs.map((tab) => {
+                      const { Icon, label } = SidePanelTabs[tab]
 
-        return {
-            label: label,
-            icon: <Icon />,
-            onClick: () => openSidePanel(tab),
-        }
-    })
+                      return {
+                          label: label,
+                          icon: <Icon />,
+                          onClick: () => openSidePanel(tab),
+                      }
+                  }),
+              },
+          ]
+        : undefined
 
     return (
         <div
@@ -128,30 +135,35 @@ export function SidePanel(): JSX.Element | null {
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
-                <div className="rotate-90 flex items-center gap-1 px-2">
-                    {visibleTabs.map((tab: SidePanelTab) => {
-                        const { Icon, label } = SidePanelTabs[tab]
-                        return (
-                            <LemonButton
-                                key={tab}
-                                icon={<Icon className="rotate-270 w-6" />}
-                                onClick={() =>
-                                    activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
-                                }
-                                data-attr={`sidepanel-tab-${tab}`}
-                                active={activeTab === tab}
-                                type="secondary"
-                                stealth={true}
-                            >
-                                {label}
-                            </LemonButton>
-                        )
-                    })}
-
-                    <LemonMenu items={menuOptions}>
-                        <LemonButton status="stealth" icon={<IconEllipsis className="rotate-270 w-6" />} />
-                    </LemonMenu>
+                <div className="SidePanel3000__bar__tabs">
+                    <div className="SidePanel3000__bar__tabs__rotate">
+                        {visibleTabs.map((tab: SidePanelTab) => {
+                            const { Icon, label } = SidePanelTabs[tab]
+                            return (
+                                <LemonButton
+                                    key={tab}
+                                    icon={<Icon className="rotate-270 w-6" />}
+                                    onClick={() =>
+                                        activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
+                                    }
+                                    data-attr={`sidepanel-tab-${tab}`}
+                                    active={activeTab === tab}
+                                    type="secondary"
+                                    stealth={true}
+                                >
+                                    {label}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
                 </div>
+                {menuOptions ? (
+                    <div className="shrink-0 flex items-center m-2">
+                        <LemonMenu items={menuOptions}>
+                            <LemonButton size="small" status="stealth" icon={<IconEllipsis />} />
+                        </LemonMenu>
+                    </div>
+                ) : null}
             </div>
             <Resizer {...resizerLogicProps} offset={'3rem'} />
 
