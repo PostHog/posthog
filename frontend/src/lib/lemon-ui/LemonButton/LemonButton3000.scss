@@ -21,6 +21,9 @@
         padding: 0;
         cursor: pointer;
         background-color: transparent;
+        border-color: transparent;
+        border-style: solid;
+        border-width: var(--lemon-button-border-width);
         outline: none;
         transition: var(--transition);
 
@@ -45,6 +48,7 @@
             border-color: transparent;
             border-style: solid;
             border-width: var(--lemon-button-border-width);
+            border-radius: var(--radius);
             transition: var(--transition);
 
             .LemonButton__icon {
