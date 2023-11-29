@@ -20,8 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
-from posthog.models import Entity, Team
-from posthog.models import RetentionFilter as OldRetentionFilter
+from posthog.models import Team
 from posthog.models.action.util import Action
 from posthog.models.filters.mixins.retention import RetentionDateDerivedMixin
 from posthog.models.filters.mixins.utils import cached_property
@@ -36,7 +35,6 @@ from posthog.schema import (
 from posthog.schema import RetentionQuery, RetentionType
 
 DEFAULT_INTERVAL = IntervalType("day")
-
 DEFAULT_TOTAL_INTERVALS = 11
 
 
@@ -55,12 +53,14 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
         self.event_query_type = event_query_type
-        filter_data = {}
-        if self.query.retentionFilter:
-            filter_data = self.query.retentionFilter.model_dump()
-        else:
+        if not self.query.retentionFilter:
             self.query.retentionFilter = RetentionFilter()  # TODO: Clarify default filter
-        self.old_filter = OldRetentionFilter(data=filter_data)  # TODO: Remove reliance on old filter
+
+        self.target_entity = self.query.retentionFilter.target_entity or {
+            "id": "$pageview",
+            "type": TREND_FILTER_TYPE_EVENTS,
+        }
+        self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
 
     def retention_events_query(self):
         _fields = [
@@ -103,11 +103,11 @@ class RetentionQueryRunner(QueryRunner):
             filter_expressions.append(property_to_expr(self.query.properties, self.team))
 
         filter_expressions.append(
-            self._get_entity_query(
-                entity=self.old_filter.target_entity
+            self.entity_to_expr(
+                entity=self.target_entity
                 if self.event_query_type == RetentionQueryType.TARGET
                 or self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else self.old_filter.returning_entity
+                else self.returning_entity
             )
         )
 
@@ -158,27 +158,25 @@ class RetentionQueryRunner(QueryRunner):
         else:
             return f"{start_of_interval_sql} AS event_date"
 
-    def _get_entity_query(self, entity: Entity):
-        if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-            action = Action.objects.get(pk=entity.id)
-            return action_to_expr(
-                action,
-            )
-        elif entity.type == TREND_FILTER_TYPE_EVENTS:
-            if entity.id is None:
+    def entity_to_expr(self, entity: dict) -> ast.Expr:
+        if entity["type"] == TREND_FILTER_TYPE_ACTIONS and entity["id"] is not None:
+            action = Action.objects.get(pk=entity["id"])
+            return action_to_expr(action)
+        elif entity["type"] == TREND_FILTER_TYPE_EVENTS:
+            if entity["id"] is None:
                 return ast.Constant(value=True)
-            else:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["events", "event"]),
-                    right=ast.Constant(value=entity.id),
-                )
-        else:
+
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["events", "event"]),
-                right=ast.Constant(value=PAGEVIEW_EVENT),
+                right=ast.Constant(value=entity["id"]),
             )
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=PAGEVIEW_EVENT),
+        )
 
     def _get_date_filter(self):
         query = (
