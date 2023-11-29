@@ -145,7 +145,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     Open in new tab
                 </LemonButton>
             </SidePanelPaneHeader>
-            <div className="relative flex-1">
+            <div className="relative flex-1 overflow-hidden">
                 <iframe src={iframeSrc} title="Docs" className={clsx('w-full h-full', !ready && 'hidden')} ref={ref} />
 
                 {!ready && <SidePanelDocsSkeleton />}
