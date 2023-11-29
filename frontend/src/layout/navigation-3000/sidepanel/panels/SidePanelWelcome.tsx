@@ -86,7 +86,8 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <h3 className="mb-0 font-semibold">Search + commands bar</h3>
                         <span>
                             A unified feature enabling navigation to most of PostHog's built-in features using keyboard
-                            shortcuts - try it with <KeyboardShortcut shift k /> for the search and <KeyboardShortcut cmd shift k /> for the command bar
+                            shortcuts - try it with <KeyboardShortcut shift k /> for the search and{' '}
+                            <KeyboardShortcut cmd shift k /> for the command bar
                         </span>
                     </div>
                 </li>
