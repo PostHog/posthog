@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import dlt
-from dlt.pipeline.exceptions import PipelineStepFailed
 import s3fs
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from dlt.pipeline.exceptions import PipelineStepFailed
 
 from posthog.warehouse.models import ExternalDataSource
+
 from .stripe import ENDPOINTS, stripe_source
 
 

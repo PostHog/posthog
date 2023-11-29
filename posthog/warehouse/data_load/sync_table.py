@@ -2,6 +2,7 @@ from typing import List
 
 import structlog
 from django.conf import settings
+from django.db.models import Q
 
 from posthog.warehouse.data_load.pipeline import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
@@ -9,7 +10,6 @@ from posthog.warehouse.data_load.pipeline import (
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from django.db.models import Q
 
 logger = structlog.get_logger(__name__)
 
