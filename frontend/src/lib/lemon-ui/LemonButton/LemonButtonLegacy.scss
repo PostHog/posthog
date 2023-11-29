@@ -147,7 +147,6 @@ body:not(.posthog-3000) {
                 }
 
                 // Primary - blocked color style
-                &.LemonButton--onboarding,
                 &.LemonButton--primary {
                     color: #fff;
                     background: var(--#{$status}-3000, var(--#{$status}));
