@@ -31,7 +31,17 @@ export const preloadedScenes: Record<string, LoadedScene> = {
     },
 }
 
-export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+export const sceneConfigurations: Record<Scene, SceneConfig> = {
+    [Scene.Error404]: {
+        name: 'Not found',
+        projectBased: true,
+    },
+    [Scene.ErrorNetwork]: {
+        name: 'Network error',
+    },
+    [Scene.ErrorProjectUnavailable]: {
+        name: 'Project unavailable',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
