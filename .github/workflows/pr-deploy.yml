@@ -24,8 +24,20 @@ jobs:
                   path: posthog
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v2
 
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v2
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
             - uses: aws-actions/configure-aws-credentials@v1
               with:
                   aws-region: us-east-1
@@ -45,15 +57,25 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build and push
-              uses: docker/build-push-action@v5
+            # - name: Build and push
+            #   uses: docker/build-push-action@v5
+            #   with:
+            #     push: true
+            #     tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
+            #     build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
+            #     cache-from: type=gha
+            #     cache-to: type=gha,mode=max    
+            #     platforms: linux/amd64,linux/arm64
+
+            - name: Build and push unit container image
+              id: build-unit
+              uses: depot/build-push-action@v1
               with:
-                push: true
-                tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
-                build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
-                cache-from: type=gha
-                cache-to: type=gha,mode=max    
-                platforms: linux/amd64,linux/arm64            
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
 
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
