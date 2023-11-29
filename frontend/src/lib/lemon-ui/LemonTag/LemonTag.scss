@@ -35,9 +35,9 @@
         background-color: var(--mark);
 
         .posthog-3000 & {
-            color: var(--mark);
+            color: var(--highlight);
             background: none;
-            border-color: var(--mark);
+            border-color: var(--highlight);
         }
     }
 
@@ -79,9 +79,9 @@
         background-color: var(--purple-light);
 
         .posthog-3000 & {
-            color: var(--purple-light);
+            color: var(--purple);
             background: none;
-            border-color: var(--purple-light);
+            border-color: var(--purple);
         }
     }
 
