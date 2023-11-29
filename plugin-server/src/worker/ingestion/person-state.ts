@@ -521,6 +521,7 @@ export class PersonState {
                 if (this.poEEmbraceJoin) {
                     personOverrideMessages = await new PersonOverrideWriter(this.db.postgres).addPersonOverride(
                         tx,
+                        this.teamId,
                         otherPerson,
                         mergeInto
                     )
@@ -555,9 +556,14 @@ class PersonOverrideWriter {
 
     public async addPersonOverride(
         tx: TransactionClient,
+        teamId: number,
         oldPerson: Person,
         overridePerson: Person
     ): Promise<ProducerRecord[]> {
+        if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
+            throw new Error('cannot merge persons across different teams')
+        }
+
         const mergedAt = DateTime.now()
         const oldestEvent = overridePerson.created_at
         /**
@@ -580,7 +586,7 @@ class PersonOverrideWriter {
                     oldest_event,
                     version
                 ) VALUES (
-                    ${this.teamId},
+                    ${teamId},
                     ${oldPersonId},
                     ${overridePersonId},
                     ${oldestEvent},
@@ -602,7 +608,7 @@ class PersonOverrideWriter {
                     SET
                         override_person_id = ${overridePersonId}, version = COALESCE(version, 0)::numeric + 1
                     WHERE
-                        team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
+                        team_id = ${teamId} AND override_person_id = ${oldPersonId}
                     RETURNING
                         old_person_id,
                         version,
@@ -631,7 +637,7 @@ class PersonOverrideWriter {
                 messages: [
                     {
                         value: JSON.stringify({
-                            team_id: oldPerson.team_id,
+                            team_id: teamId,
                             merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
                             override_person_id: overridePerson.uuid,
                             old_person_id: oldPerson.uuid,
@@ -641,7 +647,7 @@ class PersonOverrideWriter {
                     },
                     ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
                         value: JSON.stringify({
-                            team_id: oldPerson.team_id,
+                            team_id: teamId,
                             merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
                             override_person_id: overridePerson.uuid,
                             old_person_id: old_person_id,
@@ -678,7 +684,7 @@ class PersonOverrideWriter {
                         uuid
                     )
                     VALUES (
-                        ${this.teamId},
+                        ${person.team_id},
                         '${person.uuid}'
                     )
                     ON CONFLICT("team_id", "uuid") DO NOTHING
