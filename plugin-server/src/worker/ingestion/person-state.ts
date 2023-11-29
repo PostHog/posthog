@@ -519,9 +519,11 @@ export class PersonState {
 
                 let personOverrideMessages: ProducerRecord[] = []
                 if (this.poEEmbraceJoin) {
-                    personOverrideMessages = [
-                        await new PersonOverrideWriter(this.db.postgres).addPersonOverride(tx, otherPerson, mergeInto),
-                    ]
+                    personOverrideMessages = await new PersonOverrideWriter(this.db.postgres).addPersonOverride(
+                        tx,
+                        otherPerson,
+                        mergeInto
+                    )
                 }
 
                 return [
@@ -555,7 +557,7 @@ class PersonOverrideWriter {
         tx: TransactionClient,
         oldPerson: Person,
         overridePerson: Person
-    ): Promise<ProducerRecord> {
+    ): Promise<ProducerRecord[]> {
         const mergedAt = DateTime.now()
         const oldestEvent = overridePerson.created_at
         /**
@@ -623,31 +625,33 @@ class PersonOverrideWriter {
 
         status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
 
-        const personOverrideMessages: ProducerRecord = {
-            topic: KAFKA_PERSON_OVERRIDE,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        team_id: oldPerson.team_id,
-                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                        override_person_id: overridePerson.uuid,
-                        old_person_id: oldPerson.uuid,
-                        oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
-                        version: 0,
-                    }),
-                },
-                ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
-                    value: JSON.stringify({
-                        team_id: oldPerson.team_id,
-                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                        override_person_id: overridePerson.uuid,
-                        old_person_id: old_person_id,
-                        oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
-                        version: version,
-                    }),
-                })),
-            ],
-        }
+        const personOverrideMessages: ProducerRecord[] = [
+            {
+                topic: KAFKA_PERSON_OVERRIDE,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: oldPerson.team_id,
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            override_person_id: overridePerson.uuid,
+                            old_person_id: oldPerson.uuid,
+                            oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
+                            version: 0,
+                        }),
+                    },
+                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
+                        value: JSON.stringify({
+                            team_id: oldPerson.team_id,
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            override_person_id: overridePerson.uuid,
+                            old_person_id: old_person_id,
+                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
+                            version: version,
+                        }),
+                    })),
+                ],
+            },
+        ]
 
         return personOverrideMessages
     }
