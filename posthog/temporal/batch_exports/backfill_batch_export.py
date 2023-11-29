@@ -14,7 +14,6 @@ import temporalio.workflow
 from django.conf import settings
 
 from posthog.batch_exports.service import BackfillBatchExportInputs
-from posthog.temporal.common.client import connect
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
@@ -22,6 +21,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     create_batch_export_backfill_model,
     update_batch_export_backfill_model_status,
 )
+from posthog.temporal.common.client import connect
 
 
 class TemporalScheduleNotFoundError(Exception):

@@ -9,8 +9,8 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.temporal.common.client import connect
 from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.client import connect
 
 
 @pytest.fixture

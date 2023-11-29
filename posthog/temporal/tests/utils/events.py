@@ -5,8 +5,8 @@ import random
 import typing
 import uuid
 
-from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.tests.utils.datetimes import date_range
 
 
 class EventValues(typing.TypedDict):
