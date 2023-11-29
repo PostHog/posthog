@@ -295,6 +295,9 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog hogvm hogvm/
 
+# Keep server command backwards compatible
+RUN cp ./bin/docker-server-unit ./bin/docker-server
+
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \

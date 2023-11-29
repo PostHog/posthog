@@ -1,10 +1,10 @@
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { use3000Body } from 'lib/hooks/use3000Body'
 import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { appScenes } from 'scenes/appScenes'
@@ -70,16 +70,8 @@ export const appLogic = kea<appLogicType>([
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-            document.body.classList.add('posthog-3000')
-        } else {
-            document.body.classList.remove('posthog-3000')
-        }
-    }, [featureFlags])
+    use3000Body()
 
     if (showApp) {
         return (

@@ -65,7 +65,7 @@ export function AppsScene(): JSX.Element | null {
                     },
                     canGloballyManagePlugins(user?.organization) && {
                         key: PluginTab.AppsManagement,
-                        label: 'Apps Management',
+                        label: 'Manage apps',
                         content: <AppsManagementTab />,
                     },
                 ]}

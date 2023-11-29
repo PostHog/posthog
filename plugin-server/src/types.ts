@@ -137,6 +137,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
+    KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
@@ -208,6 +209,7 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
+    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -398,7 +400,6 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
@@ -522,6 +523,7 @@ export interface PluginConfigVMResponse {
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
+    usedImports: Set<string>
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
