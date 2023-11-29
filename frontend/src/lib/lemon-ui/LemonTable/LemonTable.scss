@@ -261,7 +261,7 @@
 
     .posthog-3000 & {
         .LemonTable__header-content {
-            opacity: 0.75;
+            color: var(--text-secondary);
         }
     }
 
@@ -271,13 +271,13 @@
         .posthog-3000 & {
             &:hover {
                 .LemonTable__header-content {
-                    opacity: 0.5;
+                    color: var(--default);
                 }
             }
 
             &:active {
                 .LemonTable__header-content {
-                    opacity: 0.9;
+                    color: var(--default);
                 }
             }
         }
