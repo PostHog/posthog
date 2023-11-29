@@ -21,8 +21,6 @@
         padding: 0;
         cursor: pointer;
         background-color: transparent;
-
-        // border-radius: 6px;
         outline: none;
         transition: var(--transition);
 
@@ -47,8 +45,6 @@
             border-color: transparent;
             border-style: solid;
             border-width: var(--lemon-button-border-width);
-
-            // border-radius: var(--radius);
             transition: var(--transition);
 
             .LemonButton__icon {
@@ -171,8 +167,6 @@
             .LemonButton__chrome {
                 padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding)
                     calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding);
-
-                // color: var(--default);
                 background: transparent;
 
                 & > * {
@@ -238,8 +232,6 @@
         }
 
         &.LemonButton--tertiary {
-            // color: var(--default);
-
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background-color: var(--glass-border-3000);
