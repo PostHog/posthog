@@ -68,7 +68,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 }
 
 export function SidePanel(): JSX.Element | null {
-    const { visibleTabs, secretTabs } = useValues(sidePanelLogic)
+    const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
@@ -103,11 +103,11 @@ export function SidePanel(): JSX.Element | null {
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
 
-    const menuOptions: LemonMenuItems | undefined = secretTabs
+    const menuOptions: LemonMenuItems | undefined = extraTabs
         ? [
               {
                   title: 'Open in side panel',
-                  items: secretTabs.map((tab) => {
+                  items: extraTabs.map((tab) => {
                       const { Icon, label } = SidePanelTabs[tab]
 
                       return {
@@ -135,8 +135,8 @@ export function SidePanel(): JSX.Element | null {
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
-                <div className="SidePanel3000__bar__tabs">
-                    <div className="SidePanel3000__bar__tabs__rotate">
+                <div className="SidePanel3000__tabs">
+                    <div className="SidePanel3000__tabsrotation">
                         {visibleTabs.map((tab: SidePanelTab) => {
                             const { Icon, label } = SidePanelTabs[tab]
                             return (

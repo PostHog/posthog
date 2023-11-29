@@ -45,7 +45,7 @@
         user-select: none;
         border-left-width: 1px;
 
-        .SidePanel3000__bar__tabs {
+        .SidePanel3000__tabs {
             flex: 1;
             width: var(--side-panel-bar-width);
             overflow: hidden auto;
@@ -54,7 +54,7 @@
                 display: none;
             }
 
-            .SidePanel3000__bar__tabs__rotate {
+            .SidePanel3000__tabsrotation {
                 display: flex;
                 gap: 0.25rem;
                 align-items: center;
