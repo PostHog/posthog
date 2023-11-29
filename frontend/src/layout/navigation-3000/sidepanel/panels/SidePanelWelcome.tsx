@@ -1,5 +1,5 @@
-import { IconInfo, IconNight, IconNotebook, IconSearch } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconCursorClick, IconGear, IconHome, IconInfo, IconNight, IconNotebook, IconSearch } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
@@ -28,41 +28,74 @@ export const SidePanelWelcome = (): JSX.Element => {
             </h1>
 
             <p className="max-w-120 text-center">
-                <b>PostHog 3000</b> is the codename for our revamped user experience. It's currently in beta, and we'd
-                love to hear your feedback!
+                <b>PostHog 3000</b> is the codename for our revamped user experience. You can{' '}
+                <Link to={'https://posthog-git-why-redesign-post-hog.vercel.app/blog/why-redesign'}>
+                    read more about it here
+                </Link>
+                but the headline features you will notice are:
             </p>
             <ul className="space-y-4">
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconNight className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Dark mode</h3>
+                        <h3 className="mb-0 font-semibold">Colors, Data Density, Dark Mode</h3>
                         <span>
-                            In addition to a general refresh of our look and feel, we now have full support for dark
-                            mode.
+                            A general refresh of our look and feel for enhanced visibility with improved data density
+                            and a dark mode option
                         </span>
                     </div>
                 </li>
-
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
-                    <IconNotebook className="text-3xl" />
+                    <IconHome className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Notebooks</h3>
-                        <span>Explore your ideas, gather your data and come to conclusions in a single document.</span>
+                        <h3 className="mb-0 font-semibold">New Navigation Menu </h3>
+                        <span>
+                            Organized into two main sections: 'project & data' and 'products', streamlining navigation
+                        </span>
                     </div>
                 </li>
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconInfo className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">In-app docs</h3>
-                        <span>Get contextual information from our docs without needing to leave the app.</span>
+                        <h3 className="mb-0 font-semibold">Side panel</h3>
+                        <span>
+                            A collapsible side panel for easy access to notebooks, in-app documentation, and support
+                        </span>
+                    </div>
+                </li>
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
+                    <IconNotebook className="text-3xl" />
+                    <div className="flex-1">
+                        <h3 className="mb-0 font-semibold">Notebooks</h3>
+                        <span>
+                            A feature for aggregating multiple insights, replays, persons or anything else on a single
+                            page, aiding in data exploration and team collaboration
+                        </span>
+                    </div>
+                </li>
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
+                    <IconCursorClick className="text-3xl" />
+                    <div className="flex-1">
+                        <h3 className="mb-0 font-semibold">Toolbar 3000</h3>
+                        <span>An updated toolbar with a modern design and dark mode compatibility</span>
                     </div>
                 </li>
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconSearch className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Global search + commands</h3>
+                        <h3 className="mb-0 font-semibold">Command Bar</h3>
                         <span>
-                            Search from anywhere in the app simply starting by pressing <KeyboardShortcut shift k />
+                            A new feature enabling navigation to most of PostHog's built-in features using keyboard
+                            shortcuts - try it with <KeyboardShortcut shift k />
+                        </span>
+                    </div>
+                </li>
+                <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
+                    <IconGear className="text-3xl" />
+                    <div className="flex-1">
+                        <h3 className="mb-0 font-semibold">Reorganized Settings</h3>
+                        <span>
+                            An improved organization of the project settings page for easier access and management
                         </span>
                     </div>
                 </li>
