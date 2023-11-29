@@ -62,7 +62,7 @@ jobs:
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
                   export RELEASE_NAME=posthog
-                  export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//[^a-zA-Z0-9-]/-}
+                  export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//[^-a-z0-9]/-}
                   export NAMESPACE=${NAMESPACE:0:38}
                   export NAMESPACE=${NAMESPACE%%-}
                   export HOSTNAME=$NAMESPACE
