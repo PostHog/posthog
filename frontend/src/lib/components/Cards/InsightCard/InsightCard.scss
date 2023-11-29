@@ -118,11 +118,6 @@
         vertical-align: middle;
     }
 
-    .tz-label {
-        line-height: normal;
-        vertical-align: middle;
-    }
-
     .taxonomic-breakdown-filter.tag-pill {
         padding: 0;
         font-size: 0.8125rem;
@@ -164,7 +159,7 @@
             color: var(--bg-light);
             text-align: center;
             background: var(--primary-3000);
-            border-radius: 0.25rem;
+            border-radius: var(--radius);
         }
     }
 

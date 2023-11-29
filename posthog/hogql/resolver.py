@@ -1,10 +1,10 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast
+from typing import List, Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.errors import ResolverException
+from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -55,20 +56,27 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 def resolve_types(
     node: ast.Expr,
     context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
-    return Resolver(scopes=scopes, context=context).visit(node)
+    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        scopes: Optional[List[ast.SelectQueryType]] = None,
+    ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
+        self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
 
@@ -118,21 +126,35 @@ class Resolver(CloningVisitor):
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
+        select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-
-            # if it's an asterisk, carry on in a subroutine
             if isinstance(new_expr.type, ast.AsteriskType):
-                self._expand_asterisk_columns(new_node, new_expr.type)
-                continue
+                columns = self._asterisk_columns(new_expr.type)
+                select_nodes.extend([self.visit(expr) for expr in columns])
+            else:
+                select_nodes.append(new_expr)
 
-            # not an asterisk
+        columns_with_visible_alias = {}
+        for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
-                node_type.columns[new_expr.type.alias] = new_expr.type
+                alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
-                node_type.columns[new_expr.type.name] = new_expr.type
+                alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
-                node_type.columns[new_expr.alias] = new_expr.type
+                alias = new_expr.alias
+            else:
+                alias = None
+
+            if alias:
+                # Make a reference of the first visible or last hidden expr for each unique alias name.
+                if isinstance(new_expr, ast.Alias) and new_expr.hidden:
+                    if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
+                        node_type.columns[alias] = new_expr.type
+                        columns_with_visible_alias[alias] = False
+                else:
+                    node_type.columns[alias] = new_expr.type
+                    columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
@@ -160,15 +182,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()
-            for key in database_fields.keys():
-                type = ast.FieldType(name=key, table_type=asterisk.table_type)
-                select_query.select.append(ast.Field(chain=[key], type=type))
-                select_query.type.columns[key] = type
+            return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -180,10 +199,7 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                for name in select.columns.keys():
-                    type = ast.FieldType(name=name, table_type=asterisk.table_type)
-                    select_query.select.append(ast.Field(chain=[name], type=type))
-                    select_query.type.columns[name] = type
+                return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
                 raise ResolverException("Can't expand asterisk (*) on subquery")
         else:
@@ -311,14 +327,15 @@ class Resolver(CloningVisitor):
             raise ResolverException("Aliases are allowed only within SELECT queries")
 
         scope = self.scopes[-1]
-        if node.alias in scope.aliases:
+        if node.alias in scope.aliases and not node.hidden:
             raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
-        scope.aliases[node.alias] = node.type
+        if not node.hidden:
+            scope.aliases[node.alias] = node.type
         return node
 
     def visit_call(self, node: ast.Call):
@@ -450,6 +467,14 @@ class Resolver(CloningVisitor):
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
 
+        if isinstance(node.type, ast.ExpressionFieldType):
+            # only swap out expression fields in ClickHouse
+            if self.dialect == "clickhouse":
+                new_expr = clone_expr(node.type.expr)
+                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node = self.visit(new_node)
+                return new_node
+
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
                 start=node.start,
@@ -457,45 +482,69 @@ class Resolver(CloningVisitor):
                 message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
             )
 
+        if isinstance(node.type, ast.FieldType):
+            return ast.Alias(
+                alias=node.type.name,
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=node.type.name, type=node.type),
+            )
+        elif isinstance(node.type, ast.PropertyType):
+            property_alias = "__".join(node.type.chain)
+            return ast.Alias(
+                alias=property_alias,
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=property_alias, type=node.type),
+            )
+
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        array = node.array
+        while isinstance(array, ast.Alias):
+            array = array.expr
+
         if (
-            isinstance(node.array, ast.Field)
+            isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(node.array.type, ast.PropertyType))
+                (isinstance(array.type, ast.PropertyType))
                 or (
-                    isinstance(node.array.type, ast.FieldType)
+                    isinstance(array.type, ast.FieldType)
                     and isinstance(
-                        node.array.type.resolve_database_field(),
+                        array.type.resolve_database_field(),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
-            node.array.chain.append(node.property.value)
-            node.array.type = node.array.type.get_child(node.property.value)
-            return node.array
+            array.chain.append(node.property.value)
+            array.type = array.type.get_child(node.property.value)
+            return array
 
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
-        if isinstance(node.tuple, ast.Field) and (
-            (isinstance(node.tuple.type, ast.PropertyType))
+        tuple = node.tuple
+        while isinstance(tuple, ast.Alias):
+            tuple = tuple.expr
+
+        if isinstance(tuple, ast.Field) and (
+            (isinstance(tuple.type, ast.PropertyType))
             or (
-                isinstance(node.tuple.type, ast.FieldType)
-                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                isinstance(tuple.type, ast.FieldType)
+                and isinstance(tuple.type.resolve_database_field(), StringJSONDatabaseField)
             )
         ):
-            node.tuple.chain.append(node.index)
-            node.tuple.type = node.tuple.type.get_child(node.index)
-            return node.tuple
+            tuple.chain.append(node.index)
+            tuple.type = tuple.type.get_child(node.index)
+            return tuple
 
         return node
 
@@ -520,28 +569,13 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and self._is_events_table(self.visit(node.left))
-            and self._is_s3_cluster(self.visit(node.right))
-        ):
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GlobalIn
-                    if node.op == ast.CompareOperationOp.In
-                    else ast.CompareOperationOp.GlobalNotIn,
-                    left=node.left,
-                    right=node.right,
-                )
-            )
-
-        if self.context.modifiers.inCohortVia != "leftjoin":
+        if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
             elif node.op == ast.CompareOperationOp.NotInCohort:
@@ -549,15 +583,28 @@ class Resolver(CloningVisitor):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotIn,
                         left=node.left,
-                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                        right=cohort_query_node(node.right, context=self.context),
                     )
                 )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
+
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(node.left)
+            and self._is_s3_cluster(node.right)
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
             if isinstance(node.type.table_type, ast.TableAliasType):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
@@ -566,6 +613,8 @@ class Resolver(CloningVisitor):
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
         if (
             isinstance(node, ast.SelectQuery)
             and node.select_from

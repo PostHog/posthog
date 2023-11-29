@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+./bin/migrate-check
+
 # To ensure we are able to expose metrics from multiple processes, we need to
 # provide a directory for `prometheus_client` to store a shared registry.
 export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)

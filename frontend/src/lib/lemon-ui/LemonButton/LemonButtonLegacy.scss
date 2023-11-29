@@ -1,5 +1,6 @@
 body:not(.posthog-3000) {
-    .LemonButton {
+    .LemonButton,
+    .Link.LemonButton {
         --lemon-button-height: 2.5rem;
 
         min-height: var(--lemon-button-height);
@@ -25,7 +26,7 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--small,
-        .Breadcrumbs3000 & {
+        .TopBar3000 & {
             --lemon-button-height: 2rem;
 
             padding: 0.125rem 0.5rem;
@@ -139,6 +140,7 @@ body:not(.posthog-3000) {
                 }
 
                 // Primary - blocked color style
+                &.LemonButton--onboarding,
                 &.LemonButton--primary {
                     color: #fff;
 

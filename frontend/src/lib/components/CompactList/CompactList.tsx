@@ -31,7 +31,10 @@ export function CompactList({
                 </h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
-            <LemonDivider className="my-0 mx-2" />
+            <div className="mx-2">
+                {/* This divider has to be within a div, because otherwise horizontal margin ADDS to the width */}
+                <LemonDivider className="my-0" />
+            </div>
             <div className="CompactList__content">
                 {loading ? (
                     <div className="p-2 space-y-6">

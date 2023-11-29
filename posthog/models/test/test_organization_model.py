@@ -98,9 +98,6 @@ class TestOrganizationMembership(BaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "membership level changed",
-            properties={
-                "new_level": 15,
-                "previous_level": 1,
-            },
+            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
             groups=mock.ANY,
         )

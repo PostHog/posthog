@@ -9,6 +9,8 @@ import { SidePanelTab } from '~/types'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
+const SECRET_TABS = [SidePanelTab.Settings, SidePanelTab.FeaturePreviews, SidePanelTab.Welcome]
+
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect({
@@ -19,6 +21,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             activationLogic,
             ['isReady', 'hasCompletedAllTasks'],
+            sidePanelStateLogic,
+            ['selectedTab', 'sidePanelOpen'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel']],
     }),
@@ -67,18 +71,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Activation)
                 tabs.push(SidePanelTab.Welcome)
 
+                if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
+                    tabs.push(SidePanelTab.FeaturePreviews)
+                }
+
                 return tabs
             },
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                sidePanelStateLogic.selectors.selectedTab,
-                sidePanelStateLogic.selectors.sidePanelOpen,
-                s.isReady,
-                s.hasCompletedAllTasks,
-            ],
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
             (enabledTabs, selectedTab, sidePanelOpen, isReady, hasCompletedAllTasks): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {
@@ -86,7 +88,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     // Hide certain tabs unless they are selected
-                    if ([SidePanelTab.Settings, SidePanelTab.Welcome].includes(tab)) {
+                    if (SECRET_TABS.includes(tab)) {
                         return false
                     }
 

@@ -1,10 +1,12 @@
 from typing import List, Optional, Union, Any
+from posthog.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+from posthog.schema import ChartDisplayType
 
 
 class BreakdownValues:
@@ -13,9 +15,10 @@ class BreakdownValues:
     breakdown_field: Union[str, float]
     breakdown_type: str
     query_date_range: QueryDateRange
+    events_filter: ast.Expr
+    chart_display_type: ChartDisplayType
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
-    events_filter: ast.Expr
 
     def __init__(
         self,
@@ -25,6 +28,7 @@ class BreakdownValues:
         query_date_range: QueryDateRange,
         breakdown_type: str,
         events_filter: ast.Expr,
+        chart_display_type: ChartDisplayType,
         histogram_bin_count: Optional[float] = None,
         group_type_index: Optional[float] = None,
     ):
@@ -34,6 +38,7 @@ class BreakdownValues:
         self.query_date_range = query_date_range
         self.breakdown_type = breakdown_type
         self.events_filter = events_filter
+        self.chart_display_type = chart_display_type
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
@@ -75,10 +80,16 @@ class BreakdownValues:
                 ORDER BY
                     count DESC,
                     value DESC
+                LIMIT {breakdown_limit}
             """,
             placeholders={
                 "events_where": self.events_filter,
                 "select_field": select_field,
+                "breakdown_limit": ast.Constant(
+                    value=BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+                    if self.chart_display_type == ChartDisplayType.WorldMap
+                    else BREAKDOWN_VALUES_LIMIT
+                ),
             },
         )
 

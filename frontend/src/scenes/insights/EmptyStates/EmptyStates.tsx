@@ -8,7 +8,6 @@ import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { SupportModal } from 'lib/components/Support/SupportModal'
 import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -118,13 +117,12 @@ export function InsightTimeoutState({
                                 breakdowns. If you're still having issues,{' '}
                                 <Link
                                     onClick={() => {
-                                        openSupportForm('bug', 'analytics')
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                     }}
                                 >
                                     let us know
                                 </Link>
                                 .
-                                <SupportModal />
                             </>
                         )}
                     </p>
@@ -170,7 +168,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                 <Link
                                     data-attr="insight-error-bug-report"
                                     onClick={() => {
-                                        openSupportForm('bug', 'analytics')
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                     }}
                                 >
                                     If this persists, submit a bug report.
@@ -318,13 +316,12 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <div className="flex justify-center">
                         <Link to={urls.insightNew()}>
                             <LemonButton
-                                size="large"
                                 type="primary"
                                 data-attr="add-insight-button-empty-state"
                                 icon={<PlusCircleOutlined />}
                                 className="add-insight-button"
                             >
-                                New Insight
+                                New insight
                             </LemonButton>
                         </Link>
                     </div>

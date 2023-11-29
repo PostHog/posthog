@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
     series_event_name,
@@ -130,6 +131,7 @@ class Breakdown:
                 breakdown_type=self.query.breakdown.breakdown_type,
                 query_date_range=self.query_date_range,
                 events_filter=self.events_filter,
+                chart_display_type=self._trends_display().display_type,
                 histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
                 group_type_index=self.query.breakdown.breakdown_group_type_index,
             )
@@ -191,3 +193,11 @@ class Breakdown:
             breakdown_field=self.query.breakdown.breakdown,
             group_type_index=self.query.breakdown.breakdown_group_type_index,
         )
+
+    def _trends_display(self) -> TrendsDisplay:
+        display = (
+            self.query.trendsFilter.display
+            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            else None
+        )
+        return TrendsDisplay(display)

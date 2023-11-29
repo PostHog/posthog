@@ -3,7 +3,7 @@
     gap: 0.25rem;
     align-items: center;
     justify-content: center;
-    min-height: 2.5rem;
+    height: 2.5rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -14,6 +14,10 @@
     background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    .posthog-3000 & {
+        height: calc(2.125rem + 3px); // Medium size button height + button shadow height
+    }
 
     &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-3000-hover);
@@ -27,7 +31,7 @@
         border-color: var(--primary-3000);
 
         .posthog-3000 & {
-            border-color: var(--border-bold);
+            border-color: var(--border-active);
         }
     }
 
@@ -58,13 +62,13 @@
         flex-shrink: 0;
         width: 1em;
         height: 1em;
-        font-size: 1.5rem;
+        font-size: 1.25rem;
         color: var(--muted-alt);
         transition: color 200ms ease;
     }
 
     &.LemonInput--small {
-        min-height: 2rem;
+        height: 2rem;
         padding: 0.125rem 0.25rem;
 
         .LemonIcon {
