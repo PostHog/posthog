@@ -54,11 +54,11 @@
 
     h5 {
         margin-bottom: 0;
+        overflow: hidden;
         line-height: 1rem;
         color: var(--muted);
-        white-space: nowrap;
         text-overflow: ellipsis;
-        overflow: hidden;
+        white-space: nowrap;
     }
 
     h4 {
