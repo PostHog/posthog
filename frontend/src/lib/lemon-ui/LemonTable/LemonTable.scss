@@ -310,7 +310,7 @@
     border-top: 1px solid var(--border);
 }
 
-// NOTE: this is outside of the storbook check for 3000 selective styling
+// NOTE: this is outside of the storybook check for 3000 selective styling
 .LemonTable__cell--sticky::before {
     background: var(--lemon-table-background-color);
 }
