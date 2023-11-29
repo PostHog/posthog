@@ -136,6 +136,7 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot",
@@ -145,6 +146,7 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot",
@@ -158,6 +160,7 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
                 },
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
     ]
 
@@ -196,6 +199,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot",
@@ -205,6 +209,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
     ] + [
         {
@@ -237,6 +242,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                     }
                 ],
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot_items",
@@ -249,6 +255,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                     {"type": 3, "timestamp": 1546300800000},
                 ],
             },
+            "distinct_id": "abc123",
         },
     ]
 
@@ -278,6 +285,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 },
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot",
@@ -291,6 +299,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 },
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
     ]
     assert list(mock_capture_flow(events, max_size_bytes=2000)[1]) == [
@@ -323,6 +332,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 ],
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
     ]
 
@@ -356,6 +366,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                 "$snapshot_data": [small_event, small_event],
                 "distinct_id": "abc123",
             },
+            # NB supports events without a top level distinct id even though that is invalid
         },
         {
             "event": "$snapshot",
@@ -366,6 +377,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                 "$snapshot_data": [almost_too_big_event],
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
         {
             "event": "$snapshot",
@@ -376,6 +388,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                 "$snapshot_data": [small_event, small_event, small_event],
                 "distinct_id": "abc123",
             },
+            "distinct_id": "abc123",
         },
     ]
 

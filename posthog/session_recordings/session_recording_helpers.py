@@ -121,7 +121,7 @@ def preprocess_replay_events(
 
     size_with_headroom = max_size_bytes * 0.95  # Leave 5% headroom
 
-    distinct_id = events[0]["distinct_id"]
+    distinct_id = events[0].get("distinct_id", events[0]["properties"]["distinct_id"])
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
