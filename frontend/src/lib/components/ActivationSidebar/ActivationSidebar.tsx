@@ -1,13 +1,16 @@
+import './ActivationSidebar.scss'
+
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from '@posthog/lemon-ui'
+import { Progress } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { activationLogic, ActivationTaskType } from './activationLogic'
-import './ActivationSidebar.scss'
-import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from 'lib/lemon-ui/icons'
-import { ProfessorHog } from '../hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+
+import { ProfessorHog } from '../hedgehogs'
+import { activationLogic, ActivationTaskType } from './activationLogic'
 
 export const ActivationTask = ({
     id,

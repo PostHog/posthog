@@ -1,4 +1,16 @@
+import { eventWithTime } from '@rrweb/types'
+import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { getKeyMapping } from 'lib/taxonomy'
+import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -7,20 +19,10 @@ import {
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
-import type { playerInspectorLogicType } from './playerInspectorLogicType'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import FuseClass from 'fuse.js'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { getKeyMapping } from 'lib/taxonomy'
-import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
-import { eventWithTime } from '@rrweb/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 

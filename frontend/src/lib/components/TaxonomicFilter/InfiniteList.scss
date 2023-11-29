@@ -1,12 +1,12 @@
 .taxonomic-infinite-list {
-    min-height: 200px;
     flex-grow: 1;
+    min-height: 200px;
 
     &.empty-infinite-list {
-        width: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
+        width: 100%;
 
         .no-infinite-results {
             color: #666;
@@ -17,8 +17,8 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        color: var(--default);
         padding: 4px 12px;
+        color: var(--default);
         cursor: pointer;
         border: none;
 
@@ -28,16 +28,16 @@
             user-select: none;
 
             .taxonomic-list-row-contents-icon {
-                min-width: 30px;
                 display: flex;
-                font-size: 1.25rem;
                 justify-content: center;
+                min-width: 30px;
                 margin-right: 4px;
                 margin-left: -4px;
+                font-size: 1.25rem;
 
                 svg.taxonomy-icon {
-                    vertical-align: middle;
                     flex-shrink: 0;
+                    vertical-align: middle;
 
                     &.taxonomy-icon-muted {
                         color: var(--muted-alt);
@@ -48,7 +48,7 @@
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--primary);
+                        color: var(--primary-3000);
                     }
                 }
             }
@@ -59,15 +59,19 @@
 
             & > span {
                 max-width: 100%;
-                white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                white-space: nowrap;
             }
         }
 
         &.hover {
             background-color: var(--primary-bg-hover);
             border-radius: var(--radius);
+
+            .posthog-3000 & {
+                background-color: var(--bg-3000);
+            }
         }
 
         &.selected {
@@ -82,7 +86,7 @@
         }
 
         &.expand-row {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 }

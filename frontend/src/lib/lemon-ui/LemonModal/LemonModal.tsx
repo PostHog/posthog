@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import Modal from 'react-modal'
+import './LemonModal.scss'
 
+import clsx from 'clsx'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useEffect, useRef, useState } from 'react'
+import Modal from 'react-modal'
 
-import './LemonModal.scss'
-import { Tooltip } from '../Tooltip'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+import { Tooltip } from '../Tooltip'
 
 interface LemonModalInnerProps {
     children?: React.ReactNode

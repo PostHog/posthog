@@ -1,6 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 interface LemonEventNamePropsWithoutAllEvents {
     value: string
@@ -38,6 +38,7 @@ export function LemonEventName({
             renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}
             allowClear={allEventsOption === 'clear'}
             excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
+            size="small"
         />
     )
 }

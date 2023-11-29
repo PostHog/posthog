@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonTag as LemonTagComponent, LemonTagType } from './LemonTag'
 
 type Story = StoryObj<typeof LemonTagComponent>
@@ -6,6 +7,11 @@ const meta: Meta<typeof LemonTagComponent> = {
     title: 'Lemon UI/Lemon Tag',
     component: LemonTagComponent,
     tags: ['autodocs'],
+    parameters: {
+        testOptions: {
+            include3000: true,
+        },
+    },
 }
 export default meta
 

@@ -1,12 +1,13 @@
-import { kea, path, connect, listeners, actions, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { SSOProvider } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { handleLoginRedirect } from './loginLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { SSOProvider } from '~/types'
 
 import type { login2FALogicType } from './login2FALogicType'
+import { handleLoginRedirect } from './loginLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -66,7 +67,7 @@ export const login2FALogic = kea<login2FALogicType>([
                     : null,
             }),
             submit: async ({ token }, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     return await api.create('api/login/token', { token })
                 } catch (e) {

@@ -1,40 +1,42 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
+
 import {
-    InsightQueryNode,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    StickinessQuery,
+    InsightQueryNode,
     LifecycleQuery,
     NodeKind,
     PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
 } from '~/queries/schema'
 import {
-    TrendsFilterType,
-    RetentionFilterType,
-    FunnelsFilterType,
-    PathsFilterType,
-    StickinessFilterType,
-    LifecycleFilterType,
     ActionFilter,
     BaseMathType,
+    BreakdownAttributionType,
     ChartDisplayType,
     FilterLogicalOperator,
     FilterType,
+    FunnelConversionWindowTimeUnit,
+    FunnelPathType,
+    FunnelsFilterType,
+    FunnelStepReference,
+    FunnelVizType,
+    GroupMathType,
     InsightType,
+    LifecycleFilterType,
+    PathsFilterType,
+    PathType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
-    FunnelVizType,
-    FunnelStepReference,
-    BreakdownAttributionType,
-    FunnelConversionWindowTimeUnit,
-    StepOrderValue,
-    PathType,
-    FunnelPathType,
+    RetentionFilterType,
     RetentionPeriod,
-    GroupMathType,
+    StepOrderValue,
+    StickinessFilterType,
+    TrendsFilterType,
 } from '~/types'
+
 import {
     actionsAndEventsToSeries,
     cleanHiddenLegendIndexes,
@@ -510,6 +512,55 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
                     toggledLifecycles: ['new', 'dormant'],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+    })
+
+    describe('malformed properties', () => {
+        it('converts properties', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'event',
+                                type: PropertyFilterType.Event,
+                                value: 'value',
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'event',
+                                    type: PropertyFilterType.Event,
+                                    value: 'value',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
                 },
                 series: [],
             }

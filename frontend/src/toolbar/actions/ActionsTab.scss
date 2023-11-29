@@ -1,49 +1,14 @@
-.action-block-body {
-    form {
-        .form-error {
-            color: var(--danger);
-        }
-    }
-}
-
-.action-section {
-    &.highlight {
-        background: hsl(228deg 14% 96% / 100%);
-
-        &:nth-child(even) {
-            background: white;
-
-            &:last-child {
-                padding-bottom: 10px;
-            }
-        }
-    }
-}
-
 .action-field {
     transition: opacity 0.5s;
 
     .action-field-hint {
-        font-size: 12px;
         margin-top: 4px;
+        font-size: 12px;
     }
 
     .action-field-caption {
+        padding: 8px 0;
         font-size: 0.8em;
         color: rgb(0 0 0 / 50%);
-        padding: 8px 0;
-    }
-}
-
-.ActionsListItem {
-    border-bottom: 1px solid #e8e8e8;
-    transition: background-color 0.5s;
-
-    &:hover {
-        background: #f0f0f0;
-    }
-
-    &:last-child {
-        border-bottom: none;
     }
 }

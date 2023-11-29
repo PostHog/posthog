@@ -2,10 +2,12 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
 const Insight123 = '123' as InsightShortId

@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { DataWarehouseTable, ProductKey } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 
-import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import { DataWarehouseTable, ProductKey } from '~/types'
+
 import { DataWarehouseSceneRow } from '../types'
+import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),

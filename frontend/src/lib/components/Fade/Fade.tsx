@@ -1,4 +1,5 @@
 import './Fade.scss'
+
 import { useEffect, useState } from 'react'
 
 export function Fade({

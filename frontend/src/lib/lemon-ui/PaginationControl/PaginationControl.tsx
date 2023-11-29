@@ -1,8 +1,10 @@
+import './PaginationControl.scss'
+
+import clsx from 'clsx'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './PaginationControl.scss'
+
 import { PaginationState } from './types'
-import clsx from 'clsx'
 
 export interface PaginationControlProps<T> extends PaginationState<T> {
     nouns?: [string, string]

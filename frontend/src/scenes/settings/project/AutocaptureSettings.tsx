@@ -1,17 +1,18 @@
-import { useValues, useActions } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { autocaptureExceptionsLogic } from './autocaptureExceptionsLogic'
 
 export function AutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportIngestionAutocaptureToggled } = useActions(eventUsageLogic)
+    const { reportAutocaptureToggled } = useActions(eventUsageLogic)
 
     return (
         <>
@@ -33,7 +34,7 @@ export function AutocaptureSettings(): JSX.Element {
                         updateCurrentTeam({
                             autocapture_opt_out: !checked,
                         })
-                        reportIngestionAutocaptureToggled(!checked)
+                        reportAutocaptureToggled(!checked)
                     }}
                     checked={!currentTeam?.autocapture_opt_out}
                     disabled={userLoading}
@@ -49,7 +50,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportIngestionAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
+    const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
     const { errorsToIgnoreRules, rulesCharacters } = useValues(autocaptureExceptionsLogic)
     const { setErrorsToIgnoreRules } = useActions(autocaptureExceptionsLogic)
@@ -62,7 +63,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                     updateCurrentTeam({
                         autocapture_exceptions_opt_in: checked,
                     })
-                    reportIngestionAutocaptureExceptionsToggled(checked)
+                    reportAutocaptureExceptionsToggled(checked)
                 }}
                 checked={!!currentTeam?.autocapture_exceptions_opt_in}
                 disabled={userLoading}
@@ -81,7 +82,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <p>
                 You can enter a regular expression that matches values of{' '}
                 <PropertyKeyInfo value={'$exception_message'} /> here to ignore them. One per line. For example, if you
-                want to drop all errors that contain the word "bot", or you can enter "bot" here. Or if you want to drop
+                want to drop all errors that contain the word "bot", you can enter "bot" here. Or if you want to drop
                 all errors that are exactly "bot", you can enter "^bot$".
             </p>
             <p>Only up to 300 characters of config are allowed here.</p>

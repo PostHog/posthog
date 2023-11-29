@@ -8,7 +8,7 @@ aioboto3==11.1
     # via -r requirements.in
 aiobotocore[boto3]==2.5.0
     # via aioboto3
-aiohttp==3.8.5
+aiohttp==3.9.0
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -90,7 +90,6 @@ chardet==5.1.0
     # via prance
 charset-normalizer==2.1.0
     # via
-    #   aiohttp
     #   requests
     #   snowflake-connector-python
 click==8.1.7

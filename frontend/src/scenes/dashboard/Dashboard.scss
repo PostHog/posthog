@@ -3,24 +3,24 @@
 .dashboard-header {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 1rem;
     width: 100%;
+    margin-bottom: 1rem;
 
     &.full-screen {
         margin-top: 1rem;
     }
 
     .dashboard-meta {
-        white-space: nowrap;
         display: flex;
         align-items: center;
+        white-space: nowrap;
 
         .ant-btn {
+            margin-left: 10px;
+
             .anticon {
                 vertical-align: baseline;
             }
-
-            margin-left: 10px;
 
             &.button-box {
                 padding: 4px 8px;
@@ -32,8 +32,16 @@
         flex-direction: column;
 
         .dashboard-meta {
-            padding-top: 1rem;
             justify-content: flex-end;
+            padding-top: 1rem;
         }
+    }
+}
+
+.DashboardTemplates__option {
+    border: 1px solid var(--border);
+
+    &:hover {
+        border-color: var(--primary-3000-hover);
     }
 }

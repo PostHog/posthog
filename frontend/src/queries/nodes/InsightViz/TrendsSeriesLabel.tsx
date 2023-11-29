@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { EditorFilterProps } from '~/types'
-import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { IconCalculate } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { EditorFilterProps } from '~/types'
 
 export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
     const { hasFormula, isTrends, display, series } = useValues(insightVizDataLogic(insightProps))

@@ -1,8 +1,9 @@
+import './LemonTag.scss'
+
 import clsx from 'clsx'
 import { IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
-import './LemonTag.scss'
 
 export type LemonTagType =
     | 'primary'
@@ -16,6 +17,7 @@ export type LemonTagType =
     | 'completion'
     | 'caution'
     | 'none'
+    | 'breakdown'
 
 export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagType
@@ -71,6 +73,7 @@ export function LemonTag({
                     icon={<IconClose className="h-3.5 w-3.5" />}
                     onClick={onClose}
                     status="primary"
+                    size="xsmall"
                     className="LemonTag__right-button"
                 />
             )}

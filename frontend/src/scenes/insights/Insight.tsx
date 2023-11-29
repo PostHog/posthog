@@ -1,17 +1,20 @@
 import './Insight.scss'
-import { useEffect } from 'react'
+
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
+import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightLogic } from './insightLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+
+import { Query } from '~/queries/Query/Query'
+import { Node } from '~/queries/schema'
+import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { InsightShortId, ItemMode } from '~/types'
+
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
-import { InsightShortId, ItemMode } from '~/types'
+import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { Query } from '~/queries/Query/Query'
-import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { Node } from '~/queries/schema'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }

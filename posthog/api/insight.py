@@ -21,7 +21,6 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -32,6 +31,7 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -43,7 +43,6 @@ from posthog.caching.fetch_from_cache import (
     synchronously_update_cache,
 )
 from posthog.caching.insights_api import should_refresh_insight
-from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     INSIGHT,
@@ -59,6 +58,8 @@ from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
+from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -95,7 +96,6 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -521,6 +521,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard = self.context.get("dashboard", None)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
+
+        if hogql_insights_enabled(self.context.get("request", None).user) and is_insight_with_hogql_support(
+            target or insight
+        ):
+            return process_insight(target or insight, insight.team)
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
@@ -1034,11 +1039,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     def cancel(self, request: request.Request, **kwargs):
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
-        sync_execute(
-            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
-            {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
-        )
-        statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": self.team.pk})
+        cancel_query_on_cluster(team_id=self.team.pk, client_query_id=request.data["client_query_id"])
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)

@@ -1,8 +1,10 @@
-import { LemonCalendar } from './LemonCalendar'
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
 import { dayjs } from 'lib/dayjs'
+
+import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
+
+import { LemonCalendar } from './LemonCalendar'
 
 describe('LemonCalendar', () => {
     test('click and move between months with one month showing', async () => {
