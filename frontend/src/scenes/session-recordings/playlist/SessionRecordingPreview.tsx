@@ -55,6 +55,41 @@ function RecordingDuration({
     )
 }
 
+interface GatheredProperty {
+    property: string
+    value: string | undefined
+    tooltipValue: string
+}
+
+const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const mobileIconPropertyKeys = ['$geoip_country_code', '$app_name', '$device_type', '$os_name']
+
+function gatherIconProperties(
+    recordingProperties: Record<string, any> | undefined,
+    recording: SessionRecordingType
+): GatheredProperty[] {
+    const iconProperties =
+        recordingProperties && Object.keys(recordingProperties).length > 0
+            ? recordingProperties
+            : recording.person?.properties || {}
+
+    const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
+    const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
+
+    return iconPropertyKeys.map((property) => {
+        let value = iconProperties?.[property]
+        if (property === '$device_type') {
+            value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+        }
+
+        let tooltipValue = value
+        if (property === '$geoip_country_code') {
+            tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+        }
+        return { property, value, tooltipValue }
+    })
+}
+
 function ActivityIndicators({
     recording,
     onPropertyClick,
@@ -65,30 +100,14 @@ function ActivityIndicators({
     iconClassnames: string
 }): JSX.Element {
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
-
-    const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
-    const iconProperties =
-        recordingProperties && Object.keys(recordingProperties).length > 0
-            ? recordingProperties
-            : recording.person?.properties || {}
+    const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
             {!loading ? (
-                iconPropertyKeys.map((property) => {
-                    let value = iconProperties?.[property]
-                    if (property === '$device_type') {
-                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                    }
-
-                    let tooltipValue = value
-                    if (property === '$geoip_country_code') {
-                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
-                    }
-
+                iconProperties.map(({ property, value, tooltipValue }) => {
                     return (
                         <PropertyIcon
                             key={property}
@@ -122,11 +141,11 @@ function ActivityIndicators({
             {propertyIcons}
 
             <span
-                title={`Click count: ${recording.click_count}`}
+                title={`Mouse activity: ${recording.mouse_activity_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
                 <IconAutocapture />
-                {recording.click_count}
+                {recording.mouse_activity_count}
             </span>
 
             <span

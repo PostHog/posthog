@@ -51,8 +51,20 @@ export const PROPERTIES_ICON_MAP = {
         ['iOS']: <IconAppleIOS />,
         ['Other']: <IconCogBox />,
     },
+    // some SDKs have $os_name instead of $os
+    $os_name: {
+        ['Mac OS X']: <IconMacOS />,
+        ['Windows']: <IconWindows />,
+        ['Linux']: <IconLinux />,
+        ['Android']: <IconAndroidOS />,
+        ['iOS']: <IconAppleIOS />,
+        ['Other']: <IconCogBox />,
+    },
     $geoip_country_code: {
         ['Other']: <IconWeb />,
+    },
+    $app_name: {
+        ['Other']: <IconPhone />,
     },
 }
 
