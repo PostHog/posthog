@@ -29,8 +29,6 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
-      SETTINGS kafka_skip_broken_messages = 100
-  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
@@ -110,8 +108,6 @@
       
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-  
-      SETTINGS kafka_skip_broken_messages = 100
   
   '
 ---
@@ -727,8 +723,6 @@
       
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-  
-      SETTINGS kafka_skip_broken_messages = 100
   
   '
 ---
