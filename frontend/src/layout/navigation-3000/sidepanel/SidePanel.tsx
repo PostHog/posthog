@@ -148,7 +148,7 @@ export function SidePanel(): JSX.Element | null {
                         )
                     })}
 
-                    <LemonMenu items={menuOptions} closeOnClickInside={false}>
+                    <LemonMenu items={menuOptions}>
                         <LemonButton status="stealth" icon={<IconEllipsis className="rotate-270 w-6" />} />
                     </LemonMenu>
                 </div>
