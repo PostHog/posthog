@@ -57,7 +57,12 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build unit image
+            - name: Build and cache Docker image in Depot
+              uses: ./.github/actions/build-n-cache-image
+              with:
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}              
+
+            - name: Build pr test image
               id: build-unit
               uses: depot/build-push-action@v1
               with:
