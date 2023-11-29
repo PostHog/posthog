@@ -1,14 +1,7 @@
 .LemonTable {
     --row-base-height: 3rem;
     --row-horizontal-padding: 1rem;
-
     --lemon-table-background-color: var(--bg-table);
-
-    .WebAnalyticsDashboard &,
-    .Insight & {
-        // Special override for WebAnalytics
-        --lemon-table-background-color: var(--bg-light);
-    }
 
     position: relative;
     flex: 1;
@@ -17,6 +10,12 @@
     background: var(--lemon-table-background-color);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    .WebAnalyticsDashboard &,
+    .Insight & {
+        // Special override for WebAnalytics
+        --lemon-table-background-color: var(--bg-light);
+    }
 
     .posthog-3000 & {
         --row-base-height: auto;
