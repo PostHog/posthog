@@ -20,7 +20,8 @@
         padding: 0;
         cursor: pointer;
         background-color: transparent;
-        border-radius: 6px;
+
+        // border-radius: 6px;
         outline: none;
         transition: var(--transition);
 
@@ -44,7 +45,8 @@
             border-color: transparent;
             border-style: solid;
             border-width: var(--lemon-button-border-width);
-            border-radius: 6px;
+
+            // border-radius: var(--radius);
             transition: var(--transition);
 
             .LemonButton__icon {
@@ -175,7 +177,7 @@
                     z-index: 0;
                     content: '';
                     border: 1px solid var(--button-border-color);
-                    border-radius: 6px;
+                    border-radius: var(--radius);
                 }
 
                 &::after {
