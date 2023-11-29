@@ -83,8 +83,9 @@ def execute_process_query(
     query_status.error = True  # Assume error in case nothing below ends up working
 
     pickup_time = datetime.datetime.utcnow()
-    pickup_duration = (pickup_time - query_status.start_time).total_seconds()
-    QUERY_WAIT_TIME.observe(pickup_duration)
+    if query_status.start_time:
+        pickup_duration = (pickup_time - query_status.start_time).total_seconds()
+        QUERY_WAIT_TIME.observe(pickup_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
