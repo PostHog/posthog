@@ -39,12 +39,12 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
-    # deploy_preview:
-    #     name: Deploy preview environment
-    #     uses: ./.github/workflows/pr-deploy.yml
-    #     needs: [posthog_build]
-    #     secrets: inherit
-    #     if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+    deploy_preview:
+        name: Deploy preview environment
+        uses: ./.github/workflows/pr-deploy.yml
+        needs: [posthog_build]
+        secrets: inherit
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
 
     lint:
         name: Lint changed Dockerfiles

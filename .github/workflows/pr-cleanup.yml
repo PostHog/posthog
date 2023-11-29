@@ -4,7 +4,7 @@ name: PR - Preview Deploy Cleanup
 
 on:
     pull_request:
-        # types: [closed]
+        types: [closed]
 
 jobs:
     deploy_preview_cleanup:
