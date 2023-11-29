@@ -10,12 +10,22 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
+import { query as performQuery } from '~/queries/query'
+import { InsightPersonsQuery, NodeKind, PersonsQuery } from '~/queries/schema'
+import {
+    ActorType,
+    BreakdownType,
+    ChartDisplayType,
+    IntervalType,
+    PersonActorType,
+    PropertiesTimelineFilterType,
+} from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
 
 export interface PersonModalLogicProps {
-    url: string
+    query?: InsightPersonsQuery | null
+    url?: string | null
 }
 
 export interface ListActorsResponse {
@@ -25,6 +35,14 @@ export interface ListActorsResponse {
     }[]
     missing_persons?: number
     next?: string
+}
+
+export function wrapInsightsPersonsQuery(query: InsightPersonsQuery): PersonsQuery {
+    return {
+        kind: NodeKind.PersonsQuery,
+        source: query,
+        select: ['person', 'groupArray(3)(pdi.distinct_id)'],
+    }
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -46,19 +64,56 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, clear }: { url: string; clear?: boolean }) => {
-                    url += '&include_recordings=true'
+                loadActors: async ({
+                    url,
+                    query,
+                    clear,
+                }: {
+                    url?: string | null
+                    query?: InsightPersonsQuery | null
+                    clear?: boolean
+                }) => {
+                    if (url) {
+                        url += '&include_recordings=true'
 
-                    if (values.searchTerm) {
-                        url += `&search=${values.searchTerm}`
+                        if (values.searchTerm) {
+                            url += `&search=${values.searchTerm}`
+                        }
+
+                        const res = await api.get(url)
+
+                        if (clear) {
+                            actions.resetActors()
+                        }
+                        return res
+                    } else if (query) {
+                        const response = await performQuery(wrapInsightsPersonsQuery(query))
+                        const newResponse: ListActorsResponse = {
+                            results: [
+                                {
+                                    count: response.results.length,
+                                    people: response.results.map(
+                                        (result): PersonActorType => ({
+                                            type: 'person',
+                                            id: result[0].id,
+                                            uuid: result[0].id,
+                                            distinct_ids: result[1],
+                                            is_identified: result[0].is_identified,
+                                            properties: result[0].properties,
+                                            created_at: result[0].created_at,
+                                            matched_recordings: [],
+                                            value_at_data_point: null,
+                                        })
+                                    ),
+                                },
+                            ],
+                        }
+                        if (clear) {
+                            actions.resetActors()
+                        }
+                        return newResponse
                     }
-
-                    const res = await api.get(url)
-
-                    if (clear) {
-                        actions.resetActors()
-                    }
-                    return res
+                    return null
                 },
             },
         ],
@@ -106,7 +161,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     listeners(({ actions, props }) => ({
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
-            actions.loadActors({ url: props.url, clear: true })
+            actions.loadActors({ query: props.query, url: props.url, clear: true })
         },
         saveCohortWithUrl: async ({ cohortName }) => {
             const cohortParams = {
@@ -114,7 +169,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 name: cohortName,
             }
 
-            const qs = props.url.split('?').pop() || ''
+            const qs = props.url?.split('?').pop() || ''
             const cohort = await api.create('api/cohort?' + qs, cohortParams)
             cohortsModel.actions.cohortCreated(cohort)
             lemonToast.success('Cohort saved', {
@@ -144,7 +199,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         propertiesTimelineFilterFromUrl: [
-            (_, p) => [p.url],
+            () => [(_, p) => p.url],
             (url): PropertiesTimelineFilterType => {
                 // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
                 const params = new URLSearchParams(url.split('?')[1])
@@ -172,10 +227,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ url: props.url })
+        actions.loadActors({ query: props.query, url: props.url })
 
         actions.reportPersonsModalViewed({
             url: props.url,
+            query: props.query,
             // TODO: parse qs
         })
     }),

@@ -25,6 +25,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
+import { InsightPersonsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -33,11 +34,12 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { personsModalLogic } from './personsModalLogic'
+import { personsModalLogic, wrapInsightsPersonsQuery } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
+    query?: InsightPersonsQuery | null
     url?: string | null
     urlsIndex?: number
     urls?: {
@@ -51,6 +53,7 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
+    query,
     title,
     onAfterClose,
     inline,
@@ -60,6 +63,7 @@ export function PersonsModal({
 
     const logic = personsModalLogic({
         url: originalUrl,
+        query: query,
     })
 
     const {
@@ -187,9 +191,9 @@ export function PersonsModal({
                             onClick={() => {
                                 void triggerExport({
                                     export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: originalUrl,
-                                    },
+                                    export_context: query
+                                        ? { source: wrapInsightsPersonsQuery(query) as Record<string, any> }
+                                        : { path: originalUrl },
                                 })
                             }}
                             data-attr="person-modal-download-csv"
