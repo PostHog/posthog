@@ -2,20 +2,18 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { EventsScene } from 'scenes/events/EventsScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { eventsSceneLogic } from './eventsSceneLogic'
+
 export const scene: SceneExport = {
     component: Events,
-    // TODO!
-    // NOTE: Removing the lines below because turbo mode messes up having two separate versions of this scene.
-    //       It's a small price to pay. Put this back when the flag is removed.
-    // logic: eventsTableLogic,
-    // paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
+    logic: eventsSceneLogic,
 }
 
 export function Events(): JSX.Element {
     return (
         <>
             <PageHeader title={'Event explorer'} />
-            <div className="pt-4 border-t" />
+            <div className="non-3000 pt-4 border-t" />
             <EventsScene />
         </>
     )

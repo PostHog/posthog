@@ -228,7 +228,13 @@ def _entities(filter: Dict):
 
 
 def _sampling_factor(filter: Dict):
-    return {"samplingFactor": filter.get("sampling_factor")}
+    if isinstance(filter.get("sampling_factor"), str):
+        try:
+            return float(filter.get("sampling_factor"))
+        except (ValueError, TypeError):
+            return {}
+    else:
+        return {"samplingFactor": filter.get("sampling_factor")}
 
 
 def _filter_test_accounts(filter: Dict):

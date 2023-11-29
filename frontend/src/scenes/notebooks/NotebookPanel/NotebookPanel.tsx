@@ -7,7 +7,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
-import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPane'
+import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { NotebookTarget } from '~/types'
 
 import { Notebook } from '../Notebook/Notebook'

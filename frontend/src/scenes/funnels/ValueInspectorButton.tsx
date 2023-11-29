@@ -21,6 +21,7 @@ export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButton
             onMouseLeave={onMouseLeave}
             className="funnel-inspect-button"
             title={title}
+            subtle
         >
             {children}
         </Link>

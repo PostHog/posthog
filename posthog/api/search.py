@@ -38,7 +38,7 @@ ENTITY_MAP = {
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
-        "extra_fields": ["title", "text_content"],
+        "extra_fields": ["title", "content"],
     },
     "action": {
         "klass": Action,
@@ -92,7 +92,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),  # type: ignore
-                extra_fields=entity_meta.get("extra_fields"),
+                extra_fields=entity_meta.get("extra_fields"),  # type: ignore
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
@@ -156,6 +156,7 @@ def class_queryset(
         )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
+        qs.annotate(rank=F("rank"))
 
     # specify fields to fetch
     qs = qs.values(*values)

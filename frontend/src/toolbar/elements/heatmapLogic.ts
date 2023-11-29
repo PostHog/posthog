@@ -8,9 +8,9 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 
 import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
+import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
@@ -23,9 +23,10 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
-    connect(() => ({
-        values: [toolbarLogic, ['apiURL']],
-    })),
+    connect({
+        values: [toolbarConfigLogic, ['apiURL'], currentPageLogic, ['href', 'wildcardHref']],
+        actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
+    }),
     actions({
         getElementStats: (url?: string | null) => ({
             url,
@@ -90,7 +91,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
-                    const { href, wildcardHref } = currentPageLogic.values
+                    const { href, wildcardHref } = values
                     let defaultUrl: string = ''
                     if (!url) {
                         const params: Partial<FilterType> = {
@@ -127,7 +128,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     )
 
                     if (response.status === 403) {
-                        toolbarLogic.actions.authenticate()
+                        toolbarConfigLogic.actions.authenticate()
                         return emptyElementsStatsPages
                     }
 
@@ -158,8 +159,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         elements: [
             (selectors) => [
                 selectors.elementStats,
-                toolbarLogic.selectors.dataAttributes,
-                currentPageLogic.selectors.href,
+                toolbarConfigLogic.selectors.dataAttributes,
+                selectors.href,
                 selectors.matchLinksByHref,
             ],
             (elementStats, dataAttributes, href, matchLinksByHref) => {
@@ -242,7 +243,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         countedElements: [
-            (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
+            (selectors) => [selectors.elements, toolbarConfigLogic.selectors.dataAttributes],
             (elements, dataAttributes) => {
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
                 ;(elements || []).forEach((countedElement) => {
@@ -316,13 +317,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.getElementStats(values.elementStats.next)
             }
         },
-        [currentPageLogic.actionTypes.setHref]: () => {
+        setHref: () => {
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
                 actions.getElementStats()
             }
         },
-        [currentPageLogic.actionTypes.setWildcardHref]: async (_, breakpoint) => {
+        setWildcardHref: async (_, breakpoint) => {
             await breakpoint(100)
             if (values.heatmapEnabled) {
                 actions.resetElementStats()

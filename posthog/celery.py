@@ -26,9 +26,9 @@ from prometheus_client import Counter, Gauge
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
+from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.utils import get_crontab
-from posthog.ph_client import get_ph_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -101,7 +101,7 @@ def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
 
     sentry_init()
-    start_http_server(8001)
+    start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
 def add_periodic_task_with_expiry(
@@ -148,11 +148,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # Send all instance usage to the Billing service
+    # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="0", minute="5"),
+        crontab(hour="2", minute="5", day_of_week="sun"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
+    sender.add_periodic_task(
+        crontab(hour="0", minute="5", day_of_week="mon,tue,wed,thu,fri,sat"),
+        send_org_usage_reports.s(),
+        name="send instance usage report",
+    )
+
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(
         crontab(hour="*", minute="30"),
@@ -905,6 +912,7 @@ def debug_task(self):
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from django.db.models import Q
+
     from posthog.models import Team
     from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
@@ -921,6 +929,7 @@ def calculate_decide_usage() -> None:
 @app.task(ignore_result=True)
 def calculate_external_data_rows_synced() -> None:
     from django.db.models import Q
+
     from posthog.models import Team
     from posthog.tasks.warehouse import (
         capture_workspace_rows_synced_by_team,

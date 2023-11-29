@@ -225,7 +225,7 @@ class TestTeamAPI(APIBaseTest):
                 call(
                     self.user.distinct_id,
                     "membership level changed",
-                    properties={"new_level": 8, "previous_level": 1},
+                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
                 call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),

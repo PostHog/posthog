@@ -74,7 +74,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
-                        mode={undefined}
                         data-attr="playlist-name"
                     />
                 }
@@ -147,7 +146,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </>
                 }
             />
-            {playlist.short_id ? (
+            {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
                         filters={playlist.filters}
