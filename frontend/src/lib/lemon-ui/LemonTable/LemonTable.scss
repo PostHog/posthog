@@ -251,6 +251,10 @@
     opacity: 0;
     transition: opacity 200ms ease;
 
+    .posthog-3000 & {
+        background: var(--bg-table);
+    }
+
     .LemonTable--loading & {
         pointer-events: auto;
         opacity: 0.5;
