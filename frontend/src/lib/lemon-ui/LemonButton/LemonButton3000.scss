@@ -100,19 +100,6 @@
             }
         }
 
-        &.LemonButton--onboarding {
-            --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
-            --lemon-button-bg-color-active: var(--lemon-button-bg-color);
-            --button-border-color: var(--primary-3000-button-border);
-            --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
-            --lemon-button-color: var(--text-3000-light);
-
-            .LemonButton__chrome {
-                font-weight: 600;
-            }
-        }
-
         &.LemonButton--primary {
             --lemon-button-bg-color: var(--primary-3000-button-bg);
             --lemon-button-bg-color-active: var(--primary-3000-button-bg);
@@ -121,9 +108,13 @@
             --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
             --lemon-button-color: var(--text-3000-light);
 
-            .LemonButton__chrome {
-                font-weight: 600;
-                background: var(--primary-3000-button-bg);
+            &.LemonButton--status-primary-alt {
+                --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
+                --lemon-button-bg-color-active: var(--lemon-button-bg-color);
+                --button-border-color: var(--primary-3000-button-border);
+                --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
+                --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
+                --lemon-button-color: var(--text-3000-light);
             }
         }
 

@@ -18,7 +18,7 @@ import {
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
-const types: LemonButtonProps['type'][] = ['onboarding', 'primary', 'secondary', 'tertiary']
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
 const meta: Meta<typeof LemonButton> = {
@@ -80,11 +80,11 @@ export const Types3000: Story = () => {
             <h5>type=BLOCK</h5>
             <div className="border rounded">
                 <div className="flex gap-2 flex-wrap p-2">
-                    <LemonButton type={'onboarding'} icon={<IconCalculate />}>
-                        Onboarding
-                    </LemonButton>
                     <LemonButton type={'primary'} icon={<IconCalculate />}>
                         Primary
+                    </LemonButton>
+                    <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                        Primary Alt
                     </LemonButton>
                     <LemonButton type={'secondary'} icon={<IconCalculate />}>
                         Secondary
@@ -99,11 +99,11 @@ export const Types3000: Story = () => {
                 <div className="p-2">
                     <h5>Active</h5>
                     <div className="flex gap-2 flex-wrap">
-                        <LemonButton active type={'onboarding'} icon={<IconCalculate />}>
-                            Onboarding
-                        </LemonButton>
                         <LemonButton active type={'primary'} icon={<IconCalculate />}>
                             Primary
+                        </LemonButton>
+                        <LemonButton active type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                            Primary Alt
                         </LemonButton>
                         <LemonButton active type={'secondary'} icon={<IconCalculate />}>
                             Secondary
@@ -119,11 +119,11 @@ export const Types3000: Story = () => {
                 <div className="p-2 bg-bg-light rounded-b">
                     <h5>Light background</h5>
                     <div className="flex gap-2 flex-wrap">
-                        <LemonButton type={'onboarding'} icon={<IconCalculate />}>
-                            Onboarding
-                        </LemonButton>
                         <LemonButton type={'primary'} icon={<IconCalculate />}>
                             Primary
+                        </LemonButton>
+                        <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                            Primary Alt
                         </LemonButton>
                         <LemonButton type={'secondary'} icon={<IconCalculate />}>
                             Secondary
