@@ -8,7 +8,20 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
-from posthog.temporal.worker import start_worker
+from posthog.temporal.common.worker import start_worker
+
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
+from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS, ACTIVITIES as DATA_SYNC_ACTIVITIES
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE, BATCH_EXPORTS_TASK_QUEUE
+
+WORKFLOWS_DICT = {
+    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS,
+}
+ACTIVITIES_DICT = {
+    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES,
+}
 
 
 class Command(BaseCommand):
@@ -65,6 +78,12 @@ class Command(BaseCommand):
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
 
+        try:
+            workflows = WORKFLOWS_DICT[task_queue]
+            activities = ACTIVITIES_DICT[task_queue]
+        except KeyError:
+            raise ValueError(f"Task queue {task_queue} not found in WORKFLOWS_DICT or ACTIVITIES_DICT")
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
         logging.info(f"Starting Temporal Worker with options: {options}")
@@ -83,5 +102,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
+                workflows=workflows,
+                activities=activities,
             )
         )

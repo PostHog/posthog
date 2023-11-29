@@ -13,7 +13,8 @@
 }
 
 .ProfilePicture {
-    display: flex;
+    position: relative;
+    display: inline-flex;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
@@ -87,6 +88,7 @@
 }
 
 .ProfileBubbles__more {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
