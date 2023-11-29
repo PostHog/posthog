@@ -20,8 +20,6 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v3
-              with:
-                  path: posthog
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -115,11 +113,11 @@ jobs:
                   export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
                   export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
 
-                  envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
+                  envsubst < .github/pr-deploy/hobby.yaml.tmpl > .github/pr-deploy/hobby.yaml
 
                   #Clean and deploy
-                  kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml || true
-                  kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/hobby.yaml
+                  kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
+                  kubectl -n $NAMESPACE apply -f .github/pr-deploy/hobby.yaml
 
                   echo "url=$NAMESPACE-${HOSTNAME}.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
 
