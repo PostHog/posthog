@@ -257,6 +257,7 @@
         top: 1px;
         right: 1px;
         bottom: calc(var(--lemon-button-chrome-depth) + 1px);
+        z-index: 1; // Places button content above the main button
         border-top-right-radius: calc(var(--radius) - 1px);
         border-bottom-right-radius: calc(var(--radius) - 1px);
         transform: none;
@@ -264,12 +265,16 @@
         .LemonButton {
             width: calc(
                 var(--lemon-button-side-action-icon-width) +
-                    var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
+                    var(--lemon-button-padding-adjacent-icon, var(--lemon-button-padding-horizontal))
             );
             height: 100%;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
         }
 
         .LemonButton__chrome {
+            --lemon-button-depth: 0px;
+
             justify-content: center !important;
             padding: 0 !important;
             border: none !important;
