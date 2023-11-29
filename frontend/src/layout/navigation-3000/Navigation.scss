@@ -77,6 +77,10 @@
         overflow-y: auto;
         background: var(--accent-3000);
 
+        .LemonButton__chrome {
+            --lemon-button-horizontal-padding: 0.25rem !important;
+        }
+
         ul {
             padding: 0.5rem 0;
         }

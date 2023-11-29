@@ -146,26 +146,6 @@
             color: #fff !important;
         }
     }
-
-    @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
-        &.LemonButton--status-#{$status} {
-            // Primary - blocked color style
-            &.LemonButton--onboarding,
-            &.LemonButton--primary {
-                color: #fff;
-                background: var(--#{$status}-3000, var(--#{$status}));
-
-                &:not([aria-disabled='true']):hover,
-                &.LemonButton--active {
-                    color: #fff;
-                }
-
-                &:not([aria-disabled='true']):active {
-                    color: #fff;
-                }
-            }
-        }
-    }
 }
 
 .LemonButtonWithSideAction {
