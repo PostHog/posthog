@@ -52,6 +52,8 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    SearchListParams,
+    SearchResponse,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
@@ -459,6 +461,11 @@ class ApiRequest {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
+    }
+
+    // # Search
+    public search(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('search')
     }
 
     // # Annotations
@@ -1223,6 +1230,12 @@ const api = {
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    search: {
+        async list(params: SearchListParams): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
         },
     },
 

@@ -1,21 +1,21 @@
 import { useValues } from 'kea'
 import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 
-import { resultTypeToName } from './constants'
+import { tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 
 export const SearchResultPreview = (): JSX.Element | null => {
-    const { activeResultIndex, filterSearchResults } = useValues(searchBarLogic)
+    const { activeResultIndex, combinedSearchResults } = useValues(searchBarLogic)
 
-    if (!filterSearchResults || filterSearchResults.length === 0) {
+    if (!combinedSearchResults || combinedSearchResults.length === 0) {
         return null
     }
 
-    const result = filterSearchResults[activeResultIndex]
+    const result = combinedSearchResults[activeResultIndex]
 
     return (
         <div className="border bg-bg-light rounded p-6">
-            <div>{resultTypeToName[result.type]}</div>
+            <div>{tabToName[result.type]}</div>
             <div className="text-text-3000 font-bold text-lg">
                 <ResultName result={result} />
             </div>
