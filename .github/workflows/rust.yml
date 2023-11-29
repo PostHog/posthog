@@ -30,7 +30,7 @@ jobs:
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run cargo build
-      run: cargo build --all --locked --release 
+      run: cargo build --all --locked --release
 
   test:
     runs-on: buildjet-4vcpu-ubuntu-2204
@@ -42,6 +42,24 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
           toolchain: stable
+
+    - name: Install rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+          toolchain: stable
+
+    - name: Stop/Start stack with Docker Compose
+      shell: bash
+      run: |
+          docker compose -f docker-compose.dev.yml down
+          docker compose -f docker-compose.dev.yml up -d
+
+    - name: Run migrations
+      shell: bash
+      run: |
+          cargo install sqlx-cli --no-default-features --features native-tls,postgres
+          DATABASE_URL=postgres://posthog:posthog@localhost:15432/test_database sqlx database create
+          DATABASE_URL=postgres://posthog:posthog@localhost:15432/test_database sqlx migrate run
 
     - uses: actions/cache@v3
       with:
@@ -76,7 +94,7 @@ jobs:
 
     - name: Run clippy
       run: cargo clippy -- -D warnings
-        
+
   format:
     runs-on: buildjet-4vcpu-ubuntu-2204
 
