@@ -126,11 +126,11 @@
 
         > tr {
             > th {
-                // box shadow as a border supports sticky headers
-                // Also it needs to be on the th - any higher and safari will not render the shadow
-                box-shadow: inset 0px -1px var(--border);
                 font-weight: 700;
                 text-align: left;
+                // box shadow as a border supports sticky headers
+                // Also it needs to be on the th - any higher and safari will not render the shadow
+                box-shadow: inset 0 -1px var(--border);
 
                 .posthog-3000 & {
                     padding-top: 0.5rem;
@@ -332,11 +332,10 @@ body:not(.storybook-test-runner) {
         &::before {
             position: absolute;
             top: 0;
-            left: 0;
             bottom: 1px; // Leave room for box shadow border
+            left: 0;
             z-index: -1; // Place below cell content
             width: 100%;
-
             clip-path: inset(0 -16px 0 0);
             content: '';
             box-shadow: -16px 0 16px 16px transparent;
