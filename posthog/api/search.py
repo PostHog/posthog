@@ -156,6 +156,7 @@ def class_queryset(
         )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
+        qs.annotate(rank=F("rank"))
 
     # specify fields to fetch
     qs = qs.values(*values)
