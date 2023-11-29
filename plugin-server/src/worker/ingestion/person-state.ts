@@ -8,7 +8,7 @@ import { Counter } from 'prom-client'
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
-import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -519,7 +519,9 @@ export class PersonState {
 
                 let personOverrideMessages: ProducerRecord[] = []
                 if (this.poEEmbraceJoin) {
-                    personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, tx)]
+                    personOverrideMessages = [
+                        await new PersonOverrideWriter(this.db.postgres).addPersonOverride(otherPerson, mergeInto, tx),
+                    ]
                 }
 
                 return [
@@ -544,8 +546,12 @@ export class PersonState {
             .inc()
         return result
     }
+}
 
-    private async addPersonOverride(
+class PersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async addPersonOverride(
         oldPerson: Person,
         overridePerson: Person,
         tx: TransactionClient
@@ -562,7 +568,7 @@ export class PersonState {
         const oldPersonId = await this.addPersonOverrideMapping(oldPerson, tx)
         const overridePersonId = await this.addPersonOverrideMapping(overridePerson, tx)
 
-        await this.db.postgres.query(
+        await this.postgres.query(
             tx,
             SQL`
                 INSERT INTO posthog_personoverride (
@@ -585,7 +591,7 @@ export class PersonState {
 
         // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
         // of the IDs we updated from the mapping table.
-        const { rows: transitiveUpdates } = await this.db.postgres.query(
+        const { rows: transitiveUpdates } = await this.postgres.query(
             tx,
             SQL`
                 WITH updated_ids AS (
@@ -660,7 +666,7 @@ export class PersonState {
         // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
         const {
             rows: [{ id }],
-        } = await this.db.postgres.query(
+        } = await this.postgres.query(
             tx,
             `WITH insert_id AS (
                     INSERT INTO posthog_personoverridemapping(
