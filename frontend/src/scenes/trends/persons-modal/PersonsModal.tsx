@@ -201,7 +201,7 @@ export function PersonsModal({
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                    {actors && actors.length > 0 && !isGroupType(actors[0]) && !query && (
                         <LemonButton
                             onClick={() => setIsCohortModalOpen(true)}
                             type="primary"
