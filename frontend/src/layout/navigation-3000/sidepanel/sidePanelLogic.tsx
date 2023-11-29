@@ -10,7 +10,7 @@ import { notificationsLogic } from './panels/activity/notificationsLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-const SECRET_TABS = [SidePanelTab.Settings, SidePanelTab.FeaturePreviews]
+const SECRET_TABS = [SidePanelTab.Settings, SidePanelTab.FeaturePreviews, SidePanelTab.Activity]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -53,10 +53,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.FeaturePreviews)
                 }
 
-                if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
-                    tabs.push(SidePanelTab.FeaturePreviews)
-                }
-
                 return tabs
             },
         ],
@@ -80,6 +76,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     return true
                 })
+            },
+        ],
+
+        secretTabs: [
+            (s) => [s.enabledTabs, s.visibleTabs],
+            (enabledTabs, visibleTabs): SidePanelTab[] => {
+                return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
     }),

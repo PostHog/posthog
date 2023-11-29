@@ -1,7 +1,15 @@
 import './SidePanel.scss'
 
-import { IconFeatures, IconGear, IconInfo, IconNotebook, IconNotification, IconSupport } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconEllipsis,
+    IconFeatures,
+    IconGear,
+    IconInfo,
+    IconNotebook,
+    IconNotification,
+    IconSupport,
+} from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -60,7 +68,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 }
 
 export function SidePanel(): JSX.Element | null {
-    const { visibleTabs } = useValues(sidePanelLogic)
+    const { visibleTabs, secretTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
@@ -94,6 +102,16 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
+
+    const menuOptions = secretTabs.map((tab) => {
+        const { Icon, label } = SidePanelTabs[tab]
+
+        return {
+            label: label,
+            icon: <Icon />,
+            onClick: () => openSidePanel(tab),
+        }
+    })
 
     return (
         <div
@@ -129,6 +147,10 @@ export function SidePanel(): JSX.Element | null {
                             </LemonButton>
                         )
                     })}
+
+                    <LemonMenu items={menuOptions} closeOnClickInside={false}>
+                        <LemonButton status="stealth" icon={<IconEllipsis className="rotate-270 w-6" />} />
+                    </LemonMenu>
                 </div>
             </div>
             <Resizer {...resizerLogicProps} offset={'3rem'} />
