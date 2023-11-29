@@ -144,9 +144,9 @@ function FeatureFlagCopySection(): JSX.Element {
             <div className="ant-row">Copy your flag and its configuration to another project.</div>
             {hasStaticCohort && (
                 <LemonBanner type="info" className="mt-4">
-                    The flag you are about to copy contains a static cohort. If the cohort with identical name does not
-                    exist in the target project, it will be copied as an empty cohort. This is because the associated
-                    persons might not exist in the target project.
+                    The flag you are about to copy references a static cohort. If the cohort with identical name does
+                    not exist in the target project, it will be copied as an empty cohort. This is because the
+                    associated persons might not exist in the target project.
                 </LemonBanner>
             )}
             <div className="inline-flex gap-4 my-6">
