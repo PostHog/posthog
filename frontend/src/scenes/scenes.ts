@@ -15,17 +15,17 @@ export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
-        name: Scene.Error404,
+        id: Scene.Error404,
         component: Error404Component,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
-        name: Scene.ErrorNetwork,
+        id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
-        name: Scene.ErrorProjectUnavailable,
+        id: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
         sceneParams: emptySceneParams,
     },
