@@ -48,7 +48,7 @@ describe('replay/transform', () => {
         beforeEach(async () => {
             posthogEEModule = await posthogEE()
         })
-        test('can ignore unknown types', () => {
+        test('can process unknown types without error', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
                     {
@@ -62,11 +62,24 @@ describe('replay/transform', () => {
                         type: 4,
                     },
                     { type: 9999 },
+                    {
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12345,
+                                    x: 25,
+                                    y: 42,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'image',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    },
                 ])
-            ).toStrictEqual([
-                { type: 4, data: { href: '', width: 300, height: 600 }, timestamp: 1 },
-                { type: 4, data: { href: 'included when present', width: 300, height: 600 }, timestamp: 1 },
-            ])
+            ).toMatchSnapshot()
         })
 
         test('can ignore unknown wireframe types', () => {
