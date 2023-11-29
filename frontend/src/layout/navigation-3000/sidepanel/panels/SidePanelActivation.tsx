@@ -51,8 +51,8 @@ export const SidePanelActivationIcon = ({ className }: { className: LemonIconPro
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
-        <LemonProgressCircle progress={completionPercent / 100} size={20} className={className}>
-            <span className="text-xs font-bold">{activeTasks.length}</span>
+        <LemonProgressCircle progress={completionPercent / 100} strokePercentage={0.15} size={20} className={className}>
+            <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
     )
 }
