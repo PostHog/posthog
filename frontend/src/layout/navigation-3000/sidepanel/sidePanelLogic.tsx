@@ -53,10 +53,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.FeaturePreviews)
                 }
 
-                if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
-                    tabs.push(SidePanelTab.FeaturePreviews)
-                }
-
                 return tabs
             },
         ],
