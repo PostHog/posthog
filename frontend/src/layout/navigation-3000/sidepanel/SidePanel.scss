@@ -34,44 +34,66 @@
         // Stop the content from stealing focus whilst resizing
         pointer-events: none;
     }
+}
 
-    .SidePanel3000__bar {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        width: var(--side-panel-bar-width);
-        height: 100vh;
-        overflow: hidden;
-        user-select: none;
-        border-left-width: 1px;
+.SidePanel3000__bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: var(--side-panel-bar-width);
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    border-left-width: 1px;
+}
 
-        .SidePanel3000__tabs {
-            flex: 1;
-            width: var(--side-panel-bar-width);
-            overflow: hidden auto;
+.SidePanel3000__tabs {
+    flex: 1;
+    width: var(--side-panel-bar-width);
+    overflow: hidden auto;
 
-            &::-webkit-scrollbar {
-                display: none;
-            }
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
 
-            .SidePanel3000__tabsrotation {
-                display: flex;
-                gap: 0.25rem;
-                align-items: center;
-                height: var(--side-panel-bar-width);
-                margin-top: calc(calc(var(--side-panel-bar-width) - 0.25rem) * -1);
-                transform: rotate(90deg);
-                transform-origin: bottom left;
-            }
+.SidePanel3000__tabs-content {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+    height: var(--side-panel-bar-width);
+    margin-top: calc(calc(var(--side-panel-bar-width) - 0.25rem) * -1);
+    transform: rotate(90deg);
+    transform-origin: bottom left;
+
+    // NOTE: The below overrides make is to that the shadows are below the buttons after rotation
+    // This is very very specific to SidePanel, hence !important is used universally
+    .LemonButton {
+        padding-right: 1px !important; // padding-bottom in regular buttons
+        padding-bottom: 0 !important;
+    }
+
+    .LemonButton__chrome {
+        top: 0 !important;
+        left: -1px !important; // top in regular buttons
+        margin: -1px 0 !important; // x and y axes swapped from regular buttons
+        &:hover {
+            top: 0 !important;
+            left: -1.5px !important; // top in regular buttons
+        }
+
+        &:active {
+            top: 0 !important;
+            left: -0.5px !important; // top in regular buttons
         }
     }
+}
 
-    .SidePanel3000__content {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        height: 100vh;
-        overflow-y: auto;
-        border-left-width: 1px;
-    }
+.SidePanel3000__content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+    border-left-width: 1px;
 }
