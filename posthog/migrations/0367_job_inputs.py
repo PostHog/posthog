@@ -18,6 +18,13 @@ class Migration(migrations.Migration):
             name="job_inputs",
             field=encrypted_fields.fields.EncryptedJSONField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="datawarehousetable",
+            name="external_data_source",
+            field=models.ForeignKey(
+                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.externaldatasource"
+            ),
+        ),
         migrations.CreateModel(
             name="ExternalDataJob",
             fields=[
@@ -49,5 +56,10 @@ class Migration(migrations.Migration):
             options={
                 "abstract": False,
             },
+        ),
+        migrations.AlterField(
+            model_name="team",
+            name="timezone",
+            field=models.CharField(choices=posthog.models.team.TIMEZONES, default="UTC", max_length=240),
         ),
     ]

@@ -9,6 +9,7 @@ from posthog.warehouse.data_load.pipeline import (
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from django.db.models import Q
 
 logger = structlog.get_logger(__name__)
 
@@ -32,9 +33,9 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
 
     for schema_name in source_schemas:
         table_name = f"{resource.source_type}_{schema_name.lower()}"
-        url_pattern = (
-            f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{resource.draft_folder_path}/{schema_name.lower()}/*.parquet"
-        )
+
+        folder_path = resource.folder_path if create else resource.draft_folder_path
+        url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{folder_path}/{schema_name.lower()}/*.parquet"
 
         data = {
             "credential": credential,
@@ -45,13 +46,20 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
         }
 
         if create:
-            exists = DataWarehouseTable.objects.filter(
-                name=table_name, team_id=resource.team_id, format="Parquet", deleted=False
-            ).exists()
+            exists = (
+                DataWarehouseTable.objects.filter(
+                    team_id=resource.team_id, external_data_source_id=resource.id, url_pattern=url_pattern
+                )
+                .filter(Q(deleted=False) | Q(deleted__isnull=True))
+                .exists()
+            )
+
             if exists:
-                table = DataWarehouseTable.objects.get(name=table_name, team_id=resource.team_id, format="Parquet")
+                table = DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
+                    team_id=resource.team_id, external_data_source_id=resource.id, url_pattern=url_pattern
+                )
             else:
-                table = DataWarehouseTable.objects.create(**data)
+                table = DataWarehouseTable.objects.create(external_data_source_id=resource.id, **data)
         else:
             table = DataWarehouseTable(**data)
 

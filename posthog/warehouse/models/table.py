@@ -67,6 +67,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True
     )
 
+    external_data_source: models.ForeignKey = models.ForeignKey(
+        "ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
+    )
+
     columns: models.JSONField = models.JSONField(
         default=dict,
         null=True,

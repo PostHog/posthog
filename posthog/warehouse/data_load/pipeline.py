@@ -7,8 +7,7 @@ import s3fs
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-
+from posthog.warehouse.models import ExternalDataSource
 from .stripe import ENDPOINTS, stripe_source
 
 
@@ -139,16 +138,3 @@ def move_draft_to_production(team_id: int, external_data_source_id: str):
 
     s3.delete(f"{bucket_name}/{model.draft_folder_path}_success", recursive=True)
     s3.delete(f"{bucket_name}/{model.draft_folder_path}", recursive=True)
-
-    # TODO: maybe move to different activity?
-    # update tables to new URL
-    source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[model.source_type]
-    for schema_name in source_schemas:
-        table_name = f"{model.source_type}_{schema_name.lower()}"
-        url_pattern = (
-            f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{model.draft_folder_path}/{schema_name.lower()}/*.parquet"
-        )
-
-        DataWarehouseTable.objects.filter(
-            name=table_name, team_id=model.team_id, url_pattern=url_pattern, format="Parquet"
-        ).update(url_pattern=url_pattern.replace("_draft", ""))

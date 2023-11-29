@@ -153,8 +153,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=60),
+                retry_policy=RetryPolicy(maximum_attempts=1),
                 heartbeat_timeout=dt.timedelta(minutes=1),
             )
 
@@ -163,15 +163,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_schemas=source_schemas, external_data_source_id=inputs.external_data_source_id, create=False
             )
 
-            await workflow.execute_activity(
-                validate_schema_activity,
-                validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            # if not errors, then create the schema
-            validate_inputs.create = True
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
@@ -190,6 +181,16 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+
+            # if not errors, then create the schema
+            validate_inputs.create = True
+            await workflow.execute_activity(
+                validate_schema_activity,
+                validate_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
