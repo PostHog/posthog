@@ -4,7 +4,7 @@ name: PR - Preview Deploy Cleanup
 
 on:
     pull_request:
-        types: [closed]
+        # types: [closed]
 
 jobs:
     deploy_preview_cleanup:
@@ -20,8 +20,6 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v3
-              with:
-                  path: posthog
 
             - uses: aws-actions/configure-aws-credentials@v1
               with:
@@ -58,10 +56,10 @@ jobs:
                 export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
                 export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
 
-                envsubst < posthog/.github/pr-deploy/hobby.yaml.tmpl > posthog/.github/pr-deploy/hobby.yaml
+                envsubst < .github/pr-deploy/hobby.yaml.tmpl > .github/pr-deploy/hobby.yaml
 
                 #Clean and deploy
-                kubectl -n $NAMESPACE delete -f posthog/.github/pr-deploy/hobby.yaml || true
+                kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
 
             - name: delete deployment
               uses: bobheadxi/deployments@v1.4.0
