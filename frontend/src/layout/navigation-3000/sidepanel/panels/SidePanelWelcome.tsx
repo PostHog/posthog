@@ -61,8 +61,8 @@ export const SidePanelWelcome = (): JSX.Element => {
                     description={
                         <>
                             The navbar is now divided into two sections: <strong>Project&nbsp;&&nbsp;data</strong>{' '}
-                            and&nbsp;<strong>Products</strong>. The&nbsp;new top bar&nbsp;is sticky, so that the key
-                            actions and info stay within reach.
+                            and&nbsp;<strong>Products</strong>. The&nbsp;new top bar&nbsp;is sticky, so that key actions
+                            and info stay within reach.
                         </>
                     }
                 />
