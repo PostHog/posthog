@@ -17,7 +17,7 @@ describe('Early Access Management', () => {
         cy.get('[data-attr="create-feature"]').click()
 
         // New Feature Release page
-        cy.get('h1').should('contain', 'New Feature Release')
+        cy.get('h1').should('contain', 'New feature release')
 
         // cancel new feature
         cy.get('[data-attr="cancel-feature"]').click()

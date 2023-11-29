@@ -4,13 +4,11 @@
 #
 #    pip-compile requirements.in
 #
-aioboto3==11.1.0
+aioboto3==11.1
     # via -r requirements.in
 aiobotocore[boto3]==2.5.0
-    # via
-    #   aioboto3
-    #   aiobotocore
-aiohttp==3.8.6
+    # via aioboto3
+aiohttp==3.9.0
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -92,7 +90,6 @@ chardet==5.1.0
     # via prance
 charset-normalizer==2.1.0
     # via
-    #   aiohttp
     #   requests
     #   snowflake-connector-python
 click==8.1.7
@@ -225,7 +222,6 @@ geoip2==4.6.0
     # via -r requirements.in
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0

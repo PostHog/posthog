@@ -1,34 +1,45 @@
-import './Breadcrumbs.scss'
+import './TopBar.scss'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconArrowDropDown } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { FinalizedBreadcrumb } from '~/types'
 
-const COMPACTION_DISTANCE = 44
+import { navigation3000Logic } from '../navigationLogic'
 
-/**
- * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
- * - The "More scene actions" button (vertical ellipsis)
- * - The "Quick scene actions" buttons (zero or more buttons on the right)
- */
-export function Breadcrumbs(): JSX.Element | null {
+/** Sync with --breadcrumbs-height-compact. */
+export const BREADCRUMBS_HEIGHT_COMPACT = 44
+
+export function TopBar(): JSX.Element | null {
+    const { mobileLayout } = useValues(navigationLogic)
+    const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
 
     const [compactionRate, setCompactionRate] = useState(0)
 
+    // Always show in full on mobile, as there we are very constrained in width, but not so much height
+    const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
+
     useLayoutEffect(() => {
         function handleScroll(): void {
-            const scrollTop = document.getElementsByTagName('main')[0].scrollTop
-            const newCompactionRate = Math.min(scrollTop / COMPACTION_DISTANCE, 1)
+            const mainElement = document.getElementsByTagName('main')[0]
+            const mainScrollTop = mainElement.scrollTop
+            const compactionDistance = Math.min(
+                // This ensure that scrolling to the bottom of the scene will always result in the compact top bar state
+                // even if there's just a few pixels of scroll room. Otherwise the top bar would be halfway-compact then
+                mainElement.scrollHeight - mainElement.clientHeight,
+                BREADCRUMBS_HEIGHT_COMPACT
+            )
+            const newCompactionRate = compactionDistance > 0 ? Math.min(mainScrollTop / compactionDistance, 1) : 0
             setCompactionRate(newCompactionRate)
             if (
                 renameState &&
@@ -52,25 +63,33 @@ export function Breadcrumbs(): JSX.Element | null {
 
     return breadcrumbs.length ? (
         <div
-            className="Breadcrumbs3000"
+            className="TopBar3000"
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--breadcrumbs-compaction-rate': compactionRate,
+                    '--breadcrumbs-compaction-rate': effectiveCompactionRate,
                     // It wouldn't be necessary to set visibility, but for some reason without this positioning
                     // of breadcrumbs becomes borked when entering title editing mode
-                    '--breadcrumbs-title-large-visibility': compactionRate === 1 ? 'hidden' : 'visible',
-                    '--breadcrumbs-title-small-visibility': compactionRate === 0 ? 'hidden' : 'visible',
+                    '--breadcrumbs-title-large-visibility': effectiveCompactionRate === 1 ? 'hidden' : 'visible',
+                    '--breadcrumbs-title-small-visibility': effectiveCompactionRate === 0 ? 'hidden' : 'visible',
                 } as React.CSSProperties
             }
         >
-            <div className="Breadcrumbs3000__content">
-                <div className="Breadcrumbs3000__trail">
-                    <div className="Breadcrumbs3000__crumbs">
+            <div className="TopBar3000__content">
+                {mobileLayout && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => showNavOnMobile()}
+                        icon={<IconMenu />}
+                        className="TopBar3000__hamburger"
+                    />
+                )}
+                <div className="TopBar3000__breadcrumbs">
+                    <div className="TopBar3000__trail">
                         {breadcrumbs.slice(0, -1).map((breadcrumb, index) => (
                             <React.Fragment key={breadcrumb.name || '…'}>
                                 <Breadcrumb breadcrumb={breadcrumb} index={index} />
-                                <div className="Breadcrumbs3000__separator" />
+                                <div className="TopBar3000__separator" />
                             </React.Fragment>
                         ))}
                         <Breadcrumb
@@ -81,7 +100,7 @@ export function Breadcrumbs(): JSX.Element | null {
                     </div>
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} />
                 </div>
-                <div className="Breadcrumbs3000__actions" ref={setActionsContainer} />
+                <div className="TopBar3000__actions" ref={setActionsContainer} />
             </div>
         </div>
     ) : null
@@ -117,22 +136,23 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                     }
                     setPopoverShown(false)
                 }}
+                placeholder="Unnamed"
                 compactButtons="xsmall"
                 editingIndication="underlined"
             />
         )
     } else {
-        nameElement = <span>{breadcrumb.name}</span>
+        nameElement = <span>{breadcrumb.name || <i>Unnamed</i>}</span>
     }
 
     const Component = breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
         <Component
             className={clsx(
-                'Breadcrumbs3000__breadcrumb',
-                popoverShown && 'Breadcrumbs3000__breadcrumb--open',
-                (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable',
-                here && 'Breadcrumbs3000__breadcrumb--here'
+                'TopBar3000__breadcrumb',
+                popoverShown && 'TopBar3000__breadcrumb--open',
+                (breadcrumb.path || breadcrumb.popover) && 'TopBar3000__breadcrumb--actionable',
+                here && 'TopBar3000__breadcrumb--here'
             )}
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
@@ -178,25 +198,40 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
     return (
-        <h1 className="Breadcrumbs3000__here">
+        <h1 className="TopBar3000__here">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (
                 <EditableField
                     name="item-name-large"
                     value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
-                    onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                    onChange={(newName) => {
+                        tentativelyRename(breadcrumb.globalKey, newName)
+                        if (breadcrumb.forceEditMode) {
+                            // In this case there's no "Save" button, we update on input
+                            void breadcrumb.onRename?.(newName)
+                        }
+                    }}
                     onSave={(newName) => {
                         void breadcrumb.onRename?.(newName)
                     }}
-                    mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
-                    onModeToggle={(newMode) => {
-                        if (newMode === 'edit') {
-                            tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
-                        } else {
-                            finishRenaming()
-                        }
-                    }}
+                    mode={
+                        breadcrumb.forceEditMode || (renameState && renameState[0] === breadcrumb.globalKey)
+                            ? 'edit'
+                            : 'view'
+                    }
+                    onModeToggle={
+                        !breadcrumb.forceEditMode
+                            ? (newMode) => {
+                                  if (newMode === 'edit') {
+                                      tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                                  } else {
+                                      finishRenaming()
+                                  }
+                              }
+                            : undefined
+                    }
+                    placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"
                 />

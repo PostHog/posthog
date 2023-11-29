@@ -45,7 +45,7 @@ export function DataWarehouseSavedQueriesScene(): JSX.Element {
                         to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
                         data-attr="new-data-warehouse-table"
                     >
-                        New View
+                        New view
                     </LemonButton>
                 }
                 caption={

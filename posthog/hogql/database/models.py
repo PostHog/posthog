@@ -1,6 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import ConfigDict, BaseModel
 
+from posthog.hogql.base import Expr
 from posthog.hogql.errors import HogQLException, NotImplementedException
 from posthog.schema import HogQLQueryModifiers
 
@@ -55,6 +56,10 @@ class DateTimeDatabaseField(DatabaseField):
 
 class BooleanDatabaseField(DatabaseField):
     pass
+
+
+class ExpressionField(DatabaseField):
+    expr: Expr
 
 
 class FieldTraverser(FieldOrTable):

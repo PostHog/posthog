@@ -18,7 +18,7 @@ import {
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
-const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
+const types: LemonButtonProps['type'][] = ['onboarding', 'primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
 const meta: Meta<typeof LemonButton> = {

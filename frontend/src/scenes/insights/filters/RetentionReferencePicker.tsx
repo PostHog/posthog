@@ -1,6 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
-import { PercentageOutlined } from '@ant-design/icons'
-import { Select } from 'antd'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -11,41 +9,27 @@ export function RetentionReferencePicker(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const { retention_reference } = retentionFilter || {}
+
     return (
-        <Select
+        <LemonSelect
+            className="w-60"
+            size="small"
             value={retention_reference || 'total'}
             onChange={(retention_reference) => {
                 updateInsightFilter({ retention_reference })
             }}
-            bordered={false}
-            dropdownMatchSelectWidth={false}
-            data-attr="reference-selector"
-            optionLabelProp="label"
-        >
-            {[
+            options={[
                 {
                     value: 'total',
-                    icon: <PercentageOutlined />,
-                    label: 'Overall cohort',
+                    labelInMenu: 'Overall cohort',
+                    label: '% Overall cohort',
                 },
                 {
                     value: 'previous',
-                    icon: <PercentageOutlined />,
-                    label: 'Relative to previous period',
+                    labelInMenu: 'Relative to previous period',
+                    label: '% Relative to previous period',
                 },
-            ].map((option) => (
-                <Select.Option
-                    key={option.value}
-                    value={option.value}
-                    label={
-                        <>
-                            {option.icon} {option.label}
-                        </>
-                    }
-                >
-                    {option.label}
-                </Select.Option>
-            ))}
-        </Select>
+            ]}
+        />
     )
 }
