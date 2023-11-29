@@ -278,14 +278,16 @@ export const searchBarLogic = kea<searchBarLogicType>([
         ],
         tabs: [
             (s) => [s.groupTypes],
-            (groupTypes) => {
+            (groupTypes): Tab[] => {
                 return [
                     Tab.All,
                     Tab.EventDefinition,
                     Tab.Action,
                     Tab.Person,
                     Tab.Cohort,
-                    ...Array.from(groupTypes.values()).map(({ group_type_index }) => `group_${group_type_index}`),
+                    ...Array.from(groupTypes.values()).map(
+                        ({ group_type_index }) => `group_${group_type_index}` as Tab
+                    ),
                     Tab.Insight,
                     Tab.Dashboard,
                     Tab.Notebook,
@@ -320,7 +322,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     counts[tab] = searchResponse?.counts[tab]?.toString() || null
                 })
 
-                const clickhouseTabsResults = [
+                const clickhouseTabsResults: [string, unknown[] | undefined][] = [
                     [Tab.Person, personsResponse?.results],
                     [Tab.Group0, group0Response?.results],
                     [Tab.Group1, group1Response?.results],
@@ -382,7 +384,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
 
             // clickhouse groups
             if (values.activeTab === Tab.All) {
-                for (const type of values.groupTypes.values()) {
+                for (const type of Array.from(values.groupTypes.values())) {
                     actions[`loadGroup${type.group_type_index}Response`](_)
                 }
             } else if (values.activeTab.startsWith('group_')) {
