@@ -15,6 +15,7 @@
         --lemon-button-font-size: 0.875rem;
         --lemon-button-height: 2.125rem;
         --lemon-button-gap: 0.5rem;
+        --lemon-button-color: var(--default);
 
         position: relative;
         padding: 0;
@@ -40,6 +41,7 @@
             font-size: var(--lemon-button-font-size);
             font-weight: 500;
             line-height: 1.5rem;
+            color: var(--lemon-button-color);
             text-align: left;
             background: none;
             border-color: transparent;
@@ -108,6 +110,7 @@
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
+            --lemon-button-color: var(--text-3000-light);
 
             .LemonButton__chrome {
                 font-weight: 600;
@@ -115,11 +118,12 @@
         }
 
         &.LemonButton--primary {
-            --lemon-button-bg-color: var(--bg-light);
-            --lemon-button-bg-color-active: var(--bg-light);
+            --lemon-button-bg-color: var(--primary-3000-button-bg);
+            --lemon-button-bg-color-active: var(--primary-3000-button-bg);
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
+            --lemon-button-color: var(--text-3000-light);
 
             .LemonButton__chrome {
                 font-weight: 600;
@@ -144,9 +148,12 @@
             --lemon-button-frame-bg-color: var(--danger-lighter);
         }
 
-        &.LemonButton--is-stealth:not(.LemonButton--active, :hover) {
-            .LemonButton__chrome {
-                color: var(--muted);
+        &.LemonButton--is-stealth {
+            --lemon-button-color: var(--muted);
+
+            &.LemonButton--active,
+            &:hover {
+                --lemon-button-color: var(--default);
             }
         }
 
@@ -164,7 +171,8 @@
             .LemonButton__chrome {
                 padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding)
                     calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding);
-                color: var(--default);
+
+                // color: var(--default);
                 background: transparent;
 
                 & > * {
@@ -225,8 +233,12 @@
             }
         }
 
+        &.LemonButton--status-danger {
+            --lemon-button-color: var(--danger);
+        }
+
         &.LemonButton--tertiary {
-            color: var(--default);
+            // color: var(--default);
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
@@ -234,8 +246,6 @@
             }
 
             &.LemonButton--status-danger {
-                color: var(--danger);
-
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     background-color: var(--danger-highlight);
