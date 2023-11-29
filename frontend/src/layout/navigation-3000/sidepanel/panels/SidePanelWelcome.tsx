@@ -7,6 +7,8 @@ import { useEffect } from 'react'
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
+const blogPostUrl = 'https://posthog.com/blog/why-redesign'
+
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
@@ -29,16 +31,13 @@ export const SidePanelWelcome = (): JSX.Element => {
 
             <p className="max-w-120 text-center">
                 <b>PostHog 3000</b> is the codename for our revamped user experience. You can{' '}
-                <Link to={'https://posthog-git-why-redesign-post-hog.vercel.app/blog/why-redesign'}>
-                    read more about it here
-                </Link>
-                but the headline features you will notice are:
+                <Link to={blogPostUrl}>read more about it here</Link> but the headline features you will notice are:
             </p>
             <ul className="space-y-4">
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconNight className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">Colors, Data Density, Dark Mode</h3>
+                        <h3 className="mb-0 font-semibold">Colors, data density, dark mode</h3>
                         <span>
                             A general refresh of our look and feel for enhanced visibility with improved data density
                             and a dark mode option
@@ -48,9 +47,10 @@ export const SidePanelWelcome = (): JSX.Element => {
                 <li className="bg-bg-3000 border rounded p-4 flex gap-4 items-center">
                     <IconHome className="text-3xl" />
                     <div className="flex-1">
-                        <h3 className="mb-0 font-semibold">New Navigation Menu </h3>
+                        <h3 className="mb-0 font-semibold">New navigation menu </h3>
                         <span>
-                            Organized into two main sections: 'project & data' and 'products', streamlining navigation
+                            Organized into two main sections: 'project & data' and 'products', collapsible for even more
+                            space
                         </span>
                     </div>
                 </li>
@@ -101,9 +101,14 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </li>
             </ul>
 
-            <LemonButton size="large" type="primary" className="mt-8" onClick={() => closeSidePanel()}>
-                Get started
-            </LemonButton>
+            <div className="flex items-center gap-2 mt-8">
+                <LemonButton to={blogPostUrl} size="large" type="secondary">
+                    Tell me more
+                </LemonButton>
+                <LemonButton size="large" type="primary" onClick={() => closeSidePanel()}>
+                    Get started
+                </LemonButton>
+            </div>
         </div>
     )
 }
