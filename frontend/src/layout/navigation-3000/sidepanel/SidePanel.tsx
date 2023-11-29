@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -13,6 +13,7 @@ import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
@@ -44,6 +45,11 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         label: 'Settings',
         Icon: IconGear,
         Content: SidePanelSettings,
+    },
+    [SidePanelTab.FeaturePreviews]: {
+        label: 'Previews',
+        Icon: IconFeatures,
+        Content: SidePanelFeaturePreviews,
     },
 }
 
@@ -81,17 +87,19 @@ export function SidePanel(): JSX.Element | null {
         return null
     }
 
+    const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
+
     return (
         <div
             className={clsx(
                 'SidePanel3000',
-                sidePanelOpen && 'SidePanel3000--open',
+                sidePanelOpenAndAvailable && 'SidePanel3000--open',
                 isResizeInProgress && 'SidePanel3000--resizing'
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpen ? desiredWidth ?? undefined : undefined,
+                width: sidePanelOpenAndAvailable ? desiredWidth ?? undefined : undefined,
             }}
         >
             <Resizer {...resizerLogicProps} />
