@@ -10,7 +10,7 @@ from pydantic_core._pydantic_core import ValidationError
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
-from posthog.queries.util import get_earliest_timestamp
+from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
 from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
@@ -191,7 +191,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         interval: Optional[IntervalType],
         now: datetime,
     ) -> None:
-        self._total_intervals = total_intervals
+        self.total_intervals = total_intervals
         super().__init__(date_range, team, interval, now)
 
     @staticmethod
@@ -209,7 +209,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return period_map[period.lower()] * total_intervals
 
     def date_from(self) -> datetime:
-        delta = self.determine_time_delta(self._total_intervals, self._interval.name)
+        delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
         if self._interval == IntervalType.hour:
             return self.date_to() - delta
@@ -230,3 +230,11 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         if self.is_hourly:
             return date_to.replace(minute=0, second=0, microsecond=0)
         return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def get_start_of_interval_sql(self, *, source: str = "timestamp") -> str:
+        trunc_func = get_trunc_func_ch(self._interval.name.lower())
+        trunc_func_args = [source]
+        if trunc_func == "toStartOfWeek":
+            trunc_func_args.append((WeekStartDay(self._team.week_start_day or 0)).clickhouse_mode)
+        interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
+        return interval_sql

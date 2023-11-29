@@ -15,7 +15,7 @@
           (SELECT DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
                            e__pdi.person_id AS target,
                            [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(e.timestamp, 'UTC')))] AS breakdown_values
-           FROM events AS e
+           FROM events AS e SAMPLE 1.0
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -27,7 +27,7 @@
         JOIN
           (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
                   e__pdi.person_id AS target
-           FROM events AS e
+           FROM events AS e SAMPLE 1.0
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -46,7 +46,7 @@
           (SELECT DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
                            e__pdi.person_id AS target,
                            [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(e.timestamp, 'UTC')))] AS breakdown_values
-           FROM events AS e
+           FROM events AS e SAMPLE 1.0
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id

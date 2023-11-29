@@ -21,20 +21,23 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Entity, Team
-from posthog.models import RetentionFilter
+from posthog.models import RetentionFilter as OldRetentionFilter
 from posthog.models.action.util import Action
 from posthog.models.filters.mixins.retention import RetentionDateDerivedMixin
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.team import WeekStartDay
 from posthog.queries.retention.types import CohortKey
 from posthog.queries.util import correct_result_for_sampling
-from posthog.queries.util import get_trunc_func_ch
 from posthog.schema import (
     HogQLQueryModifiers,
     RetentionQueryResponse,
     IntervalType,
+    RetentionFilter,
 )
 from posthog.schema import RetentionQuery, RetentionType
+
+DEFAULT_INTERVAL = IntervalType("day")
+
+DEFAULT_TOTAL_INTERVALS = 11
 
 
 class RetentionQueryRunner(QueryRunner):
@@ -53,20 +56,12 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
         self.event_query_type = event_query_type
-        self.old_filter = RetentionFilter(data=self.query.retentionFilter.model_dump())
-
-    def get_start_of_interval_sql(
-        self,
-        *,
-        source: str = "timestamp",
-        ensure_datetime: bool = False,
-    ) -> str:
-        trunc_func = get_trunc_func_ch(self.query.retentionFilter.period.name.lower())
-        trunc_func_args = [source]
-        if trunc_func == "toStartOfWeek":
-            trunc_func_args.append((WeekStartDay(self.team.week_start_day or 0)).clickhouse_mode)
-        interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
-        return interval_sql
+        filter_data = {}
+        if self.query.retentionFilter:
+            filter_data = self.query.retentionFilter.model_dump()
+        else:
+            self.query.retentionFilter = RetentionFilter()  # TODO: Clarify default filter
+        self.old_filter = OldRetentionFilter(data=filter_data)  # TODO: Remove reliance on old filter
 
     def retention_events_query(self):
         _fields = [
@@ -85,8 +80,8 @@ class RetentionQueryRunner(QueryRunner):
                 [
                     dateDiff(
                         {{period}},
-                        {self.get_start_of_interval_sql(source='{start_date}')},
-                        {self.get_start_of_interval_sql(source=source_timestamp)}
+                        {self.query_date_range.get_start_of_interval_sql(source='{start_date}')},
+                        {self.query_date_range.get_start_of_interval_sql(source=source_timestamp)}
                     )
                 ] as breakdown_values
                 """
@@ -155,7 +150,7 @@ class RetentionQueryRunner(QueryRunner):
         return "e.person_id as target"
 
     def get_timestamp_field(self) -> str:
-        start_of_interval_sql = self.get_start_of_interval_sql(
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_sql(
             source=f"{self.EVENT_TABLE_ALIAS}.timestamp",
         )
         if self.event_query_type == RetentionQueryType.TARGET:
@@ -200,7 +195,7 @@ class RetentionQueryRunner(QueryRunner):
             and self.event_query_type == RetentionQueryType.TARGET
             else self.query_date_range.date_to()
         )
-        if self.query.retentionFilter.period != "Hour":
+        if self.query_date_range._interval != IntervalType("hour"):
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
@@ -312,11 +307,18 @@ class RetentionQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self):
+        total_intervals = self.query.retentionFilter.total_intervals or DEFAULT_TOTAL_INTERVALS
+        interval = (
+            IntervalType(self.query.retentionFilter.period.lower())
+            if self.query.retentionFilter.period
+            else DEFAULT_INTERVAL
+        )
+
         return QueryDateRangeWithIntervals(
             date_range=self.query.dateRange,
-            total_intervals=self.query.retentionFilter.total_intervals,
+            total_intervals=total_intervals,
             team=self.team,
-            interval=IntervalType(self.query.retentionFilter.period.lower()),
+            interval=interval,
             now=datetime.now(),
         )
 
@@ -367,14 +369,16 @@ class RetentionQueryRunner(QueryRunner):
             {
                 "values": [
                     result_dict.get(CohortKey((first_day,), day), {"count": 0, "people": [], "people_url": ""})
-                    for day in range(self.query.retentionFilter.total_intervals - first_day)
+                    for day in range(self.query_date_range.total_intervals - first_day)
                 ],
-                "label": f"{self.query.retentionFilter.period} {first_day}",
+                "label": f"{self.query_date_range.interval_name.title()} {first_day}",
                 "date": self.query_date_range.date_from()
-                + RetentionDateDerivedMixin.determine_time_delta(first_day, self.query.retentionFilter.period)[0],
+                + RetentionDateDerivedMixin.determine_time_delta(
+                    first_day, self.query_date_range.interval_name.title()
+                )[0],  # TODO: fix
                 "people_url": "",  # TODO: URL
             }
-            for first_day in range(self.query.retentionFilter.total_intervals)
+            for first_day in range(self.query_date_range.total_intervals)
         ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)

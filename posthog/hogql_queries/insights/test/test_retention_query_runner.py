@@ -14,10 +14,11 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_properties
 from posthog.models import Action, ActionStep
 from posthog.models.filters import RetentionFilter as OldRetentionFilter
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import RetentionQuery, RetentionFilter, DateRange
+from posthog.schema import RetentionQuery, RetentionFilter, DateRange, PropertyGroupFilter
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -114,7 +115,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(OldRetentionFilter(data={"dummy": "dummy"}), self.team)
+        result = self._run_retention_query(query={})
         self.assertEqual(
             pluck(result, "values", "count"),
             [
@@ -153,7 +154,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_query(OldRetentionFilter(data={"date_to": _date(10, hour=6)}), self.team)
+        result = self._run_retention_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
         self.assertEqual(len(result), 11)
         self.assertEqual(
             pluck(result, "label"),
@@ -220,9 +221,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = OldRetentionFilter(data={"date_to": _date(0, month=5, hour=0), "period": "Month"})
-
-        result = self.run_query(filter, self.team, total_intervals=11)
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(0, month=5, hour=0)},
+                "retentionFilter": {
+                    "period": "Month",
+                    "total_intervals": 11,
+                },
+            }
+        )
 
         self.assertEqual(
             pluck(result, "label"),
@@ -388,9 +395,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         create_person_id_override_by_distinct_id("person1", "person2", self.team.pk)
 
-        filter = OldRetentionFilter(data={"date_to": _date(0, month=5, hour=0), "period": "Month"})
-
-        result = self.run_query(filter, self.team, total_intervals=11)
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(0, month=5, hour=0)},
+                "retentionFilter": {
+                    "period": "Month",
+                    "total_intervals": 11,
+                },
+            }
+        )
 
         self.assertEqual(
             pluck(result, "label"),
@@ -475,19 +488,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        test_filter = OldRetentionFilter(
-            data={
-                "date_to": _date(10, month=1, hour=0),
+        # Starting with Sunday
+        query = {
+            "dateRange": {"date_to": _date(10, month=1, hour=0)},
+            "retentionFilter": {
                 "period": "Week",
                 "total_intervals": 7,
-            }
-        )
-
-        # Starting with Sunday
-        result_sunday = self.run_query(
-            test_filter,
-            self.team,
-        )
+            },
+        }
+        result_sunday = self._run_retention_query(query=query)
 
         self.assertEqual(
             pluck(result_sunday, "label"),
@@ -524,10 +533,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.team.week_start_day = 1  # WeekStartDay.MONDAY's concrete value
         self.team.save()
 
-        result_monday = self.run_query(
-            test_filter,
-            self.team,
-        )
+        result_monday = self._run_retention_query(query=query)
 
         self.assertEqual(
             pluck(result_monday, "label"),
@@ -590,9 +596,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = OldRetentionFilter(data={"date_to": _date(0, hour=16, minute=13), "period": "Hour"})
-
-        result = self.run_query(filter, self.team, total_intervals=11)
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(0, hour=16, minute=13)},
+                "retentionFilter": {
+                    "period": "Hour",
+                    "total_intervals": 11,
+                },
+            }
+        )
 
         self.assertEqual(
             pluck(result, "label"),
@@ -645,7 +657,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    # ensure that the first interval is properly rounded acoording to the specified period
+    # ensure that the first interval is properly rounded according to the specified period
     def test_interval_rounding(self):
         _create_person(
             team=self.team,
@@ -676,15 +688,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "date_to": _date(14, month=1, hour=0),
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(14, month=1, hour=0)},
+                "retentionFilter": {
                     "period": "Week",
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                },
+            }
         )
 
         self.assertEqual(
@@ -909,17 +920,16 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             "$pageview",
         )
 
-        target_entity = json.dumps({"id": first_event, "type": TREND_FILTER_TYPE_EVENTS})
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "date_to": _date(6, hour=6),
-                    "target_entity": target_entity,
-                    "returning_entity": {"id": "$pageview", "type": "events"},
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=6)},
+                "retentionFilter": {
+                    "period": "Day",
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                    "target_entity": {"id": first_event, "name": first_event, "type": TREND_FILTER_TYPE_EVENTS},
+                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
         )
         self.assertEqual(len(result), 7)
         self.assertEqual(
@@ -1020,20 +1030,23 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         some_event = "$some_event"
         _create_events(self.team, [("person1", _date(3)), ("person2", _date(5))], some_event)
 
-        start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "date_to": _date(6, hour=0),
-                    "target_entity": start_entity,
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "total_intervals": 7,
+                    "target_entity": {
+                        "id": action.pk,
+                        "name": action.name,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                    },
                     "returning_entity": {
                         "id": some_event,
+                        "name": some_event,
                         "type": TREND_FILTER_TYPE_EVENTS,
                     },
-                    "total_intervals": 7,
-                }
-            ),
-            self.team,
+                },
+            }
         )
 
         self.assertEqual(len(result), 7)
@@ -1059,18 +1072,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def test_first_time_retention(self):
         self._create_first_time_retention_events()
 
-        target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "date_to": _date(5, hour=6),
-                    RETENTION_TYPE: RETENTION_FIRST_TIME,
-                    "target_entity": target_entity,
-                    "returning_entity": {"id": "$pageview", "type": "events"},
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "period": "Day",
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                    "retention_type": RETENTION_FIRST_TIME,
+                    "target_entity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
         )
 
         self.assertEqual(len(result), 7)
@@ -1257,16 +1273,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "target_entity": json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS}),
-                    "returning_entity": {"id": "$pageview", "type": "events"},
-                    "date_to": _date(6, hour=0),
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                    "target_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
         )
 
         self.assertEqual(len(result), 7)
@@ -1308,17 +1323,16 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "date_to": _date(6, hour=0),
-                    "target_entity": start_entity,
-                    "actions": [{"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS}],
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                    "target_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
         )
 
         self.assertEqual(len(result), 7)
@@ -1678,9 +1692,11 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_query(
-            OldRetentionFilter(data={"date_to": _date(10, hour=6), "sampling_factor": 1}),
-            self.team,
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": 1,
+            }
         )
         self.assertEqual(len(result), 11)
         self.assertEqual(
