@@ -74,6 +74,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 'PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.',
             examples: ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)'],
         },
+        $user_agent: {
+            label: 'Raw User Agent',
+            description: 'Some SDKs (like Android) send the raw user agent as $user_agent.',
+            examples: ['Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)'],
+        },
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -229,6 +234,31 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Initial Device Type',
             description: 'The initial type of device that was used (first-touch).',
             examples: ['Mobile', 'Tablet', 'Desktop'],
+        },
+        $screen_density: {
+            label: 'Screen density',
+            description: 'WHAT IS THE DEFINITION?',
+            examples: [2.75],
+        },
+        $device_model: {
+            label: 'Device Model',
+            description: 'The model of the device that was used.',
+            examples: ['iPhone 12 Pro', 'Pixel 3'],
+        },
+        $network_wifi: {
+            label: 'Network WiFi',
+            description: 'Whether the user was on WiFi when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_bluetooth: {
+            label: 'Network Bluetooth',
+            description: 'Whether the user was on Bluetooth when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_cellular: {
+            label: 'Network Cellular',
+            description: 'Whether the user was on cellular when the event was sent.',
+            examples: ['true', 'false'],
         },
         $pageview: {
             label: 'Pageview',
