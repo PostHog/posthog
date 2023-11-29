@@ -128,6 +128,7 @@
             > th {
                 font-weight: 700;
                 text-align: left;
+
                 // box shadow as a border supports sticky headers
                 // Also it needs to be on the th - any higher and safari will not render the shadow
                 box-shadow: inset 0 -1px var(--border);
