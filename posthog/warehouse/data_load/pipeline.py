@@ -10,6 +10,7 @@ from dlt.pipeline.exceptions import PipelineStepFailed
 from posthog.warehouse.models import ExternalDataSource
 
 from .stripe import ENDPOINTS, stripe_source
+import os
 
 
 @dataclass
@@ -20,8 +21,11 @@ class PipelineInputs:
 
 
 def create_pipeline(inputs: PipelineInputs):
+    pipeline_name = f"{inputs.job_type}_pipeline_{inputs.team_id}"
+    pipelines_dir = f"{os.getcwd()}/.dlt/{inputs.team_id}/{inputs.job_type}"
     return dlt.pipeline(
-        pipeline_name=f"{inputs.job_type}_pipeline",
+        pipeline_name=pipeline_name,
+        pipelines_dir=pipelines_dir,  # workers can be created and destroyed so it doesn't matter where the metadata gets put temporarily
         destination="filesystem",
         dataset_name=inputs.dataset_name,
         credentials={
