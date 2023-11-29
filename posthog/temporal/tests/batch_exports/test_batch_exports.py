@@ -12,7 +12,7 @@ from posthog.temporal.tests.utils.datetimes import (
     to_isoformat,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
     get_data_interval,
     get_results_iterator,

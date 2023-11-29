@@ -16,7 +16,7 @@ from posthog.temporal.tests.utils.models import (
     adelete_batch_export,
     afetch_batch_export_backfills,
 )
-from posthog.temporal.workflows.backfill_batch_export import (
+from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
     BackfillScheduleInputs,
