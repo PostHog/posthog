@@ -153,6 +153,9 @@
 
     > tbody {
         > tr {
+            &:not(:first-child) {
+                border-top: 1px solid var(--border);
+            }
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--side);
@@ -193,10 +196,6 @@
     > tbody {
         > tr {
             height: var(--row-base-height);
-
-            &:not(:first-child) {
-                border-top: 1px solid var(--border);
-            }
 
             > th,
             > td {
