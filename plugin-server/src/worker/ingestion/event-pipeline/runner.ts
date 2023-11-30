@@ -20,10 +20,20 @@ const pipelineStepCompletionCounter = new Counter({
     help: 'Number of events that have completed the step',
     labelNames: ['step_name'],
 })
-const pipelineStepDurationSummary = new Summary({
-    name: 'events_pipeline_step_duration_seconds_total',
+const pipelineLastStepCounter = new Counter({
+    name: 'events_pipeline_last_step_total',
+    help: 'Number of events that have entered the last step',
+    labelNames: ['step_name'],
+})
+const pipelineStepErrorCounter = new Counter({
+    name: 'events_pipeline_step_error_total',
+    help: 'Number of events that have errored in the step',
+    labelNames: ['step_name'],
+})
+const pipelineStepMsSummary = new Summary({
+    name: 'events_pipeline_step_ms',
     help: 'Duration spent in each step',
-    percentiles: [0.1, 0.5, 0.9, 0.95],
+    percentiles: [0.5, 0.9, 0.95, 0.99],
     labelNames: ['step_name'],
 })
 const pipelineStepThrowCounter = new Counter({
@@ -64,6 +74,11 @@ export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<
     return runner.runEventPipeline(event)
 }
 
+const eventProcessedAndIngestedCounter = new Counter({
+    name: 'event_processed_and_ingested',
+    help: 'Count of events processed and ingested',
+})
+
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
@@ -90,7 +105,6 @@ export class EventPipelineRunner {
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
             if (this.isEventDisallowed(event)) {
@@ -110,6 +124,7 @@ export class EventPipelineRunner {
                 result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
             this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+            eventProcessedAndIngestedCounter.inc()
             return result
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
@@ -164,6 +179,7 @@ export class EventPipelineRunner {
             step: stepName,
             team_id: String(teamId), // NOTE: potentially high cardinality
         })
+        pipelineLastStepCounter.labels(stepName).inc()
         return { promises: promises, lastStep: stepName, args }
     }
 
@@ -174,7 +190,6 @@ export class EventPipelineRunner {
         sentToDql = true
     ): ReturnType<Step> {
         const timer = new Date()
-        const stepTimer = pipelineStepDurationSummary.labels(step.name).startTimer()
         return runInSpan(
             {
                 op: 'runStep',
@@ -191,7 +206,7 @@ export class EventPipelineRunner {
                 try {
                     const result = await step(...args)
                     pipelineStepCompletionCounter.labels(step.name).inc()
-                    stepTimer()
+                    pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
                     return result
@@ -223,6 +238,7 @@ export class EventPipelineRunner {
         })
 
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+        pipelineStepErrorCounter.labels(currentStepName).inc()
 
         // Should we throw or should we drop and send the event to DLQ.
         if (this.shouldRetry(err)) {

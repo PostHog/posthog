@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+import { Counter } from 'prom-client'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -139,6 +140,28 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
+
+const groupInfoCacheResultCounter = new Counter({
+    name: 'group_info_cache_result',
+    help: 'Group info cache result',
+    labelNames: ['result'],
+})
+
+const groupDataMissingCounter = new Counter({
+    name: 'group_data_missing',
+    help: 'Group data missing',
+})
+
+const personUpdateVersionMismatchCounter = new Counter({
+    name: 'person_update_version_mismatch',
+    help: 'Person update version mismatch',
+})
+
+const pluginLogEntryCounter = new Counter({
+    name: 'plugin_log_entry',
+    help: 'Plugin log entry created by plugin',
+    labelNames: ['plugin_id', 'source'],
+})
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -497,6 +520,7 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
+                    groupInfoCacheResultCounter.labels({ result: 'hit' }).inc()
                     groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
                     groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
 
@@ -507,6 +531,7 @@ export class DB {
             }
 
             this.statsd?.increment('group_info_cache.miss')
+            groupInfoCacheResultCounter.labels({ result: 'miss' }).inc()
 
             // If we didn't find cached data, lookup the group from Postgres
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
@@ -534,6 +559,7 @@ export class DB {
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
                 this.statsd?.increment('groups_data_missing_entirely')
+                groupDataMissingCounter.inc()
                 status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
                 groupPropertiesColumns[propertiesColumnName] = '{}'
@@ -774,6 +800,7 @@ export class DB {
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
             this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+            personUpdateVersionMismatchCounter.inc()
         }
 
         const kafkaMessages = []
@@ -1099,11 +1126,6 @@ export class DB {
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
             status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            this.statsd?.increment('logs.entries_too_large', {
-                source,
-                team_id: pluginConfig.team_id.toString(),
-                plugin_id: pluginConfig.plugin_id.toString(),
-            })
             return
         }
 
@@ -1112,11 +1134,7 @@ export class DB {
             team_id: pluginConfig.team_id.toString(),
             plugin_id: pluginConfig.plugin_id.toString(),
         })
-        this.statsd?.increment('logs.entries_size', {
-            source,
-            team_id: pluginConfig.team_id.toString(),
-            plugin_id: pluginConfig.plugin_id.toString(),
-        })
+        pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
             await this.kafkaProducer.queueSingleJsonMessage(
