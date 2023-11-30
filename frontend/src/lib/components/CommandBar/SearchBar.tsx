@@ -15,7 +15,6 @@ export const SearchBar = (): JSX.Element => {
         <div className="flex flex-col h-full">
             <SearchInput ref={inputRef} />
             <SearchResults />
-            <SearchTabs inputRef={inputRef} />
         </div>
     )
 }

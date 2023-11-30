@@ -4,6 +4,7 @@ import { DetectiveHog } from '../hedgehogs'
 import { searchBarLogic } from './searchBarLogic'
 import { SearchResult, SearchResultSkeleton } from './SearchResult'
 import { SearchResultPreview } from './SearchResultPreview'
+import { SearchTabs } from './SearchTabs'
 
 export const SearchResults = (): JSX.Element => {
     const { combinedSearchResults, combinedSearchLoading, activeResultIndex, keyboardResultIndex } =
@@ -11,6 +12,9 @@ export const SearchResults = (): JSX.Element => {
 
     return (
         <div className="flex grow overflow-hidden">
+            <SearchTabs
+            // inputRef={inputRef}
+            />
             <div className="w-1/2 overscroll-none overflow-y-auto border-r bg-bg-light">
                 {combinedSearchLoading && (
                     <>
