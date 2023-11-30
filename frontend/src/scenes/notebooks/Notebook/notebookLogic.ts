@@ -417,7 +417,7 @@ export const notebookLogic = kea<notebookLogicType>([
             (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
         ],
     }),
-    listeners(({ values, actions, sharedListeners, cache }) => ({
+    listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
