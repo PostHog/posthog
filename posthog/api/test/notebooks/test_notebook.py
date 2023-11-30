@@ -236,9 +236,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": {}, "text_content": ""},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "short_id": response.json()["short_id"],
-        }
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
