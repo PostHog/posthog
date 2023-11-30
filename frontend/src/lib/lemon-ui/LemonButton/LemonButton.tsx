@@ -247,7 +247,12 @@ export const LemonButtonWithSideAction: React.FunctionComponent<
     const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 
     return (
-        <div className={clsx('LemonButtonWithSideAction', `LemonButtonWithSideAction--${buttonProps.size}`)}>
+        <div
+            className={clsx(
+                'LemonButtonWithSideAction',
+                buttonProps.size && `LemonButtonWithSideAction--${buttonProps.size}`
+            )}
+        >
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton
                 ref={ref}

@@ -33,16 +33,16 @@
             border-style: solid;
             border-width: var(--lemon-button-border-width);
             border-radius: var(--radius);
+        }
 
-            .LemonButton__icon {
-                color: var(--trace-3000);
-                transition: none;
+        .LemonButton__icon {
+            color: var(--muted-3000);
+            transition: none;
 
-                > :not(.LemonIcon) {
-                    // Elements that serve as an icon, but aren't an icon are slightly muted -
-                    // not so much that they look disabled though
-                    opacity: 0.75;
-                }
+            > :not(.LemonIcon) {
+                // Elements that serve as an icon, but aren't an icon are slightly muted -
+                // not so much that they look disabled though
+                opacity: 0.75;
             }
         }
 
@@ -136,12 +136,8 @@
 
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            .LemonButton__icon {
-                color: var(--muted-3000);
-
-                > :not(.LemonIcon) {
-                    opacity: 1;
-                }
+            .LemonButton__icon > :not(.LemonIcon) {
+                opacity: 1;
             }
         }
 
@@ -230,6 +226,10 @@
                 .LemonButton__chrome {
                     border-color: var(--secondary-3000-button-border);
                 }
+
+                .LemonButton__icon {
+                    color: var(--muted-3000);
+                }
             }
 
             &:not(:hover) {
@@ -240,6 +240,10 @@
                     color: var(--muted);
                     background-color: transparent;
                     border-color: transparent;
+                }
+
+                .LemonButton__icon {
+                    color: var(--trace-3000);
                 }
             }
         }
@@ -263,10 +267,14 @@
         height: 1.25rem;
         color: var(--muted);
 
-        &.LemonButtonWithSideAction__spacer--divider {
+        &--divider {
             padding: 0;
             margin-left: 0.25rem;
         }
+    }
+
+    .LemonButton--small .LemonButtonWithSideAction__spacer--divider {
+        height: 1.125rem;
     }
 
     // SideAction buttons are buttons next to other buttons in the DOM but layered on top. since they're on another button, we don't want them to look like buttons.
@@ -292,6 +300,11 @@
             margin: auto !important;
             background: none !important;
             border: none !important;
+        }
+
+        .LemonButton__icon {
+            color: currentColor;
+            opacity: 0.5;
         }
 
         &:not([aria-disabled='true']):hover {
