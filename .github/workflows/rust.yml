@@ -43,16 +43,11 @@ jobs:
       with:
           toolchain: stable
 
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-          toolchain: stable
-
     - name: Stop/Start stack with Docker Compose
       shell: bash
       run: |
-          docker compose -f docker-compose.dev.yml down
-          docker compose -f docker-compose.dev.yml up -d
+          docker compose -f docker-compose.yml down
+          docker compose -f docker-compose.yml up -d --wait
 
     - name: Run migrations
       shell: bash
