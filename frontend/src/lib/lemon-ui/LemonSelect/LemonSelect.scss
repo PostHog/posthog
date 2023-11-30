@@ -1,15 +1,15 @@
-.LemonSelect--clearable {
-    padding-right: 0 !important;
+.posthog-3000 {
+    .LemonButton.LemonSelect--clearable {
+        --lemon-button-gap: 0rem;
 
-    > span {
-        padding-right: 0 !important;
-    }
+        .LemonButton__content {
+            gap: 0.25rem;
 
-    .LemonButton__content {
-        gap: 0.5rem;
-
-        .LemonSelect--button--clearable {
-            margin-left: auto;
+            .LemonSelect--button--clearable {
+                .LemonButton__chrome {
+                    padding: 0.0625rem !important;
+                }
+            }
         }
     }
 }
