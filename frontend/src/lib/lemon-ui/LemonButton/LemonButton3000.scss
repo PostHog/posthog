@@ -1,7 +1,7 @@
 .posthog-3000 {
-    --lemon-button-chrome-depth: 0.25rem;
-    --lemon-button-hover-depth: -1px;
-    --lemon-button-press-depth: 1px;
+    --lemon-button-chrome-depth: 0.1875rem;
+    --lemon-button-hover-depth: -0.03125rem;
+    --lemon-button-press-depth: 0.03125rem;
     --lemon-button-padding-horizontal: 0.75rem;
     --lemon-button-side-action-icon-width: 1.25rem;
 
@@ -53,7 +53,6 @@
         }
 
         &.LemonButton--xsmall {
-            --lemon-button-chrome-depth: 0.1875rem;
             --lemon-button-padding-horizontal: 0.375rem;
             --lemon-button-padding-adjacent-icon: 0.25rem;
             --lemon-button-font-size: 0.75rem;
@@ -68,8 +67,6 @@
         }
 
         &.LemonButton--large {
-            --lemon-button-chrome-depth: 0.375rem;
-            --lemon-button-press-depth: 2px;
             --lemon-button-font-size: 1rem;
             --lemon-button-padding-adjacent-icon: 0.75rem;
             --lemon-button-height: 3.0625rem;
