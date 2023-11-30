@@ -25,7 +25,7 @@ class QueryRetrievalError(Exception):
     pass
 
 
-class QueryManager:
+class QueryStatusManager:
     STATUS_TTL_SECONDS = 600  # 10 minutes
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
 
@@ -72,7 +72,7 @@ def execute_process_query(
     in_export_context,
     refresh_requested,
 ):
-    manager = QueryManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team_id)
 
     from posthog.models import Team
     from posthog.api.services.query import process_query
@@ -120,7 +120,7 @@ def enqueue_process_query_task(
     if not query_id:
         query_id = uuid.uuid4().hex
 
-    manager = QueryManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team_id)
 
     if force:
         cancel_query(team_id, query_id)
@@ -150,12 +150,12 @@ def get_query_status(team_id, query_id):
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
-    manager = QueryManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team_id)
     return manager.get_query_status()
 
 
 def cancel_query(team_id, query_id):
-    manager = QueryManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team_id)
 
     try:
         query_status = manager.get_query_status()
