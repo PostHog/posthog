@@ -1037,15 +1037,18 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     const dateToDayJs = dateStringToDayJs(dateTo)
 
     const intervalMonths = dateFromDayJs?.diff(dateToDayJs, 'month')
-    if (intervalMonths != null && intervalMonths >= 1) {
+    if (intervalMonths != null && Math.abs(intervalMonths) >= 2) {
         return 'month'
     }
     const intervalDays = dateFromDayJs?.diff(dateToDayJs, 'day')
-    if (intervalDays != null && intervalDays >= 1) {
+    if (intervalDays != null && Math.abs(intervalDays) >= 14) {
+        return 'week'
+    }
+    if (intervalDays != null && Math.abs(intervalDays) >= 2) {
         return 'day'
     }
     const intervalHours = dateFromDayJs?.diff(dateToDayJs, 'hour')
-    if (intervalHours != null && intervalHours >= 1) {
+    if (intervalHours != null && Math.abs(intervalHours) >= 1) {
         return 'hour'
     }
 
