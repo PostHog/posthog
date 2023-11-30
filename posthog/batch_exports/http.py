@@ -31,7 +31,7 @@ from posthog.batch_exports.service import (
     BatchExportServiceScheduleNotFound,
     backfill_export,
     cancel_running_batch_export_backfill,
-    delete_schedule,
+    batch_export_delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
@@ -48,7 +48,7 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -336,7 +336,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         instance.deleted = True
 
         try:
-            delete_schedule(temporal, str(instance.pk))
+            batch_export_delete_schedule(temporal, str(instance.pk))
         except BatchExportServiceScheduleNotFound as e:
             logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
 

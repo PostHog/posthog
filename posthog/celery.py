@@ -101,7 +101,7 @@ def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
 
     sentry_init()
-    start_http_server(8001)
+    start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
 def add_periodic_task_with_expiry(

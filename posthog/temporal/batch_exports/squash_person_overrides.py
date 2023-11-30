@@ -11,7 +11,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.temporal.workflows.base import PostHogWorkflow
+from posthog.temporal.batch_exports.base import PostHogWorkflow
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 

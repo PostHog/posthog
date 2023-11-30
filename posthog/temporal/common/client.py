@@ -5,7 +5,7 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from temporalio.client import Client, TLSConfig
 
-from posthog.temporal.codec import EncryptionCodec
+from posthog.temporal.common.codec import EncryptionCodec
 
 
 async def connect(

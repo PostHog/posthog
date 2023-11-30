@@ -102,10 +102,10 @@ export function TaxonomicFilter({
                                         <>
                                             You can easily navigate between tabs with your keyboard.{' '}
                                             <div>
-                                                Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                                Use <b>tab</b> to move to the next tab.
                                             </div>
                                             <div>
-                                                Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                                Use <b>shift + tab</b> to move to the previous tab.
                                             </div>
                                         </>
                                     }

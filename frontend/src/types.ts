@@ -831,6 +831,30 @@ export interface PersonListParams {
     include_total?: boolean // PostHog 3000-only
 }
 
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'event_definition'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResultType = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResultType[]
+    counts: Record<SearchableEntity, number | null>
+}
+
 export interface MatchedRecordingEvent {
     uuid: string
 }
@@ -3450,4 +3474,5 @@ export enum SidePanelTab {
     Activation = 'activation',
     Settings = 'settings',
     FeaturePreviews = 'feature-previews',
+    Activity = 'activity',
 }

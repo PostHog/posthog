@@ -2,50 +2,52 @@ import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { RefObject } from 'react'
 
-import { resultTypeToName } from './constants'
+import { Tab, tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
-import { ResultTypeWithAll } from './types'
 
 type SearchBarTabProps = {
-    type: ResultTypeWithAll
-    active: boolean
-    count?: number | null
+    tab: Tab
     inputRef: RefObject<HTMLInputElement>
 }
 
-export const SearchBarTab = ({ type, active, count, inputRef }: SearchBarTabProps): JSX.Element => {
+export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element => {
+    const { activeTab } = useValues(searchBarLogic)
     const { setActiveTab } = useActions(searchBarLogic)
+
+    const isActive = tab === activeTab
+
     return (
         <div
             className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-t-2 ${
-                active ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
+                isActive ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
             }`}
             onClick={() => {
-                setActiveTab(type)
+                setActiveTab(tab)
                 inputRef.current?.focus()
             }}
         >
-            {resultTypeToName[type]}
-            <Count type={type} active={active} count={count} />
+            {tabToName[tab]}
+            <Count tab={tab} />
         </div>
     )
 }
 
 type CountProps = {
-    type: ResultTypeWithAll
-    active: boolean
-    count?: number | null
+    tab: Tab
 }
 
-const Count = ({ type, active, count }: CountProps): JSX.Element | null => {
-    const { searchResponseLoading } = useValues(searchBarLogic)
+const Count = ({ tab }: CountProps): JSX.Element | null => {
+    const { activeTab, tabsCount, tabsLoading } = useValues(searchBarLogic)
 
-    if (type === 'all') {
+    // TODO: replace todo with condition that time since search start > 1s
+    const isActive = tab === activeTab || true
+
+    if (tab === Tab.All) {
         return null
-    } else if (active && searchResponseLoading) {
+    } else if (isActive && tabsLoading.includes(tab)) {
         return <Spinner className="ml-0.5" />
-    } else if (count != null) {
-        return <span className="ml-1 text-xxs text-muted-3000">{count}</span>
+    } else if (tabsCount[tab] != null) {
+        return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
     } else {
         return <span className="ml-1 text-xxs text-muted-3000">&mdash;</span>
     }

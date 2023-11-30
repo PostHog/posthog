@@ -14,7 +14,7 @@ jobs:
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-
+    
         steps:
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
             # cancel previous runs of snapshot update-inducing workflows
