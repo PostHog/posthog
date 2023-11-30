@@ -325,7 +325,7 @@ export function ItemPerformanceEvent({
                                 {sizeInfo.isFromLocalCache ? (
                                     <>
                                         {' '}
-                                        <span className={'text-muted text-xs'}>(from local cache)</span>
+                                        <span className={'text-muted'}>(from local cache)</span>
                                     </>
                                 ) : null}
                                 {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
