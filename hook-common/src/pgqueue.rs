@@ -74,7 +74,7 @@ pub struct Job<J> {
     /// The current status of the job.
     pub status: JobStatus,
     /// Arbitrary job parameters stored as JSON.
-    pub parameters: sqlx::types::Json<J>,
+    pub parameters: JobParameters<J>,
 }
 
 /// A NewJob to be enqueued into a PgQueue.
@@ -83,7 +83,7 @@ pub struct NewJob<J> {
     pub finished_at: Option<DateTime<Utc>>,
     pub started_at: Option<DateTime<Utc>>,
     pub status: JobStatus,
-    pub parameters: sqlx::types::Json<J>,
+    pub parameters: JobParameters<J>,
 }
 
 impl<J> NewJob<J> {
