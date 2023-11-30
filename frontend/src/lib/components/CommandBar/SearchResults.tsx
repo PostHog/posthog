@@ -15,7 +15,7 @@ export const SearchResults = (): JSX.Element => {
             <SearchTabs
             // inputRef={inputRef}
             />
-            <div className="w-1/2 overscroll-none overflow-y-auto border-r bg-bg-light">
+            <div className="w-full overscroll-none overflow-y-auto border-r bg-bg-light">
                 {combinedSearchLoading && (
                     <>
                         <SearchResultSkeleton />
@@ -41,9 +41,9 @@ export const SearchResults = (): JSX.Element => {
                         />
                     ))}
             </div>
-            <div className="w-1/2 p-2 overflow-y-auto">
+            {/* <div className="w-1/2 p-2 overflow-y-auto">
                 <SearchResultPreview />
-            </div>
+            </div> */}
         </div>
     )
 }

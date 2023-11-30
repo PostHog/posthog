@@ -11,7 +11,7 @@ type SearchTabsProps = {
 export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null => {
     const { tabs } = useValues(searchBarLogic)
     return (
-        <div className="flex flex-col flex-wrap min-w-46 bg-bg-light border-r">
+        <div className="flex flex-col flex-wrap min-w-60 bg-bg-light border-r">
             {tabs.map((tab) => (
                 <SearchBarTab key={tab} tab={tab} inputRef={inputRef} />
             ))}
