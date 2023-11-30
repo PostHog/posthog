@@ -243,7 +243,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $device_model: {
             label: 'Device Model',
             description: 'The model of the device that was used.',
-            examples: ['iPhone 12 Pro', 'Pixel 3'],
+            examples: ['iPhone9,3', 'SM-G965W'],
         },
         $network_wifi: {
             label: 'Network WiFi',
