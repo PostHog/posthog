@@ -131,6 +131,8 @@ impl PgQueue {
     pub async fn dequeue<J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static>(
         &self,
     ) -> PgQueueResult<Job<J>> {
+        // The query that follows uses a FOR UPDATE SKIP LOCKED clause.
+        // For more details on this see: 2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5.
         let base_query = format!(
             r#"
 WITH available_in_queue AS (
