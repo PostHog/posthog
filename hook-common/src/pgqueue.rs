@@ -14,14 +14,9 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum PgQueueError {
     #[error("connection failed with: {error}")]
-    ConnectionError {
-        error: sqlx::Error
-    },
+    ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
-    QueryError {
-        command: String,
-        error: sqlx::Error
-    },
+    QueryError { command: String, error: sqlx::Error },
     #[error("{0} is not a valid JobStatus")]
     ParseJobStatusError(String),
 }
@@ -95,7 +90,7 @@ impl<J> NewJob<J> {
     pub fn new(parameters: J) -> Self {
         Self {
             attempt: 0,
-            parameters:  sqlx::types::Json(parameters),
+            parameters: sqlx::types::Json(parameters),
             finished_at: None,
             started_at: None,
             status: JobStatus::Available,
@@ -123,7 +118,7 @@ impl PgQueue {
         let pool = PgPoolOptions::new()
             .connect(url)
             .await
-            .map_err(|error| PgQueueError::ConnectionError {error})?;
+            .map_err(|error| PgQueueError::ConnectionError { error })?;
 
         Ok(Self {
             table,
@@ -133,7 +128,9 @@ impl PgQueue {
     }
 
     /// Dequeue a Job from this PgQueue.
-    pub async fn dequeue<J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static>(&self) -> PgQueueResult<Job<J>> {
+    pub async fn dequeue<J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static>(
+        &self,
+    ) -> PgQueueResult<Job<J>> {
         let base_query = format!(
             r#"
 WITH available_in_queue AS (
@@ -161,20 +158,28 @@ WHERE
     "{0}".id = available_in_queue.id
 RETURNING
     "{0}".*
-            "#, &self.table);
+            "#,
+            &self.table
+        );
 
         let item: Job<J> = sqlx::query_as(&base_query)
             .bind(&self.worker)
             .fetch_one(&self.pool)
             .await
-            .map_err(|error| PgQueueError::QueryError { command: "UPDATE".to_owned(), error})?;
+            .map_err(|error| PgQueueError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
 
         Ok(item)
     }
 
     /// Enqueue a Job into this PgQueue.
     /// We take ownership of NewJob to enforce a specific NewJob is only enqueued once.
-    pub async fn enqueue<J: Serialize + std::marker::Sync>(&self, job: NewJob<J>) -> PgQueueResult<()> {
+    pub async fn enqueue<J: Serialize + std::marker::Sync>(
+        &self,
+        job: NewJob<J>,
+    ) -> PgQueueResult<()> {
         // TODO: Escaping. I think sqlx doesn't support identifiers.
         let base_query = format!(
             r#"
@@ -182,7 +187,9 @@ INSERT INTO {}
     (attempt, created_at, finished_at, started_at, status, parameters)
 VALUES
     ($1, NOW(), $2, $3, $4::job_status, $5)
-            "#, &self.table);
+            "#,
+            &self.table
+        );
 
         sqlx::query(&base_query)
             .bind(job.attempt)
@@ -192,7 +199,10 @@ VALUES
             .bind(&job.parameters)
             .execute(&self.pool)
             .await
-            .map_err(|error| PgQueueError::QueryError { command: "INSERT".to_owned(), error})?;
+            .map_err(|error| PgQueueError::QueryError {
+                command: "INSERT".to_owned(),
+                error,
+            })?;
 
         Ok(())
     }
@@ -220,9 +230,13 @@ mod tests {
         let new_job = NewJob::new(job_parameters);
 
         let worker_id = std::process::id().to_string();
-        let queue = PgQueue::new("job_queue", "postgres://posthog:posthog@localhost:15432/test_database", &worker_id)
-            .await
-            .expect("failed to connect to local test postgresql database");
+        let queue = PgQueue::new(
+            "job_queue",
+            "postgres://posthog:posthog@localhost:15432/test_database",
+            &worker_id,
+        )
+        .await
+        .expect("failed to connect to local test postgresql database");
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
@@ -230,7 +244,10 @@ mod tests {
 
         assert_eq!(job.attempt, 1);
         assert_eq!(job.parameters.method, "POST".to_string());
-        assert_eq!(job.parameters.body, "{\"event\":\"event-name\"}".to_string());
+        assert_eq!(
+            job.parameters.body,
+            "{\"event\":\"event-name\"}".to_string()
+        );
         assert_eq!(job.parameters.url, "https://localhost".to_string());
         assert!(job.finished_at.is_none());
         assert_eq!(job.status, JobStatus::Running);
