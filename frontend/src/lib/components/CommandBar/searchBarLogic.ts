@@ -133,48 +133,48 @@ export const searchBarLogic = kea<searchBarLogicType>([
     })),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
-        rawSearchResponse: [
-            null as SearchResponse | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawPersonsResponse: [
-            null as CountedPaginatedResponse<PersonType> | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawGroup0Response: [
-            null as CountedPaginatedResponse<Group> | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawGroup1Response: [
-            null as CountedPaginatedResponse<Group> | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawGroup2Response: [
-            null as CountedPaginatedResponse<Group> | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawGroup3Response: [
-            null as CountedPaginatedResponse<Group> | null,
-            {
-                search: () => null,
-            },
-        ],
-        rawGroup4Response: [
-            null as CountedPaginatedResponse<Group> | null,
-            {
-                search: () => null,
-            },
-        ],
+        // rawSearchResponse: [
+        //     null as SearchResponse | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawPersonsResponse: [
+        //     null as CountedPaginatedResponse<PersonType> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawGroup0Response: [
+        //     null as CountedPaginatedResponse<Group> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawGroup1Response: [
+        //     null as CountedPaginatedResponse<Group> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawGroup2Response: [
+        //     null as CountedPaginatedResponse<Group> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawGroup3Response: [
+        //     null as CountedPaginatedResponse<Group> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
+        // rawGroup4Response: [
+        //     null as CountedPaginatedResponse<Group> | null,
+        //     {
+        //         search: () => null,
+        //     },
+        // ],
         keyboardResultIndex: [
             0,
             {
@@ -215,6 +215,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup3Response,
                 s.rawGroup4Response,
                 s.searchQuery,
+                s.activeTab,
             ],
             (
                 searchResponse,
@@ -224,7 +225,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group2Response,
                 group3Response,
                 group4Response,
-                query
+                query,
+                activeTab
             ) => {
                 if (
                     !searchResponse &&
@@ -246,7 +248,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     ...(group2Response ? rankGroups(group2Response.results, query) : []),
                     ...(group3Response ? rankGroups(group3Response.results, query) : []),
                     ...(group4Response ? rankGroups(group4Response.results, query) : []),
-                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
+                ]
+                    .filter((r) => activeTab === Tab.All || activeTab === r.type)
+                    .sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
             },
         ],
         combinedSearchLoading: [
