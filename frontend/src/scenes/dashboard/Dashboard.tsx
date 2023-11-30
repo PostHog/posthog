@@ -63,7 +63,18 @@ function DashboardScene(): JSX.Element {
         useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const fetchDashboardData = async () => {
+        try {
+            // an API request to fetch updated dashboard data
+            const updatedData = await fetchData();
 
+            // Handle the updated data, e.g., update state
+            // updateStateWithDashboardData(updatedData);
+        } catch (error) {
+            console.error('Error fetching dashboard data:', error);
+            // Handle error, e.g., show an error message to the user
+        }
+    };
     useEffect(() => {
         reportDashboardViewed()
         return () => {
