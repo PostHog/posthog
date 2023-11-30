@@ -95,6 +95,14 @@ export type MobileStyles = {
      * @description horizontal alignment with respect to its parent
      */
     horizontalAlign?: 'left' | 'right' | 'center'
+    /**
+     * @description maps to CSS font-size. Accepts any valid CSS font-size value. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    fontSize?: string | number
+    /**
+     * @description maps to CSS font-family. Accepts any valid CSS font-family value.
+     */
+    fontFamily?: string
 }
 
 type wireframeBase = {
