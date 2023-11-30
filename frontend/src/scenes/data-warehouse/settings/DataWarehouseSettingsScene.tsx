@@ -82,6 +82,16 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         },
                     },
                     {
+                        title: 'Latest Successful Run',
+                        key: 'latest_successful_run_at',
+                        width: 0,
+                        render: function RenderLatestSuccessfulRunAt(_, source) {
+                            return source.latest_successful_run_at
+                                ? new Date(source.latest_successful_run_at).toLocaleString()
+                                : 'N/A'
+                        },
+                    },
+                    {
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, source) {

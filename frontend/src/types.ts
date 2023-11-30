@@ -3300,6 +3300,7 @@ export interface ExternalDataStripeSource {
     source_id: string
     connection_id: string
     status: string
+    latest_successful_run_at: string
     source_type: string
 }
 
