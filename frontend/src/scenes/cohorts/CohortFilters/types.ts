@@ -10,8 +10,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { CohortLogicProps } from '../cohortEditLogic'
-
 export enum FilterType {
     Behavioral = 'behavioral',
     Aggregation = 'aggregation',
@@ -88,7 +86,6 @@ export interface Row {
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
-    cohortId: CohortLogicProps['id']
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {

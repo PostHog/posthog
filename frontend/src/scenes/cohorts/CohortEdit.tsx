@@ -1,7 +1,7 @@
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { UploadFile } from 'antd/es/upload/interface'
 import Dragger from 'antd/lib/upload/Dragger'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
@@ -17,7 +17,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { pluralize } from 'lib/utils'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -28,15 +28,12 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { Query } from '~/queries/Query/Query'
 import { AvailableFeature, NotebookNodeType } from '~/types'
 
-import { useIsReadonlyCohort } from './cohortUtils'
-
-export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
-    const logicProps = { id }
-    const logic = cohortEditLogic(logicProps)
+export function CohortEdit(): JSX.Element {
+    const logic = useMountedLogic(cohortEditLogic)
+    const logicProps = logic.props
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setEditCohort } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading, readOnly } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const readonly = useIsReadonlyCohort(logicProps)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
     if (cohortMissing) {
@@ -60,7 +57,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     }
                     caption={
                         hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
-                        readonly &&
+                        readOnly &&
                         cohort.description ? (
                             <span style={{ fontStyle: 'normal' }}>{cohort.description}</span>
                         ) : (
@@ -69,7 +66,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     }
                     buttons={
                         <div className="flex items-center gap-2">
-                            {!readonly ? (
+                            {!readOnly ? (
                                 <LemonButton
                                     data-attr="cancel-cohort"
                                     type="secondary"
@@ -139,11 +136,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     type="secondary"
                                     resource={{
                                         type: NotebookNodeType.Cohort,
-                                        attrs: { id },
+                                        attrs: { id: logicProps.id },
                                     }}
                                 />
                             )}
-                            {!readonly && (
+                            {!readOnly && (
                                 <LemonButton
                                     type="primary"
                                     data-attr="save-cohort"
@@ -154,7 +151,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     Save
                                 </LemonButton>
                             )}
-                            {readonly && (
+                            {readOnly && (
                                 <LemonButton
                                     data-attr="edit-cohort"
                                     type="secondary"
@@ -166,7 +163,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                {!readonly && (
+                {!readOnly && (
                     <>
                         <LemonDivider className="my-2 non-3000" />
                         <div className="space-y-2 max-w-160">
@@ -268,10 +265,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 }}
                                 topLevelFilter={true}
                                 suffix={['criterion', 'criteria']}
-                                readOnly={readonly}
                             />
                         </div>
-                        <CohortCriteriaGroups id={logicProps.id} />
+                        <CohortCriteriaGroups />
                     </>
                 )}
 

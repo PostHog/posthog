@@ -10,17 +10,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { criteriaToBehavioralFilterType, isCohortCriteriaGroup, useIsReadonlyCohort } from 'scenes/cohorts/cohortUtils'
+import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
-export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
-    const logic = cohortEditLogic(logicProps)
-    const { cohort } = useValues(logic)
-    const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(logic)
-    const readOnly = useIsReadonlyCohort(logicProps)
+export function CohortCriteriaGroups(): JSX.Element {
+    const { cohort, readOnly } = useValues(cohortEditLogic)
+    const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(cohortEditLogic)
 
     return (
         <>
@@ -49,7 +47,6 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 suffix={['criterion', 'criteria']}
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
-                                                readOnly={readOnly}
                                             />
                                             <div className="flex-1 min-w-2" />
                                             {!readOnly && (
@@ -85,7 +82,6 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                     return isCohortCriteriaGroup(criteria) ? null : (
                                         <Group key={criteriaIndex} name={['values', criteriaIndex]}>
                                             <CohortCriteriaRowBuilder
-                                                id={logicProps.id}
                                                 groupIndex={groupIndex}
                                                 index={criteriaIndex}
                                                 logicalOperator={group.type}

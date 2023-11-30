@@ -70,10 +70,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
     }),
 
-    selectors({
-        usePersonsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
-    }),
-
     reducers(({ props, selectors }) => ({
         cohort: [
             NEW_COHORT,
@@ -359,6 +355,17 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
         },
     })),
+
+    selectors({
+        usePersonsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
+        readOnly: [
+            (s) => [s.isEditingCohort, s.cohort, s.cohortLoading],
+            (isEditingCohort, cohort, cohortLoading) => {
+                const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+                return (!isNewCohort && !isEditingCohort) || cohortLoading
+            },
+        ],
+    }),
 
     actionToUrl(({ values }) => ({
         saveCohortSuccess: () => urls.cohort(values.cohort.id),

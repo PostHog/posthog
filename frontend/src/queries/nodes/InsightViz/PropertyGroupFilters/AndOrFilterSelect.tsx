@@ -1,4 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { ReadOnlyCohortField } from 'scenes/cohorts/cohortUtils'
 
 import { FilterLogicalOperator } from '~/types'
@@ -9,7 +11,6 @@ interface AndOrFilterSelectProps {
     topLevelFilter?: boolean
     prefix?: React.ReactNode
     suffix?: [singular: string, plural: string]
-    readOnly?: boolean
 }
 
 export function AndOrFilterSelect({
@@ -18,8 +19,8 @@ export function AndOrFilterSelect({
     topLevelFilter,
     prefix = 'Match',
     suffix = ['filter in this group', 'filters in this group'],
-    readOnly = false,
 }: AndOrFilterSelectProps): JSX.Element {
+    const { readOnly } = useValues(cohortEditLogic)
     return (
         <div className="flex items-center font-medium">
             <span className="ml-2">{prefix}</span>

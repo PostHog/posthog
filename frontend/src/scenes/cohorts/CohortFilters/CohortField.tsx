@@ -21,7 +21,8 @@ import {
 
 import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
-import { ReadOnlyCohortField, useIsReadonlyCohort } from '../cohortUtils'
+import { cohortEditLogic } from '../cohortEditLogic'
+import { ReadOnlyCohortField } from '../cohortUtils'
 
 let uniqueMemoizedIndex = 0
 
@@ -42,7 +43,6 @@ export function CohortSelectorField({
     fieldOptionGroupTypes,
     placeholder,
     onChange: _onChange,
-    cohortId,
 }: CohortSelectorFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
         fieldKey,
@@ -50,9 +50,8 @@ export function CohortSelectorField({
         criteria,
         fieldOptionGroupTypes,
         onChange: _onChange,
-        cohortId,
     })
-    const readOnly = useIsReadonlyCohort({ id: cohortId })
+    const { readOnly } = useValues(cohortEditLogic)
     const { fieldOptionGroups, currentOption, value } = useValues(logic)
     const { onChange } = useActions(logic)
 
@@ -113,19 +112,17 @@ export function CohortTaxonomicField({
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     placeholder = 'Choose event',
     onChange: _onChange,
-    cohortId,
 }: CohortTaxonomicFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
         cohortFilterLogicKey,
         onChange: _onChange,
-        cohortId,
     })
 
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
-    const readOnly = useIsReadonlyCohort({ id: cohortId })
+    const { readOnly } = useValues(cohortEditLogic)
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
     return (
@@ -166,18 +163,16 @@ export function CohortPersonPropertiesValuesField({
     onChange: _onChange,
     propertyKey,
     operator,
-    cohortId,
 }: CohortPersonPropertiesValuesFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
         cohortFilterLogicKey,
         onChange: _onChange,
-        cohortId,
     })
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
-    const readOnly = useIsReadonlyCohort({ id: cohortId })
+    const { readOnly } = useValues(cohortEditLogic)
 
     return (
         <>
@@ -211,18 +206,16 @@ export function CohortNumberField({
     cohortFilterLogicKey,
     criteria,
     onChange: _onChange,
-    cohortId,
 }: CohortNumberFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
         fieldKey,
         cohortFilterLogicKey,
         criteria,
         onChange: _onChange,
-        cohortId,
     })
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
-    const readOnly = useIsReadonlyCohort({ id: cohortId })
+    const { readOnly } = useValues(cohortEditLogic)
 
     return (
         <>

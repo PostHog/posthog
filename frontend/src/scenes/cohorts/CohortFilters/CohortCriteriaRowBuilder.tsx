@@ -2,20 +2,19 @@ import './CohortCriteriaRowBuilder.scss'
 
 import { Divider } from 'antd'
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { cleanCriteria, useIsReadonlyCohort } from 'scenes/cohorts/cohortUtils'
+import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
-    id: CohortLogicProps['id']
     criteria: AnyCohortCriteriaType
     type: BehavioralFilterType
     groupIndex: number
@@ -26,7 +25,6 @@ export interface CohortCriteriaRowBuilderProps {
 }
 
 export function CohortCriteriaRowBuilder({
-    id,
     type,
     groupIndex,
     index,
@@ -35,15 +33,14 @@ export function CohortCriteriaRowBuilder({
     hideDeleteIcon = false,
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
+    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
     const rowShape = ROWS[type]
-    const readOnly = useIsReadonlyCohort({ id })
+    const { readOnly } = useValues(cohortEditLogic)
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
             <div key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
-                    cohortId: id,
                     fieldKey: _field.fieldKey,
                     criteria,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
@@ -101,7 +98,6 @@ export function CohortCriteriaRowBuilder({
                             <>
                                 <div>
                                     {renderField[FilterType.Behavioral]({
-                                        cohortId: id,
                                         fieldKey: 'value',
                                         criteria,
                                         onChange: (newCriteria) => {

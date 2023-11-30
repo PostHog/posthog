@@ -1,6 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
@@ -27,8 +26,6 @@ import {
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
-
-import { cohortEditLogic, CohortLogicProps } from './cohortEditLogic'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -479,13 +476,6 @@ export const COHORT_MATCHING_DAYS = {
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
-}
-
-export function useIsReadonlyCohort(logicProps: CohortLogicProps): boolean {
-    const logic = cohortEditLogic(logicProps)
-    const { cohort, isEditingCohort, cohortLoading } = useValues(logic)
-    const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    return (!isNewCohort && !isEditingCohort) || cohortLoading
 }
 
 export function ReadOnlyCohortField({ children }: { children: React.ReactNode }): JSX.Element {
