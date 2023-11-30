@@ -211,6 +211,10 @@
                     &::before {
                         bottom: calc(var(--lemon-button-depth) - 1px);
                     }
+
+                    .LemonButton__icon {
+                        opacity: 0.7;
+                    }
                 }
             }
 
