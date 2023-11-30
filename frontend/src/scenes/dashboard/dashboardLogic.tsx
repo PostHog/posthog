@@ -949,7 +949,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = action === 'refresh_manual'
+            const hardRefreshWithoutCache = action === 'refresh_manual' || action === 'refresh_above_threshold'
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
