@@ -140,6 +140,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const [inspectorFocus, setInspectorFocus] = useState(false)
 
+    const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+
     if (isNotFound) {
         return (
             <div className="text-center">
@@ -147,8 +149,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             </div>
         )
     }
-
-    const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>

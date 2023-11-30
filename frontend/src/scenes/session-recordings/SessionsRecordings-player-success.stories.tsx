@@ -13,7 +13,7 @@ import recording_playlists from './__mocks__/recording_playlists.json'
 import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
-    title: 'Scenes-App/Recordings',
+    title: 'Replay/Player/Success',
     tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',

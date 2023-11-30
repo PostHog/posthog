@@ -109,7 +109,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         propertyFilterTypeToPropertyDefinitionType(
                             taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
                         ) ?? PropertyDefinitionType.Event
-                    const propertyValueType = values.describeProperty(propertyKey, apiType)
+
+                    const propertyValueType = values.describeProperty(
+                        propertyKey,
+                        apiType,
+                        taxonomicGroup.groupTypeIndex
+                    )
                     const property_name_to_default_operator_override = {
                         $active_feature_flags: PropertyOperator.IContains,
                     }

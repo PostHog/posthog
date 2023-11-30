@@ -1,5 +1,4 @@
 import apiReal from 'lib/api'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 import {
     CohortType,
@@ -10,6 +9,7 @@ import {
     OrganizationType,
     PersonProperty,
     PluginConfigWithPluginInfo,
+    PluginInstallationType,
     PluginType,
     PropertyFilterType,
     PropertyOperator,
