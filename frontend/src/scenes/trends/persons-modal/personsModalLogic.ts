@@ -263,7 +263,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions.reportPersonsModalViewed({
             url: props.url,
             query: props.query,
-            // TODO: parse qs
         })
     }),
 
