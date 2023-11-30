@@ -43,6 +43,13 @@ export function ActionsLineGraph({
         isStickiness,
     } = useValues(trendsDataLogic(insightProps))
 
+    const labels =
+        (indexedResults.length === 2 &&
+            indexedResults.every((x) => x.compare) &&
+            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+        (indexedResults[0] && indexedResults[0].labels) ||
+        []
+
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
@@ -51,7 +58,7 @@ export function ActionsLineGraph({
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
-            labels={(indexedResults[0] && indexedResults[0].labels) || []}
+            labels={labels}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
