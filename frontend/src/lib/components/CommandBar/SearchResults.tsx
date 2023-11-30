@@ -12,9 +12,6 @@ export const SearchResults = (): JSX.Element => {
 
     return (
         <div className="flex grow overflow-hidden">
-            <SearchTabs
-            // inputRef={inputRef}
-            />
             <div className="w-full overscroll-none overflow-y-auto border-r bg-bg-light">
                 {combinedSearchLoading && (
                     <>
@@ -44,6 +41,9 @@ export const SearchResults = (): JSX.Element => {
             {/* <div className="w-1/2 p-2 overflow-y-auto">
                 <SearchResultPreview />
             </div> */}
+            <SearchTabs
+            // inputRef={inputRef}
+            />
         </div>
     )
 }

@@ -377,23 +377,23 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setActiveTab: actions.search,
         search: (_) => {
             // postgres search
-            if (values.activeTab === Tab.All || !clickhouseTabs.includes(values.activeTab)) {
-                actions.loadSearchResponse(_)
-            }
+            // if (values.activeTab === Tab.All || !clickhouseTabs.includes(values.activeTab)) {
+            actions.loadSearchResponse(_)
+            // }
 
             // clickhouse persons
-            if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
-                actions.loadPersonsResponse(_)
-            }
+            // if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
+            actions.loadPersonsResponse(_)
+            // }
 
             // clickhouse groups
-            if (values.activeTab === Tab.All) {
-                for (const type of Array.from(values.groupTypes.values())) {
-                    actions[`loadGroup${type.group_type_index}Response`](_)
-                }
-            } else if (values.activeTab.startsWith('group_')) {
-                actions[`loadGroup${values.activeTab.split('_')[1]}Response`](_)
+            // if (values.activeTab === Tab.All) {
+            for (const type of Array.from(values.groupTypes.values())) {
+                actions[`loadGroup${type.group_type_index}Response`](_)
             }
+            // } else if (values.activeTab.startsWith('group_')) {
+            //     actions[`loadGroup${values.activeTab.split('_')[1]}Response`](_)
+            // }
         },
         openResult: ({ index }) => {
             const result = values.combinedSearchResults![index]
