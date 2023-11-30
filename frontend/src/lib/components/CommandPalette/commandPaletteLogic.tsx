@@ -57,8 +57,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
 
@@ -134,7 +132,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
+        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
@@ -871,7 +869,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'toggle-theme',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: ThemeIcon,
+                    icon: <></>,
                     display: 'Switch theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
@@ -881,21 +879,21 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 icon: IconDay,
                                 display: 'Light theme',
                                 executor: () => {
-                                    actions.overrideTheme(false)
+                                    // TODO: actions.overrideTheme(false)
                                 },
                             },
                             {
                                 icon: IconNight,
                                 display: 'Dark theme',
                                 executor: () => {
-                                    actions.overrideTheme(true)
+                                    // TODO: actions.overrideTheme(true)
                                 },
                             },
                             {
                                 icon: IconAsterisk,
                                 display: 'Sync with system settings',
                                 executor: () => {
-                                    actions.overrideTheme(null)
+                                    // TODO: actions.overrideTheme(null)
                                 },
                             },
                         ],
