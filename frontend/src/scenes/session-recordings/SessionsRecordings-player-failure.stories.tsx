@@ -1,9 +1,8 @@
 import { Meta } from '@storybook/react'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
@@ -13,8 +12,7 @@ import recording_playlists from './__mocks__/recording_playlists.json'
 import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
-    title: 'Replay/Player/Success',
-    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
+    title: 'Replay/Player/Failure',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -22,6 +20,7 @@ const meta: Meta = {
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
     },
     decorators: [
+        // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
                 '/api/projects/:team_id/session_recordings': (req) => {
@@ -110,7 +109,9 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                '/api/projects/:team/session_recordings/:id': () => {
+                    return [404, {}]
+                },
                 'api/projects/:team/notebooks': {
                     count: 0,
                     next: null,
@@ -126,30 +127,9 @@ const meta: Meta = {
 }
 export default meta
 
-export function RecentRecordings(): JSX.Element {
+export function RecentRecordings404(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayListNoPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replayPlaylist('abcdefg'))
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replayPlaylist('1234567'))
-    }, [])
-    return <App />
-}
-
-export function SecondRecordingInList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
     }, [])
     return <App />
 }

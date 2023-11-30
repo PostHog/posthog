@@ -75,6 +75,18 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+const PostHogMobileEvents = [
+    'Deep Link Opened',
+    'Application Opened',
+    'Application Backgrounded',
+    'Application Updated',
+    'Application Installed',
+]
+
+function isPostHogEvent(item: InspectorListItemEvent): boolean {
+    return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -365,20 +377,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
-                        if (miniFiltersByKey['events-posthog']?.enabled && item.data.event.startsWith('$')) {
+                        if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-custom']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            !item.data.event.startsWith('$')
+                            !isPostHogEvent(item)
                         ) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-pageview']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(item.data.event)
+                            ['$pageview', '$screen'].includes(item.data.event)
                         ) {
                             include = true
                         }
