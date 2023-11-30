@@ -15,18 +15,22 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.redshift_batch_export import (
+from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
     RedshiftInsertInputs,
     insert_into_redshift_activity,
     remove_escaped_whitespace_recursive,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 REQUIRED_ENV_VARS = (
@@ -66,10 +70,9 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
 
         raw_properties = event.get("properties", None)
         properties = remove_escaped_whitespace_recursive(raw_properties) if raw_properties else None
-        elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain) if elements_chain else None,
+            "elements": "",
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
             "properties": json.dumps(properties, ensure_ascii=False) if properties else None,

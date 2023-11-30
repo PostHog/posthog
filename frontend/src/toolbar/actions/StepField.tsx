@@ -1,20 +1,42 @@
-import { SelectorCount } from '~/toolbar/actions/SelectorCount'
-import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepForm } from '~/toolbar/types'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import clsx from 'clsx'
 import { Field } from 'kea-forms'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { StringMatching } from '~/types'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import clsx from 'clsx'
+import { cssEscape } from 'lib/utils/cssEscape'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+
+import { SelectorCount } from '~/toolbar/actions/SelectorCount'
+import { ActionStepForm } from '~/toolbar/types'
+import { StringMatching } from '~/types'
 
 interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
     step: ActionStepForm
     label: string | JSX.Element
     caption?: string | JSX.Element
+}
+
+function hrefSelector(step: ActionStepForm): string | null {
+    if (!step.href) {
+        return null
+    }
+    // see https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#links
+    const matchOperator = {
+        // Link whose value is exactly step.href.
+        [StringMatching.Exact]: '=',
+        // Links with step.href anywhere in the URL
+        [StringMatching.Contains]: '*=',
+        // CSS selector can't match on regex
+        [StringMatching.Regex]: null,
+    }[step.href_matching || StringMatching.Exact]
+
+    if (!matchOperator) {
+        return null
+    }
+
+    return `a[href${matchOperator}"${cssEscape(step.href)}"]`
 }
 
 export function StepField({ step, item, label, caption }: StepFieldProps): JSX.Element {
@@ -24,7 +46,7 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
         <>
             <div className={clsx('action-field my-1', selected && 'action-field-selected')}>
                 <div>
-                    {item === 'href' && step?.href && <SelectorCount selector={`a[href="${cssEscape(step.href)}"]`} />}
+                    {item === 'href' && step?.href && <SelectorCount selector={hrefSelector(step)} />}
                     {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
                     <Field name={`${item}_selected`} noStyle>
                         {({ onChange, value }) => <LemonCheckbox label={label} onChange={onChange} checked={value} />}

@@ -1,11 +1,11 @@
-import { kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { BillingProductV2Type, ProductKey } from '~/types'
-import { urls } from 'scenes/urls'
-
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl, router, actionToUrl, urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -75,7 +75,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         allOnboardingSteps: [
             [] as AllOnboardingSteps,
             {
-                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
+                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
             },
         ],
         stepKey: [
@@ -85,7 +85,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            urls.default() as string,
+            urls.default(),
             {
                 setProductKey: (_, { productKey }) => {
                     return productKey ? getProductUri(productKey as ProductKey) : urls.default()
@@ -154,7 +154,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
-            actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            if (window.location.pathname.startsWith('/onboarding')) {
+                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            }
         },
         setProduct: ({ product }) => {
             if (!product) {
@@ -206,7 +208,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         resetStepKey: () => {
-            actions.setStepKey(values.allOnboardingSteps[0].props.stepKey)
+            values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
     actionToUrl(({ values }) => ({

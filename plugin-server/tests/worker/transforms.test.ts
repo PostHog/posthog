@@ -6,6 +6,8 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
+const EMPTY_IMPORTS = {}
+
 describe('transforms', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -27,7 +29,7 @@ describe('transforms', () => {
             }
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -45,7 +47,7 @@ describe('transforms', () => {
             }
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -63,7 +65,7 @@ describe('transforms', () => {
             }
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -82,7 +84,7 @@ describe('transforms', () => {
             x.then(() => null)
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -99,7 +101,7 @@ describe('transforms', () => {
             }
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -117,7 +119,7 @@ describe('transforms', () => {
             for (let i = 0; i < i + 1; i++) console.log(i)
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -139,7 +141,7 @@ describe('transforms', () => {
             }
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -168,7 +170,7 @@ describe('transforms', () => {
             console.log(k({ a, b: 'tomato' }))
         `
 
-            const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub, EMPTY_IMPORTS, new Set())
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -194,8 +196,9 @@ describe('transforms', () => {
             import * as fetch2 from 'node-fetch'
             console.log(bla, bla2, bla4, fetch1, fetch2);
         `
-
-            const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } })
+            const usedImports = new Set<string>()
+            const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } }, usedImports)
+            expect(usedImports).toEqual(new Set(['node-fetch']))
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -216,7 +219,7 @@ describe('transforms', () => {
         `
 
             expect(() => {
-                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
+                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } }, new Set())
             }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
         })
 
@@ -227,10 +230,17 @@ describe('transforms', () => {
             console.log(fetch, BigQuery);
         `
 
-            const transformedCode = transformCode(rawCode, hub, {
-                'node-fetch': { bla: () => true },
-                '@google-cloud/bigquery': { BigQuery: () => true },
-            })
+            const usedImports = new Set<string>()
+            const transformedCode = transformCode(
+                rawCode,
+                hub,
+                {
+                    'node-fetch': { bla: () => true },
+                    '@google-cloud/bigquery': { BigQuery: () => true },
+                },
+                usedImports
+            )
+            expect(usedImports).toEqual(new Set(['node-fetch', '@google-cloud/bigquery']))
 
             expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -250,7 +260,7 @@ describe('transforms', () => {
         `
 
             expect(() => {
-                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
+                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } }, new Set())
             }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
         })
     })

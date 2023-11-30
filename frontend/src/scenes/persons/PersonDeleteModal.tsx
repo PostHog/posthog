@@ -1,7 +1,9 @@
-import { useActions, useValues } from 'kea'
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
-import { PersonType } from '~/types'
+import { useActions, useValues } from 'kea'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+
+import { PersonType } from '~/types'
+
 import { asDisplay } from './person-utils'
 
 export function PersonDeleteModal(): JSX.Element | null {

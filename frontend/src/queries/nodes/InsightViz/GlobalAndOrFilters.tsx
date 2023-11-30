@@ -1,13 +1,15 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 import { useActions, useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
-import { actionsModel } from '~/models/actionsModel'
-import { getAllEventNames } from './utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { EditorFilterProps } from '~/types'
-import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { EditorFilterProps } from '~/types'
+
+import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
+import { getAllEventNames } from './utils'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { actions: allActions } = useValues(actionsModel)
@@ -34,7 +36,6 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
             setQuery={updateQuerySource}
             eventNames={getAllEventNames(querySource as TrendsQuery | StickinessQuery, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            noTitle
         />
     )
 }

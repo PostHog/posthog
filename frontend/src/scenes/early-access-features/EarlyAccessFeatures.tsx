@@ -1,13 +1,15 @@
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { EarlyAccessFeatureType, ProductKey } from '~/types'
-import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { userLogic } from 'scenes/userLogic'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { router } from 'kea-router'
+
+import { EarlyAccessFeatureType, ProductKey } from '~/types'
+
+import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,

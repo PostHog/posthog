@@ -1,9 +1,8 @@
-import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
 
-import { actionBarLogic } from './actionBarLogic'
-import { getNameFromActionScope } from './utils'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
+import { actionBarLogic } from './actionBarLogic'
 
 type SearchResultProps = {
     result: CommandResultDisplayable
@@ -23,10 +22,10 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     }, [focused])
 
     return (
-        <div className={`border-l-4 ${isExecutable ? 'border-primary' : ''}`}>
+        <div className={`border-l-4 ${isExecutable ? 'border-primary-3000' : ''}`}>
             <div
-                className={`w-full pl-3 pr-2 ${
-                    focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
+                className={`flex items-center w-full pl-3 pr-2 ${
+                    focused ? 'bg-bg-3000' : 'bg-bg-light'
                 } border-b cursor-pointer`}
                 onMouseEnter={() => {
                     onMouseEnterResult(result.index)
@@ -41,12 +40,11 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                    {result.source.scope && (
-                        <span className="text-muted-3000 text-xs">{getNameFromActionScope(result.source.scope)}</span>
-                    )}
-                    <span className="text-text-3000">{result.display}</span>
+                <div className="px-2 py-3 w-full space-y-0.5 flex items-center">
+                    <result.icon className="text-muted-3000" />
+                    <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
                 </div>
+                {focused && <div className="shrink-0 text-primary-3000">Run command</div>}
             </div>
         </div>
     )

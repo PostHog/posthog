@@ -1,26 +1,29 @@
 import './PlayerMeta.scss'
-import { dayjs } from 'lib/dayjs'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { useValues } from 'kea'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { TZLabel } from 'lib/components/TZLabel'
-import { percentage } from 'lib/utils'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import clsx from 'clsx'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
 import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import clsx from 'clsx'
+import { useValues } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { PlayerMetaLinks } from './PlayerMetaLinks'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { percentage } from 'lib/utils'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { IconWindow } from 'scenes/session-recordings/player/icons'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { urls } from 'scenes/urls'
+
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { urls } from 'scenes/urls'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { PlayerMetaLinks } from './PlayerMetaLinks'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean
@@ -145,7 +148,7 @@ export function PlayerMeta(): JSX.Element {
     }
 
     return (
-        <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)}>
+        <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
                 ref={ref}
                 className={clsx('PlayerMeta', {
@@ -166,12 +169,12 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <div className="overflow-hidden ph-no-capture flex-1">
-                        <div className="font-bold">
+                        <div>
                             {!sessionPerson || !startTime ? (
                                 <LemonSkeleton className="w-1/3 h-4 my-1" />
                             ) : (
                                 <div className="flex gap-1">
-                                    <span className="whitespace-nowrap truncate">
+                                    <span className="font-bold whitespace-nowrap truncate">
                                         <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
                                     </span>
                                     {'·'}

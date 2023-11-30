@@ -1,32 +1,37 @@
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/logics'
+import { ReactNode } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import { examples } from '~/queries/examples'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CohortType,
     EntityFilter,
     EntityTypes,
+    EventType,
     InsightModel,
     InsightShortId,
     InsightType,
     PathsFilterType,
     PathType,
+    TrendsFilterType,
 } from '~/types'
-import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { getCurrentTeamId } from 'lib/utils/logics'
-import { dashboardsModel } from '~/models/dashboardsModel'
+
 import { insightLogic } from './insightLogic'
-import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { ReactNode } from 'react'
-import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
-import { urls } from 'scenes/urls'
-import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -295,4 +300,49 @@ export function concatWithPunctuation(phrases: string[]): string {
     } else {
         return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+}
+
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }

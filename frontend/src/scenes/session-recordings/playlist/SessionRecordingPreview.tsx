@@ -1,16 +1,18 @@
-import { DurationType, SessionRecordingType } from '~/types'
-import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
+
+import { DurationType, SessionRecordingType } from '~/types'
+
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export interface SessionRecordingPreviewProps {
@@ -53,40 +55,58 @@ function RecordingDuration({
     )
 }
 
-function ActivityIndicators({
-    recording,
-    onPropertyClick,
-    iconClassnames,
-}: {
+interface GatheredProperty {
+    property: string
+    value: string | undefined
+    tooltipValue: string
+}
+
+const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
+
+function gatherIconProperties(
+    recordingProperties: Record<string, any> | undefined,
     recording: SessionRecordingType
-    onPropertyClick?: (property: string, value?: string) => void
-    iconClassnames: string
-}): JSX.Element {
-    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-
-    const recordingProperties = recordingPropertiesById[recording.id]
-    const loading = !recordingProperties && recordingPropertiesLoading
-
-    const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+): GatheredProperty[] {
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
             ? recordingProperties
             : recording.person?.properties || {}
 
-    const propertyIcons = (
+    const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
+    const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
+
+    return iconPropertyKeys.map((property) => {
+        let value = iconProperties?.[property]
+        if (property === '$device_type') {
+            value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+        }
+
+        let tooltipValue = value
+        if (property === '$geoip_country_code') {
+            tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+        }
+        return { property, value, tooltipValue }
+    })
+}
+
+export interface PropertyIconsProps {
+    recordingProperties: GatheredProperty[]
+    loading: boolean
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames: string
+}
+
+export function PropertyIcons({
+    recordingProperties,
+    loading,
+    onPropertyClick,
+    iconClassnames,
+}: PropertyIconsProps): JSX.Element {
+    return (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
             {!loading ? (
-                iconPropertyKeys.map((property) => {
-                    let value = iconProperties?.[property]
-                    if (property === '$device_type') {
-                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                    }
-
-                    let tooltipValue = value
-                    if (property === '$geoip_country_code') {
-                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
-                    }
-
+                recordingProperties.map(({ property, value, tooltipValue }) => {
                     return (
                         <PropertyIcon
                             key={property}
@@ -114,17 +134,31 @@ function ActivityIndicators({
             )}
         </div>
     )
+}
+
+function ActivityIndicators({
+    recording,
+    ...props
+}: {
+    recording: SessionRecordingType
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames: string
+}): JSX.Element {
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+    const recordingProperties = recordingPropertiesById[recording.id]
+    const loading = !recordingProperties && recordingPropertiesLoading
+    const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     return (
         <div className="flex iems-center gap-2 text-xs text-muted-alt">
-            {propertyIcons}
+            <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
 
             <span
-                title={`Click count: ${recording.click_count}`}
+                title={`Mouse activity: ${recording.mouse_activity_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
                 <IconAutocapture />
-                {recording.click_count}
+                {recording.mouse_activity_count}
             </span>
 
             <span
@@ -162,7 +196,7 @@ function PinnedIndicator(): JSX.Element | null {
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
         <Tooltip title={'Indicates the recording has not been watched yet'}>
-            <div className="w-2 h-2 m-1 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+            <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
 }

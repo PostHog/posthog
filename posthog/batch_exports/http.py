@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any
 
 import posthoganalytics
+import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -27,9 +28,10 @@ from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
+    BatchExportServiceScheduleNotFound,
     backfill_export,
     cancel_running_batch_export_backfill,
-    delete_schedule,
+    batch_export_delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
@@ -46,8 +48,10 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+
+logger = structlog.get_logger(__name__)
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -320,10 +324,22 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response({"paused": False})
 
     def perform_destroy(self, instance: BatchExport):
-        """Perform a BatchExport destroy by clearing Temporal and Django state."""
-        instance.deleted = True
+        """Perform a BatchExport destroy by clearing Temporal and Django state.
+
+        If the underlying Temporal Schedule doesn't exist, we ignore the error and proceed with the delete anyways.
+        The Schedule could have been manually deleted causing Django and Temporal to go out of sync. For whatever reason,
+        since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
+        instance.save().
+        """
         temporal = sync_connect()
-        delete_schedule(temporal, str(instance.pk))
+
+        instance.deleted = True
+
+        try:
+            batch_export_delete_schedule(temporal, str(instance.pk))
+        except BatchExportServiceScheduleNotFound as e:
+            logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
+
         instance.save()
 
         for backfill in BatchExportBackfill.objects.filter(batch_export=instance):

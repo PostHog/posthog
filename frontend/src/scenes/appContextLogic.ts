@@ -1,14 +1,14 @@
+import * as Sentry from '@sentry/react'
 import { afterMount, connect, kea, path } from 'kea'
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-import * as Sentry from '@sentry/react'
 
-import { userLogic } from './userLogic'
+import { UserType } from '~/types'
 
 import type { appContextLogicType } from './appContextLogicType'
 import { organizationLogic } from './organizationLogic'
 import { teamLogic } from './teamLogic'
-import { UserType } from '~/types'
+import { userLogic } from './userLogic'
 
 export const appContextLogic = kea<appContextLogicType>([
     path(['scenes', 'appContextLogic']),
@@ -27,7 +27,7 @@ export const appContextLogic = kea<appContextLogicType>([
         const preloadedUser = appContext?.current_user
 
         if (appContext && preloadedUser) {
-            api.get('api/users/@me/').then((remoteUser: UserType) => {
+            void api.get('api/users/@me/').then((remoteUser: UserType) => {
                 if (remoteUser.uuid !== preloadedUser.uuid) {
                     console.error(`Preloaded user ${preloadedUser.uuid} does not match remote user ${remoteUser.uuid}`)
                     Sentry.captureException(

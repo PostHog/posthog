@@ -1,8 +1,10 @@
 import { TZLabel } from 'lib/components/TZLabel'
+import { Dayjs, dayjs } from 'lib/dayjs'
+
+import { UserBasicType } from '~/types'
+
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
-import { UserBasicType } from '~/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
 
 export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
     return {

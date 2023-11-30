@@ -1,10 +1,12 @@
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, events } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { UserType } from '~/types'
+
 import type { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>([

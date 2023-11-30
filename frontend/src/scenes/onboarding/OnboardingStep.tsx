@@ -1,10 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,

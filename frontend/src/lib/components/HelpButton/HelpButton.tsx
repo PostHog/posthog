@@ -1,25 +1,27 @@
 import './HelpButton.scss'
-import { kea, useActions, useValues, props, key, path, connect, actions, reducers, listeners } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { HelpType } from '~/types'
-import type { helpButtonLogicType } from './HelpButtonType'
+
+import { Placement } from '@floating-ui/react'
+import clsx from 'clsx'
+import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import {
     IconArrowDropDown,
     IconArticle,
-    IconHelpOutline,
-    IconQuestionAnswer,
-    IconMessages,
-    IconSupport,
-    IconFeedback,
     IconBugReport,
+    IconFeedback,
+    IconHelpOutline,
+    IconMessages,
+    IconQuestionAnswer,
+    IconSupport,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { Placement } from '@floating-ui/react'
-import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { supportLogic } from '../Support/supportLogic'
-import { SupportModal } from '../Support/SupportModal'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { HelpType } from '~/types'
+
+import { supportLogic } from '../Support/supportLogic'
+import type { helpButtonLogicType } from './HelpButtonType'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -114,7 +116,7 @@ export function HelpButton({
                                 icon: <IconBugReport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('bug')
+                                    openSupportForm({ kind: 'bug' })
                                     hideHelp()
                                 },
                             },
@@ -123,7 +125,7 @@ export function HelpButton({
                                 icon: <IconFeedback />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('feedback')
+                                    openSupportForm({ kind: 'feedback' })
                                     hideHelp()
                                 },
                             },
@@ -132,7 +134,7 @@ export function HelpButton({
                                 icon: <IconSupport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('support')
+                                    openSupportForm({ kind: 'support' })
                                     hideHelp()
                                 },
                             },
@@ -180,7 +182,6 @@ export function HelpButton({
                     )}
                 </div>
             </LemonMenu>
-            <SupportModal />
         </>
     )
 }

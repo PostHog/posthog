@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
     series_event_name,
@@ -19,6 +20,7 @@ class Breakdown:
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
     timings: HogQLTimings
+    events_filter: ast.Expr
 
     def __init__(
         self,
@@ -27,12 +29,14 @@ class Breakdown:
         series: EventsNode | ActionsNode,
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
+        events_filter: ast.Expr,
     ):
         self.team = team
         self.query = query
         self.series = series
         self.query_date_range = query_date_range
         self.timings = timings
+        self.events_filter = events_filter
 
     @cached_property
     def enabled(self) -> bool:
@@ -60,9 +64,10 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdown.breakdown),
             )
         elif self.query.breakdown.breakdown_type == "cohort":
+            cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Constant(value=int(self.query.breakdown.breakdown)),
+                expr=ast.Constant(value=cohort_breakdown),
             )
 
         if self.query.breakdown.breakdown_type == "hogql":
@@ -76,10 +81,13 @@ class Breakdown:
             expr=ast.Field(chain=self._properties_chain),
         )
 
-    def events_where_filter(self) -> ast.Expr:
+    def events_where_filter(self) -> ast.Expr | None:
         if self.query.breakdown.breakdown_type == "cohort":
+            if self.query.breakdown.breakdown == "all":
+                return None
+
             return ast.CompareOperation(
-                left=ast.Field(chain=["person_id"]),
+                left=ast.Field(chain=["person", "id"]),
                 op=ast.CompareOperationOp.InCohort,
                 right=ast.Constant(value=int(self.query.breakdown.breakdown)),
             )
@@ -89,11 +97,17 @@ class Breakdown:
         else:
             left = ast.Field(chain=self._properties_chain)
 
-        return ast.CompareOperation(
-            left=left,
-            op=ast.CompareOperationOp.In,
-            right=self._breakdown_values_ast,
-        )
+        compare_ops = [
+            ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
+            for v in self._get_breakdown_values
+        ]
+
+        if len(compare_ops) == 1:
+            return compare_ops[0]
+        elif len(compare_ops) == 0:
+            return parse_expr("1 = 1")
+
+        return ast.Or(exprs=compare_ops)
 
     @cached_property
     def _breakdown_buckets_ast(self) -> ast.Array:
@@ -108,7 +122,7 @@ class Breakdown:
         return ast.Array(exprs=[ast.Constant(value=v) for v in self._get_breakdown_values])
 
     @cached_property
-    def _get_breakdown_values(self) -> ast.Array:
+    def _get_breakdown_values(self) -> List[str | int]:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
@@ -116,6 +130,8 @@ class Breakdown:
                 breakdown_field=self.query.breakdown.breakdown,
                 breakdown_type=self.query.breakdown.breakdown_type,
                 query_date_range=self.query_date_range,
+                events_filter=self.events_filter,
+                chart_display_type=self._trends_display().display_type,
                 histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
                 group_type_index=self.query.breakdown.breakdown_group_type_index,
             )
@@ -177,3 +193,11 @@ class Breakdown:
             breakdown_field=self.query.breakdown.breakdown,
             group_type_index=self.query.breakdown.breakdown_group_type_index,
         )
+
+    def _trends_display(self) -> TrendsDisplay:
+        display = (
+            self.query.trendsFilter.display
+            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            else None
+        )
+        return TrendsDisplay(display)

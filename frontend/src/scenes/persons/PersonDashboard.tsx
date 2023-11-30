@@ -1,14 +1,15 @@
-import { HogQLPropertyFilter, PersonType, PropertyFilterType } from '~/types'
-import { Scene } from 'scenes/sceneTypes'
-import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
+import { useActions, useValues } from 'kea'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { useActions, useValues } from 'kea'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { personDashboardLogic } from 'scenes/persons/personDashboardLogic'
+import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { useEffect } from 'react'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { personDashboardLogic } from 'scenes/persons/personDashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+
+import { HogQLPropertyFilter, PersonType, PropertyFilterType } from '~/types'
 
 export function PersonDashboard({ person }: { person: PersonType }): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Person }))

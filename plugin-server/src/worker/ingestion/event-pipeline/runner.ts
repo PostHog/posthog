@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Counter } from 'prom-client'
+import { Counter, Summary } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -18,6 +18,12 @@ import { processPersonsStep } from './processPersonsStep'
 const pipelineStepCompletionCounter = new Counter({
     name: 'events_pipeline_step_executed_total',
     help: 'Number of events that have completed the step',
+    labelNames: ['step_name'],
+})
+const pipelineStepDurationSummary = new Summary({
+    name: 'events_pipeline_step_duration_seconds_total',
+    help: 'Duration spent in each step',
+    percentiles: [0.1, 0.5, 0.9, 0.95],
     labelNames: ['step_name'],
 })
 const pipelineStepThrowCounter = new Counter({
@@ -168,7 +174,7 @@ export class EventPipelineRunner {
         sentToDql = true
     ): ReturnType<Step> {
         const timer = new Date()
-
+        const stepTimer = pipelineStepDurationSummary.labels(step.name).startTimer()
         return runInSpan(
             {
                 op: 'runStep',
@@ -185,6 +191,7 @@ export class EventPipelineRunner {
                 try {
                     const result = await step(...args)
                     pipelineStepCompletionCounter.labels(step.name).inc()
+                    stepTimer()
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
                     return result

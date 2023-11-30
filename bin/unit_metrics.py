@@ -42,7 +42,7 @@ UNIT_REQUESTS_ACTIVE_GAUGE = Gauge(
 
 
 def application(environ, start_response):
-    connection = http.client.HTTPConnection("localhost:8081")
+    connection = http.client.HTTPConnection("localhost:8181")
     connection.request("GET", "/status")
     response = connection.getresponse()
 

@@ -1,12 +1,14 @@
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { inBounds } from '~/toolbar/utils'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
-import { posthog } from '~/toolbar/posthog'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { posthog } from '~/toolbar/posthog'
+import { inBounds } from '~/toolbar/utils'
+
+import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     path(['toolbar', 'button', 'toolbarButtonLogic']),

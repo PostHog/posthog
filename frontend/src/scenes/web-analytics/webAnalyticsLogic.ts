@@ -1,6 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-
-import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import { loaders } from 'kea-loaders'
+import { windowValues } from 'kea-window-values'
+import api from 'lib/api'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 
 import {
     NodeKind,
@@ -15,16 +19,14 @@ import {
     EventDefinition,
     EventDefinitionType,
     InsightType,
+    IntervalType,
+    PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
     RetentionPeriod,
 } from '~/types'
-import { isNotNil } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
-import { windowValues } from 'kea-window-values'
+
+import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -49,6 +51,7 @@ export interface TabsTile extends BaseTile {
         title: string
         linkText: string
         query: QuerySchema
+        showIntervalSelect?: boolean
     }[]
 }
 
@@ -89,7 +92,15 @@ export interface WebAnalyticsStatusCheck {
     shouldWarnAboutNoPageleaves: boolean
 }
 
+export const GEOIP_PLUGIN_URLS = [
+    'https://github.com/PostHog/posthog-plugin-geoip',
+    'https://www.npmjs.com/package/@posthog/geoip-plugin',
+]
+
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
+const initialDateFrom = '-7d' as string | null
+const initialDateTo = null as string | null
+const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
@@ -119,6 +130,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setInterval: (interval: IntervalType) => ({ interval }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -183,7 +195,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         deviceTab: [
-            DeviceTab.BROWSER as string,
+            DeviceTab.DEVICE_TYPE as string,
             {
                 setDeviceTab: (_, { tab }) => tab,
             },
@@ -200,16 +212,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setGeographyTab: (_, { tab }) => tab,
             },
         ],
-        dateFrom: [
-            '-7d' as string | null,
+        dateFilter: [
             {
-                setDates: (_, { dateFrom }) => dateFrom,
+                dateFrom: initialDateFrom,
+                dateTo: initialDateTo,
+                interval: initialInterval,
             },
-        ],
-        dateTo: [
-            null as string | null,
             {
-                setDates: (_, { dateTo }) => dateTo,
+                setDates: (_, { dateTo, dateFrom }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval: getDefaultInterval(dateFrom, dateTo),
+                }),
+                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval,
+                    }
+                },
             },
         ],
     }),
@@ -222,9 +244,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.deviceTab,
                 s.sourceTab,
                 s.geographyTab,
-                s.dateFrom,
-                s.dateTo,
+                s.dateFilter,
                 () => values.isGreaterThanMd,
+                () => values.shouldShowGeographyTile,
             ],
             (
                 webAnalyticsFilters,
@@ -233,15 +255,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTab,
                 sourceTab,
                 geographyTab,
-                dateFrom,
-                dateTo,
-                isGreaterThanMd: boolean
+                { dateFrom, dateTo, interval },
+                isGreaterThanMd: boolean,
+                shouldShowGeographyTile
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
-                return [
+                const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
                             colSpan: 12,
@@ -268,7 +290,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -285,7 +307,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
@@ -296,7 +320,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -313,7 +337,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.NUM_SESSION,
@@ -324,7 +350,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -342,7 +368,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     suppressSessionAnalysisWarning: true,
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                         ],
                     },
@@ -447,6 +475,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
+                                id: DeviceTab.DEVICE_TYPE,
+                                title: 'Top Device Types',
+                                linkText: 'Device Type',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        breakdown: { breakdown: '$device_type', breakdown_type: 'event' },
+                                        dateRange,
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueUsers,
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            display: ChartDisplayType.ActionsPie,
+                                            show_labels_on_series: true,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    hidePersonsModal: true,
+                                    vizSpecificOptions: {
+                                        [ChartDisplayType.ActionsPie]: {
+                                            disableHoverOffset: true,
+                                            hideAggregation: true,
+                                        },
+                                    },
+                                },
+                            },
+                            {
                                 id: DeviceTab.BROWSER,
                                 title: 'Top browsers',
                                 linkText: 'Browser',
@@ -472,104 +533,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.OS,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                            {
-                                id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top device types',
-                                linkText: 'Device type',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.DeviceType,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                    {
-                        layout: {
-                            colSpan: 6,
-                        },
-                        activeTabId: geographyTab,
-                        setTabId: actions.setGeographyTab,
-                        tabs: [
-                            {
-                                id: GeographyTab.MAP,
-                                title: 'World map',
-                                linkText: 'Map',
-                                query: {
-                                    kind: NodeKind.InsightVizNode,
-                                    source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        breakdown: {
-                                            breakdown: '$geoip_country_code',
-                                            breakdown_type: 'person',
-                                        },
-                                        dateRange,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueUsers,
-                                            },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.WorldMap,
-                                        },
-                                        filterTestAccounts: true,
-                                        properties: webAnalyticsFilters,
-                                    },
-                                    hidePersonsModal: true,
-                                },
-                            },
-                            {
-                                id: GeographyTab.COUNTRIES,
-                                title: 'Top countries',
-                                linkText: 'Countries',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.Country,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                            {
-                                id: GeographyTab.REGIONS,
-                                title: 'Top regions',
-                                linkText: 'Regions',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.Region,
-                                        dateRange,
-                                    },
-                                },
-                            },
-                            {
-                                id: GeographyTab.CITIES,
-                                title: 'Top cities',
-                                linkText: 'Cities',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.City,
                                         dateRange,
                                     },
                                 },
@@ -604,7 +567,117 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         },
                     },
+                    shouldShowGeographyTile
+                        ? {
+                              layout: {
+                                  colSpan: 12,
+                              },
+                              activeTabId: geographyTab,
+                              setTabId: actions.setGeographyTab,
+                              tabs: [
+                                  {
+                                      id: GeographyTab.MAP,
+                                      title: 'World map',
+                                      linkText: 'Map',
+                                      query: {
+                                          kind: NodeKind.InsightVizNode,
+                                          source: {
+                                              kind: NodeKind.TrendsQuery,
+                                              breakdown: {
+                                                  breakdown: '$geoip_country_code',
+                                                  breakdown_type: 'person',
+                                              },
+                                              dateRange,
+                                              series: [
+                                                  {
+                                                      event: '$pageview',
+                                                      kind: NodeKind.EventsNode,
+                                                      math: BaseMathType.UniqueUsers,
+                                                  },
+                                              ],
+                                              trendsFilter: {
+                                                  display: ChartDisplayType.WorldMap,
+                                              },
+                                              filterTestAccounts: true,
+                                              properties: webAnalyticsFilters,
+                                          },
+                                          hidePersonsModal: true,
+                                      },
+                                  },
+                                  {
+                                      id: GeographyTab.COUNTRIES,
+                                      title: 'Top countries',
+                                      linkText: 'Countries',
+                                      query: {
+                                          full: true,
+                                          kind: NodeKind.DataTableNode,
+                                          source: {
+                                              kind: NodeKind.WebStatsTableQuery,
+                                              properties: webAnalyticsFilters,
+                                              breakdownBy: WebStatsBreakdown.Country,
+                                              dateRange,
+                                          },
+                                      },
+                                  },
+                                  {
+                                      id: GeographyTab.REGIONS,
+                                      title: 'Top regions',
+                                      linkText: 'Regions',
+                                      query: {
+                                          full: true,
+                                          kind: NodeKind.DataTableNode,
+                                          source: {
+                                              kind: NodeKind.WebStatsTableQuery,
+                                              properties: webAnalyticsFilters,
+                                              breakdownBy: WebStatsBreakdown.Region,
+                                              dateRange,
+                                          },
+                                      },
+                                  },
+                                  {
+                                      id: GeographyTab.CITIES,
+                                      title: 'Top cities',
+                                      linkText: 'Cities',
+                                      query: {
+                                          full: true,
+                                          kind: NodeKind.DataTableNode,
+                                          source: {
+                                              kind: NodeKind.WebStatsTableQuery,
+                                              properties: webAnalyticsFilters,
+                                              breakdownBy: WebStatsBreakdown.City,
+                                              dateRange,
+                                          },
+                                      },
+                                  },
+                              ],
+                          }
+                        : null,
                 ]
+                return tiles.filter(isNotNil)
+            },
+        ],
+        hasCountryFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
+            },
+        ],
+        hasDeviceTypeFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$device_type')
+            },
+        ],
+        hasBrowserFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$browser')
+            },
+        ],
+        hasOSFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$os')
             },
         ],
     })),
@@ -637,8 +710,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
                         : undefined
 
-                const shouldWarnAboutNoPageviews = !pageviewEntry || isEventDefinitionStale(pageviewEntry)
-                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isEventDefinitionStale(pageleaveEntry)
+                const shouldWarnAboutNoPageviews = !pageviewEntry || isDefinitionStale(pageviewEntry)
+                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isDefinitionStale(pageleaveEntry)
 
                 return {
                     shouldWarnAboutNoPageviews,
@@ -646,18 +719,54 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             },
         },
+        shouldShowGeographyTile: {
+            _default: null as boolean | null,
+            loadShouldShowGeographyTile: async (): Promise<boolean> => {
+                const [propertiesResponse, pluginsResponse, pluginsConfigResponse] = await Promise.allSettled([
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageview'],
+                        properties: ['$geoip_country_code'],
+                    }),
+                    api.loadPaginatedResults('api/organizations/@current/plugins'),
+                    api.loadPaginatedResults('api/plugin_config'),
+                ])
+
+                const hasNonStaleCountryCodeDefinition =
+                    propertiesResponse.status === 'fulfilled' &&
+                    propertiesResponse.value.results.some(
+                        (property) => property.name === '$geoip_country_code' && !isDefinitionStale(property)
+                    )
+
+                if (!hasNonStaleCountryCodeDefinition) {
+                    return false
+                }
+
+                const geoIpPlugin =
+                    pluginsResponse.status === 'fulfilled' &&
+                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
+                const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
+
+                const geoIpPluginConfig =
+                    isNotNil(geoIpPluginId) &&
+                    pluginsConfigResponse.status === 'fulfilled' &&
+                    pluginsConfigResponse.value.find((plugin) => plugin.plugin === geoIpPluginId)
+
+                return !!geoIpPluginConfig && geoIpPluginConfig.enabled
+            },
+        },
     })),
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
+        actions.loadShouldShowGeographyTile()
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
 ])
 
-const isEventDefinitionStale = (definition: EventDefinition): boolean => {
+const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 }

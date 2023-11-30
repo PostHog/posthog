@@ -1,13 +1,12 @@
-import { kea, connect, path, actions, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '../navigationLogic'
 import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
@@ -87,7 +86,8 @@ export const announcementLogic = kea<announcementLogicType>([
                     (closable &&
                         (closed ||
                             (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
-                    pathname == urls.ingestion() // hide during the ingestion phase
+                    pathname.includes('/onboarding') ||
+                    pathname.includes('/products') // hide during the onboarding phase
                 ) {
                     return null
                 }

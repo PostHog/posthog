@@ -1,15 +1,17 @@
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useActions, useValues } from 'kea'
-import { databaseTableListLogic, DatabaseTableListRow } from 'scenes/data-management/database/databaseTableListLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import { DatabaseTable } from './DatabaseTable'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { databaseTableListLogic, DatabaseTableListRow } from 'scenes/data-management/database/databaseTableListLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, NodeKind } from '~/queries/schema'
+
+import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)

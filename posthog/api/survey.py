@@ -135,6 +135,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
 
+            choices = raw_question.get("choices")
+            if choices and not isinstance(choices, list):
+                raise serializers.ValidationError("Question choices must be a list of strings")
+
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions
