@@ -667,7 +667,7 @@ export type RecordingConsoleLogV2 = {
     content: string
     lines?: string[]
     trace?: string[]
-    count: number
+    count?: number
 }
 
 export interface RecordingSegment {

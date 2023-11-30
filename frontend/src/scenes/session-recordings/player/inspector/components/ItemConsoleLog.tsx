@@ -21,7 +21,7 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                 data-attr={'item-console-log'}
             >
                 <div className="p-2 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
-                {item.data.count > 1 ? (
+                {(item.data.count || 1) > 1 ? (
                     <span
                         className={`bg-${
                             item.highlightColor || 'primary-alt'
@@ -34,7 +34,7 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    {item.data.count > 1 ? (
+                    {(item.data.count || 1) > 1 ? (
                         <>
                             <div className="italic">
                                 This log occurred <b>{item.data.count}</b> times in a row.
