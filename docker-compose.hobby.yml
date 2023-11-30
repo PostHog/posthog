@@ -85,13 +85,15 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
 
     caddy:
-        image: caddy:2.6.1
+        image: caddy:2.7.5
         restart: unless-stopped
         ports:
             - '80:80'
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - caddy-data:/data
+            - caddy-config:/config
         depends_on:
             - web
     object_storage:
@@ -153,3 +155,5 @@ volumes:
     object_storage:
     postgres-data:
     clickhouse-data:
+    caddy-data:
+    caddy-config:
