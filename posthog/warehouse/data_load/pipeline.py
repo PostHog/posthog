@@ -58,8 +58,7 @@ class StripeJobInputs(PipelineInputs):
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {ExternalDataSource.Type.STRIPE: ENDPOINTS}
 
 
-# Run pipeline on separate thread. No db clients used
-@sync_to_async(thread_sensitive=False)
+@sync_to_async
 def run_stripe_pipeline(inputs: StripeJobInputs) -> List[SourceSchema]:
     pipeline = create_pipeline(inputs)
 
