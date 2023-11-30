@@ -54,6 +54,7 @@ module.exports = {
         'compat',
         'posthog',
         'simple-import-sort',
+        'import',
     ],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
@@ -187,10 +188,6 @@ module.exports = {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
-                    {
-                        element: 'Tag',
-                        message: 'use <LemonTag> instead',
-                    },
                 ],
             },
         ],
@@ -247,6 +244,8 @@ module.exports = {
                         message: 'use <Link> instead',
                     },
                     {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
@@ -261,6 +260,19 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'import/no-restricted-paths': [
+            'error',
+            {
+                zones: [
+                    {
+                        target: './frontend/**',
+                        from: './ee/frontend/**',
+                        message:
+                            "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`",
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {

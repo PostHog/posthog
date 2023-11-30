@@ -148,7 +148,7 @@ export function PlayerMeta(): JSX.Element {
     }
 
     return (
-        <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)}>
+        <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
                 ref={ref}
                 className={clsx('PlayerMeta', {

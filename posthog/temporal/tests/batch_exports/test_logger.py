@@ -23,7 +23,11 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.workflows.logger import BACKGROUND_LOGGER_TASKS, bind_batch_exports_logger, configure_logger
+from posthog.temporal.batch_exports.logger import (
+    BACKGROUND_LOGGER_TASKS,
+    bind_batch_exports_logger,
+    configure_logger,
+)
 
 pytestmark = pytest.mark.asyncio
 

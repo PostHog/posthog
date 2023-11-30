@@ -127,7 +127,6 @@ $colors: (
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
     'bg-3000-light': #f3f4ef,
-    'bg-hover-3000-light': #f3f4ef,
     'border-3000-light': #dadbd2,
     'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
@@ -162,10 +161,9 @@ $colors: (
     'secondary-3000-hover-dark': #575d77,
     'accent-3000-dark': #21242b,
     'bg-3000-dark': #1d1f27,
-    'bg-hover-3000-dark': #292b36,
     'border-3000-dark': #35373e,
     'border-bold-3000-dark': #3f4046,
-    'glass-bg-3000-dark': #21242bb3,
+    'glass-bg-3000-dark': #24262a99,
     'glass-border-3000-dark': var(--border-3000-dark),
     'link-3000-dark': #f1a82c,
 
@@ -476,6 +474,7 @@ $_lifecycle_dormant: $_danger;
     --side: var(--bg-3000);
     --primary-alt-highlight: var(--primary-alt-highlight-3000);
     --data-color-1: #1d4aff;
+    --data-color-1-hover: #1a3cf6;
     --data-color-10: #35416b;
     --radius: 0.375rem;
 }
