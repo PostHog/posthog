@@ -1,10 +1,5 @@
 from asgiref.sync import async_to_sync
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleUpdate,
-    ScheduleUpdateInput,
-)
+from temporalio.client import Client, Schedule, ScheduleUpdate, ScheduleUpdateInput
 
 
 @async_to_sync

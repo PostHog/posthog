@@ -26,7 +26,10 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
-from posthog.temporal.batch_exports.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from posthog.temporal.batch_exports.metrics import (
+    get_bytes_exported_metric,
+    get_rows_exported_metric,
+)
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:

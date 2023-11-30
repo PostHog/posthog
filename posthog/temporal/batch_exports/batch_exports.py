@@ -22,7 +22,10 @@ from posthog.batch_exports.service import (
     update_batch_export_run_status,
 )
 from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
-from posthog.temporal.batch_exports.metrics import get_export_finished_metric, get_export_started_metric
+from posthog.temporal.batch_exports.metrics import (
+    get_export_finished_metric,
+    get_export_started_metric,
+)
 
 SELECT_QUERY_TEMPLATE = Template(
     """

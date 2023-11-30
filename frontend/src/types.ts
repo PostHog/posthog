@@ -27,7 +27,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 import { QueryContext } from '~/queries/types'
 
@@ -529,6 +528,7 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    AppsManagement = 'apps-management',
 }
 
 export enum PipelineAppTabs {
@@ -667,9 +667,12 @@ export type RecordingConsoleLogV2 = {
     windowId: string | undefined
     level: LogLevel
     content: string
-    lines: string[]
-    trace: string[]
-    count: number
+    // JS code associated with the log - implicitly the empty array when not provided
+    lines?: string[]
+    // stack trace associated with the log - implicitly the empty array when not provided
+    trace?: string[]
+    // number of times this log message was seen - implicitly 1 when not provided
+    count?: number
 }
 
 export interface RecordingSegment {
@@ -838,6 +841,7 @@ export type SearchableEntity =
     | 'cohort'
     | 'insight'
     | 'dashboard'
+    | 'event_definition'
     | 'experiment'
     | 'feature_flag'
     | 'notebook'
@@ -1490,6 +1494,13 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+}
+
+export enum PluginInstallationType {
+    Local = 'local',
+    Custom = 'custom',
+    Repository = 'repository',
+    Source = 'source',
 }
 
 export interface PluginType {

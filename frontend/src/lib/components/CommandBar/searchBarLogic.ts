@@ -257,6 +257,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.cohort(result.result_id)
         case 'dashboard':
             return urls.dashboard(result.result_id)
+        case 'event_definition':
+            return urls.eventDefinition(result.result_id)
         case 'experiment':
             return urls.experiment(result.result_id)
         case 'feature_flag':

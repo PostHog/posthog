@@ -415,7 +415,6 @@ def process_query_task(self, team_id, query_id, query_json, in_export_context=Fa
         query_json=query_json,
         in_export_context=in_export_context,
         refresh_requested=refresh_requested,
-        task_id=self.request.id,
     )
 
 

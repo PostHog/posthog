@@ -45,7 +45,7 @@ WORKFLOWS = [
     SquashPersonOverridesWorkflow,
 ]
 
-ACTIVITIES: Sequence[Callable] = [
+ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
     create_export_run,

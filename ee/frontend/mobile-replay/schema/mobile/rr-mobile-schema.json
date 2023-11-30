@@ -144,6 +144,14 @@
                     "description": "maps to CSS color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
                     "type": "string"
                 },
+                "fontFamily": {
+                    "description": "maps to CSS font-family. Accepts any valid CSS font-family value.",
+                    "type": "string"
+                },
+                "fontSize": {
+                    "description": "maps to CSS font-size. Accepts any valid CSS font-size value. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
+                },
                 "horizontalAlign": {
                     "description": "horizontal alignment with respect to its parent",
                     "enum": ["left", "right", "center"],
