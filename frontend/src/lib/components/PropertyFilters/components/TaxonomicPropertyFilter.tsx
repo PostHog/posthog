@@ -184,7 +184,8 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitionsByType(
-                                    filter?.type || PropertyDefinitionType.Event
+                                    filter?.type || PropertyDefinitionType.Event,
+                                    isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
                                 )}
                                 type={filter?.type}
                                 propkey={filter?.key}

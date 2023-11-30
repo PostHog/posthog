@@ -25,6 +25,7 @@ from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
 )
 from posthog.warehouse.models import ExternalDataSource
+import temporalio
 
 
 def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:
@@ -66,4 +67,10 @@ def pause_external_data_workflow(external_data_source: ExternalDataSource):
 
 def delete_external_data_workflow(external_data_source: ExternalDataSource):
     temporal = sync_connect()
-    delete_schedule(temporal, schedule_id=str(external_data_source.id))
+    try:
+        delete_schedule(temporal, schedule_id=str(external_data_source.id))
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise

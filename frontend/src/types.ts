@@ -836,6 +836,7 @@ export type SearchableEntity =
     | 'cohort'
     | 'insight'
     | 'dashboard'
+    | 'event_definition'
     | 'experiment'
     | 'feature_flag'
     | 'notebook'
