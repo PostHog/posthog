@@ -84,8 +84,8 @@ def execute_process_query(
 
     pickup_time = datetime.datetime.utcnow()
     if query_status.start_time:
-        pickup_duration = (pickup_time - query_status.start_time).total_seconds()
-        QUERY_WAIT_TIME.observe(pickup_duration)
+        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(milliseconds=1000000)
+        QUERY_WAIT_TIME.observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
@@ -98,7 +98,7 @@ def execute_process_query(
         query_status.results = results
         query_status.end_time = datetime.datetime.utcnow()
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
-        process_duration = (query_status.end_time - pickup_time).total_seconds()
+        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(milliseconds=1000000)
         QUERY_PROCESS_TIME.observe(process_duration)
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
