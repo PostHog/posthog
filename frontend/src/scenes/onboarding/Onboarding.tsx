@@ -1,20 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
-import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
-import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -107,6 +107,27 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.SDKS}
+            />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={[
+                    {
+                        title: 'Capture console logs',
+                        description: `Capture browser console logs as a part of user session recordings. 
+                            Use the console logs alongside recordings to debug any issues with your app.`,
+                        teamProperty: 'capture_console_log_opt_in',
+                        value: true,
+                        type: 'toggle',
+                    },
+                    {
+                        title: 'Capture network performance',
+                        description: `Capture performance and network information alongside recordings. Use the
+                            network requests and timings in the recording player to help you debug issues with your app.`,
+                        teamProperty: 'capture_performance_opt_in',
+                        value: true,
+                        type: 'toggle',
+                    },
+                ]}
             />
         </OnboardingWrapper>
     )

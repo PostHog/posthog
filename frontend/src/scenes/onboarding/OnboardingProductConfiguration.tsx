@@ -1,9 +1,10 @@
-import { OnboardingStep } from './OnboardingStep'
-import { OnboardingStepKey } from './onboardingLogic'
-import { useActions, useValues } from 'kea'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
-import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
+
+import { OnboardingStepKey } from './onboardingLogic'
+import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
@@ -26,9 +27,9 @@ export const OnboardingProductConfiguration = ({
                         data-attr="opt-in-session-recording-switch"
                         onChange={(checked) => {
                             setConfigOptions(
-                                configOptions
-                                    .filter((o) => o.teamProperty !== option.teamProperty)
-                                    .concat({ ...option, value: checked })
+                                configOptions.map((o) =>
+                                    o.teamProperty === option.teamProperty ? { ...o, value: checked } : o
+                                )
                             )
                         }}
                         label={option.title}

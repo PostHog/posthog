@@ -1,12 +1,13 @@
-import { actions, kea, path, reducers, listeners, connect } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { onboardingProductConfigurationLogicType } from './onboardingProductConfigurationLogicType'
-import { teamLogic } from 'scenes/teamLogic'
 
 export interface ProductConfigOption {
     title: string
     description: string
     teamProperty: string
+    /** Sets the initial value. Use a team setting to reflect current state, or a boolean to set a default. */
     value?: boolean
     type?: 'toggle'
     /** If true, the value is inverted when saving, used for 'opt_out' type settings */
