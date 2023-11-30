@@ -12,7 +12,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiExample,
 )
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.decorators import action
