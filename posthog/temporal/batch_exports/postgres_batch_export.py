@@ -12,8 +12,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import PostgresBatchExportInputs
-from posthog.temporal.workflows.base import PostHogWorkflow
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
@@ -23,9 +23,12 @@ from posthog.temporal.workflows.batch_exports import (
     get_results_iterator,
     get_rows_count,
 )
-from posthog.temporal.workflows.clickhouse import get_client
-from posthog.temporal.workflows.logger import bind_batch_exports_logger
-from posthog.temporal.workflows.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from posthog.temporal.batch_exports.clickhouse import get_client
+from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.batch_exports.metrics import (
+    get_bytes_exported_metric,
+    get_rows_exported_metric,
+)
 
 
 @contextlib.asynccontextmanager

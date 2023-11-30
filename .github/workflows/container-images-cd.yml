@@ -124,13 +124,13 @@ jobs:
                         "image_tag": "${{ steps.build.outputs.digest }}"
                       }
 
-            - name: Check for changes that affect temporal worker
-              id: check_changes_temporal_worker
+            - name: Check for changes that affect batch exports temporal worker
+              id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
 
-            - name: Trigger Temporal Worker Cloud deployment
-              if: steps.check_changes_temporal_worker.outputs.changed != ''
+            - name: Trigger Batch Exports Temporal Worker Cloud deployment
+              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed != ''
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -139,5 +139,25 @@ jobs:
                   event_type: temporal_worker_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker"
+                      }
+
+            - name: Check for changes that affect data warehouse temporal worker
+              id: check_changes_data_warehouse_temporal_worker
+              run: |
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+
+            - name: Trigger Data Warehouse Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed != ''
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "worker_name": "temporal-worker-data-warehouse"
                       }

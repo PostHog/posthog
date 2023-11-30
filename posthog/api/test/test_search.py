@@ -3,6 +3,7 @@ import pytest
 from django.db import connection
 
 from posthog.api.search import process_query
+from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
 from posthog.models import Dashboard, FeatureFlag, Team, Insight, Notebook
@@ -126,6 +127,15 @@ class TestSearch(APIBaseTest):
 
     def test_dangerous_characters(self):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
+        self.assertEqual(response.status_code, 200)
+
+    def test_event_definitions(self):
+        EventDefinition.objects.create(name="first event", team=self.team)
+        EventDefinition.objects.create(name="second event", team=self.team)
+        EventDefinition.objects.create(name="third event", team=self.team)
+
+        response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
+
         self.assertEqual(response.status_code, 200)
 
 

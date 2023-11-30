@@ -8,12 +8,32 @@ import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { OrganizationFeatureFlag } from '~/types'
+import { FeatureFlagType, OrganizationFeatureFlag } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+
+function checkHasStaticCohort(featureFlag: FeatureFlagType): boolean {
+    const { cohorts } = useValues(cohortsModel)
+    const staticCohorts = new Set()
+    cohorts.forEach((cohort) => {
+        if (cohort.is_static) {
+            staticCohorts.add(cohort.id)
+        }
+    })
+
+    for (const group of featureFlag.filters.groups) {
+        for (const prop of group.properties || []) {
+            if (prop.type === 'cohort' && staticCohorts.has(prop.value)) {
+                return true
+            }
+        }
+    }
+    return false
+}
 
 const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
     const { currentTeamId } = useValues(teamLogic)
@@ -115,12 +135,20 @@ function FeatureFlagCopySection(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const hasStaticCohort = checkHasStaticCohort(featureFlag)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
 
     return hasMultipleProjects && featureFlag.can_edit ? (
         <>
             <h3 className="l3">Feature flag copy</h3>
             <div className="ant-row">Copy your flag and its configuration to another project.</div>
+            {hasStaticCohort && (
+                <LemonBanner type="info" className="mt-4">
+                    The flag you are about to copy references a static cohort. If the cohort with identical name does
+                    not exist in the target project, it will be copied as an empty cohort. This is because the
+                    associated persons might not exist in the target project.
+                </LemonBanner>
+            )}
             <div className="inline-flex gap-4 my-6">
                 <div>
                     <div className="font-semibold leading-6 h-6">Key</div>
