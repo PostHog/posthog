@@ -4,6 +4,7 @@ import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
@@ -93,6 +94,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
     private poEEmbraceJoin: boolean
+    private overrideWriter: PersonOverrideWriter | DeferredPersonOverrideWriter
 
     constructor(
         event: PluginEvent,
@@ -122,6 +124,7 @@ export class PersonState {
 
         // For persons on events embrace the join gradual roll-out, remove after fully rolled out
         this.poEEmbraceJoin = poEEmbraceJoin
+        this.overrideWriter = new PersonOverrideWriter(db.postgres)
     }
 
     async update(): Promise<Person> {
@@ -519,7 +522,7 @@ export class PersonState {
 
                 let personOverrideMessages: ProducerRecord[] = []
                 if (this.poEEmbraceJoin) {
-                    personOverrideMessages = await new PersonOverrideWriter(this.db.postgres).addPersonOverride(
+                    personOverrideMessages = await this.overrideWriter.addPersonOverride(
                         tx,
                         getMergeOperation(this.teamId, otherPerson, mergeInto)
                     )
@@ -716,6 +719,57 @@ class PersonOverrideWriter {
         )
 
         return id
+    }
+}
+
+class DeferredPersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
+        await this.postgres.query(
+            tx,
+            SQL`
+            INSERT INTO posthog_pendingpersonoverride (
+                team_id,
+                old_person_id,
+                override_person_id,
+                oldest_event
+            ) VALUES (
+                ${mergeOperation.team_id},
+                ${mergeOperation.old_person_id},
+                ${mergeOperation.override_person_id},
+                ${mergeOperation.oldest_event}
+            )`,
+            undefined,
+            'pendingPersonOverride'
+        )
+
+        return []
+    }
+
+    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper): Promise<void> {
+        const writer = new PersonOverrideWriter(this.postgres)
+
+        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
+            const { rows } = await this.postgres.query(
+                tx,
+                `SELECT * FROM posthog_pendingpersonoverride ORDER BY id`,
+                undefined,
+                'processPendingOverrides'
+            )
+            const results = rows.map(async ({ id, ...mergeOperation }) => {
+                const messages = await writer.addPersonOverride(tx, mergeOperation)
+                await this.postgres.query(
+                    tx,
+                    SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                    undefined,
+                    'processPendingOverrides'
+                )
+                return messages
+            })
+            const messages = (await Promise.all(results)).flat()
+            await kafkaProducer.queueMessages(messages, true)
+        })
     }
 }
 
