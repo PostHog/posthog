@@ -4,6 +4,7 @@ import { PureField } from 'lib/forms/Field'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { organizationLogic } from '../organizationLogic'
 
 export function CreateProjectModal({

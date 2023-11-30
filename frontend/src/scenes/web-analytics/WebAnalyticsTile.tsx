@@ -1,11 +1,12 @@
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
-import { UnexpectedNeverError } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
-import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { GraphPointPayload, PropertyFilterType } from '~/types'
 import { ChartDisplayType } from '~/types'
 

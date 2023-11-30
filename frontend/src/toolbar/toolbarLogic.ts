@@ -1,11 +1,13 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
-import type { toolbarLogicType } from './toolbarLogicType'
-import { ToolbarProps } from '~/types'
-import { clearSessionToolbarToken } from '~/toolbar/utils'
-import { posthog } from '~/toolbar/posthog'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { posthog } from '~/toolbar/posthog'
+import { clearSessionToolbarToken } from '~/toolbar/utils'
+import { ToolbarProps } from '~/types'
+
+import type { toolbarLogicType } from './toolbarLogicType'
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'toolbarLogic']),

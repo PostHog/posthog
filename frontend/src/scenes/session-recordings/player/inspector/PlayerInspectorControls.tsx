@@ -1,22 +1,24 @@
-import { LemonButton, LemonInput, LemonSelect, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import {
-    IconInfo,
-    IconSchedule,
-    IconPlayCircle,
     IconGauge,
+    IconInfo,
+    IconPause,
+    IconPlayCircle,
+    IconSchedule,
     IconTerminal,
     IconUnverifiedEvent,
-    IconPause,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+
+import { SessionRecordingPlayerTab } from '~/types'
+
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from './playerInspectorLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,

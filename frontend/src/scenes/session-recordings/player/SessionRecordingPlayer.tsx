@@ -1,6 +1,23 @@
 import './SessionRecordingPlayer.scss'
-import { useMemo, useRef, useState } from 'react'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { useMemo, useRef, useState } from 'react'
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
+import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
+import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
+import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { urls } from 'scenes/urls'
+
+import { PlayerFrameOverlay } from './PlayerFrameOverlay'
+import { PlayerMeta } from './PlayerMeta'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -8,20 +25,7 @@ import {
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
-import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
-import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
-import { PlayerMeta } from './PlayerMeta'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import clsx from 'clsx'
-import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -144,6 +148,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
+    const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
@@ -164,7 +170,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <>
                         <div className="SessionRecordingPlayer__main">
                             {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
-                            <div className="SessionRecordingPlayer__body">
+
+                            <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
                                 <PlayerFrame />
                                 <PlayerFrameOverlay />
                             </div>

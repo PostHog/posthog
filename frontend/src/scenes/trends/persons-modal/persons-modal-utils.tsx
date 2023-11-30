@@ -1,10 +1,13 @@
 import * as Sentry from '@sentry/react'
-import md5 from 'md5'
+import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import md5 from 'md5'
 import { isFunnelsFilter, isPathsFilter } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+
 import {
     FunnelsFilterType,
     FunnelVizType,
@@ -13,8 +16,6 @@ import {
     PathsFilterType,
     StepOrderValue,
 } from '~/types'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 
 export const funnelTitle = (props: {
     converted: boolean

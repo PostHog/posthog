@@ -11,10 +11,6 @@
     background-size: 400% 100%;
     animation: LemonSkeleton__shimmer 2s ease infinite;
 
-    @media (prefers-reduced-motion) {
-        animation: none;
-    }
-
     &.LemonSkeleton--static {
         animation: none;
     }
@@ -23,10 +19,14 @@
     // See https://adrianroselli.com/2020/11/more-accessible-skeletons.html
     > span {
         display: block;
-        overflow: hidden;
         width: 1px;
         height: 1px;
+        overflow: hidden;
         white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion) {
+        animation: none;
     }
 }
 

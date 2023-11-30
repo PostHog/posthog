@@ -1,7 +1,8 @@
-import { mswDecorator } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
-import { PerformanceEvent } from '~/types'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+
+import { mswDecorator } from '~/mocks/browser'
+import { PerformanceEvent } from '~/types'
 
 const meta: Meta<typeof NetworkRequestTiming> = {
     title: 'Components/NetworkRequestTiming',
@@ -19,27 +20,30 @@ export function Basic(): JSX.Element {
         <NetworkRequestTiming
             performanceEvent={
                 {
-                    connect_end: 9525.599999964237,
-                    connect_start: 9525.599999964237,
+                    // fake an event with every step visible
+                    start_time: 10,
+                    redirect_start: 10,
+                    redirect_end: 20,
+                    fetch_start: 20,
+                    domain_lookup_start: 30,
+                    domain_lookup_end: 40,
+                    connect_start: 40,
+                    secure_connection_start: 45,
+                    connect_end: 50,
+                    request_start: 60,
+                    response_start: 70,
+                    response_end: 80,
+                    load_event_end: 90,
+                    duration: 90,
+
                     decoded_body_size: 18260,
-                    domain_lookup_end: 9525.599999964237,
-                    domain_lookup_start: 9525.599999964237,
-                    duration: 935.5,
                     encoded_body_size: 18260,
                     entry_type: 'resource',
-                    fetch_start: 9525.599999964237,
                     initiator_type: 'fetch',
                     name: 'http://localhost:8000/api/organizations/@current/plugins/repository/',
                     next_hop_protocol: 'http/1.1',
-                    redirect_end: 0,
-                    redirect_start: 0,
                     render_blocking_status: 'non-blocking',
-                    request_start: 9803.099999964237,
-                    response_end: 10461.099999964237,
-                    response_start: 10428.399999976158,
                     response_status: 200,
-                    secure_connection_start: 0,
-                    start_time: 9525.599999964237,
                     time_origin: '1699990397357',
                     timestamp: 1699990406882,
                     transfer_size: 18560,

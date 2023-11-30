@@ -1,11 +1,12 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { Splotch, SplotchColor } from '../Splotch'
 import {
+    LemonMenuItems,
     LemonMenuOverlay as LemonMenuOverlayComponent,
     LemonMenuOverlayProps,
-    LemonMenuItems,
     LemonMenuSection,
 } from './LemonMenu'
-import { Splotch, SplotchColor } from '../Splotch'
 
 type Story = StoryObj<typeof LemonMenuOverlayComponent>
 const meta: Meta<typeof LemonMenuOverlayComponent> = {

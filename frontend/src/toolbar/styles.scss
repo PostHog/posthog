@@ -8,23 +8,13 @@
 }
 
 :host {
-    @include root-variables;
-
     // reset fonts
     all: initial;
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
-}
 
-.toolbar-block {
-    background: white;
-    color: black;
-    font-size: 14px;
-
-    &.no-padding {
-        padding: 0;
-    }
+    @include root-variables;
 }
 
 .LemonModal__overlay--force-modal-above-popovers {
@@ -32,11 +22,11 @@
 }
 
 .section-title {
+    margin-bottom: 10px;
     font-size: 12px;
-    text-transform: uppercase;
     font-weight: bold;
     color: hsl(220deg 15% 49% / 100%);
-    margin-bottom: 10px;
+    text-transform: uppercase;
 }
 
 .fade-component-container {

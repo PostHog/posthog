@@ -1,9 +1,10 @@
-import { EventType, RecordingEventType } from '~/types'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconFlag } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
+import { IconFlag } from 'lib/lemon-ui/icons'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import posthog from 'posthog-js'
+
+import { EventType, RecordingEventType } from '~/types'
 
 interface StackFrame {
     filename: string

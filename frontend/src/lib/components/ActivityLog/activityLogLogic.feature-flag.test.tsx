@@ -1,7 +1,9 @@
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
+
+import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
 import { makeTestSetup } from './activityLogLogic.test.setup'
 
 describe('the activity log logic', () => {

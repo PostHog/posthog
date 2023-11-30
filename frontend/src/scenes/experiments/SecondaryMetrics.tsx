@@ -1,21 +1,24 @@
-import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Form } from 'kea-forms'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightType } from '~/types'
 import './Experiment.scss'
-import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
+
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
-import { Field } from 'lib/forms/Field'
-import { MetricSelector } from './MetricSelector'
-import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Field } from 'lib/forms/Field'
+import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+
+import { InsightType } from '~/types'
+
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
+import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { MetricSelector } from './MetricSelector'
+import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 
 export function SecondaryMetrics({
     onMetricsChange,

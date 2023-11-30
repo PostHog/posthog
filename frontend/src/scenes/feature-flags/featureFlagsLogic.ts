@@ -1,14 +1,16 @@
-import { loaders } from 'kea-loaders'
-import { kea, props, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import api from 'lib/api'
 import Fuse from 'fuse.js'
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
-import { Breadcrumb, FeatureFlagType } from '~/types'
-import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
-import { router, actionToUrl, urlToAction } from 'kea-router'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, FeatureFlagType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',

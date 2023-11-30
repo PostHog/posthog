@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
@@ -68,7 +69,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -80,7 +81,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> created {nameAndLink(logItem)}
+                    <strong>{userNameForLogItem(logItem)}</strong> created {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -90,7 +91,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted {nameAndLink(logItem)}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted {nameAndLink(logItem)}
                 </>
             ),
         }

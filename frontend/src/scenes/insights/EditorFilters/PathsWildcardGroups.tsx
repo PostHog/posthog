@@ -1,9 +1,8 @@
-import { useValues, useActions } from 'kea'
-
+import { useActions, useValues } from 'kea'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EditorFilterProps } from '~/types'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 
 export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))

@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
 type Story = StoryObj<typeof LemonCheckbox>
@@ -31,6 +32,10 @@ export const Overview = (): JSX.Element => {
 
             <LemonCheckbox label="Bordered FullWidth" fullWidth bordered />
             <LemonCheckbox label="Bordered small" bordered size="small" />
+
+            <div className="w-20">
+                <LemonCheckbox label="Bordered with a really long label" bordered />
+            </div>
         </div>
     )
 }

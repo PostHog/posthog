@@ -1,13 +1,22 @@
-import { useLayoutEffect, useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { resultTypeToName } from './constants'
-import { searchBarLogic, urlForResult } from './searchBarLogic'
-import { SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef } from 'react'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { Node } from '~/queries/schema'
+import { FilterType } from '~/types'
+
+import { tabToName } from './constants'
+import { searchBarLogic, urlForResult } from './searchBarLogic'
+import { SearchResult as ResultType } from './types'
 
 type SearchResultProps = {
-    result: SearchResultType
+    result: ResultType
     resultIndex: number
     focused: boolean
     keyboardFocused: boolean
@@ -41,9 +50,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
 
     return (
         <div
-            className={`w-full pl-3 pr-2 ${
-                focused ? 'bg-accent-3000' : 'bg-bg-light'
-            } border-r border-b cursor-pointer`}
+            className={`w-full pl-3 pr-2 ${focused ? 'bg-bg-light' : 'bg-bg-3000'} border-r border-b cursor-pointer`}
             onMouseEnter={() => {
                 if (isAutoScrolling) {
                     return
@@ -62,7 +69,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">{resultTypeToName[result.type]}</span>
+                <span className="text-muted-3000 text-xs">{tabToName[result.type]}</span>
                 <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
                 </span>
@@ -84,13 +91,27 @@ export const SearchResultSkeleton = (): JSX.Element => (
 )
 
 type ResultNameProps = {
-    result: SearchResultType
+    result: ResultType
 }
 
 export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
+
     const { type, extra_fields } = result
     if (type === 'insight') {
-        return extra_fields.name ? <span>{extra_fields.name}</span> : <i>{extra_fields.derived_name}</i>
+        return extra_fields.name ? (
+            <span>{extra_fields.name}</span>
+        ) : (
+            <i>
+                {summarizeInsight(extra_fields.query as Node | null, extra_fields.filters as Partial<FilterType>, {
+                    aggregationLabel,
+                    cohortsById,
+                    mathDefinitions,
+                })}
+            </i>
+        )
     } else if (type === 'feature_flag') {
         return <span>{extra_fields.key}</span>
     } else if (type === 'notebook') {
@@ -101,7 +122,7 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
 }
 
 export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | null => {
-    const { type, extra_fields } = result
+    const { result_id, type, extra_fields } = result
     if (type === 'feature_flag') {
         return extra_fields.name && extra_fields.name !== extra_fields.key ? (
             <span>{extra_fields.name}</span>
@@ -109,8 +130,15 @@ export const ResultDescription = ({ result }: ResultNameProps): JSX.Element | nu
             <i>No description.</i>
         )
     } else if (type === 'notebook') {
-        return <span className="whitespace-pre">{extra_fields.text_content}</span>
+        return (
+            <Notebook
+                shortId={result_id}
+                mode="notebook"
+                editable={false}
+                initialContent={extra_fields.content as JSONContent}
+            />
+        )
     } else {
-        return extra_fields.description ? <span>{extra_fields.description}</span> : <i>No description.</i>
+        return 'description' in extra_fields ? <span>{extra_fields.description}</span> : <i>No description.</i>
     }
 }

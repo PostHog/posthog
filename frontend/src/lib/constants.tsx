@@ -161,7 +161,8 @@ export const FEATURE_FLAGS = {
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
-    HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
+    HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
+    HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
@@ -169,14 +170,16 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
-    CMD_K_SEARCH: 'cmd-k-search', // owner: @thmsobrmlr
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
+    SURVEYS_OPEN_CHOICE: 'surveys-open-choice', // owner: @ssoonmi, #team-feature-success
+    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: @pauldambra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

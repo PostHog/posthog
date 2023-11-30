@@ -1,8 +1,9 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { AutoplayDirection, DurationType, SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SharedListMiniFilter = {
     tab: SessionRecordingPlayerTab

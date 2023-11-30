@@ -1,6 +1,7 @@
 import json
 from typing import List, cast
-from unittest.mock import ANY, MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -9,7 +10,7 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.batch_exports.service import describe_schedule
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
@@ -18,7 +19,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.test.base import APIBaseTest
 
 
@@ -219,15 +220,16 @@ class TestTeamAPI(APIBaseTest):
             AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(),
             1,
         )
-        mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "team deleted",
-            properties={},
-            groups={
-                "instance": ANY,
-                "organization": str(self.organization.id),
-                "project": str(self.team.uuid),
-            },
+        mock_capture.assert_has_calls(
+            calls=[
+                call(
+                    self.user.distinct_id,
+                    "membership level changed",
+                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
+                    groups=mock.ANY,
+                ),
+                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+            ]
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 

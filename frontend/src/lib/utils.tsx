@@ -1,4 +1,11 @@
+import * as Sentry from '@sentry/react'
+import equal from 'fast-deep-equal'
+import { tagColors } from 'lib/colors'
+import { WEBHOOK_SERVICES } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { AlignType } from 'rc-trigger/lib/interface'
 import { CSSProperties } from 'react'
+
 import {
     ActionType,
     ActorType,
@@ -9,14 +16,10 @@ import {
     PropertyType,
     TimeUnitType,
 } from '~/types'
-import * as Sentry from '@sentry/react'
-import equal from 'fast-deep-equal'
-import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
-import { AlignType } from 'rc-trigger/lib/interface'
-import { dayjs } from 'lib/dayjs'
-import { getAppContext } from './utils/getAppContext'
+
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+import { LemonTagType } from './lemon-ui/LemonTag'
+import { getAppContext } from './utils/getAppContext'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -389,8 +392,16 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
-export function delay(ms: number): Promise<number> {
-    return new Promise((resolve) => window.setTimeout(resolve, ms))
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(resolve, ms)
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId)
+                reject(new DOMException('Aborted', 'AbortError'))
+            })
+        }
+    })
 }
 
 export function clearDOMTextSelection(): void {
@@ -1104,7 +1115,7 @@ export function hashCodeForString(s: string): number {
     return Math.abs(hash)
 }
 
-export function colorForString(s: string): string {
+export function colorForString(s: string): LemonTagType {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
@@ -1542,4 +1553,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
         }
     }
     return toReturn
+}
+
+export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
 }

@@ -1,12 +1,14 @@
 import './PlayerUpNext.scss'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { CSSTransition } from 'react-transition-group'
+
+import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { IconPlay } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
+import { CSSTransition } from 'react-transition-group'
+
 import { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 export interface PlayerUpNextProps {
     playlistLogic: BuiltLogic<sessionRecordingsPlaylistLogicType>

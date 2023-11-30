@@ -1,7 +1,9 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { Progress } from 'antd'
+import { useActions, useValues } from 'kea'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+
 import { activationLogic } from './activationLogic'
 
 export const ActivationSidebarToggle = (): JSX.Element | null => {

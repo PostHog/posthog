@@ -1,13 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
-import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
+import { useActions, useValues } from 'kea'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
+
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
+import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
 
 export function SessionRecordingFilePlayback(): JSX.Element {
     const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackLogic)

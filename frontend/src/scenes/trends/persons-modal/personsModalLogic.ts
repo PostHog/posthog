@@ -1,17 +1,18 @@
-import { kea, connect, path, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
-import api from 'lib/api'
-import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
-import { loaders } from 'kea-loaders'
-import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 
-import type { personsModalLogicType } from './personsModalLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
+
+import type { personsModalLogicType } from './personsModalLogicType'
 
 export interface PersonModalLogicProps {
     url: string

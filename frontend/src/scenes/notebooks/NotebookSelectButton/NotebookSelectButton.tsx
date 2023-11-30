@@ -1,24 +1,25 @@
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-
-import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
-import {
-    NotebookSelectButtonLogicProps,
-    notebookSelectButtonLogic,
-} from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { NotebookListItemType, NotebookTarget } from '~/types'
-import { notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
 import { ReactChild, useEffect } from 'react'
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import {
+    notebookSelectButtonLogic,
+    NotebookSelectButtonLogicProps,
+} from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
+
+import { notebooksModel, openNotebook } from '~/models/notebooksModel'
+import { NotebookListItemType, NotebookTarget } from '~/types'
+
 import { IconNotebook } from '../IconNotebook'
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { notebookLogicType } from '../Notebook/notebookLogicType'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -214,7 +215,7 @@ export function NotebookSelectPopover({
             }
             {...props}
         >
-            <span onClick={() => setShowPopover(true)}>{children}</span>
+            <span onClick={() => setShowPopover(!showPopover)}>{children}</span>
         </Popover>
     )
 }

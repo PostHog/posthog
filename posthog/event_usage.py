@@ -116,7 +116,7 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     posthoganalytics.capture(
         user.distinct_id,
         "user updated",
-        properties={"updated_attrs": updated_attrs},
+        properties={"updated_attrs": updated_attrs, "$set": user.get_analytics_metadata()},
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -193,6 +193,27 @@ def report_bulk_invited(
             "email_available": email_available,
         },
         groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_organization_membership_level_changed(
+    user: User,
+    organization: Organization,
+    new_level: int,
+    previous_level: int,
+) -> None:
+    """
+    Triggered after a user's membership level in an organization is changed.
+    """
+    posthoganalytics.capture(
+        user.distinct_id,
+        "membership level changed",
+        properties={
+            "new_level": new_level,
+            "previous_level": previous_level,
+            "$set": user.get_analytics_metadata(),
+        },
+        groups=groups(organization),
     )
 
 

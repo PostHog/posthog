@@ -1,3 +1,17 @@
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { useEffect, useState } from 'react'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { DataNode } from '~/queries/nodes/DataNode/DataNode'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
+import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataNode,
     isDataTableNode,
@@ -6,19 +20,6 @@ import {
     isTimeToSeeDataSessionsNode,
     isWebOverviewQuery,
 } from '../utils'
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
-import { QueryContext } from '~/queries/types'
-
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { useEffect, useState } from 'react'
-import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
-import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** An optional key to identify the query */

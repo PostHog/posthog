@@ -1,15 +1,17 @@
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { SignupForm } from './signupForm/SignupForm'
-import { Region } from '~/types'
 import { router } from 'kea-router'
-import { Link } from 'lib/lemon-ui/Link'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { Region } from '~/types'
+
+import { SignupForm } from './signupForm/SignupForm'
 
 export const scene: SceneExport = {
     component: SignupContainer,

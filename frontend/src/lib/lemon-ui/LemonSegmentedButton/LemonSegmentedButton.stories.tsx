@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { IconCalculate, IconCalendar, IconLightBulb, IconSettings } from '../icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 
@@ -7,6 +8,11 @@ type Story = StoryObj<typeof LemonSegmentedButton>
 const meta: Meta<typeof LemonSegmentedButton> = {
     title: 'Lemon UI/Lemon Segmented Button',
     component: LemonSegmentedButton,
+    parameters: {
+        testOptions: {
+            include3000: true,
+        },
+    },
     argTypes: {
         options: {
             control: {

@@ -1,20 +1,33 @@
-import { dayjs } from 'lib/dayjs'
+import clsx from 'clsx'
+import equal from 'fast-deep-equal'
 import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
     kea,
+    key,
+    listeners,
     path,
     props,
-    key,
-    afterMount,
-    selectors,
     propsChanged,
     reducers,
-    actions,
-    beforeUnmount,
-    listeners,
-    connect,
+    selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import type { dataNodeLogicType } from './dataNodeLogicType'
+import { subscriptions } from 'kea-subscriptions'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { query } from '~/queries/query'
 import {
     AnyResponseType,
     DataNode,
@@ -26,27 +39,17 @@ import {
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import { query } from '~/queries/query'
 import {
-    isInsightQueryNode,
     isEventsQuery,
+    isInsightQueryNode,
+    isLifecycleQuery,
     isPersonsNode,
-    isQueryWithHogQLSupport,
     isPersonsQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
-import clsx from 'clsx'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { userLogic } from 'scenes/userLogic'
-import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import equal from 'fast-deep-equal'
+
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
     key: string
@@ -117,7 +120,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (
                         isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(props.query)) &&
+                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
+                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -337,9 +341,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsFlagEnabled: [
+        hogQLInsightsLifecycleFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
+        ],
+        hogQLInsightsTrendsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

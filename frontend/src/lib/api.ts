@@ -1,18 +1,27 @@
-import posthog from 'posthog-js'
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { toParams } from 'lib/utils'
+import posthog from 'posthog-js'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
+    BatchExportConfiguration,
     BatchExportLogEntry,
+    BatchExportRun,
     CohortType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
-    DataWarehouseTable,
     DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    DataWarehouseViewLink,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -20,15 +29,18 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataStripeSource,
+    ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
-    OrganizationFeatureFlags,
-    OrganizationFeatureFlagsCopyBody,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookNodeResource,
     NotebookType,
+    OrganizationFeatureFlags,
+    OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
@@ -40,6 +52,8 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    SearchListParams,
+    SearchResponse,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
@@ -49,15 +63,10 @@ import {
     SubscriptionType,
     Survey,
     TeamType,
-    UserType,
-    DataWarehouseViewLink,
-    BatchExportConfiguration,
-    BatchExportRun,
     UserBasicType,
-    NotebookNodeResource,
-    ExternalDataStripeSourceCreatePayload,
-    ExternalDataStripeSource,
+    UserType,
 } from '~/types'
+
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -65,12 +74,6 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
-import { toParams } from 'lib/utils'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -460,6 +463,11 @@ class ApiRequest {
         return this.persons().addPathComponent('activity')
     }
 
+    // # Search
+    public search(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('search')
+    }
+
     // # Annotations
     public annotations(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
@@ -479,6 +487,13 @@ class ApiRequest {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
         return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagCreateStaticCohort(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlag(id, teamId).addPathComponent('create_static_cohort_for_flag')
     }
 
     public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
@@ -727,6 +742,9 @@ const api = {
     featureFlags: {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
+        },
+        async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
     },
 
@@ -1212,6 +1230,12 @@ const api = {
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    search: {
+        async list(params: SearchListParams): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
         },
     },
 

@@ -1,15 +1,16 @@
-import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
-
-import type { sourceModalLogicType } from './sourceModalLogicType'
-import { forms } from 'kea-forms'
-import { ExternalDataStripeSourceCreatePayload } from '~/types'
-import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
-import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { ExternalDataStripeSourceCreatePayload } from '~/types'
+
+import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import type { sourceModalLogicType } from './sourceModalLogicType'
 
 export interface ConnectorConfigType {
     name: string
