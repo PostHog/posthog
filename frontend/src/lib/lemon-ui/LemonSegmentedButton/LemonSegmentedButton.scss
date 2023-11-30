@@ -122,7 +122,7 @@ body:not(.posthog-3000) {
             border-radius: 0 !important;
         }
 
-        .LemonButton > .LemonButton__chrome {
+        .LemonButton:not(:hover) {
             background: var(--bg-3000);
 
             .LemonButton__icon,
