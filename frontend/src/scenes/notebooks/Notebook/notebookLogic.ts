@@ -22,7 +22,7 @@ import type { notebookLogicType } from './notebookLogicType'
 import { EditorRange, JSONContent, NotebookEditor } from './utils'
 
 const SYNC_DELAY = 1000
-const NOTEBOOK_REFRESH_MS = 10000
+const NOTEBOOK_REFRESH_MS = 30000
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
 
