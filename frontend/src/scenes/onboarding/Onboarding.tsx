@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -112,20 +113,29 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
                 options={[
                     {
+                        type: 'toggle',
                         title: 'Capture console logs',
                         description: `Capture browser console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
                         teamProperty: 'capture_console_log_opt_in',
                         value: true,
-                        type: 'toggle',
                     },
                     {
+                        type: 'toggle',
                         title: 'Capture network performance',
                         description: `Capture performance and network information alongside recordings. Use the
                             network requests and timings in the recording player to help you debug issues with your app.`,
                         teamProperty: 'capture_performance_opt_in',
                         value: true,
-                        type: 'toggle',
+                    },
+                    {
+                        type: 'select',
+                        title: 'Minimum session duration (seconds)',
+                        description: `Only record sessions that are longer than the specified duration. 
+                            Start with it low and increase it later if you're getting too many short sessions.`,
+                        teamProperty: 'session_recording_minimum_duration_milliseconds',
+                        value: null,
+                        selectOptions: SESSION_REPLAY_MINIMUM_DURATION_OPTIONS,
                     },
                 ]}
             />

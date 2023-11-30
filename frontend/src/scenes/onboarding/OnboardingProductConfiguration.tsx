@@ -1,4 +1,4 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -23,20 +23,40 @@ export const OnboardingProductConfiguration = ({
         <OnboardingStep title={`Set up your configuration`} stepKey={stepKey} continueAction={saveConfiguration}>
             {configOptions?.map((option: ProductConfigOption) => (
                 <div className="my-8" key={option.teamProperty}>
-                    <LemonSwitch
-                        data-attr="opt-in-session-recording-switch"
-                        onChange={(checked) => {
-                            setConfigOptions(
-                                configOptions.map((o) =>
-                                    o.teamProperty === option.teamProperty ? { ...o, value: checked } : o
-                                )
-                            )
-                        }}
-                        label={option.title}
-                        fullWidth={true}
-                        labelClassName={'text-base font-semibold'}
-                        checked={option.value || false}
-                    />
+                    {option.type == 'toggle' ? (
+                        <>
+                            <LemonSwitch
+                                data-attr="opt-in-session-recording-switch"
+                                onChange={(checked) => {
+                                    setConfigOptions(
+                                        configOptions.map((o) =>
+                                            o.teamProperty === option.teamProperty ? { ...o, value: checked } : o
+                                        )
+                                    )
+                                }}
+                                label={option.title}
+                                fullWidth={true}
+                                labelClassName={'text-base font-semibold'}
+                                checked={option.value || false}
+                            />
+                        </>
+                    ) : (
+                        <div className="flex justify-between items-end mb-1">
+                            <label className="text-base font-semibold">{option.title}</label>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                onChange={(v) => {
+                                    setConfigOptions(
+                                        configOptions.map((o) =>
+                                            o.teamProperty === option.teamProperty ? { ...o, value: v } : o
+                                        )
+                                    )
+                                }}
+                                options={option.selectOptions || []}
+                                value={option.value}
+                            />
+                        </div>
+                    )}
                     <p className="prompt-text ml-0">{option.description}</p>
                 </div>
             ))}

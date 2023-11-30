@@ -1,18 +1,31 @@
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { onboardingProductConfigurationLogicType } from './onboardingProductConfigurationLogicType'
 
-export interface ProductConfigOption {
+export interface ProductConfigOptionBase {
     title: string
     description: string
     teamProperty: string
-    /** Sets the initial value. Use a team setting to reflect current state, or a boolean to set a default. */
-    value?: boolean
-    type?: 'toggle'
+}
+
+export interface ProductConfigurationToggle extends ProductConfigOptionBase {
+    type: 'toggle'
+    /** Sets the initial value. Use a team setting to reflect current state, or a static value to set a default. */
+    value: boolean
     /** If true, the value is inverted when saving, used for 'opt_out' type settings */
     inverseToggle?: boolean
 }
+
+export interface ProductConfigurationSelect extends ProductConfigOptionBase {
+    type: 'select'
+    /** Sets the initial value. Use a team setting to reflect current state, or a static value to set a default. */
+    value: string | number | null
+    selectOptions: LemonSelectOptions<any>
+}
+
+export type ProductConfigOption = ProductConfigurationToggle | ProductConfigurationSelect
 
 export const onboardingProductConfigurationLogic = kea<onboardingProductConfigurationLogicType>([
     path(() => ['scenes', 'onboarding', 'onboardingProductConfigurationLogic']),
