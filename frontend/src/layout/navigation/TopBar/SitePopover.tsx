@@ -1,4 +1,4 @@
-import { IconAsterisk, IconDay, IconFeatures, IconLive, IconNight } from '@posthog/icons'
+import { IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
 import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -230,7 +230,7 @@ function ThemeSwitcher(): JSX.Element {
     return (
         <LemonSelect
             options={[
-                { icon: <IconAsterisk />, value: null, label: `Theme synced with system` },
+                { icon: <IconLaptop />, value: null, label: `Theme synced with system` },
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
             ]}
