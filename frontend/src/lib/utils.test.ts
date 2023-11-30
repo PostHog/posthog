@@ -394,7 +394,7 @@ describe('getDefaultInterval', () => {
     })
 
     it('should return days for month to date', () => {
-        expect(getDefaultInterval('-mStart', null)).toEqual('day')
+        expect(getDefaultInterval('mStart', null)).toEqual('day')
     })
 
     it('should return month for year to date', () => {
