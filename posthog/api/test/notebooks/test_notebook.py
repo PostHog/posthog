@@ -229,3 +229,20 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": {"something": "here"}},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_responds_not_modified_if_versions_match(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": {}, "text_content": ""},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {
+            "short_id": response.json()["short_id"],
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
+            headers={"If-None-Match": response.json()["version"]},
+        )
+
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED
