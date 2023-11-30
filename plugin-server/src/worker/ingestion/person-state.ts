@@ -101,7 +101,7 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined = undefined,
-        private personOverrideWriter: PersonOverrideWriter | DeferredPersonOverrideWriter | undefined = undefined,
+        private personOverrideWriter?: PersonOverrideWriter | DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {

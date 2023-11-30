@@ -131,7 +131,7 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             customHub ? customHub.statsd : hub.statsd,
-            overridesMode !== undefined ? overridesMode.getWriter(customHub ? customHub : hub) : undefined,
+            overridesMode?.getWriter(customHub ?? hub),
             uuid,
             maxMergeAttempts ?? 3 // the default
         )
