@@ -219,6 +219,8 @@ describe('replay/transform', () => {
                                 horizontalAlign: 'right',
                                 type: 'text',
                                 text: 'i am in the box',
+                                fontSize: '12px',
+                                fontFamily: 'sans-serif',
                             },
                         ],
                     },
