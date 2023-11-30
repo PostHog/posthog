@@ -11,11 +11,6 @@ import temporalio.testing
 import temporalio.worker
 from django.conf import settings
 
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_backfills,
-)
 from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
@@ -24,6 +19,11 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
     backfill_schedule,
     get_schedule_frequency,
     wait_for_schedule_backfill_in_range,
+)
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_backfills,
 )
 
 pytestmark = [pytest.mark.asyncio]

@@ -15,8 +15,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
@@ -27,6 +25,12 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftInsertInputs,
     insert_into_redshift_activity,
     remove_escaped_whitespace_recursive,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 REQUIRED_ENV_VARS = (

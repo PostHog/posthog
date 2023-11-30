@@ -2,7 +2,7 @@ import signal
 import sys
 from datetime import timedelta
 
-from temporalio.runtime import Runtime, TelemetryConfig, PrometheusConfig
+from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.client import connect
