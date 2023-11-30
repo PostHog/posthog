@@ -42,11 +42,13 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                             <LemonDivider dashed />
                         </>
                     ) : null}
-                    <CodeSnippet language={Language.JavaScript} wrap thing="console log">
-                        {item.data.lines.join(' ')}
-                    </CodeSnippet>
+                    {item.data.lines?.length && (
+                        <CodeSnippet language={Language.JavaScript} wrap thing="console log">
+                            {item.data.lines.join(' ')}
+                        </CodeSnippet>
+                    )}
 
-                    {item.data.trace.length ? (
+                    {item.data.trace?.length ? (
                         <>
                             <LemonDivider dashed />
                             <LemonLabel>Stack trace</LemonLabel>

@@ -665,8 +665,8 @@ export type RecordingConsoleLogV2 = {
     windowId: string | undefined
     level: LogLevel
     content: string
-    lines: string[]
-    trace: string[]
+    lines?: string[]
+    trace?: string[]
     count: number
 }
 
