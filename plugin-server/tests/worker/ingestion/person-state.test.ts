@@ -9,6 +9,7 @@ import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import {
     ageInMonthsLowCardinality,
+    DeferredPersonOverrideWriter,
     PersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
@@ -21,6 +22,61 @@ const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
 const timestampch = '2020-01-01 12:00:05.000'
 
+async function fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]> {
+    const result = await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+        WITH overrides AS (
+            SELECT id, old_person_id, override_person_id
+            FROM posthog_personoverride
+            WHERE team_id = ${teamId}
+            ORDER BY id
+        )
+        SELECT
+            mapping.uuid AS old_person_id,
+            overrides_mapping.uuid AS override_person_id
+        FROM
+            overrides AS first
+        JOIN
+            posthog_personoverridemapping AS mapping ON first.old_person_id = mapping.id
+        JOIN (
+            SELECT
+                second.id AS id,
+                uuid
+            FROM
+                overrides AS second
+            JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
+        ) AS overrides_mapping ON overrides_mapping.id = first.id
+        `,
+        undefined,
+        'fetchPersonIdOverrides'
+    )
+    return result.rows.map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id]).sort() as [
+        string,
+        string
+    ][]
+}
+
+interface PersonOverridesMode {
+    getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
+    fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]>
+}
+
+const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
+    disabled: undefined,
+    immediate: {
+        getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
+        fetchPostgresPersonIdOverrides: (hub, teamId) => fetchPostgresPersonIdOverrides(hub, teamId),
+    },
+    deferred: {
+        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
+        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
+            await new DeferredPersonOverrideWriter(hub.db.postgres).processPendingOverrides(hub.db.kafkaProducer)
+            return await fetchPostgresPersonIdOverrides(hub, teamId)
+        },
+    },
+}
+
 describe('PersonState.update()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -28,7 +84,7 @@ describe('PersonState.update()', () => {
     let uuid: UUIDT
     let uuid2: UUIDT
     let teamId: number
-    let poEEmbraceJoin: boolean
+    let overridesMode: PersonOverridesMode | undefined
     let organizationId: string
 
     beforeAll(async () => {
@@ -39,7 +95,7 @@ describe('PersonState.update()', () => {
     })
 
     beforeEach(async () => {
-        poEEmbraceJoin = false
+        overridesMode = undefined
         uuid = new UUIDT()
         uuid2 = new UUIDT()
 
@@ -67,6 +123,7 @@ describe('PersonState.update()', () => {
             properties: {},
             ...event,
         }
+
         return new PersonState(
             fullEvent as any,
             teamId,
@@ -74,7 +131,7 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             customHub ? customHub.statsd : hub.statsd,
-            poEEmbraceJoin ? new PersonOverrideWriter(customHub ? customHub.db.postgres : hub.db.postgres) : undefined,
+            overridesMode !== undefined ? overridesMode.getWriter(customHub ? customHub : hub) : undefined,
             uuid,
             maxMergeAttempts ?? 3 // the default
         )
@@ -458,12 +515,12 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.each([[true], [false]])('on $identify event', (poEEmbraceJoinThis) => {
+    describe.each(Object.keys(PersonOverridesModes))('on $identify event', (useOverridesMode) => {
         beforeEach(() => {
-            poEEmbraceJoin = poEEmbraceJoinThis
+            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
         })
 
-        describe(`${poEEmbraceJoinThis ? 'PoE' : 'normal'}`, () => {
+        describe(`overrides: ${useOverridesMode}`, () => {
             it(`no-op when $anon_distinct_id not passed`, async () => {
                 const person = await personState({
                     event: '$identify',
@@ -1019,11 +1076,12 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.each([[true], [false]])('on $merge_dangerously events', (poEEmbraceJoinThis) => {
+    describe.each(Object.keys(PersonOverridesModes))('on $merge_dangerously events', (useOverridesMode) => {
         beforeEach(() => {
-            poEEmbraceJoin = poEEmbraceJoinThis
+            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
         })
-        describe(`${poEEmbraceJoinThis ? 'PoE' : 'normal'}`, () => {
+
+        describe(`overrides: ${useOverridesMode}`, () => {
             // only difference between $merge_dangerously and $identify
             it(`merge_dangerously can merge people when alias id user is identified`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, uuid.toString(), ['old-user'])
@@ -1404,7 +1462,7 @@ describe('PersonState.update()', () => {
             )
         })
     })
-    describe.each([[true], [false]])('on persons merges', (poEEmbraceJoinThis) => {
+    describe.each(Object.keys(PersonOverridesModes))('on persons merges', (useOverridesMode) => {
         // For some reason these tests failed if I ran them with a hub shared
         // with other tests, so I'm creating a new hub for each test.
         let hub: Hub
@@ -1412,7 +1470,7 @@ describe('PersonState.update()', () => {
 
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub({})
-            poEEmbraceJoin = poEEmbraceJoinThis
+            overridesMode = PersonOverridesModes[useOverridesMode] // n.b. mutating outer scope here -- be careful
 
             jest.spyOn(hub.db, 'fetchPerson')
             jest.spyOn(hub.db, 'updatePersonDeprecated')
@@ -1421,42 +1479,7 @@ describe('PersonState.update()', () => {
         afterEach(async () => {
             await closeHub()
         })
-
-        async function fetchPersonIdOverrides() {
-            const result = await hub.db.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `
-                WITH overrides AS (
-                    SELECT id, old_person_id, override_person_id
-                    FROM posthog_personoverride
-                    WHERE team_id = ${teamId}
-                    ORDER BY id
-                )
-                SELECT
-                    mapping.uuid AS old_person_id,
-                    overrides_mapping.uuid AS override_person_id
-                FROM
-                    overrides AS first
-                JOIN
-                    posthog_personoverridemapping AS mapping ON first.old_person_id = mapping.id
-                JOIN (
-                    SELECT
-                        second.id AS id,
-                        uuid
-                    FROM
-                        overrides AS second
-                    JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
-                ) AS overrides_mapping ON overrides_mapping.id = first.id
-                `,
-                undefined,
-                'fetchPersonIdOverrides'
-            )
-            return result.rows
-                .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
-                .sort() as [string, string][]
-        }
-
-        describe(`${poEEmbraceJoinThis ? 'PoE' : 'normal'}`, () => {
+        describe(`overrides: ${useOverridesMode}`, () => {
             it(`no-op if persons already merged`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, uuid.toString(), [
                     'first',
@@ -1562,9 +1585,9 @@ describe('PersonState.update()', () => {
                 const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person)
                 expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['first', 'second']))
 
-                // verify Postgres person_id overrides
-                if (poEEmbraceJoin) {
-                    const overrides = await fetchPersonIdOverrides()
+                // verify Postgres person_id overrides, if applicable
+                if (overridesMode !== undefined) {
+                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([[second.uuid, first.uuid]])
                     // & CH person overrides
                     // TODO
@@ -1727,8 +1750,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`does not commit partial transactions on override conflicts`, async () => {
-                if (!poEEmbraceJoin) {
-                    return // this is only a PoE test
+                if (overridesMode !== PersonOverridesModes.immediate) {
+                    return // this behavior is only supported with immediate overrides
                 }
                 const first: Person = await hub.db.createPerson(
                     timestamp,
@@ -1815,7 +1838,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIdsAfterFailure).toEqual(expect.arrayContaining([['first'], ['second']]))
 
                 // verify Postgres person_id overrides
-                const overridesAfterFailure = await fetchPersonIdOverrides()
+                const overridesAfterFailure = await fetchPostgresPersonIdOverrides(hub, teamId)
                 expect(overridesAfterFailure).toEqual([])
 
                 // Now verify we successfully get to our target state if we do not have
@@ -1850,7 +1873,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second']))
 
                 // verify Postgres person_id overrides
-                const overrides = await fetchPersonIdOverrides()
+                const overrides = await fetchPostgresPersonIdOverrides(hub, teamId)
                 expect(overrides).toEqual([[second.uuid, first.uuid]])
             })
 
@@ -1989,9 +2012,9 @@ describe('PersonState.update()', () => {
                 const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second', 'third']))
 
-                if (poEEmbraceJoin) {
-                    // verify Postgres person_id overrides
-                    const overrides = await fetchPersonIdOverrides()
+                // verify Postgres person_id overrides, if applicable
+                if (overridesMode !== undefined) {
+                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([
                         [second.uuid, first.uuid],
                         [third.uuid, first.uuid],
@@ -2076,9 +2099,9 @@ describe('PersonState.update()', () => {
                 const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second', 'third']))
 
-                if (poEEmbraceJoin) {
-                    // verify Postgres person_id overrides
-                    const overrides = await fetchPersonIdOverrides()
+                // verify Postgres person_id overrides, if applicable
+                if (overridesMode !== undefined) {
+                    const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([
                         [second.uuid, first.uuid],
                         [third.uuid, first.uuid],
