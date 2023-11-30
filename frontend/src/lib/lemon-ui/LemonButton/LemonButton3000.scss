@@ -1,9 +1,6 @@
 .posthog-3000 {
     .LemonButton,
     .Link.LemonButton {
-        --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
-        --lemon-button-border-width: 0;
-
         position: relative;
         min-height: 2.125rem;
         padding: 0;
@@ -14,7 +11,7 @@
         border-width: var(--lemon-button-border-width);
         border-radius: var(--radius);
         outline: none;
-        transition: var(--lemon-button-transition);
+        transition: none;
 
         .LemonButton__chrome {
             position: relative;
@@ -36,10 +33,16 @@
             border-style: solid;
             border-width: var(--lemon-button-border-width);
             border-radius: var(--radius);
-            transition: var(--transition);
 
             .LemonButton__icon {
-                opacity: 0.5;
+                color: var(--trace-3000);
+                transition: none;
+
+                > :not(.LemonIcon) {
+                    // Elements that serve as an icon, but aren't an icon are slightly muted -
+                    // not so much that they look disabled though
+                    opacity: 0.75;
+                }
             }
         }
 
@@ -128,6 +131,17 @@
             .LemonButton__chrome {
                 min-height: 0;
                 padding: 0;
+            }
+        }
+
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            .LemonButton__icon {
+                color: var(--muted-3000);
+
+                > :not(.LemonIcon) {
+                    opacity: 1;
+                }
             }
         }
 
