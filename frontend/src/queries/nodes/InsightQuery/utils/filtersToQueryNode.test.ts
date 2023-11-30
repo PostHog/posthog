@@ -519,6 +519,55 @@ describe('filtersToQueryNode', () => {
         })
     })
 
+    describe('malformed properties', () => {
+        it('converts properties', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'event',
+                                type: PropertyFilterType.Event,
+                                value: 'value',
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'event',
+                                    type: PropertyFilterType.Event,
+                                    value: 'value',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+    })
+
     describe('example insights', () => {
         it('converts `New user retention` insight', () => {
             const filters: Partial<RetentionFilterType> = {

@@ -379,6 +379,7 @@ export class SessionRecordingIngester {
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️

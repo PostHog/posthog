@@ -27,7 +27,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 import { QueryContext } from '~/queries/types'
 
@@ -527,6 +526,7 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    AppsManagement = 'apps-management',
 }
 
 export enum PipelineAppTabs {
@@ -665,9 +665,12 @@ export type RecordingConsoleLogV2 = {
     windowId: string | undefined
     level: LogLevel
     content: string
-    lines: string[]
-    trace: string[]
-    count: number
+    // JS code associated with the log - implicitly the empty array when not provided
+    lines?: string[]
+    // stack trace associated with the log - implicitly the empty array when not provided
+    trace?: string[]
+    // number of times this log message was seen - implicitly 1 when not provided
+    count?: number
 }
 
 export interface RecordingSegment {
@@ -829,6 +832,30 @@ export interface PersonListParams {
     cohort?: number
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
+}
+
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'event_definition'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResultType = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResultType[]
+    counts: Record<SearchableEntity, number | null>
 }
 
 export interface MatchedRecordingEvent {
@@ -1465,6 +1492,13 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+}
+
+export enum PluginInstallationType {
+    Local = 'local',
+    Custom = 'custom',
+    Repository = 'repository',
+    Source = 'source',
 }
 
 export interface PluginType {
@@ -2242,6 +2276,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    hasOpenChoice?: boolean
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -2785,6 +2820,8 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
+    /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
+    forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
 export type FinalizedBreadcrumb =
@@ -3446,4 +3483,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
+    FeaturePreviews = 'feature-previews',
+    Activity = 'activity',
 }

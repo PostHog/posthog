@@ -1054,12 +1054,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
-            // Edit mode special handling
-            if (mode === DashboardMode.Fullscreen) {
-                document.body.classList.add('fullscreen-scroll')
-            } else {
-                document.body.classList.remove('fullscreen-scroll')
-            }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
             }

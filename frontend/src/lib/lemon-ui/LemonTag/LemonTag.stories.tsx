@@ -7,16 +7,23 @@ const meta: Meta<typeof LemonTagComponent> = {
     title: 'Lemon UI/Lemon Tag',
     component: LemonTagComponent,
     tags: ['autodocs'],
+    parameters: {
+        testOptions: {
+            include3000: true,
+        },
+    },
 }
 export default meta
 
 const ALL_COLORS: LemonTagType[] = [
     'primary',
+    'option',
     'highlight',
     'warning',
     'danger',
     'success',
     'default',
+    'muted',
     'completion',
     'caution',
     'none',

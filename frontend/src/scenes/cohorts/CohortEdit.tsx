@@ -8,7 +8,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CohortTypeEnum } from 'lib/constants'
 import { Field } from 'lib/forms/Field'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -30,7 +29,6 @@ import { Query } from '~/queries/Query/Query'
 import { AvailableFeature, NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
@@ -128,7 +126,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                {!is3000 && <LemonDivider />}
+                <LemonDivider className="my-2 non-3000" />
                 <div className="space-y-2 max-w-160">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">

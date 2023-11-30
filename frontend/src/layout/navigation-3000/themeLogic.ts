@@ -1,5 +1,4 @@
-import { actions, events, kea, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -8,6 +7,9 @@ import type { themeLogicType } from './themeLogicType'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     actions({
         toggleTheme: true,
         overrideTheme: (darkModePreference: boolean | null) => ({ darkModePreference }),
@@ -36,7 +38,7 @@ export const themeLogic = kea<themeLogicType>([
             (s) => [
                 s.darkModeSavedPreference,
                 s.darkModeSystemPreference,
-                featureFlagLogic.selectors.featureFlags,
+                s.featureFlags,
                 sceneLogic.selectors.sceneConfig,
             ],
             (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
@@ -61,11 +63,6 @@ export const themeLogic = kea<themeLogicType>([
                 return darkModeSavedPreference === null
             },
         ],
-    }),
-    subscriptions({
-        isDarkModeOn: (isDarkModeOn) => {
-            document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
-        },
     }),
     events(({ cache, actions }) => ({
         afterMount() {

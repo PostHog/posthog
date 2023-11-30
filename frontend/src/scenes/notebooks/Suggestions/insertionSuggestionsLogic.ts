@@ -72,6 +72,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
         afterMount: () => {
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'Tab') {
+                    e.preventDefault()
                     actions.onTab()
                 } else if (e.key === 'Escape') {
                     actions.onEscape()

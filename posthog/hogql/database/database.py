@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     FloatDatabaseField,
     FunctionCallTable,
+    ExpressionField,
 )
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
@@ -35,6 +36,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
+    join_with_person_overrides_table,
 )
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -42,6 +44,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -143,13 +146,26 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         database.events.fields["poe"].fields["created_at"] = FieldTraverser(chain=["..", "pdi", "person", "created_at"])
         database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
 
-    elif (
-        modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled
-        or modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
-    ):
-        # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
+        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+        database.events.fields["override"] = LazyJoin(
+            from_field="event_person_id",
+            join_table=PersonOverridesTable(),
+            join_function=join_with_person_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
+                start=None,
+            ),
+        )
+        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     for mapping in GroupTypeMapping.objects.filter(team=team):
         if database.events.fields.get(mapping.group_type) is None:

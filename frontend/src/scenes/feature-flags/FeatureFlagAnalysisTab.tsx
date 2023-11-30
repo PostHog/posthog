@@ -47,7 +47,7 @@ function FeatureFlagDashboardsTableContainer(): JSX.Element {
                                 showNewDashboardModal()
                             }}
                         >
-                            New Dashboard
+                            New dashboard
                         </LemonButton>
                     </div>
                 }

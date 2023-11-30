@@ -1,39 +1,42 @@
-.posthog-3000.posthog-3000.posthog-3000 {
-    // The repetition is a specificity hack, so that we override .LemonButton
-    --transition: opacity 200ms ease, transform 200ms ease;
+.posthog-3000 {
+    .LemonButton,
+    .Link.LemonButton {
+        --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
+        --lemon-button-border-width: 0;
 
-    .LemonButton {
-        border-width: 0;
-        border-style: solid;
-        border-color: transparent;
+        position: relative;
         min-height: 2.125rem;
         padding: 0;
-        position: relative;
-        outline: none;
-        transition: var(--transition);
-        border-radius: 6px;
+        font-family: var(--font-title);
         cursor: pointer;
+        border-color: transparent;
+        border-style: solid;
+        border-width: var(--lemon-button-border-width);
+        border-radius: var(--radius);
+        outline: none;
+        transition: var(--lemon-button-transition);
 
         .LemonButton__chrome {
-            border-radius: 6px;
-            font-size: 0.875rem;
+            position: relative;
             display: flex;
             flex-direction: row;
             flex-shrink: 0;
+            gap: 0.5rem;
             align-items: center;
             justify-content: flex-start;
-            background: none;
-            border-style: solid;
-            border-color: transparent;
-            font-weight: 500;
-            gap: 0.5rem;
-            line-height: 1.5rem;
-            min-height: 2.125rem;
-            position: relative;
-            text-align: left;
-            transition: var(--transition);
-            padding: 0.25rem 0.75rem;
             width: 100%;
+            min-height: 2.125rem;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            line-height: 1.5rem;
+            text-align: left;
+            background: none;
+            border-color: transparent;
+            border-style: solid;
+            border-width: var(--lemon-button-border-width);
+            border-radius: var(--radius);
+            transition: var(--transition);
 
             .LemonButton__icon {
                 opacity: 0.5;
@@ -42,8 +45,8 @@
 
         &.LemonButton--full-width {
             .LemonButton__chrome {
-                padding-left: 0.5rem;
                 padding-right: 0.5rem;
+                padding-left: 0.5rem;
             }
         }
 
@@ -119,23 +122,21 @@
         }
 
         &.LemonButton--no-padding {
-            padding: 0;
             min-height: 0;
+            padding: 0;
 
             .LemonButton__chrome {
-                padding: 0;
                 min-height: 0;
+                padding: 0;
             }
         }
 
         &:not(.LemonButton--tertiary) {
-            border-width: 1px;
             padding-bottom: 1px;
 
             .LemonButton__chrome {
-                border-width: 1px;
-                margin: 0 -1px;
                 top: -1px;
+                margin: 0 -1px;
             }
 
             &:not([aria-disabled='true']):hover,
@@ -152,15 +153,31 @@
             }
         }
 
+        &.LemonButton--onboarding {
+            --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
+
+            background: var(--primary-3000-button-bg-dark);
+            border-color: var(--primary-3000-button-border);
+
+            .LemonButton__chrome {
+                font-weight: 600;
+                color: var(--text-3000-light);
+                background-color: var(--primary-3000-frame-bg-light);
+                border-color: var(--primary-3000-button-border);
+            }
+        }
+
         &.LemonButton--primary {
+            --lemon-button-border-width: 1px;
+
             background: var(--primary-3000-frame-bg);
             border-color: var(--primary-3000-frame-border);
 
             .LemonButton__chrome {
+                font-weight: 600;
+                color: #111;
                 background: var(--primary-3000-button-bg);
                 border-color: var(--primary-3000-button-border);
-                color: #111;
-                font-weight: 600;
 
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
@@ -170,6 +187,8 @@
         }
 
         &.LemonButton--secondary {
+            --lemon-button-border-width: 1px;
+
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
 
@@ -204,9 +223,9 @@
                 border-color: transparent;
 
                 .LemonButton__chrome {
+                    color: var(--muted);
                     background-color: transparent;
                     border-color: transparent;
-                    color: var(--muted);
                 }
             }
         }
@@ -220,19 +239,19 @@
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--bg-3000);
+                background-color: var(--glass-border-3000);
             }
         }
     }
 
     .LemonButtonWithSideAction__spacer {
-        color: var(--muted);
-        height: 1.25rem;
         width: 1.25rem;
+        height: 1.25rem;
+        color: var(--muted);
 
         &.LemonButtonWithSideAction__spacer--divider {
-            margin-left: 0.25rem;
             padding: 0;
+            margin-left: 0.25rem;
         }
     }
 
@@ -242,21 +261,21 @@
         right: 1px;
         bottom: 4px;
         width: 1.625rem;
-        transform: none;
         border-top-right-radius: 5px;
         border-bottom-right-radius: 5px;
+        transform: none;
 
         .LemonButton {
-            background: none !important;
-            border: none !important;
+            height: 100%;
             padding-bottom: 0 !important;
             margin: 0 auto !important;
-            height: 100%;
+            background: none !important;
+            border: none !important;
         }
 
         .LemonButton__chrome {
-            margin: auto !important;
             top: 0 !important;
+            margin: auto !important;
             background: none !important;
             border: none !important;
         }

@@ -16,31 +16,6 @@ import type { sceneLogicType } from './sceneLogicType'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
-/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
-const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.DataManagement,
-    [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.Person]: Scene.PersonsManagement,
-    [Scene.Cohort]: Scene.PersonsManagement,
-    [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.PersonsManagement,
-    [Scene.Dashboard]: Scene.Dashboards,
-    [Scene.FeatureFlag]: Scene.FeatureFlags,
-    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
-    [Scene.Survey]: Scene.Surveys,
-    [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
-    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Apps,
-    [Scene.ReplaySingle]: Scene.Replay,
-    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
-    [Scene.Site]: Scene.ToolbarLaunch,
-}
-
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -102,7 +77,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
-                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
+                    [loadedScene.id]: { ...loadedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -142,10 +117,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
-        ],
-        aliasedActiveScene: [
-            (s) => [s.activeScene],
-            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
@@ -318,11 +289,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component: defaultExport,
                         logic: logic,
                         sceneParams: params,
@@ -330,7 +301,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]

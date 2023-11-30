@@ -53,6 +53,21 @@ interface QueuedMetric {
     metric: AppMetricIdentifier
 }
 
+/** An aggregated AppMetric, as written to/read from a ClickHouse row. */
+export interface RawAppMetric {
+    timestamp: string
+    team_id: number
+    plugin_config_id: number
+    job_id?: string
+    category: string
+    successes: number
+    successes_on_retry: number
+    failures: number
+    error_uuid?: string
+    error_type?: string
+    error_details?: string
+}
+
 const MAX_STRING_LENGTH = 1000
 
 const safeJSONStringify = configure({
@@ -88,9 +103,6 @@ export class AppMetrics {
         // However, we also don't want to wait too long, nor have the queue grow too big resulting in
         // the flush taking a long time.
         const now = Date.now()
-        if (now - this.lastFlushTime > this.flushFrequencyMs || this.queueSize > this.maxQueueSize) {
-            await this.flush()
-        }
 
         timestamp = timestamp || now
         const key = this._key(metric)
@@ -123,6 +135,10 @@ export class AppMetrics {
             this.queuedData[key].failures += failures
         }
         this.queuedData[key].lastTimestamp = timestamp
+
+        if (now - this.lastFlushTime > this.flushFrequencyMs || this.queueSize > this.maxQueueSize) {
+            await this.flush()
+        }
     }
 
     async queueError(metric: AppMetric, errorWithContext: ErrorWithContext, timestamp?: number) {
@@ -163,7 +179,7 @@ export class AppMetrics {
                 error_uuid: value.errorUuid,
                 error_type: value.errorType,
                 error_details: value.errorDetails,
-            }),
+            } as RawAppMetric),
         }))
 
         await this.kafkaProducer.queueMessage({

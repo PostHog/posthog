@@ -1,4 +1,7 @@
 .Animation {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     max-width: 300px;
 
     // A correct aspect-ratio is be passed via a style prop. This is as a fallback.
@@ -6,9 +9,6 @@
     overflow: hidden;
     opacity: 1;
     transition: 400ms ease opacity;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
 
     &.Animation--hidden {
         opacity: 0;

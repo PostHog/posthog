@@ -1,8 +1,6 @@
-from posthog.test.base import (
-    APIBaseTest,
-)
-from posthog.warehouse.models import DataWarehouseViewLink, DataWarehouseSavedQuery
 from posthog.api.services.query import process_query
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class TestViewLinkQuery(APIBaseTest):
