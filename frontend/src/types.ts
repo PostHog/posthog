@@ -1111,6 +1111,13 @@ export type Body =
     | ReadableStream<Uint8Array>
     | null
 
+/**
+ * This is our base type for tracking network requests.
+ * It sticks relatively closely to the spec for the web
+ * see https://developer.mozilla.org/en-US/docs/Web/API/Performance_API
+ * we have renamed/added a few fields for the benefit of ClickHouse
+ * but don't yet clash with the spec
+ */
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1147,6 +1154,8 @@ export interface PerformanceEvent {
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
+    // see https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/transferSize
+    // zero has meaning for this field so should not be used unless the transfer size was known to be zero
     transfer_size?: number
 
     // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
