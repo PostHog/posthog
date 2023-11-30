@@ -295,12 +295,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-                const response = await api.recordings.get(props.sessionRecordingId, {
-                    save_view: true,
-                })
-                breakpoint()
+                try {
+                    const response = await api.recordings.get(props.sessionRecordingId, {
+                        save_view: true,
+                    })
+                    breakpoint()
 
-                return response
+                    return response
+                } catch (e: any) {
+                    // the api throws an error that is not an error 🙃
+                    throw new Error(e?.detail || 'unknown api error')
+                }
             },
 
             persistRecording: async (_, breakpoint) => {
