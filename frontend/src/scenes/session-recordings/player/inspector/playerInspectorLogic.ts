@@ -378,7 +378,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['events-pageview']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(item.data.event)
+                            ['$pageview', 'screen', '$screen'].includes(item.data.event)
                         ) {
                             include = true
                         }
