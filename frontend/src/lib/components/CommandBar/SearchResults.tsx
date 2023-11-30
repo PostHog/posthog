@@ -6,28 +6,28 @@ import { SearchResult, SearchResultSkeleton } from './SearchResult'
 import { SearchResultPreview } from './SearchResultPreview'
 
 export const SearchResults = (): JSX.Element => {
-    const { filterSearchResults, searchResponseLoading, activeResultIndex, keyboardResultIndex } =
+    const { combinedSearchResults, combinedSearchLoading, activeResultIndex, keyboardResultIndex } =
         useValues(searchBarLogic)
 
     return (
         <div className="flex grow overflow-hidden">
             <div className="w-1/2 overscroll-none overflow-y-auto border-r bg-bg-light">
-                {searchResponseLoading && (
+                {combinedSearchLoading && (
                     <>
                         <SearchResultSkeleton />
                         <SearchResultSkeleton />
                         <SearchResultSkeleton />
                     </>
                 )}
-                {!searchResponseLoading && filterSearchResults?.length === 0 && (
+                {!combinedSearchLoading && combinedSearchResults?.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center p-3">
                         <h3 className="mb-0 text-xl">No results</h3>
                         <p className="opacity-75 mb-0">This doesn't happen often, but we're stumped!</p>
                         <DetectiveHog height={150} width={150} />
                     </div>
                 )}
-                {!searchResponseLoading &&
-                    filterSearchResults?.map((result, index) => (
+                {!combinedSearchLoading &&
+                    combinedSearchResults?.map((result, index) => (
                         <SearchResult
                             key={`${result.type}_${result.result_id}`}
                             result={result}
@@ -37,7 +37,7 @@ export const SearchResults = (): JSX.Element => {
                         />
                     ))}
             </div>
-            <div className="w-1/2 p-2">
+            <div className="w-1/2 p-2 overflow-y-auto">
                 <SearchResultPreview />
             </div>
         </div>

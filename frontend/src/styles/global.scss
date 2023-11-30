@@ -82,11 +82,6 @@ ul {
     @extend .text-sm;
 }
 
-.page-description {
-    font-style: italic;
-    color: var(--muted);
-}
-
 .page-buttons {
     display: flex;
     flex-grow: 1;
@@ -361,7 +356,7 @@ input::-ms-clear {
         height: 23px;
         font-size: unset;
         color: var(--primary-alt);
-        background-color: white;
+        background-color: var(--bg-light);
         border-color: var(--border);
     }
 }
@@ -399,7 +394,7 @@ input::-ms-clear {
         }
 
         div:nth-child(2) {
-            background: var(--danger);
+            background: var(--brand-blue);
         }
 
         div:nth-child(3) {
@@ -490,12 +485,6 @@ input::-ms-clear {
     }
 }
 
-// Main app/body styles
-
-.fullscreen-scroll {
-    overflow-y: auto;
-}
-
 .main-app-content {
     position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
     flex: 1;
@@ -544,6 +533,7 @@ body {
     --bg-light: #fff;
     --bg-table: var(--bg-light);
     --link: var(--primary-3000);
+    --tooltip-bg: var(--bg-charcoal);
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
@@ -560,6 +550,11 @@ body {
 
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
         background: var(--bg-3000);
+
+        .non-3000 {
+            // Helper to hide non-3000 elements without JS
+            display: none;
+        }
 
         .LemonButton,
         .Link {
@@ -586,7 +581,7 @@ body {
 
             ::-webkit-scrollbar-thumb {
                 background: var(--trace-3000);
-                border-radius: 0.25rem;
+                border-radius: var(--radius);
 
                 &:hover {
                     background: var(--muted-3000);
@@ -681,6 +676,11 @@ body {
         }
     }
 
+    .ant-input-number:hover,
+    .ant-input-number-focused {
+        border-color: var(--border-bold);
+    }
+
     .ant-input-number-group-addon {
         background: var(--bg-3000);
     }
@@ -722,7 +722,11 @@ body {
 
     // Tooltip styles
     .ant-tooltip-inner {
-        background-color: var(--bg-charcoal);
+        background-color: var(--tooltip-bg);
+    }
+
+    .ant-tooltip-arrow-content {
+        background-color: var(--tooltip-bg);
     }
 
     .ant-tooltip {

@@ -11,6 +11,10 @@
     border: none !important;
     transition: height 200ms ease, top 200ms ease;
 
+    .posthog-3000 & {
+        background: var(--primary-3000-highlight);
+    }
+
     &::after {
         position: absolute;
         top: 0;

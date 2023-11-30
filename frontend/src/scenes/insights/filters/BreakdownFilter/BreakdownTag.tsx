@@ -1,5 +1,3 @@
-import './BreakdownTag.scss'
-
 import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
@@ -86,7 +84,7 @@ export function BreakdownTag({
     }
 
     return (
-        <LemonTag className="breakdown-tag" {...props}>
+        <LemonTag type="breakdown" {...props}>
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (

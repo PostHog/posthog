@@ -17,17 +17,21 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.bigquery_batch_export import (
+from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportInputs,
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
     insert_into_bigquery_activity,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(

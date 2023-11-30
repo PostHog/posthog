@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { SupportModal } from 'lib/components/Support/SupportModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -17,7 +16,7 @@ export const scene: SceneExport = {
 export const VerifyEmailHelpLinks = (): JSX.Element => {
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { uuid } = useValues(verifyEmailLogic)
-    const { openSupportLoggedOutForm } = useActions(supportLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="flex flex-row gap-x-4">
@@ -25,7 +24,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
                 type="secondary"
                 className="mt-8"
                 onClick={() => {
-                    openSupportLoggedOutForm(null, null, 'bug', 'login')
+                    openSupportForm({ kind: 'bug', target_area: 'login' })
                 }}
             >
                 Contact support
@@ -41,7 +40,6 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
                     Request a new link
                 </LemonButton>
             )}
-            <SupportModal loggedIn={false} />
         </div>
     )
 }

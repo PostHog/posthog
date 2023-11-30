@@ -18,6 +18,7 @@ import {
 } from '~/types'
 
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
 /**
@@ -1114,7 +1115,7 @@ export function hashCodeForString(s: string): number {
     return Math.abs(hash)
 }
 
-export function colorForString(s: string): string {
+export function colorForString(s: string): LemonTagType {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
@@ -1552,4 +1553,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
         }
     }
     return toReturn
+}
+
+export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
 }

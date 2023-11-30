@@ -19,7 +19,7 @@
     margin-top: 1rem;
     background-color: transparent !important;
     border: 2px dashed var(--primary) !important;
-    border-radius: 4px !important;
+    border-radius: var(--radius) !important;
 
     &:hover {
         border-color: var(--primary-3000-hover) !important;

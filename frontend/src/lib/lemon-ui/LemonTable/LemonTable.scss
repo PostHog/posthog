@@ -1,14 +1,21 @@
 .LemonTable {
     --row-base-height: 3rem;
     --row-horizontal-padding: 1rem;
+    --lemon-table-background-color: var(--bg-table);
 
     position: relative;
     flex: 1;
     width: 100%;
     overflow: hidden;
-    background: var(--bg-table);
+    background: var(--lemon-table-background-color);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    .WebAnalyticsDashboard &,
+    .Insight & {
+        // Special override for scenes where the table is primarily next to insights
+        --lemon-table-background-color: var(--bg-light);
+    }
 
     .posthog-3000 & {
         --row-base-height: auto;
@@ -119,16 +126,19 @@
         text-transform: uppercase;
         letter-spacing: 0.03125rem;
         background: var(--mid);
-        border-bottom: 1px solid var(--border);
 
         .posthog-3000 & {
-            background: none;
+            background: var(--lemon-table-background-color);
         }
 
         > tr {
             > th {
                 font-weight: 700;
                 text-align: left;
+
+                // box shadow as a border supports sticky headers
+                // Also it needs to be on the th - any higher and safari will not render the shadow
+                box-shadow: inset 0 -1px var(--border);
 
                 .posthog-3000 & {
                     padding-top: 0.5rem;
@@ -150,6 +160,10 @@
 
     > tbody {
         > tr {
+            &:not(:first-child) {
+                border-top: 1px solid var(--border);
+            }
+
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--side);
@@ -190,10 +204,6 @@
     > tbody {
         > tr {
             height: var(--row-base-height);
-
-            &:not(:first-child) {
-                border-top: 1px solid var(--border);
-            }
 
             > th,
             > td {
@@ -244,7 +254,7 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
-    background: var(--bg-light);
+    background: var(--lemon-table-background-color);
     opacity: 0;
     transition: opacity 200ms ease;
 
@@ -258,7 +268,9 @@
     cursor: default;
 
     .posthog-3000 & {
-        opacity: 0.4;
+        .LemonTable__header-content {
+            color: var(--text-secondary);
+        }
     }
 
     &.LemonTable__header--actionable {
@@ -266,11 +278,15 @@
 
         .posthog-3000 & {
             &:hover {
-                opacity: 0.7;
+                .LemonTable__header-content {
+                    color: var(--default);
+                }
             }
 
             &:active {
-                opacity: 0.9;
+                .LemonTable__header-content {
+                    color: var(--default);
+                }
             }
         }
     }
@@ -294,6 +310,19 @@
     border-top: 1px solid var(--border);
 }
 
+// NOTE: this is outside of the storybook check for 3000 selective styling
+.LemonTable__cell--sticky::before {
+    background: var(--lemon-table-background-color);
+}
+
+.LemonTable__header--sticky::before {
+    background: var(--mid);
+
+    .posthog-3000 & {
+        background: var(--lemon-table-background-color);
+    }
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
@@ -307,10 +336,10 @@ body:not(.storybook-test-runner) {
         &::before {
             position: absolute;
             top: 0;
+            bottom: 1px; // Leave room for box shadow border
             left: 0;
             z-index: -1; // Place below cell content
             width: 100%;
-            height: 100%;
             clip-path: inset(0 -16px 0 0);
             content: '';
             box-shadow: -16px 0 16px 16px transparent;
@@ -318,16 +347,8 @@ body:not(.storybook-test-runner) {
         }
     }
 
-    .LemonTable__cell--sticky::before {
-        background: var(--bg-light);
-    }
-
     tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
         background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
-    }
-
-    .LemonTable__header--sticky::before {
-        background: var(--mid);
     }
 
     .scrollable--left {

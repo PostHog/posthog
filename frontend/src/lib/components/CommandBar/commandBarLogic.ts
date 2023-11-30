@@ -1,4 +1,5 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
+import { shouldIgnoreInput } from 'lib/utils'
 
 import type { commandBarLogicType } from './commandBarLogicType'
 import { BarStatus } from './types'
@@ -19,13 +20,9 @@ export const commandBarLogic = kea<commandBarLogicType>([
                 setCommandBar: (_, { status }) => status,
                 hideCommandBar: () => BarStatus.HIDDEN,
                 toggleSearchBar: (previousState) =>
-                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
-                        ? BarStatus.SHOW_SEARCH
-                        : BarStatus.HIDDEN,
+                    previousState === BarStatus.SHOW_SEARCH ? BarStatus.HIDDEN : BarStatus.SHOW_SEARCH,
                 toggleActionsBar: (previousState) =>
-                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
-                        ? BarStatus.SHOW_ACTIONS
-                        : BarStatus.HIDDEN,
+                    previousState === BarStatus.SHOW_ACTIONS ? BarStatus.HIDDEN : BarStatus.SHOW_ACTIONS,
                 toggleShortcutOverview: (previousState) =>
                     previousState === BarStatus.HIDDEN ? BarStatus.SHOW_SHORTCUTS : previousState,
             },
@@ -34,6 +31,9 @@ export const commandBarLogic = kea<commandBarLogicType>([
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
+            if (shouldIgnoreInput(event)) {
+                return
+            }
             if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
                 event.preventDefault()
                 if (event.shiftKey) {

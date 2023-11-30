@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team
+from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
@@ -38,7 +38,7 @@ ENTITY_MAP = {
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
-        "extra_fields": ["title", "text_content"],
+        "extra_fields": ["title", "content"],
     },
     "action": {
         "klass": Action,
@@ -49,6 +49,11 @@ ENTITY_MAP = {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+    },
+    "event_definition": {
+        "klass": EventDefinition,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
     },
 }
 """
@@ -92,7 +97,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),  # type: ignore
-                extra_fields=entity_meta.get("extra_fields"),
+                extra_fields=entity_meta.get("extra_fields"),  # type: ignore
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
@@ -156,6 +161,7 @@ def class_queryset(
         )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
+        qs.annotate(rank=F("rank"))
 
     # specify fields to fetch
     qs = qs.values(*values)

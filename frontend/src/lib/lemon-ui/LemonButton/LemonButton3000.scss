@@ -1,18 +1,20 @@
-.posthog-3000.posthog-3000.posthog-3000 {
-    // The repetition is a specificity hack, so that we override .LemonButton
-    --transition: opacity 200ms ease, transform 200ms ease;
+.posthog-3000 {
+    .LemonButton,
+    .Link.LemonButton {
+        --lemon-button-transition: opacity 200ms ease, transform 200ms ease;
+        --lemon-button-border-width: 0;
 
-    .LemonButton {
         position: relative;
         min-height: 2.125rem;
         padding: 0;
+        font-family: var(--font-title);
         cursor: pointer;
         border-color: transparent;
         border-style: solid;
-        border-width: 0;
-        border-radius: 6px;
+        border-width: var(--lemon-button-border-width);
+        border-radius: var(--radius);
         outline: none;
-        transition: var(--transition);
+        transition: var(--lemon-button-transition);
 
         .LemonButton__chrome {
             position: relative;
@@ -32,7 +34,8 @@
             background: none;
             border-color: transparent;
             border-style: solid;
-            border-radius: 6px;
+            border-width: var(--lemon-button-border-width);
+            border-radius: var(--radius);
             transition: var(--transition);
 
             .LemonButton__icon {
@@ -130,12 +133,10 @@
 
         &:not(.LemonButton--tertiary) {
             padding-bottom: 1px;
-            border-width: 1px;
 
             .LemonButton__chrome {
                 top: -1px;
                 margin: 0 -1px;
-                border-width: 1px;
             }
 
             &:not([aria-disabled='true']):hover,
@@ -152,7 +153,23 @@
             }
         }
 
+        &.LemonButton--onboarding {
+            --lemon-button-border-width: 1px; // TODO: increase this to 1.5px once snapshotting is in place to make sure other buttons are not affected
+
+            background: var(--primary-3000-button-bg-dark);
+            border-color: var(--primary-3000-button-border);
+
+            .LemonButton__chrome {
+                font-weight: 600;
+                color: var(--text-3000-light);
+                background-color: var(--primary-3000-frame-bg-light);
+                border-color: var(--primary-3000-button-border);
+            }
+        }
+
         &.LemonButton--primary {
+            --lemon-button-border-width: 1px;
+
             background: var(--primary-3000-frame-bg);
             border-color: var(--primary-3000-frame-border);
 
@@ -170,6 +187,8 @@
         }
 
         &.LemonButton--secondary {
+            --lemon-button-border-width: 1px;
+
             background: var(--secondary-3000-frame-bg);
             border-color: var(--secondary-3000-frame-border);
 
@@ -220,7 +239,7 @@
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--bg-3000);
+                background-color: var(--glass-border-3000);
             }
         }
     }

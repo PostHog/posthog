@@ -7,11 +7,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
@@ -35,9 +34,8 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     const headerButtons = (
         <>
@@ -50,7 +48,7 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            {!has3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
+            {!is3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
         </>
     )
 
@@ -82,7 +80,7 @@ export function ProjectHomepage(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="secondary"
-                                size={has3000 ? 'small' : undefined}
+                                size={is3000 ? 'small' : undefined}
                                 data-attr="project-home-change-dashboard"
                                 onClick={showSceneDashboardChoiceModal}
                             >
@@ -90,7 +88,7 @@ export function ProjectHomepage(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    <LemonDivider className={has3000 ? 'mt-3 mb-4' : 'my-4'} />
+                    <LemonDivider className={is3000 ? 'mt-3 mb-4' : 'my-4'} />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

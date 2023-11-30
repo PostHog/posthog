@@ -17,7 +17,7 @@
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip" />
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
-      <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="524288" />
+      <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
       <env name="REPLAY_EVENTS_NEW_CONSUMER_RATIO" value="1" />
     </envs>

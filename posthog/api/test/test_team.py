@@ -10,7 +10,7 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.batch_exports.service import describe_schedule
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
@@ -19,7 +19,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.test.base import APIBaseTest
 
 
@@ -225,7 +225,7 @@ class TestTeamAPI(APIBaseTest):
                 call(
                     self.user.distinct_id,
                     "membership level changed",
-                    properties={"new_level": 8, "previous_level": 1},
+                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
                 call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),

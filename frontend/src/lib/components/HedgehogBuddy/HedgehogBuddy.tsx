@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { range, sampleOne } from 'lib/utils'
+import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { HedgehogAccessories } from './HedgehogAccessories'
@@ -31,15 +31,6 @@ const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
-
-const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
-    return (
-        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
-        (e.target as HTMLElement).isContentEditable ||
-        (e.target as HTMLElement).parentElement?.isContentEditable ||
-        false
-    )
-}
 
 export class HedgehogActor {
     animations = standardAnimations

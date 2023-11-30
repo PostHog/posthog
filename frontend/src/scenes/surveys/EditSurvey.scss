@@ -16,3 +16,10 @@
     font-size: 10px;
     background-color: var(--bg-3000);
 }
+
+.SurveyQuestionDragHandle {
+    font-size: 1.2em;
+    color: var(--default);
+    cursor: move;
+    transform: rotate(90deg);
+}

@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional, cast, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -12,10 +12,11 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 def resolve_lazy_tables(
     node: ast.Expr,
+    dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
     context: HogQLContext = None,
 ):
-    LazyTableResolver(stack=stack, context=context).visit(node)
+    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
 
 @dataclasses.dataclass
@@ -35,12 +36,14 @@ class TableToAdd:
 class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
+        dialect: Literal["hogql", "clickhouse"],
         stack: Optional[List[ast.SelectQuery]] = None,
         context: HogQLContext = None,
     ):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
+        self.dialect = dialect
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -181,7 +184,7 @@ class LazyTableResolver(TraversingVisitor):
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed, self.context.modifiers)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, [node.type]))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -204,7 +207,7 @@ class LazyTableResolver(TraversingVisitor):
                 node,
             )
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True))
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
 
             select_type.tables[to_table] = join_to_add.type
 
