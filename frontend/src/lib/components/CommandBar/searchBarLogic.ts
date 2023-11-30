@@ -316,7 +316,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group4Response
             ): Record<Tab, string | null> => {
                 const counts = {}
-                // const personsResults = personsResponse?.results
 
                 Object.values(Tab).forEach((tab) => {
                     counts[tab] = searchResponse?.counts[tab]?.toString() || null
@@ -466,7 +465,7 @@ export const urlForResult = (result: SearchResult): string => {
         case 'feature_flag':
             return urls.featureFlag(result.result_id)
         case 'group':
-            return urls.group((result as GroupResult).extra_fields.group_type_index, result.result_id)
+            return urls.group(result.extra_fields.group_type_index, result.result_id)
         case 'insight':
             return urls.insightView(result.result_id as InsightShortId)
         case 'notebook':
