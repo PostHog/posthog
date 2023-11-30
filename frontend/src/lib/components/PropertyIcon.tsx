@@ -23,7 +23,9 @@ import { HTMLAttributes, ReactNode } from 'react'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 const osIcons = {
+    // backwards compatibility, Mac OS X is now macOS, we need to match both
     ['mac os x']: <IconMacOS />,
+    ['macos']: <IconMacOS />,
     ['windows']: <IconWindows />,
     ['linux']: <IconLinux />,
     ['android']: <IconAndroidOS />,
