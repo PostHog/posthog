@@ -1,16 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Counter } from 'prom-client'
 import { PreIngestionEvent } from 'types'
 
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
+import { invalidTimestampCounter } from './metrics'
 import { EventPipelineRunner } from './runner'
-
-const invalidTimestampCounter = new Counter({
-    name: 'invalid_timestamp_total',
-    help: 'Count of events with invalid timestamp',
-    labelNames: ['type'],
-})
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event

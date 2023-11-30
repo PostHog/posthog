@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Counter, Summary } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -10,42 +9,19 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import {
+    eventProcessedAndIngestedCounter,
+    pipelineLastStepCounter,
+    pipelineStepCompletionCounter,
+    pipelineStepDLQCounter,
+    pipelineStepErrorCounter,
+    pipelineStepMsSummary,
+    pipelineStepThrowCounter,
+} from './metrics'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-
-const pipelineStepCompletionCounter = new Counter({
-    name: 'events_pipeline_step_executed_total',
-    help: 'Number of events that have completed the step',
-    labelNames: ['step_name'],
-})
-const pipelineLastStepCounter = new Counter({
-    name: 'events_pipeline_last_step_total',
-    help: 'Number of events that have entered the last step',
-    labelNames: ['step_name'],
-})
-const pipelineStepErrorCounter = new Counter({
-    name: 'events_pipeline_step_error_total',
-    help: 'Number of events that have errored in the step',
-    labelNames: ['step_name'],
-})
-const pipelineStepMsSummary = new Summary({
-    name: 'events_pipeline_step_ms',
-    help: 'Duration spent in each step',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-    labelNames: ['step_name'],
-})
-const pipelineStepThrowCounter = new Counter({
-    name: 'events_pipeline_step_throw_total',
-    help: 'Number of events that have thrown error in the step',
-    labelNames: ['step_name'],
-})
-const pipelineStepDLQCounter = new Counter({
-    name: 'events_pipeline_step_dlq_total',
-    help: 'Number of events that have been sent to DLQ in the step',
-    labelNames: ['step_name'],
-})
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -73,11 +49,6 @@ export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<
     const runner = new EventPipelineRunner(hub, event)
     return runner.runEventPipeline(event)
 }
-
-const eventProcessedAndIngestedCounter = new Counter({
-    name: 'event_processed_and_ingested',
-    help: 'Count of events processed and ingested',
-})
 
 export class EventPipelineRunner {
     hub: Hub

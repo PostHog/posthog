@@ -7,7 +7,6 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
-import { Counter } from 'prom-client'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -67,6 +66,12 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import {
+    groupDataMissingCounter,
+    groupInfoCacheResultCounter,
+    personUpdateVersionMismatchCounter,
+    pluginLogEntryCounter,
+} from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -140,28 +145,6 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
-
-const groupInfoCacheResultCounter = new Counter({
-    name: 'group_info_cache_result',
-    help: 'Group info cache result',
-    labelNames: ['result'],
-})
-
-const groupDataMissingCounter = new Counter({
-    name: 'group_data_missing',
-    help: 'Group data missing',
-})
-
-const personUpdateVersionMismatchCounter = new Counter({
-    name: 'person_update_version_mismatch',
-    help: 'Person update version mismatch',
-})
-
-const pluginLogEntryCounter = new Counter({
-    name: 'plugin_log_entry',
-    help: 'Plugin log entry created by plugin',
-    labelNames: ['plugin_id', 'source'],
-})
 
 /** The recommended way of accessing the database. */
 export class DB {
