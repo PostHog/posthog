@@ -41,6 +41,10 @@
 
             > ol {
                 list-style-type: decimal;
+
+                ol {
+                    list-style-type: lower-alpha;
+                }
             }
 
             > ul {
