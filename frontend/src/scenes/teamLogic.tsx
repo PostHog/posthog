@@ -104,7 +104,9 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.success(message)
+                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                        lemonToast.success(message)
+                    }
 
                     return patchedTeam
                 },
