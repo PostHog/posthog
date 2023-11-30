@@ -81,10 +81,6 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
                 <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
                 </span>
-                <span className="text-trace-3000 text-xs">
-                    {location.host}
-                    <span className="text-muted-3000">{urlForResult(result)}</span>
-                </span>
             </div>
         </div>
     )
