@@ -39,11 +39,12 @@ export const AdvancedSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
-            <DeviceFilters filters={filters} setFilters={setFilters} />
             <TestAccountFilter
                 filters={filters}
                 onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
             />
+
+            <DeviceFilters filters={filters} setFilters={setFilters} />
 
             <LemonLabel>Time and duration</LemonLabel>
             <div className="flex flex-wrap gap-2">
