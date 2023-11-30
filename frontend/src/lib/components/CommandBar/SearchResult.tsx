@@ -11,7 +11,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { Node } from '~/queries/schema'
-import { FilterType, Group } from '~/types'
+import { FilterType } from '~/types'
 
 import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
@@ -74,9 +74,7 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
                 <span className="text-muted-3000 text-xs">
                     {result.type !== 'group'
                         ? tabToName[result.type]
-                        : `${capitalizeFirstLetter(
-                              aggregationLabel((result.extra_fields as Group).group_type_index).plural
-                          )}`}
+                        : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                 </span>
                 <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
@@ -125,9 +123,7 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
     } else if (type === 'notebook') {
         return <span>{extra_fields.title}</span>
     } else if (type === 'group') {
-        return (
-            <span>{groupDisplayId((extra_fields as Group).group_key, (extra_fields as Group).group_properties)}</span>
-        )
+        return <span>{groupDisplayId(extra_fields.group_key, extra_fields.group_properties)}</span>
     } else {
         return <span>{extra_fields.name}</span>
     }
