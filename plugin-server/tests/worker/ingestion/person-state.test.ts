@@ -7,7 +7,11 @@ import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
+import {
+    ageInMonthsLowCardinality,
+    PersonOverrideWriter,
+    PersonState,
+} from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
@@ -70,7 +74,7 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             customHub ? customHub.statsd : hub.statsd,
-            poEEmbraceJoin,
+            poEEmbraceJoin ? new PersonOverrideWriter(customHub ? customHub.db.postgres : hub.db.postgres) : undefined,
             uuid,
             maxMergeAttempts ?? 3 // the default
         )

@@ -93,8 +93,6 @@ export class PersonState {
     private db: DB
     private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
-    private poEEmbraceJoin: boolean
-    private overrideWriter: PersonOverrideWriter | DeferredPersonOverrideWriter
 
     constructor(
         event: PluginEvent,
@@ -103,7 +101,7 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined = undefined,
-        poEEmbraceJoin = false,
+        private personOverrideWriter: PersonOverrideWriter | DeferredPersonOverrideWriter | undefined = undefined,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -121,10 +119,6 @@ export class PersonState {
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
-
-        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
-        this.poEEmbraceJoin = poEEmbraceJoin
-        this.overrideWriter = new PersonOverrideWriter(db.postgres)
     }
 
     async update(): Promise<Person> {
@@ -454,7 +448,7 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        if (this.poEEmbraceJoin) {
+        if (this.personOverrideWriter !== undefined) {
             // Optimize merging persons to keep using the person id that has longer history,
             // which means we'll have less events to update during the squash later
             if (otherPerson.created_at < mergeInto.created_at) {
@@ -489,7 +483,7 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(this.poEEmbraceJoin),
+                poEEmbraceJoin: String(this.personOverrideWriter !== undefined),
             })
             .inc()
 
@@ -521,8 +515,8 @@ export class PersonState {
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
                 let personOverrideMessages: ProducerRecord[] = []
-                if (this.poEEmbraceJoin) {
-                    personOverrideMessages = await this.overrideWriter.addPersonOverride(
+                if (this.personOverrideWriter !== undefined) {
+                    personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
                         tx,
                         getMergeOperation(this.teamId, otherPerson, mergeInto)
                     )
@@ -545,7 +539,7 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(this.poEEmbraceJoin),
+                poEEmbraceJoin: String(this.personOverrideWriter !== undefined),
             })
             .inc()
         return result
@@ -571,7 +565,7 @@ function getMergeOperation(teamId: number, oldPerson: Person, overridePerson: Pe
     }
 }
 
-class PersonOverrideWriter {
+export class PersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
@@ -722,7 +716,7 @@ class PersonOverrideWriter {
     }
 }
 
-class DeferredPersonOverrideWriter {
+export class DeferredPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
