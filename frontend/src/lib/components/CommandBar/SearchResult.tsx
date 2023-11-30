@@ -14,7 +14,7 @@ import { Node } from '~/queries/schema'
 import { FilterType } from '~/types'
 
 import { tabToName } from './constants'
-import { searchBarLogic, urlForResult } from './searchBarLogic'
+import { searchBarLogic } from './searchBarLogic'
 import { SearchResult as ResultType } from './types'
 
 type SearchResultProps = {
@@ -86,9 +86,8 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
 
 export const SearchResultSkeleton = (): JSX.Element => (
     <div className="px-5 py-4 w-full space-y-1.5 flex flex-col items-start bg-bg-light border-b">
-        <LemonSkeleton className="w-32 opacity-75 h-3" />
-        <LemonSkeleton className="w-80 h-3.5" />
-        <LemonSkeleton className="w-100 opacity-75 h-3" />
+        <LemonSkeleton className="w-16 opacity-75 h-3" />
+        <LemonSkeleton className="w-40 h-3.5" />
     </div>
 )
 
