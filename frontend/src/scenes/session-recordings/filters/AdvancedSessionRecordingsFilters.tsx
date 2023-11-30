@@ -1,4 +1,4 @@
-import { LemonButtonWithDropdown, LemonCheckbox, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -11,7 +11,14 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterableLogLevel,
+    FilterType,
+    RecordingDurationFilter,
+    RecordingFilters,
+    RecordingSource,
+} from '~/types'
 
 import { DurationFilter } from './DurationFilter'
 
@@ -32,6 +39,7 @@ export const AdvancedSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
+            <DeviceFilters filters={filters} setFilters={setFilters} />
             <TestAccountFilter
                 filters={filters}
                 onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
@@ -126,6 +134,78 @@ export const AdvancedSessionRecordingsFilters = ({
     )
 }
 
+function DeviceFilters({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingFilters
+    setFilters: (filterS: RecordingFilters) => void
+}): JSX.Element {
+    function updateSourceChoice(checked: boolean, source: RecordingSource): void {
+        const newChoice = filters.recording_source?.filter((c) => c !== source) || []
+        if (checked) {
+            setFilters({
+                recording_source: [...newChoice, source],
+            })
+        } else {
+            setFilters({
+                recording_source: newChoice,
+            })
+        }
+    }
+
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SOURCE_FILTER} match={true}>
+            <LemonLabel info="We're adding recording from Android and iOS alongside those from the web. Choose whether to show recordings from specific sources.">
+                Filter by recording source
+            </LemonLabel>
+            <LemonButtonWithDropdown
+                status="stealth"
+                type="secondary"
+                data-attr={'recording-source-filters'}
+                fullWidth={true}
+                dropdown={{
+                    sameWidth: true,
+                    closeOnClickInside: false,
+                    overlay: [
+                        <>
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                checked={!!filters.recording_source?.includes('Web')}
+                                onChange={(checked) => {
+                                    updateSourceChoice(checked, 'Web')
+                                }}
+                                label={'Web'}
+                            />
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                checked={!!filters.recording_source?.includes('Android')}
+                                onChange={(checked) => updateSourceChoice(checked, 'Android')}
+                                label={'Android'}
+                            />
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                disabledReason={'Coming soon!'}
+                                checked={!!filters.recording_source?.includes('iOS')}
+                                onChange={(checked) => updateSourceChoice(checked, 'iOS')}
+                                label={'iOS'}
+                            />
+                        </>,
+                    ],
+                    actionable: true,
+                }}
+            >
+                {filters.recording_source?.join(' or ') || (
+                    <span className={'text-muted'}>Show recordings from these sources...</span>
+                )}
+            </LemonButtonWithDropdown>
+        </FlaggedFeature>
+    )
+}
+
 function ConsoleFilters({
     filters,
     setFilters,
@@ -149,27 +229,19 @@ function ConsoleFilters({
     return (
         <>
             <LemonLabel>Filter by console logs</LemonLabel>
-            <FlaggedFeature flag={FEATURE_FLAGS.CONSOLE_RECORDING_SEARCH}>
-                <div className={'flex flex-row space-x-2'}>
-                    <LemonInput
-                        className={'grow'}
-                        placeholder={'containing text'}
-                        value={filters.console_search_query}
-                        onChange={(s: string): void => {
-                            setFilters({
-                                console_search_query: s,
-                            })
-                        }}
-                    />
+            <div className={'flex flex-row space-x-2'}>
+                <LemonInput
+                    className={'grow'}
+                    placeholder={'containing text'}
+                    value={filters.console_search_query}
+                    onChange={(s: string): void => {
+                        setFilters({
+                            console_search_query: s,
+                        })
+                    }}
+                />
+            </div>
 
-                    <Tooltip
-                        placement="bottom"
-                        title={<>Filter recordings by console logs. Only matches recordings since October 4th.</>}
-                    >
-                        <LemonTag type={'highlight'}>Beta</LemonTag>
-                    </Tooltip>
-                </div>
-            </FlaggedFeature>
             <LemonButtonWithDropdown
                 status="stealth"
                 type="secondary"

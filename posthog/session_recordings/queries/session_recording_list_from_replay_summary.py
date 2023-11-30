@@ -12,7 +12,7 @@ from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.property.util import parse_prop_grouped_clauses, get_property_string_expr
 from posthog.models.team import PersonOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
@@ -246,7 +246,8 @@ class SessionIdEventsQuery(EventQuery):
             )
             > 0
         )
-        return filters_by_event_or_action or has_event_property_filters
+        has_recording_source_filter = self._filter.recording_source and len(self._filter.recording_source) > 0
+        return filters_by_event_or_action or has_event_property_filters or has_recording_source_filter
 
     def __init__(
         self,
@@ -281,6 +282,7 @@ class SessionIdEventsQuery(EventQuery):
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
+            {recording_source_clause}
             -- other times we can check distinct id against a sub query which should be faster than joining
             {persons_sub_query}
         GROUP BY `$session_id`
@@ -427,6 +429,8 @@ class SessionIdEventsQuery(EventQuery):
             persons_sub_query,
         ) = self._persons_join_or_subquery(event_filters, prop_query)
 
+        recording_source_clause = self._get_recording_source_clause(self._filter.recording_source)
+
         return (
             self._raw_events_query.format(
                 select_event_ids="groupArray(uuid) as event_ids," if select_event_ids else "",
@@ -439,6 +443,7 @@ class SessionIdEventsQuery(EventQuery):
                 persons_join=persons_join,
                 persons_sub_query=persons_sub_query,
                 groups_query=groups_query,
+                recording_source_clause=recording_source_clause,
             ),
             {
                 **base_params,
@@ -486,6 +491,29 @@ class SessionIdEventsQuery(EventQuery):
         results = [row[0] for row in query_results]
         # flatten and return results
         return [item for sublist in results for item in sublist]
+
+    @staticmethod
+    def _get_recording_source_clause(recording_source: List[Literal["android", "ios", "web"]]) -> str:
+        """
+        if we have a recording source filter then we want to filter on the $lib property
+        we use the property string expression to do this
+        because then if it is materialized we use that property
+        we map the source to the $lib value so that people can't send just any old thing
+        """
+        valid_sources = {"android": "posthog-android", "ios": "posthog-ios", "web": "web"}
+        mapped_sources = []
+        for source in recording_source:
+            mapped = valid_sources.get(source)
+            if not mapped:
+                raise ValueError(f"Invalid recording source {source}")
+            mapped_sources.append(mapped)
+        filters = []
+        for source in mapped_sources:
+            property_string_expr = get_property_string_expr(
+                table="events", property_name="$lib", var="'$lib'", column="properties"
+            )
+            filters.append(f"{property_string_expr} = {source}")
+        return f"AND ({' OR '.join(filters)})" if filters else ""
 
 
 class SessionRecordingListFromReplaySummary(EventQuery):

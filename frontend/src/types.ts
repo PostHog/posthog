@@ -763,6 +763,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'log' | 'warn' | 'error'
+export type RecordingSource = 'Web' | 'Android' | 'iOS'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -774,6 +775,7 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
+    recording_source?: RecordingSource[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {

@@ -2502,6 +2502,127 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([])
 
+    @also_test_with_materialized_columns(event_properties=["$lib"])
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_by_device_type(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        web_session_id = "web-session"
+        android_session_id = "android-session"
+        ios_session_id = "ios-session"
+        something_else_session_id = "fax-machine-session"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=web_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=android_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=ios_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=something_else_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+        )
+
+        # no filter mean get everything
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "recording_source": [],
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                web_session_id,
+                android_session_id,
+                ios_session_id,
+                something_else_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 5 matches only matches in warn
+            data={
+                "recording_source": ["web"],
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                web_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 5 matches only matches in warn
+            data={
+                "recording_source": ["posthog-android"],
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                android_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 5 matches only matches in warn
+            data={
+                "recording_source": ["posthog-ios"],
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                ios_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 5 matches only matches in warn
+            data={
+                "recording_source": ["web", "posthog-android"],
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([web_session_id, android_session_id])
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],

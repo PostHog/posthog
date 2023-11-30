@@ -15,6 +15,10 @@ class PersonUUIDMixin(BaseParamMixin):
 
 class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
+    def recording_source(self) -> List[Literal["android", "ios", "web"]]:
+        return self._data.get("recording_source", None)
+
+    @cached_property
     def console_search_query(self) -> str | None:
         return self._data.get("console_search_query", None)
 
