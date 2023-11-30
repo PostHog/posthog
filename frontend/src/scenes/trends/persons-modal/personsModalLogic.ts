@@ -42,6 +42,7 @@ export interface ListActorsResponse {
 
 export function wrapInsightsPersonsQuery(
     query: InsightPersonsQuery,
+    search?: string,
     limit = RESULTS_PER_PAGE,
     offset = 0
 ): PersonsQuery {
@@ -49,6 +50,7 @@ export function wrapInsightsPersonsQuery(
         kind: NodeKind.PersonsQuery,
         source: query,
         select: ['person', 'groupArray(3)(pdi.distinct_id)'],
+        search,
         limit,
         offset,
     }
@@ -105,7 +107,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
                         return res
                     } else if (query) {
-                        const personsQuery = wrapInsightsPersonsQuery(query, RESULTS_PER_PAGE + 1, offset || 0)
+                        const personsQuery = wrapInsightsPersonsQuery(
+                            query,
+                            values.searchTerm,
+                            RESULTS_PER_PAGE + 1,
+                            offset || 0
+                        )
                         const response = await performQuery(personsQuery)
                         const newResponse: ListActorsResponse = {
                             results: [
