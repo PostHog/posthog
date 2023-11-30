@@ -295,7 +295,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-
                 const response = await api.recordings.get(props.sessionRecordingId, {
                     save_view: true,
                 })
