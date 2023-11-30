@@ -5,12 +5,11 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
-import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { DashboardTemplateChooser, NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -64,7 +63,10 @@ export function Dashboards(): JSX.Element {
             ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
                 <DashboardsTableContainer />
             ) : (
-                <NoDashboards />
+                <div className="mt-4">
+                    <p>Create your first dashboard:</p>
+                    <DashboardTemplateChooser />
+                </div>
             )}
         </div>
     )
