@@ -5,7 +5,7 @@ A reliable and performant webhook system for PostHog
 
 1. Start a PostgreSQL instance:
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml up -d --wait
 ```
 
 2. Prepare test database:
