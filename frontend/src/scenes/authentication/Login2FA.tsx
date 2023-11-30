@@ -45,7 +45,7 @@ export function Login2FA(): JSX.Element {
                         htmlType="submit"
                         data-attr="2fa-login"
                         fullWidth
-                        type="primary"
+                        type="onboarding"
                         center
                         loading={isTwofactortokenSubmitting}
                         {...buttonStyles}

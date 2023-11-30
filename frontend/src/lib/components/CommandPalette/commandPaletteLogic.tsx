@@ -219,7 +219,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
     selectors({
         isUsingCmdKSearch: [
             (selectors) => [selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.CMD_K_SEARCH],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000],
         ],
         isSqueak: [
             (selectors) => [selectors.input],

@@ -831,6 +831,30 @@ export interface PersonListParams {
     include_total?: boolean // PostHog 3000-only
 }
 
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'event_definition'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResultType = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResultType[]
+    counts: Record<SearchableEntity, number | null>
+}
+
 export interface MatchedRecordingEvent {
     uuid: string
 }
@@ -2242,6 +2266,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    hasOpenChoice?: boolean
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -2785,6 +2810,8 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
+    /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
+    forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
 export type FinalizedBreadcrumb =
@@ -3446,4 +3473,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
+    FeaturePreviews = 'feature-previews',
+    Activity = 'activity',
 }

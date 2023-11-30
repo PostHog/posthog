@@ -4,16 +4,16 @@
         margin-top: 0.5rem;
 
         > :nth-child(1) {
+            margin-right: 6px;
             font-weight: bold;
             color: var(--primary-alt);
-            margin-right: 6px;
         }
 
         > :nth-child(2) {
-            color: var(--muted);
-            margin-right: 16px;
             flex-grow: 1;
+            margin-right: 16px;
             font-style: italic;
+            color: var(--muted);
         }
 
         > :nth-child(3) {

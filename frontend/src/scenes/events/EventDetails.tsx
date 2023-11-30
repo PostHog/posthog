@@ -1,9 +1,9 @@
 import './EventDetails.scss'
 
-import ReactJson from '@microlink/react-json-view'
 import { Properties } from '@posthog/plugin-scaffold'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,18 +12,15 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { useState } from 'react'
-import { EventJSON } from 'scenes/events/EventJSON'
 
 import { EventType, PropertyDefinitionType } from '~/types'
 
 interface EventDetailsProps {
     event: EventType
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
-    /** Used under data exploration tables */
-    useReactJsonView?: boolean
 }
 
-export function EventDetails({ event, tableProps, useReactJsonView }: EventDetailsProps): JSX.Element {
+export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
     const [showSystemProps, setShowSystemProps] = useState(false)
     const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
 
@@ -73,12 +70,8 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             key: 'json',
             label: 'JSON',
             content: (
-                <div className={useReactJsonView ? 'px-4 py-4' : 'px-2'}>
-                    {useReactJsonView ? (
-                        <ReactJson src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
-                    ) : (
-                        <EventJSON event={event} />
-                    )}
+                <div className="px-4 py-4">
+                    <JSONViewer src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },

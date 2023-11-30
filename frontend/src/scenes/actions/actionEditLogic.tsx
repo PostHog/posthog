@@ -17,6 +17,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
+import { actionLogic } from './actionLogic'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -29,8 +30,6 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id?: number
     action: ActionEditType
-    temporaryToken?: string
-    onSave: (action: ActionType) => void
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
@@ -91,13 +90,13 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
                 saveAction: async (updatedAction: ActionEditType, breakpoint) => {
-                    let action = { ...updatedAction }
+                    let action: ActionType
 
                     try {
-                        if (action.id) {
-                            action = await api.actions.update(action.id, action, props.temporaryToken)
+                        if (updatedAction.id) {
+                            action = await api.actions.update(updatedAction.id, updatedAction)
                         } else {
-                            action = await api.actions.create(action, props.temporaryToken)
+                            action = await api.actions.create(updatedAction)
                         }
                         breakpoint()
                     } catch (response: any) {
@@ -113,15 +112,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
                                 </>
                             )
 
-                            return action
+                            return { ...updatedAction }
                         }
                         throw response
                     }
 
                     lemonToast.success(`Action saved`)
-                    props.onSave(action as ActionType)
+                    if (!props.id) {
+                        router.actions.push(urls.action(action.id))
+                    }
+                    actionLogic.actions.loadActionSuccess(action)
                     // reload actions so they are immediately available throughout the app
-                    actions.loadEventDefinitions(null)
+                    actions.loadEventDefinitions()
                     actions.loadActions()
                     actions.loadActionCount()
                     actions.loadTags() // reload tags in case new tags are being saved

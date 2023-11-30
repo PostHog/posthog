@@ -33,7 +33,17 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/@current/dashboard_templates/repository/': [],
+        '/api/projects/:team_id/dashboard_templates/repository/': [],
+        '/api/projects/:team_id/notebooks': () => {
+            // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
+            return [
+                200,
+                {
+                    count: 0,
+                    results: [],
+                },
+            ]
+        },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
@@ -44,9 +54,11 @@ export const defaultMocks: Mocks = {
         } as SharingConfigurationType,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/explicit_members/': [],
+        '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },

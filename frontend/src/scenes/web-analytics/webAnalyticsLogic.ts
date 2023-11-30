@@ -91,6 +91,11 @@ export interface WebAnalyticsStatusCheck {
     shouldWarnAboutNoPageleaves: boolean
 }
 
+export const GEOIP_PLUGIN_URLS = [
+    'https://github.com/PostHog/posthog-plugin-geoip',
+    'https://www.npmjs.com/package/@posthog/geoip-plugin',
+]
+
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -729,9 +734,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const geoIpPlugin =
                     pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find(
-                        (plugin) => plugin.url === 'https://www.npmjs.com/package/@posthog/geoip-plugin'
-                    )
+                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
                 const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
 
                 const geoIpPluginConfig =
