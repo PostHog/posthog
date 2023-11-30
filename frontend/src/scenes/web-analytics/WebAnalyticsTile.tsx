@@ -1,13 +1,14 @@
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
-import { UnexpectedNeverError } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
-import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { GraphPointPayload, PropertyFilterType } from '~/types'
-import { ChartDisplayType } from '~/types'
+import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import { ChartDisplayType, GraphPointPayload, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -172,10 +173,22 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
     },
 }
 
-export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
-    const { togglePropertyFilter, setGeographyTab, setDeviceTab } = useActions(webAnalyticsLogic)
-    const { hasCountryFilter, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter } =
-        useValues(webAnalyticsLogic)
+export const WebStatsTrendTile = ({
+    query,
+    showIntervalTile,
+}: {
+    query: InsightVizNode
+    showIntervalTile?: boolean
+}): JSX.Element => {
+    const { togglePropertyFilter, setGeographyTab, setDeviceTab, setInterval } = useActions(webAnalyticsLogic)
+    const {
+        hasCountryFilter,
+        deviceTab,
+        hasDeviceTypeFilter,
+        hasBrowserFilter,
+        hasOSFilter,
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
     const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
     const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
 
@@ -238,7 +251,34 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
         }
     }, [onWorldMapClick])
 
-    return <Query query={query} readOnly={true} context={context} />
+    return (
+        <div
+            className={'border'}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                borderRadius: 'var(--radius)',
+            }}
+        >
+            {showIntervalTile && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center">
+                        <span className="mr-2">Group by</span>
+                        <IntervalFilterStandalone
+                            interval={interval}
+                            onIntervalChange={setInterval}
+                            options={[
+                                { value: 'hour', label: 'Hour' },
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                    </div>
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 export const WebStatsTableTile = ({

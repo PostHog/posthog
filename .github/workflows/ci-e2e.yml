@@ -43,7 +43,7 @@ jobs:
                         - pnpm-lock.yaml
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-e2e.yml
-                        - .github/actions/build-n-cache-inage/action.yml
+                        - .github/actions/build-n-cache-image/action.yml
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
@@ -171,12 +171,8 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
               with:
-                  # Use the production.Dockerfile image:
-                  # build-id: ${{ needs.container.outputs.build-id }}
-                  # Use the production-unit.Dockerfile image:
                   build-id: ${{ needs.container.outputs.unit-build-id }}
-                  tags: |
-                      ${{ needs.container.outputs.tag }}
+                  tags: ${{ needs.container.outputs.tag }}
 
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               run: |
@@ -200,6 +196,7 @@ jobs:
                   OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  CELERY_METRICS_PORT=8999
                   EOT
 
             - name: Start PostHog
@@ -278,6 +275,6 @@ jobs:
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v3
               with:
-                  name: logs
+                  name: logs-${{ strategy.job-index }}
                   path: /tmp/logs
               if: ${{ failure() }}

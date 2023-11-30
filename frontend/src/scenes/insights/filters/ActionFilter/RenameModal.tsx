@@ -1,9 +1,10 @@
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { InsightType } from '~/types'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+
+import { InsightType } from '~/types'
 
 interface RenameModalProps {
     typeKey: string

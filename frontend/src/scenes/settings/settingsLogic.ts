@@ -1,13 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { SettingsMap } from './SettingsMap'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SettingSection, Setting, SettingSectionId, SettingLevelId, SettingId, SettingsLogicProps } from './types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import type { settingsLogicType } from './settingsLogicType'
-import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { SettingsMap } from './SettingsMap'
+import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),

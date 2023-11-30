@@ -1,13 +1,15 @@
-import { useEffect, useRef } from 'react'
-import { getColorVar } from 'lib/colors'
-import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
-import { DescriptionColumns } from './constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-
 import './AppMetricsGraph.scss'
+
+import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
+import { getColorVar } from 'lib/colors'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
-import { AppMetrics } from './appMetricsSceneLogic'
+import { useEffect, useRef } from 'react'
+
 import { AppMetricsTab } from '~/types'
+
+import { AppMetrics } from './appMetricsSceneLogic'
+import { DescriptionColumns } from './constants'
 
 export interface AppMetricsGraphProps {
     tab: AppMetricsTab

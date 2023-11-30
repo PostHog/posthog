@@ -1,19 +1,25 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import useIsHovering from 'lib/hooks/useIsHovering'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { PlayerFrame } from '../PlayerFrame'
-import { BindLogic, useActions, useValues } from 'kea'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
 } from '../sessionRecordingPlayerLogic'
-import { useDebouncedCallback } from 'use-debounce'
-import useIsHovering from 'lib/hooks/useIsHovering'
+
+const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
 
 export type PlayerSeekbarPreviewProps = {
     minMs: number
     maxMs: number
     seekBarRef: MutableRefObject<HTMLDivElement | null>
+    activeMs: number | null
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -21,7 +27,10 @@ const PlayerSeekbarPreviewFrame = ({
     minMs,
     maxMs,
     isVisible,
-}: { percentage: number; isVisible: boolean } & Omit<PlayerSeekbarPreviewProps, 'seekBarRef'>): JSX.Element => {
+}: { percentage: number; isVisible: boolean } & Omit<
+    PlayerSeekbarPreviewProps,
+    'seekBarRef' | 'activeMs'
+>): JSX.Element => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const seekPlayerLogicProps: SessionRecordingPlayerLogicProps = {
@@ -59,13 +68,17 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbarPreviewProps): JSX.Element {
+export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
     const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
 
     const isHovering = useIsHovering(seekBarRef)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const alwaysShowSeekbarPreview = !!featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
+    const canShowPreview = alwaysShowSeekbarPreview || (typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS)
 
     useEffect(() => {
         if (!seekBarRef?.current) {
@@ -102,12 +115,14 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbar
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <PlayerSeekbarPreviewFrame
-                        minMs={minMs}
-                        maxMs={maxMs}
-                        percentage={percentage}
-                        isVisible={isHovering}
-                    />
+                    {canShowPreview && (
+                        <PlayerSeekbarPreviewFrame
+                            minMs={minMs}
+                            maxMs={maxMs}
+                            percentage={percentage}
+                            isVisible={isHovering}
+                        />
+                    )}
                     <div className="text-center p-2">{content}</div>
                 </div>
             </div>

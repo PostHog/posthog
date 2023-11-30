@@ -1,19 +1,23 @@
 .LemonInput {
-    align-items: center;
-    background: none;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    color: var(--default);
-    cursor: text;
     display: flex;
-    font-size: 0.875rem;
     gap: 0.25rem;
+    align-items: center;
     justify-content: center;
-    line-height: 1.25rem;
-    min-height: 2.5rem;
+    height: 2.5rem;
     padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--default);
     text-align: left;
+    cursor: text;
+    background: none;
     background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    .posthog-3000 & {
+        height: calc(2.125rem + 3px); // Medium size button height + button shadow height
+    }
 
     &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-3000-hover);
@@ -27,7 +31,7 @@
         border-color: var(--primary-3000);
 
         .posthog-3000 & {
-            border-color: var(--border-bold);
+            border-color: var(--border-active);
         }
     }
 
@@ -41,30 +45,30 @@
     }
 
     .LemonInput__input {
+        align-self: stretch; // Improves selectability
+        width: 100%;
+        text-overflow: ellipsis;
+        background: none;
         border: none;
         outline: none;
-        background: none;
-        width: 100%;
-        align-self: stretch; // Improves selectability
-        text-overflow: ellipsis;
 
         &:disabled {
-            opacity: var(--opacity-disabled);
             cursor: not-allowed;
+            opacity: var(--opacity-disabled);
         }
     }
 
     .LemonIcon {
+        flex-shrink: 0;
         width: 1em;
         height: 1em;
-        transition: color 200ms ease;
-        font-size: 1.5rem;
+        font-size: 1.25rem;
         color: var(--muted-alt);
-        flex-shrink: 0;
+        transition: color 200ms ease;
     }
 
     &.LemonInput--small {
-        min-height: 2rem;
+        height: 2rem;
         padding: 0.125rem 0.25rem;
 
         .LemonIcon {

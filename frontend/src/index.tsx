@@ -1,16 +1,14 @@
 import '~/styles'
 
-import { createRoot } from 'react-dom/client'
 import { getContext } from 'kea'
-
-import { App } from 'scenes/App'
-import { initKea } from './initKea'
-
-import { loadPostHogJS } from './loadPostHogJS'
-import { ErrorBoundary } from './layout/ErrorBoundary'
-
-import { PostHogProvider } from 'posthog-js/react'
 import posthog from 'posthog-js'
+import { PostHogProvider } from 'posthog-js/react'
+import { createRoot } from 'react-dom/client'
+import { App } from 'scenes/App'
+
+import { initKea } from './initKea'
+import { ErrorBoundary } from './layout/ErrorBoundary'
+import { loadPostHogJS } from './loadPostHogJS'
 
 loadPostHogJS()
 initKea()

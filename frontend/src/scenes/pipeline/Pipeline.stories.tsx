@@ -1,11 +1,14 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { PipelineAppTabs, PipelineTabs } from '~/types'
-import { pipelineLogic } from './pipelineLogic'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { PipelineAppTabs, PipelineTabs } from '~/types'
+
+import { appsManagementLogic } from './appsManagementLogic'
+import { pipelineLogic } from './pipelineLogic'
 
 export default {
     title: 'Scenes-App/Pipeline',
@@ -14,6 +17,7 @@ export default {
         mswDecorator({
             get: {
                 'api/organizations/@current/pipeline_transformations/': {},
+                'api/organizations/@current/plugins/': {},
                 'api/projects/:team_id/pipeline_transformations_configs/': {},
             },
         }),
@@ -81,6 +85,20 @@ export function PipelineAppLogs(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Logs))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppsManagementPage(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/organizations/@current/plugins/': require('./__mocks__/plugins.json'),
+        },
+    })
+
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTabs.AppsManagement))
+        appsManagementLogic.mount()
     }, [])
     return <App />
 }

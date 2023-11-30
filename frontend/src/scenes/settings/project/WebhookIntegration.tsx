@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { webhookIntegrationLogic } from './webhookIntegrationLogic'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect, useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { webhookIntegrationLogic } from './webhookIntegrationLogic'
 
 export function WebhookIntegration(): JSX.Element {
     const [webhook, setWebhook] = useState('')
@@ -27,7 +28,9 @@ export function WebhookIntegration(): JSX.Element {
             <div>
                 <p>
                     Webhooks are currently not available for your organization.{' '}
-                    <Link onClick={() => openSupportForm('support', 'apps')}>Contact support</Link>
+                    <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'apps' })}>
+                        Contact support
+                    </Link>
                 </p>
             </div>
         )

@@ -1,26 +1,22 @@
+import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
-import {
-    PluginInstallationType,
-    PluginRepositoryEntry,
-    PluginTab,
-    PluginTypeWithConfig,
-    PluginUpdateStatusType,
-} from './types'
-import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
-import posthog from 'posthog-js'
-import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { canGloballyManagePlugins, canInstallPlugins } from './access'
-import { teamLogic } from '../teamLogic'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import posthog from 'posthog-js'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { canGloballyManagePlugins, canInstallPlugins } from './access'
+import type { pluginsLogicType } from './pluginsLogicType'
+import { PluginRepositoryEntry, PluginTab, PluginTypeWithConfig, PluginUpdateStatusType } from './types'
 
 export type PluginForm = FormInstance
 
@@ -40,7 +36,7 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
 
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
-    connect(frontendAppsLogic),
+    connect(() => frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),

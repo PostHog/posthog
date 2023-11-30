@@ -1,30 +1,33 @@
 import './TaxonomicPropertyFilter.scss'
-import { useMemo } from 'react'
+
+import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
+import {
+    isGroupPropertyFilter,
+    isPropertyFilterWithOperator,
+    propertyFilterTypeToTaxonomicFilterType,
+} from 'lib/components/PropertyFilters/utils'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
-    propertyFilterTypeToTaxonomicFilterType,
-} from 'lib/components/PropertyFilters/utils'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
-import clsx from 'clsx'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { useMemo } from 'react'
+
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
+
 import { OperandTag } from './OperandTag'
+import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -181,7 +184,8 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitionsByType(
-                                    filter?.type || PropertyDefinitionType.Event
+                                    filter?.type || PropertyDefinitionType.Event,
+                                    isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
                                 )}
                                 type={filter?.type}
                                 propkey={filter?.key}

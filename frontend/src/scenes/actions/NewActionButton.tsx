@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { LemonModal } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from '@posthog/lemon-ui'
+import { useState } from 'react'
+import { urls } from 'scenes/urls'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)

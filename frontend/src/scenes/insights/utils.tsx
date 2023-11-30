@@ -1,3 +1,18 @@
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/logics'
+import { ReactNode } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import { examples } from '~/queries/examples'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -15,21 +30,8 @@ import {
     PathType,
     TrendsFilterType,
 } from '~/types'
-import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { getCurrentTeamId } from 'lib/utils/logics'
-import { dashboardsModel } from '~/models/dashboardsModel'
+
 import { insightLogic } from './insightLogic'
-import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { ReactNode } from 'react'
-import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
-import { urls } from 'scenes/urls'
-import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (

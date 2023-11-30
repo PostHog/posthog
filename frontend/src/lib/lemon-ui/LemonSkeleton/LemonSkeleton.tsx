@@ -1,7 +1,8 @@
-import clsx from 'clsx'
-import { range } from 'lib/utils'
-import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import './LemonSkeleton.scss'
+
+import clsx from 'clsx'
+import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { range } from 'lib/utils'
 
 export interface LemonSkeletonProps {
     className?: string

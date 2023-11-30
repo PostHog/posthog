@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'

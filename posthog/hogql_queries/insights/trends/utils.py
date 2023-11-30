@@ -17,7 +17,7 @@ def get_properties_chain(
         return ["person", "properties", breakdown_field]
 
     if breakdown_type == "session":
-        return ["session", "session_duration"]
+        return ["session", "duration"]
 
     if breakdown_type == "group" and group_type_index is not None:
         group_type_index_int = int(group_type_index)

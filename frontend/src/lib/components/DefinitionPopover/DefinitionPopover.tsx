@@ -1,17 +1,19 @@
 import './DefinitionPopover.scss'
-import clsx from 'clsx'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping } from 'lib/taxonomy'
-import { KeyMapping, UserBasicType } from '~/types'
-import { Owner } from 'scenes/events/Owner'
-import { dayjs } from 'lib/dayjs'
+
 import { Divider, DividerProps } from 'antd'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getKeyMapping } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Owner } from 'scenes/events/Owner'
+
+import { KeyMapping, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode

@@ -1,14 +1,14 @@
-import { forwardRef, useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-
-import { commandBarLogic } from './commandBarLogic'
-import { BarStatus } from './types'
-
 import './index.scss'
-import { SearchBar } from './SearchBar'
+
+import { useActions, useValues } from 'kea'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { forwardRef, useRef } from 'react'
+
 import { ActionBar } from './ActionBar'
+import { commandBarLogic } from './commandBarLogic'
+import { SearchBar } from './SearchBar'
+import { Shortcuts } from './Shortcuts'
+import { BarStatus } from './types'
 
 interface CommandBarOverlayProps {
     barStatus: BarStatus
@@ -25,7 +25,6 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: 'var(--z-command-palette)',
-                // background: 'color-mix(in srgb, var(--bg-light) 75%, transparent)',
                 backgroundColor: 'var(--modal-backdrop-color)',
                 backdropFilter: 'blur(var(--modal-backdrop-blur))',
             }}
@@ -55,8 +54,10 @@ export function CommandBar(): JSX.Element | null {
     }
 
     return (
-        <CommandBarOverlay barStatus={barStatus}>
-            {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
+        <CommandBarOverlay barStatus={barStatus} ref={containerRef}>
+            {barStatus === BarStatus.SHOW_SEARCH && <SearchBar />}
+            {barStatus === BarStatus.SHOW_ACTIONS && <ActionBar />}
+            {barStatus === BarStatus.SHOW_SHORTCUTS && <Shortcuts />}
         </CommandBarOverlay>
     )
 }

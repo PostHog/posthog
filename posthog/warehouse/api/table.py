@@ -1,19 +1,19 @@
-from rest_framework import request, response, status
-from posthog.permissions import OrganizationMemberPermissions
+from typing import Any, List
+
+from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
+
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.database.database import SerializedField, serialize_fields
+from posthog.models import User
+from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import (
-    DataWarehouseTable,
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
+    DataWarehouseTable,
 )
-from posthog.hogql.database.database import serialize_fields, SerializedField
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.routing import StructuredViewSetMixin
-
-from posthog.models import User
-from typing import Any, List
 
 
 class CredentialSerializer(serializers.ModelSerializer):

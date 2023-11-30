@@ -1,6 +1,4 @@
-from posthog.test.base import (
-    APIBaseTest,
-)
+from posthog.test.base import APIBaseTest
 
 
 class TestSavedQuery(APIBaseTest):

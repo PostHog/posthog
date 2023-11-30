@@ -1,13 +1,14 @@
-import { sceneLogic } from './sceneLogic'
-import { initKeaTests } from '~/test/init'
+import { kea, path } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { kea, path } from 'kea'
 
+import { initKeaTests } from '~/test/init'
+
+import { sceneLogic } from './sceneLogic'
 import type { logicType } from './sceneLogic.testType'
 
 export const Component = (): JSX.Element => <div />
@@ -53,7 +54,7 @@ describe('sceneLogic', () => {
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
-            name: Scene.DataManagement,
+            id: Scene.DataManagement,
             component: expect.any(Function),
             logic: expect.any(Function),
             sceneParams: { hashParams: {}, params: {}, searchParams: {} },
@@ -61,7 +62,7 @@ describe('sceneLogic', () => {
         })
 
         const expectedSettings = partial({
-            name: Scene.Settings,
+            id: Scene.Settings,
             component: expect.any(Function),
             sceneParams: {
                 hashParams: {},

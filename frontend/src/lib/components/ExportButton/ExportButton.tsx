@@ -1,6 +1,8 @@
-import { ExporterFormat, OnlineExportContext } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
+import { ExporterFormat, OnlineExportContext } from '~/types'
+
 import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {

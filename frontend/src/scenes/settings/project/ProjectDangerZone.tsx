@@ -1,11 +1,12 @@
-import { Dispatch, SetStateAction, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/lemon-ui/icons'
-import { TeamType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { Dispatch, SetStateAction, useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { TeamType } from '~/types'
 
 export function DeleteProjectModal({
     isOpen,

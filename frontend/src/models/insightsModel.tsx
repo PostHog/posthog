@@ -1,10 +1,12 @@
-import { kea, path, connect, actions, listeners } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
 import api from 'lib/api'
-import { promptLogic } from 'lib/logic/promptLogic'
-import { InsightModel } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { promptLogic } from 'lib/logic/promptLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { InsightModel } from '~/types'
+
+import type { insightsModelType } from './insightsModelType'
 
 export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),

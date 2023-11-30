@@ -1,10 +1,11 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, listeners, selectors, connect, afterMount, actions } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+
 import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'

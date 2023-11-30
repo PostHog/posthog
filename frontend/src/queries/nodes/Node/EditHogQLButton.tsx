@@ -1,7 +1,8 @@
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { NodeKind } from '~/queries/schema'
-import { urls } from 'scenes/urls'
 import { IconQueryEditor } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { urls } from 'scenes/urls'
+
+import { NodeKind } from '~/queries/schema'
 
 export interface EditHogQLButtonProps extends LemonButtonProps {
     hogql: string

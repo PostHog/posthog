@@ -1,18 +1,20 @@
-import { useValues, BindLogic, useActions } from 'kea'
-import { PropertyGroupFilterValue, AnyPropertyFilter, InsightLogicProps } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import './PropertyGroupFilters.scss'
-import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
+
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { TestAccountFilter } from '../filters/TestAccountFilter'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import React from 'react'
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+
+import { TestAccountFilter } from '../filters/TestAccountFilter'
+import { AndOrFilterSelect } from './AndOrFilterSelect'
+import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
@@ -21,7 +23,6 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    noTitle?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -31,7 +32,6 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    noTitle,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -44,7 +44,7 @@ export function PropertyGroupFilters({
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
-    const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
+    const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
 
     return (
         <div className="space-y-2 PropertyGroupFilters">
@@ -54,7 +54,6 @@ export function PropertyGroupFilters({
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
-                                {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
                                     <AndOrFilterSelect
                                         value={propertyGroupFilter.type}

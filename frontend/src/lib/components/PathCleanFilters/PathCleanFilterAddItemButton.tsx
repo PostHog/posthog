@@ -1,9 +1,9 @@
+import { IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconPlus } from 'lib/lemon-ui/icons'
 
 import { PathRegexPopover } from './PathRegexPopover'
 

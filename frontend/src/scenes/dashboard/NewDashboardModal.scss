@@ -1,9 +1,9 @@
 .NewDashboardModal {
     .DashboardTemplateChooser {
-        max-width: 780px;
+        display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 0.5em 0.5em;
-        display: grid;
+        max-width: 780px;
     }
 
     .TemplateItem {

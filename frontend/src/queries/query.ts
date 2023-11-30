@@ -1,22 +1,11 @@
-import posthog from 'posthog-js'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
-import {
-    isInsightQueryNode,
-    isEventsQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    isTimeToSeeDataQuery,
-    isDataTableNode,
-    isTimeToSeeDataSessionsNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isQueryWithHogQLSupport,
-    isPersonsQuery,
-    isLifecycleQuery,
-} from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
+import { currentSessionId } from 'lib/internalMetrics'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay, flattenObject, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -26,14 +15,27 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { flattenObject, delay, toParams } from 'lib/utils'
-import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 10
+import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+
+import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import {
+    isDataTableNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPersonsNode,
+    isPersonsQuery,
+    isTimeToSeeDataQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
+    isTrendsQuery,
+} from './utils'
+
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
@@ -101,7 +103,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 
@@ -113,14 +115,8 @@ async function executeQuery<N extends DataNode = DataNode>(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await delay(currentDelay)
+        await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-
-        if (methodOptions?.signal?.aborted) {
-            const customAbortError = new Error('Query aborted')
-            customAbortError.name = 'AbortError'
-            throw customAbortError
-        }
 
         const statusResponse = await api.queryStatus.get(response.id)
 
@@ -146,8 +142,11 @@ export async function query<N extends DataNode = DataNode>(
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
-    const hogQLInsightsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    const hogQLInsightsLifecycleFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
+    )
+    const hogQLInsightsTrendsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
@@ -189,7 +188,10 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else if (isInsightQueryNode(queryNode)) {
-            if (hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode)) {
+            if (
+                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+            ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse
                     ;[response, legacyResponse] = await Promise.all([
@@ -197,14 +199,17 @@ export async function query<N extends DataNode = DataNode>(
                         fetchLegacyInsights(),
                     ])
 
-                    const res1 = response?.result || response?.results
-                    const res2 = legacyResponse?.result || legacyResponse?.results
+                    let res1 = response?.result || response?.results
+                    let res2 = legacyResponse?.result || legacyResponse?.results
 
                     if (isLifecycleQuery(queryNode)) {
                         // Results don't come back in a predetermined order for the legacy lifecycle insight
                         const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
                         res1.sort((a: any, b: any) => order[a.status] - order[b.status])
                         res2.sort((a: any, b: any) => order[a.status] - order[b.status])
+                    } else if (isTrendsQuery(queryNode)) {
+                        res1 = res1?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                        res2 = res2?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
                     }
 
                     const results = flattenObject(res1)

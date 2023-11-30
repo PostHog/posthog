@@ -1,6 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-
-import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import { loaders } from 'kea-loaders'
+import { windowValues } from 'kea-window-values'
+import api from 'lib/api'
+import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 
 import {
     NodeKind,
@@ -15,17 +19,14 @@ import {
     EventDefinition,
     EventDefinitionType,
     InsightType,
+    IntervalType,
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
     RetentionPeriod,
 } from '~/types'
-import { isNotNil } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
-import { windowValues } from 'kea-window-values'
+
+import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -50,6 +51,7 @@ export interface TabsTile extends BaseTile {
         title: string
         linkText: string
         query: QuerySchema
+        showIntervalSelect?: boolean
     }[]
 }
 
@@ -90,7 +92,15 @@ export interface WebAnalyticsStatusCheck {
     shouldWarnAboutNoPageleaves: boolean
 }
 
+export const GEOIP_PLUGIN_URLS = [
+    'https://github.com/PostHog/posthog-plugin-geoip',
+    'https://www.npmjs.com/package/@posthog/geoip-plugin',
+]
+
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
+const initialDateFrom = '-7d' as string | null
+const initialDateTo = null as string | null
+const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
@@ -120,6 +130,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setInterval: (interval: IntervalType) => ({ interval }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -201,16 +212,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setGeographyTab: (_, { tab }) => tab,
             },
         ],
-        dateFrom: [
-            '-7d' as string | null,
+        dateFilter: [
             {
-                setDates: (_, { dateFrom }) => dateFrom,
+                dateFrom: initialDateFrom,
+                dateTo: initialDateTo,
+                interval: initialInterval,
             },
-        ],
-        dateTo: [
-            null as string | null,
             {
-                setDates: (_, { dateTo }) => dateTo,
+                setDates: (_, { dateTo, dateFrom }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval: getDefaultInterval(dateFrom, dateTo),
+                }),
+                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval,
+                    }
+                },
             },
         ],
     }),
@@ -223,8 +244,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.deviceTab,
                 s.sourceTab,
                 s.geographyTab,
-                s.dateFrom,
-                s.dateTo,
+                s.dateFilter,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
@@ -235,8 +255,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTab,
                 sourceTab,
                 geographyTab,
-                dateFrom,
-                dateTo,
+                { dateFrom, dateTo, interval },
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -271,7 +290,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -288,7 +307,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
@@ -299,7 +320,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -316,7 +337,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.NUM_SESSION,
@@ -327,7 +350,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval: 'day',
+                                        interval,
                                         series: [
                                             {
                                                 event: '$pageview',
@@ -345,7 +368,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     suppressSessionAnalysisWarning: true,
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                         ],
                     },
@@ -718,15 +743,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const geoIpPlugin =
                     pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find(
-                        (plugin) => plugin.url === 'https://www.npmjs.com/package/@posthog/geoip-plugin'
-                    )
+                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
                 const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
 
                 const geoIpPluginConfig =
                     isNotNil(geoIpPluginId) &&
                     pluginsConfigResponse.status === 'fulfilled' &&
-                    pluginsConfigResponse.value.find((plugin) => plugin.id === geoIpPluginId)
+                    pluginsConfigResponse.value.find((plugin) => plugin.plugin === geoIpPluginId)
 
                 return !!geoIpPluginConfig && geoIpPluginConfig.enabled
             },
