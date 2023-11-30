@@ -13,7 +13,6 @@ from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
 from posthog.warehouse.data_load.pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
-    SourceSchema,
     move_draft_to_production,
 )
 from posthog.warehouse.data_load.sync_table import (
@@ -64,7 +63,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 @dataclasses.dataclass
 class ValidateSchemaInputs:
-    source_schemas: list[SourceSchema]
     external_data_source_id: str
     create: bool
 
@@ -72,7 +70,6 @@ class ValidateSchemaInputs:
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
     return await sync_to_async(is_schema_valid)(  # type: ignore
-        source_schemas=inputs.source_schemas,
         external_data_source_id=inputs.external_data_source_id,
         create=inputs.create,
     )
@@ -99,21 +96,25 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> list[SourceSchema]:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     model: ExternalDataSource = await sync_to_async(get_external_data_source)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
     )
 
     job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
-        team_id=inputs.team_id, job_type=model.source_type, dataset_name=model.draft_folder_path, **model.job_inputs
+        source_id=inputs.external_data_source_id,
+        team_id=inputs.team_id,
+        job_type=model.source_type,
+        dataset_name=model.draft_folder_path,
+        **model.job_inputs,
     )
     job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
 
     heartbeat_details = AsyncHeartbeatDetails()
     func = heartbeat_details.make_activity_heartbeat_while_running(job_fn, dt.timedelta(seconds=10))
 
-    return await func(job_inputs)
+    await func(job_inputs)
 
 
 # TODO: update retry policies
@@ -150,7 +151,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         try:
             # TODO: can make this a child workflow for separate worker pool
-            source_schemas = await workflow.execute_activity(
+            await workflow.execute_activity(
                 run_external_data_job,
                 inputs,
                 start_to_close_timeout=dt.timedelta(minutes=60),
@@ -159,9 +160,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(
-                source_schemas=source_schemas, external_data_source_id=inputs.external_data_source_id, create=False
-            )
+            validate_inputs = ValidateSchemaInputs(external_data_source_id=inputs.external_data_source_id, create=False)
 
             await workflow.execute_activity(
                 validate_schema_activity,

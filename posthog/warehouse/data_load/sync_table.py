@@ -1,4 +1,3 @@
-from typing import List
 
 import structlog
 from django.conf import settings
@@ -6,7 +5,6 @@ from django.db.models import Q
 
 from posthog.warehouse.data_load.pipeline import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-    SourceSchema,
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -20,7 +18,7 @@ class SchemaValidationError(Exception):
 
 
 # TODO: make async
-def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id: str, create: bool = False) -> bool:
+def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
     resource = ExternalDataSource.objects.get(pk=external_data_source_id)
     credential, _ = DataWarehouseCredential.objects.get_or_create(
         team_id=resource.team_id,
@@ -28,7 +26,6 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    # TODO: currently not using source_schemas
     source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[resource.source_type]
 
     for schema_name in source_schemas:
