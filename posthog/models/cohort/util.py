@@ -61,6 +61,8 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         cohort_pk=cohort.pk,
     )
 
+    # TODO: add query support
+
     query, params = query_builder.get_query()
 
     return query, params

@@ -79,11 +79,13 @@ from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
+from posthog.schema import PersonsQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     update_cohort,
+    insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
@@ -111,6 +113,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "groups",
             "deleted",
             "filters",
+            "query",
             "is_calculating",
             "created_by",
             "created_at",
@@ -135,6 +138,8 @@ class CohortSerializer(serializers.ModelSerializer):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
+        elif context.get("query"):
+            insert_cohort_from_query(cohort.pk, context["query"], self.context["team_id"])
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -149,6 +154,9 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
+        if validated_data.get("query") and validated_data.get("filters"):
+            raise ValidationError("Cannot set both query and filters")
+
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
@@ -164,6 +172,14 @@ class CohortSerializer(serializers.ModelSerializer):
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
+
+    def validate_query(self, query: Dict) -> Dict:
+        if not isinstance(query, dict):
+            raise ValidationError("Query must be a dictionary.")
+        if query.get("kind") != "PersonsQuery":
+            raise ValidationError(f"Query must be a PersonsQuery. Got: {query.get('kind')}")
+        PersonsQuery.model_validate(query)
+        return query
 
     def validate_filters(self, request_filters: Dict):
         if isinstance(request_filters, dict) and "properties" in request_filters:

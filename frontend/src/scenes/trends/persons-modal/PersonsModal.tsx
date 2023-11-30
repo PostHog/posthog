@@ -77,7 +77,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
     } = useValues(logic)
-    const { setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
+    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -214,7 +214,7 @@ export function PersonsModal({
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
-                onSave={(title) => saveCohortWithUrl(title)}
+                onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />

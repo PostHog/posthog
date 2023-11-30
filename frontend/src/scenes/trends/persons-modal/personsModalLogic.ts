@@ -50,6 +50,7 @@ export function wrapInsightsPersonsQuery(
         kind: NodeKind.PersonsQuery,
         source: query,
         select: ['person', 'groupArray(3)(pdi.distinct_id)'],
+        orderBy: ['created_at DESC'],
         search,
         limit,
         offset,
@@ -61,7 +62,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     props({} as PersonModalLogicProps),
     actions({
         setSearchTerm: (search: string) => ({ search }),
-        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
+        saveAsCohort: (cohortName: string) => ({ cohortName }),
         resetActors: () => true,
         closeModal: () => true,
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -193,26 +194,43 @@ export const personsModalLogic = kea<personsModalLogicType>([
             await breakpoint(500)
             actions.loadActors({ query: props.query, url: props.url, clear: true })
         },
-        saveCohortWithUrl: async ({ cohortName }) => {
+        saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
                 is_static: true,
                 name: cohortName,
             }
+            if (props.query) {
+                const {
+                    limit: _,
+                    offset: __,
+                    ...personsQuery
+                } = wrapInsightsPersonsQuery(props.query, values.searchTerm)
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: personsQuery })
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
+                actions.setIsCohortModalOpen(false)
+            } else {
+                const qs = props.url?.split('?').pop() || ''
+                const cohort = await api.create('api/cohort?' + qs, cohortParams)
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
 
-            const qs = props.url?.split('?').pop() || ''
-            const cohort = await api.create('api/cohort?' + qs, cohortParams)
-            cohortsModel.actions.cohortCreated(cohort)
-            lemonToast.success('Cohort saved', {
-                toastId: `cohort-saved-${cohort.id}`,
-                button: {
-                    label: 'View cohort',
-                    action: () => router.actions.push(urls.cohort(cohort.id)),
-                },
-            })
-
-            const filters = fromParamsGivenUrl('?' + qs)
-            actions.setIsCohortModalOpen(false)
-            actions.reportCohortCreatedFromPersonsModal(filters)
+                const filters = fromParamsGivenUrl('?' + qs)
+                actions.setIsCohortModalOpen(false)
+                actions.reportCohortCreatedFromPersonsModal(filters)
+            }
         },
         loadNextActors: () => {
             if (values.actorsResponse?.next) {
