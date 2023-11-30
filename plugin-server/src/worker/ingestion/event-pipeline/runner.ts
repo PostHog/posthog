@@ -12,7 +12,6 @@ import { createEventStep } from './createEventStep'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
-    pipelineStepCompletionCounter,
     pipelineStepDLQCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
@@ -176,7 +175,6 @@ export class EventPipelineRunner {
                 )
                 try {
                     const result = await step(...args)
-                    pipelineStepCompletionCounter.labels(step.name).inc()
                     pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })

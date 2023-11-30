@@ -1,10 +1,5 @@
 import { Counter, Summary } from 'prom-client'
 
-export const pipelineStepCompletionCounter = new Counter({
-    name: 'events_pipeline_step_executed_total',
-    help: 'Number of events that have completed the step',
-    labelNames: ['step_name'],
-})
 export const pipelineLastStepCounter = new Counter({
     name: 'events_pipeline_last_step_total',
     help: 'Number of events that have entered the last step',

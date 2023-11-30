@@ -141,7 +141,7 @@ async function runSingleTeamPluginComposeWebhook(
             } else {
                 hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
                 pluginActionMsSummary
-                    .labels(pluginConfig.id.toString(), 'composeWebhook', 'success')
+                    .labels(pluginConfig.id.toString(), 'composeWebhook', 'error')
                     .observe(new Date().getTime() - timer.getTime())
                 const error = `Fetch to ${webhook.url} failed with ${request.statusText}`
                 await processError(hub, pluginConfig, error, event)
@@ -163,7 +163,6 @@ async function runSingleTeamPluginComposeWebhook(
             pluginActionMsSummary
                 .labels(pluginConfig.id.toString(), 'composeWebhook', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-
             await processError(hub, pluginConfig, error, event)
             await hub.appMetrics.queueError(
                 {
@@ -253,7 +252,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                 pluginActionMsSummary
                     .labels(pluginConfig.id.toString(), 'processEvent', 'error')
                     .observe(new Date().getTime() - timer.getTime())
-
                 hub.statsd?.increment(`plugin.process_event.ERROR`, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: String(event.team_id),
@@ -358,14 +356,12 @@ export async function runPluginTask(
         }
     } catch (error) {
         await processError(hub, pluginConfig || null, error)
-
         hub.statsd?.increment(`plugin.task.ERROR`, {
             taskType: taskType,
             taskName: taskName,
             pluginConfigId: pluginConfigId.toString(),
             teamId: teamId?.toString() ?? '?',
         })
-
         pluginActionMsSummary
             .labels(String(pluginConfig?.plugin?.id), 'task', 'error')
             .observe(new Date().getTime() - timer.getTime())

@@ -157,7 +157,6 @@ describe('EventPipelineRunner', () => {
         })
 
         it('emits metrics for every step', async () => {
-            const pipelineStepCompletionCounterSpy = jest.spyOn(metrics.pipelineStepCompletionCounter, 'labels')
             const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
             const eventProcessedAndIngestedCounterSpy = jest.spyOn(metrics.eventProcessedAndIngestedCounter, 'inc')
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
@@ -170,14 +169,13 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(5)
 
             expect(hub.statsd.increment).toHaveBeenCalledTimes(7)
-            expect(pipelineStepCompletionCounterSpy).toHaveBeenCalledTimes(5)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
             })
-            expect(pipelineStepCompletionCounterSpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
                 step: 'createEventStep',
@@ -225,7 +223,7 @@ describe('EventPipelineRunner', () => {
             const error = new Error('testError')
 
             it('runs and increments metrics', async () => {
-                const pipelineStepCompletionCounterSpy = jest.spyOn(metrics.pipelineStepCompletionCounter, 'labels')
+                const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
                 const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
                 const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
 
@@ -236,17 +234,17 @@ describe('EventPipelineRunner', () => {
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'populateTeamDataStep',
                 })
-                expect(pipelineStepCompletionCounterSpy).toHaveBeenCalledWith('populateTeamDataStep')
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('populateTeamDataStep')
 
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'pluginsProcessEventStep',
                 })
-                expect(pipelineStepCompletionCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
 
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'prepareEventStep',
                 })
-                expect(pipelineStepCompletionCounterSpy).not.toHaveBeenCalledWith('prepareEventStep')
+                expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
 
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
