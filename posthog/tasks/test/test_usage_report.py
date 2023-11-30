@@ -366,7 +366,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 54,
+                    "event_count_lifetime": 55,
                     "event_count_in_period": 22,
                     "event_count_in_month": 42,
                     "event_count_with_groups_in_period": 2,
@@ -408,7 +408,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 43,
+                            "event_count_lifetime": 44,
                             "event_count_in_period": 12,
                             "event_count_in_month": 32,
                             "event_count_with_groups_in_period": 2,
