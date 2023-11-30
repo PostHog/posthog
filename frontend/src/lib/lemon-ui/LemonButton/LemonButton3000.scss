@@ -113,12 +113,13 @@
             --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
         }
 
+        &.LemonButton--status-danger,
         &.LemonButton--primary.LemonButton--status-danger,
         &.LemonButton--secondary.LemonButton--status-danger {
-            --button-border-color: var(--danger-light);
-            --lemon-button-bg-color-active: transparent;
-            --lemon-button-border-color-hover: var(--danger-dark);
-            --lemon-button-frame-bg-color: var(--danger-lighter);
+            --lemon-button-color: var(--danger-3000-button-border-hover);
+            --button-border-color: var(--danger-3000-button-border);
+            --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
+            --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);
         }
 
         &.LemonButton--is-stealth {
@@ -220,10 +221,6 @@
                     }
                 }
             }
-        }
-
-        &.LemonButton--status-danger {
-            --lemon-button-color: var(--danger);
         }
 
         &.LemonButton--tertiary {
