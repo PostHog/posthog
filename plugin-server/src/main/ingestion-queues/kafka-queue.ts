@@ -11,7 +11,7 @@ import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
+import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -151,10 +151,6 @@ export class KafkaJSIngestionConsumer {
         } catch {}
 
         this.consumerReady = false
-    }
-
-    emitConsumerGroupMetrics(): Promise<void> {
-        return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
     private static buildConsumer(
