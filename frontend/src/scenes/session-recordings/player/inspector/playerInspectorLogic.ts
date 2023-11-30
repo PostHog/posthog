@@ -201,8 +201,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             }
                             seenCache.add(cacheKey)
 
-                            if (logs[logs.length - 1]?.content === content) {
-                                logs[logs.length - 1].count += 1
+                            const lastLogLine = logs[logs.length - 1]
+                            if (lastLogLine?.content === content) {
+                                if (lastLogLine.count === undefined) {
+                                    lastLogLine.count = 1
+                                } else {
+                                    lastLogLine.count += 1
+                                }
                                 return
                             }
 
