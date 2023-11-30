@@ -448,7 +448,7 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        if (this.personOverrideWriter !== undefined) {
+        if (this.personOverrideWriter) {
             // Optimize merging persons to keep using the person id that has longer history,
             // which means we'll have less events to update during the squash later
             if (otherPerson.created_at < mergeInto.created_at) {
@@ -483,7 +483,7 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(this.personOverrideWriter !== undefined),
+                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -515,7 +515,7 @@ export class PersonState {
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
                 let personOverrideMessages: ProducerRecord[] = []
-                if (this.personOverrideWriter !== undefined) {
+                if (this.personOverrideWriter) {
                     personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
                         tx,
                         getMergeOperation(this.teamId, otherPerson, mergeInto)
@@ -539,7 +539,7 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(this.personOverrideWriter !== undefined),
+                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
         return result

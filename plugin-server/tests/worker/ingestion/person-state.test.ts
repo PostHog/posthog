@@ -1586,7 +1586,7 @@ describe('PersonState.update()', () => {
                 expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['first', 'second']))
 
                 // verify Postgres person_id overrides, if applicable
-                if (overridesMode !== undefined) {
+                if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([[second.uuid, first.uuid]])
                     // & CH person overrides
@@ -2013,7 +2013,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second', 'third']))
 
                 // verify Postgres person_id overrides, if applicable
-                if (overridesMode !== undefined) {
+                if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([
                         [second.uuid, first.uuid],
@@ -2100,7 +2100,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second', 'third']))
 
                 // verify Postgres person_id overrides, if applicable
-                if (overridesMode !== undefined) {
+                if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
                     expect(overrides).toEqual([
                         [second.uuid, first.uuid],
