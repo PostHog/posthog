@@ -1,0 +1,10 @@
+.DataVisualization {
+    --viz-min-height: calc(80vh - 6rem);
+
+    .Chart__Container {
+        display: flex;
+        flex: 1;
+        flex-direction: row;
+        gap: 1rem;
+    }
+}

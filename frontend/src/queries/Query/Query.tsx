@@ -85,6 +85,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                 setQuery={setQuery}
                 cachedResults={props.cachedResults}
                 uniqueKey={props.uniqueKey}
+                context={queryContext}
             />
         )
     } else if (isDataNode(query)) {

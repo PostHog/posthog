@@ -1,13 +1,14 @@
 import './ChartSelection.scss'
 
 import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const ChartSelection = (): JSX.Element => {
     const logic = useMountedLogic(dataVisualizationLogic)
-    const { columns } = useValues(logic)
+    const { columns, responseLoading, selectedXIndex, selectedYIndex } = useValues(logic)
+    const { setXAxis, setYAxis } = useActions(logic)
 
     const options = columns.map(({ name, type }) => ({
         value: name,
@@ -18,9 +19,25 @@ export const ChartSelection = (): JSX.Element => {
         <div className="ChartSelectionWrapper">
             <div className="ChartSelection">
                 <LemonLabel>X-axis</LemonLabel>
-                <LemonSelect value={'None'} options={options} />
-                <LemonLabel className="">Y-axis</LemonLabel>
-                <LemonSelect value={'None'} options={options} />
+                <LemonSelect
+                    value={selectedXIndex !== null ? options[selectedXIndex]?.label : 'None'}
+                    options={options}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const index = options.findIndex((n) => n.value === value)
+                        setXAxis(index)
+                    }}
+                />
+                <LemonLabel className="mt-4">Y-axis</LemonLabel>
+                <LemonSelect
+                    value={selectedYIndex !== null ? options[selectedYIndex]?.label : 'None'}
+                    options={options}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const index = options.findIndex((n) => n.value === value)
+                        setYAxis(index)
+                    }}
+                />
             </div>
         </div>
     )

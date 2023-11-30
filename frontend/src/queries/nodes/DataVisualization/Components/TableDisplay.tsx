@@ -1,14 +1,15 @@
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { IconShowChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
-import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
+import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const TableDisplay = (): JSX.Element => {
-    const { setVisualizationDisplayType } = useActions(dataNodeLogic.findMounted())
-    const { visualizationDisplayType } = useValues(dataNodeLogic.findMounted())
+    const logic = useMountedLogic(dataVisualizationLogic)
+    const { setVisualizationType } = useActions(logic)
+    const { visualizationType } = useValues(logic)
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
@@ -29,10 +30,9 @@ export const TableDisplay = (): JSX.Element => {
 
     return (
         <LemonSelect
-            key="2"
-            value={visualizationDisplayType || ChartDisplayType.ActionsTable}
+            value={visualizationType}
             onChange={(value) => {
-                setVisualizationDisplayType(value)
+                setVisualizationType(value)
             }}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"

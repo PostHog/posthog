@@ -508,6 +508,27 @@
         "DataVisualizationNode": {
             "additionalProperties": false,
             "properties": {
+                "chartSettings": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "xAxisIndex": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "yAxisIndex": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
                 "kind": {
                     "const": "DataVisualizationNode",
                     "type": "string"

@@ -87,6 +87,14 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    xAxisIndex: Optional[List[float]] = None
+    yAxisIndex: Optional[List[float]] = None
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1446,6 +1454,8 @@ class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    chartSettings: Optional[ChartSettings] = None
+    display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
 

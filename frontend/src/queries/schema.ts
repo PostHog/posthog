@@ -345,9 +345,16 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     hiddenColumns?: HogQLExpression[]
 }
 
+interface ChartSettings {
+    xAxisIndex?: number[]
+    yAxisIndex?: number[]
+}
+
 export interface DataVisualizationNode extends Node {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
+    display?: ChartDisplayType
+    chartSettings?: ChartSettings
 }
 
 interface DataTableNodeViewProps {
