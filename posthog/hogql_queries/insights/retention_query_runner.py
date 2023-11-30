@@ -63,46 +63,44 @@ class RetentionQueryRunner(QueryRunner):
         self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
 
     def retention_events_query(self):
-        start_of_interval_sql = self.query_date_range.get_start_of_interval_sql(source="events.timestamp")
+        distinct = self.event_query_type == RetentionQueryType.TARGET
 
-        if self.event_query_type == RetentionQueryType.TARGET:
-            timestamp_field = f"DISTINCT {start_of_interval_sql} AS event_date"
-        elif self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            timestamp_field = f"min({start_of_interval_sql}) as event_date"
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
+            source=ast.Field(chain=["events", "timestamp"])
+        )
+
+        if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+            timestamp_field = ast.Alias(alias="event_date", expr=ast.Call(name="min", args=[start_of_interval_sql]))
         else:
-            timestamp_field = f"{start_of_interval_sql} AS event_date"
+            timestamp_field = ast.Alias(alias="event_date", expr=start_of_interval_sql)
 
         fields = [
             timestamp_field,
-            "events.person_id as target",
+            ast.Alias(alias="target", expr=ast.Field(chain=["events", "person_id"])),
         ]
         params = {}
 
         if self.event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
-            source_timestamp = (
-                "min(events.timestamp)"
-                if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else "events.timestamp"
+            source_timestamp = ast.Field(chain=["events", "timestamp"])
+            if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+                source_timestamp = ast.Call(
+                    name="min",
+                    args=[source_timestamp],
+                )
+
+            datediff_call = ast.Call(
+                name="dateDiff",
+                args=[
+                    ast.Constant(value=self.query_date_range.interval_name),
+                    self.query_date_range.get_start_of_interval_hogql(),
+                    self.query_date_range.get_start_of_interval_hogql(
+                        source=source_timestamp,
+                    ),
+                ],
             )
-
-            fields += [
-                f"""
-                [
-                    dateDiff(
-                        {{period}},
-                        {self.query_date_range.get_start_of_interval_sql(source='{start_date}')},
-                        {self.query_date_range.get_start_of_interval_sql(source=source_timestamp)}
-                    )
-                ] as breakdown_values
-                """
-            ]
-
-        params.update(
-            {
-                "start_date": self.query_date_range.date_from(),
-                "period": self.query_date_range.interval_name,
-            }
-        )
+            fields.append(
+                ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
+            )
 
         date_query, date_params = self._get_date_filter()
         params.update(date_params)
@@ -134,12 +132,13 @@ class RetentionQueryRunner(QueryRunner):
         elif self.event_query_type == RetentionQueryType.RETURNING:
             group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
 
-        fields_str = ", ".join(fields)
         result = parse_select(
-            f"SELECT {fields_str} FROM events",
+            f"SELECT * FROM events",
             placeholders=hogql_params,
             timings=self.timings,
         )
+        result.select = fields
+        result.distinct = distinct
         result.where = ast.And(exprs=filter_expressions)
         result.group_by = group_by_fields
         result.having = having_expr
