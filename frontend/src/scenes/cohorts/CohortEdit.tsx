@@ -190,63 +190,65 @@ export function CohortEdit(): JSX.Element {
                                         </Field>
                                     </div>
                                 )}
-                                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                                    <div className="ph-ignore-input">
-                                        <Field name="description" label="Description" data-attr="cohort-description">
-                                            <LemonTextArea />
-                                        </Field>
-                                    </div>
-                                )}
                             </div>
+                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                                <div className="ph-ignore-input">
+                                    <Field name="description" label="Description" data-attr="cohort-description">
+                                        <LemonTextArea />
+                                    </Field>
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
                 {cohort.is_static ? (
-                    <div className="mt-4 ph-ignore-input">
-                        <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
-                            {({ onChange }) => (
-                                <>
-                                    <span>
-                                        Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID. The very first row (the header) will
-                                        be skipped during import.
-                                    </span>
-                                    <Dragger
-                                        name="file"
-                                        multiple={false}
-                                        fileList={cohort.csv ? [cohort.csv] : []}
-                                        accept=".csv"
-                                        showUploadList={false}
-                                        beforeUpload={(file: UploadFile) => {
-                                            onChange(file)
-                                            return false
-                                        }}
-                                        className="cohort-csv-dragger"
-                                    >
-                                        {cohort.csv ? (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    {cohort.csv?.name ?? 'File chosen'}
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    Drag a file here or click to browse for a file
-                                                </div>
-                                            </>
-                                        )}
-                                    </Dragger>
-                                </>
-                            )}
-                        </Field>
-                    </div>
+                    !readOnly && (
+                        <div className="mt-4 ph-ignore-input">
+                            <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
+                                {({ onChange }) => (
+                                    <>
+                                        <span>
+                                            Upload a CSV file to add users to your cohort. The CSV file only requires a
+                                            single column with the user’s distinct ID. The very first row (the header)
+                                            will be skipped during import.
+                                        </span>
+                                        <Dragger
+                                            name="file"
+                                            multiple={false}
+                                            fileList={cohort.csv ? [cohort.csv] : []}
+                                            accept=".csv"
+                                            showUploadList={false}
+                                            beforeUpload={(file: UploadFile) => {
+                                                onChange(file)
+                                                return false
+                                            }}
+                                            className="cohort-csv-dragger"
+                                        >
+                                            {cohort.csv ? (
+                                                <>
+                                                    <IconUploadFile
+                                                        style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                    />
+                                                    <div className="ant-upload-text">
+                                                        {cohort.csv?.name ?? 'File chosen'}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <IconUploadFile
+                                                        style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                    />
+                                                    <div className="ant-upload-text">
+                                                        Drag a file here or click to browse for a file
+                                                    </div>
+                                                </>
+                                            )}
+                                        </Dragger>
+                                    </>
+                                )}
+                            </Field>
+                        </div>
+                    )
                 ) : (
                     <>
                         <LemonDivider className="my-6" />
