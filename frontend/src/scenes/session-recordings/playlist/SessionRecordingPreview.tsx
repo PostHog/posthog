@@ -62,7 +62,7 @@ interface GatheredProperty {
 }
 
 const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
-const mobileIconPropertyKeys = ['$geoip_country_code', '$app_name', '$device_type', '$os_name']
+const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 
 function gatherIconProperties(
     recordingProperties: Record<string, any> | undefined,

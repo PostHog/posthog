@@ -23,42 +23,40 @@ import { HTMLAttributes, ReactNode } from 'react'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 const osIcons = {
-    ['Mac OS X']: <IconMacOS />,
-    ['Windows']: <IconWindows />,
-    ['Linux']: <IconLinux />,
-    ['Android']: <IconAndroidOS />,
-    ['iOS']: <IconAppleIOS />,
-    ['Other']: <IconCogBox />,
+    ['mac os x']: <IconMacOS />,
+    ['windows']: <IconWindows />,
+    ['linux']: <IconLinux />,
+    ['android']: <IconAndroidOS />,
+    ['ios']: <IconAppleIOS />,
+    ['other']: <IconCogBox />,
 }
+
 export const PROPERTIES_ICON_MAP = {
     $browser: {
-        ['Chrome']: <IconChrome />,
-        ['Chrome iOS']: <IconChrome />,
-        ['Firefox']: <IconFirefox />,
-        ['Firefox iOS']: <IconFirefox />,
-        ['Mozilla']: <IconFirefox />,
-        ['Safari']: <IconSafari />,
-        ['Mobile Safari']: <IconSafari />,
-        ['Microsoft Edge']: <IconMicrosoftEdge />,
-        ['Internet Explorer']: <IconInternetExplorer />,
-        ['Opera']: <IconOpera />,
-        ['Opera Mini']: <IconOpera />,
-        ['Other']: <IconWeb />,
+        ['chrome']: <IconChrome />,
+        ['chrome ios']: <IconChrome />,
+        ['firefox']: <IconFirefox />,
+        ['firefox ios']: <IconFirefox />,
+        ['mozilla']: <IconFirefox />,
+        ['safari']: <IconSafari />,
+        ['mobile safari']: <IconSafari />,
+        ['microsoft edge']: <IconMicrosoftEdge />,
+        ['internet Explorer']: <IconInternetExplorer />,
+        ['opera']: <IconOpera />,
+        ['opera Mini']: <IconOpera />,
+        ['other']: <IconWeb />,
     },
     $device_type: {
-        ['Desktop']: <IconMonitor />,
-        ['Mobile']: <IconPhone />,
-        ['Tablet']: <IconTablet />,
-        ['Other']: <IconDevices />,
+        ['desktop']: <IconMonitor />,
+        ['mobile']: <IconPhone />,
+        ['tablet']: <IconTablet />,
+        ['other']: <IconDevices />,
     },
     $os: osIcons,
     // some SDKs have $os_name instead of $os
     $os_name: osIcons,
     $geoip_country_code: {
-        ['Other']: <IconWeb />,
-    },
-    $app_name: {
-        ['Other']: <IconPhone />,
+        ['other']: <IconWeb />,
     },
 }
 
@@ -83,10 +81,11 @@ export function PropertyIcon({
         return <></>
     }
 
+    const needle = value?.toLowerCase()
     let icon =
-        !!value && value in PROPERTIES_ICON_MAP[property]
-            ? PROPERTIES_ICON_MAP[property][value]
-            : PROPERTIES_ICON_MAP[property]['Other']
+        !!needle && needle in PROPERTIES_ICON_MAP[property]
+            ? PROPERTIES_ICON_MAP[property][needle]
+            : PROPERTIES_ICON_MAP[property]['other']
 
     if (property === '$geoip_country_code' && value?.length === 2) {
         icon = countryCodeToFlag(value)
