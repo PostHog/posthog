@@ -4,7 +4,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { getDefaultInterval, isNotNil } from 'lib/utils'
+import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 
 import {
     NodeKind,
@@ -19,6 +19,7 @@ import {
     EventDefinition,
     EventDefinitionType,
     InsightType,
+    IntervalType,
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
@@ -50,6 +51,7 @@ export interface TabsTile extends BaseTile {
         title: string
         linkText: string
         query: QuerySchema
+        showIntervalSelect?: boolean
     }[]
 }
 
@@ -128,6 +130,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setInterval: (interval: IntervalType) => ({ interval }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -209,22 +212,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setGeographyTab: (_, { tab }) => tab,
             },
         ],
-        dateFrom: [
-            initialDateFrom,
+        dateFilter: [
             {
-                setDates: (_, { dateFrom }) => dateFrom,
+                dateFrom: initialDateFrom,
+                dateTo: initialDateTo,
+                interval: initialInterval,
             },
-        ],
-        dateTo: [
-            initialDateTo,
             {
-                setDates: (_, { dateTo }) => dateTo,
-            },
-        ],
-        interval: [
-            initialInterval,
-            {
-                setDates: (_, { dateTo, dateFrom }) => getDefaultInterval(dateFrom, dateTo),
+                setDates: (_, { dateTo, dateFrom }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval: getDefaultInterval(dateFrom, dateTo),
+                }),
+                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval,
+                    }
+                },
             },
         ],
     }),
@@ -237,9 +244,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.deviceTab,
                 s.sourceTab,
                 s.geographyTab,
-                s.dateFrom,
-                s.dateTo,
-                s.interval,
+                s.dateFilter,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
@@ -250,9 +255,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTab,
                 sourceTab,
                 geographyTab,
-                dateFrom,
-                dateTo,
-                interval,
+                { dateFrom, dateTo, interval },
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -304,7 +307,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
@@ -332,7 +337,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                     },
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                             {
                                 id: GraphsTab.NUM_SESSION,
@@ -361,7 +368,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                     suppressSessionAnalysisWarning: true,
                                     hidePersonsModal: true,
+                                    embedded: true,
                                 },
+                                showIntervalSelect: true,
                             },
                         ],
                     },
@@ -740,7 +749,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const geoIpPluginConfig =
                     isNotNil(geoIpPluginId) &&
                     pluginsConfigResponse.status === 'fulfilled' &&
-                    pluginsConfigResponse.value.find((plugin) => plugin.id === geoIpPluginId)
+                    pluginsConfigResponse.value.find((plugin) => plugin.plugin === geoIpPluginId)
 
                 return !!geoIpPluginConfig && geoIpPluginConfig.enabled
             },
