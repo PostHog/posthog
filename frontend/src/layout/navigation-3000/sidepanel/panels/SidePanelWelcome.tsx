@@ -1,7 +1,16 @@
-import { IconCursorClick, IconHome, IconInfo, IconNight, IconNotebook, IconSearch } from '@posthog/icons'
+import './SidePanelWelcome.scss'
+
+import { IconArrowLeft, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import posthog from 'posthog-js'
+import featureCommandPalette from 'public/3000/3000-command-palette.png'
+import featureDarkMode from 'public/3000/3000-dark-mode.png'
+import featureNav from 'public/3000/3000-nav.png'
+import featureNotebooks from 'public/3000/3000-notebooks.png'
+import featureSearch from 'public/3000/3000-search.png'
+import featureSidePanel from 'public/3000/3000-side-panel.png'
+import featureToolbar from 'public/3000/3000-toolbar.png'
 import { useEffect } from 'react'
 
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
@@ -9,21 +18,37 @@ import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 const blogPostUrl = 'https://posthog.com/blog/why-redesign'
 
-type WelcomeBannerProps = {
-    icon: React.ReactNode
-    title: string
-    description: string | JSX.Element
+type RowProps = {
+    className?: string
+    columns?: string
+    children: React.ReactNode
 }
 
-const WelcomeBanner = ({ icon, title, description }: WelcomeBannerProps): JSX.Element => (
-    <li className="bg-bg-3000 border rounded-md px-4 py-3 flex gap-4 items-center">
-        <div className="flex shrink-0 text-2xl">{icon}</div>
-        <div className="flex-1">
-            <h3 className="mb-0 font-semibold">{title}</h3>
-            <span>{description}</span>
-        </div>
-    </li>
+const Row = ({ className, columns, children }: RowProps): JSX.Element => (
+    <div className={`mb-4 gap-4 grid ${className}`} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+        {children}
+    </div>
 )
+
+type CardProps = {
+    width?: string
+    children: React.ReactNode
+}
+
+const Card = ({ width, children }: CardProps): JSX.Element => (
+    <div
+        className={`welcome-card bg-accent-3000 border rounded-md px-4 py-3 w-full overflow-hidden ${
+            width ? width : 'w-full'
+        }`}
+    >
+        {children}
+    </div>
+)
+
+const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
+    <h3 className="mb-1 font-bold leading-5">{children}</h3>
+)
+const Description = ({ children }: { children: React.ReactNode }): JSX.Element => <p className="text-sm">{children}</p>
 
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
@@ -40,72 +65,114 @@ export const SidePanelWelcome = (): JSX.Element => {
     }, [])
 
     return (
-        <div className="flex flex-col items-center justify-center m-4 my-6 flex-1">
-            <h1 className="font-bold text-4xl text-center mb-4">
-                Welcome to <span className="text-primary-3000">PostHog&nbsp;3000</span>
-            </h1>
-            <p className="max-w-120 text-center text-sm font-medium mb-6">
-                We're past zero to one.
-                <br />
-                In this new version of PostHog, we're going from one to 3000.
-            </p>
-            <ul className="space-y-2">
-                <WelcomeBanner
-                    icon={<IconNight />}
-                    title="Light and dark mode"
-                    description="We've brought the dark mode you know from our website into&nbsp;the&nbsp;app. At&nbsp;the same&nbsp;time, light mode finally follows our&nbsp;brand&nbsp;style."
-                />
-                <WelcomeBanner
-                    icon={<IconHome />}
-                    title="Revamped navigation"
-                    description={
-                        <>
-                            The navbar is now divided into two sections: <strong>Project&nbsp;&&nbsp;data</strong>{' '}
-                            and&nbsp;<strong>Products</strong>. The&nbsp;new top bar&nbsp;is sticky, so that key actions
-                            and info stay within reach.
-                        </>
-                    }
-                />
-                <WelcomeBanner
-                    icon={<IconNotebook />}
-                    title="Notebooks"
-                    description="Explore ideas more easily than ever with PostHog notebooks. Analyze&nbsp;your data from different angles and then share findings with&nbsp;the&nbsp;team."
-                />
-                <WelcomeBanner
-                    icon={<IconSearch />}
-                    title="Search and command bar"
-                    description={
-                        <>
-                            Search for anything in PostHog with <KeyboardShortcut command k />. Get&nbsp;things done
-                            faster using the command bar under <KeyboardShortcut command shift k />.
-                        </>
-                    }
-                />
-                <WelcomeBanner
-                    icon={<IconInfo />}
-                    title="Side panel"
-                    description="You're looking at it now. Access notebooks, support, or in-app docs while staying in&nbsp;the&nbsp;flow."
-                />
-                <WelcomeBanner
-                    icon={<IconCursorClick />}
-                    title="Toolbar 3000"
-                    description={
-                        <>
-                            We've applied the same thinking as above to the Toolbar. It's now easier to use,
-                            cleaner-looking, and finally something you can call a <i>bar</i>.
-                        </>
-                    }
-                />
-            </ul>
-
-            <div className="flex items-center gap-2 mt-4">
-                <LemonButton to={blogPostUrl} size="large" type="secondary">
-                    Read the blog post
-                </LemonButton>
-                <LemonButton size="large" type="primary" onClick={() => closeSidePanel()}>
-                    Get started
-                </LemonButton>
+        <>
+            <div className="flex-shrink bg-accent-3000 border-b sticky top-0 pl-4 pr-1 py-1 z-10 flex items-center">
+                <div className="flex-1">
+                    <strong>Welcome to PostHog 3000</strong>
+                </div>
+                <div className="flex-shrink">
+                    <button onClick={() => closeSidePanel()} className="btn btn-sm btn-secondary cursor-pointer">
+                        <IconX className="text-lg" />
+                    </button>
+                </div>
             </div>
-        </div>
+            <div className="flex flex-col m-4 my-6 flex-1">
+                <h1 className="font-bold text-xl mb-4 w-full">
+                    Welcome to
+                    <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
+                </h1>
+                <p className="max-w-120 text-sm font-medium mb-6">
+                    We're past 0 to 1. In this new version of PostHog, we're going from 1 to 3000.
+                </p>
+                <div className="mb-4">
+                    <LemonButton to={blogPostUrl} type="primary" fullWidth={false} style={{ display: 'inline-flex' }}>
+                        Read the blog post
+                    </LemonButton>
+                </div>
+
+                <Row>
+                    <Card>
+                        <Title>Dark mode</Title>
+                        <Description>Toggle between light, dark, or sync with your system</Description>
+                        <div className="-mr-4 -mb-3">
+                            <img src={featureDarkMode} alt="Dark mode" width="100%" />
+                        </div>
+                    </Card>
+                </Row>
+
+                <Row className="grid grid-cols-2" columns="40% 60%">
+                    <Card width="40%">
+                        <Title>Updated nav</Title>
+                        <Description>Products are now split out from project & data.</Description>
+                        <div className="-mr-4 -mb-3">
+                            <img src={featureNav} alt="Updated nav" width="100%" />
+                        </div>
+                    </Card>
+                    <Card width="60%">
+                        <Title>Notebooks</Title>
+                        <Description>Analyze data from different angles and share results with your team.</Description>
+                        <div className="-mr-4 -mb-3">
+                            <img src={featureNotebooks} alt="Notebooks in sidebar" width="100%" />
+                        </div>
+                    </Card>
+                </Row>
+
+                <Row>
+                    <Card>
+                        <div className="grid grid-cols-2 gap-4 items-center">
+                            <div>
+                                <Title>Side panel</Title>
+                                <Description>It’s this multipurpose thing you’re looking at right now!</Description>
+                                <Description>Access docs, notebooks, contact support, and more.</Description>
+                            </div>
+                            <div className="-mr-4 -my-3">
+                                <img src={featureSidePanel} alt="Side panel" height="100%" style={{ maxHeight: 208 }} />
+                            </div>
+                        </div>
+                    </Card>
+                </Row>
+
+                <Row className="grid grid-cols-2" columns="60% 40%">
+                    <Card>
+                        <Title>Improved search</Title>
+                        <Description>
+                            Search for anything with <KeyboardShortcut command k />
+                        </Description>
+                        <div className="-mr-4 -mb-3">
+                            <img src={featureSearch} alt="Improved search" width="100%" />
+                        </div>
+                    </Card>
+                    <Card>
+                        <Title>Command palette</Title>
+                        <Description>
+                            Use <KeyboardShortcut command shift k /> to navigate faster.
+                        </Description>
+                        <div className="-mr-4 -mb-3">
+                            <img src={featureCommandPalette} alt="Command palette" width="100%" />
+                        </div>
+                    </Card>
+                </Row>
+
+                <Row>
+                    <Card>
+                        <Title>Toolbar</Title>
+                        <Description>
+                            Same functionality, but easier to look at. And we finally put the <em>bar</em> in toolbar.
+                            Also dark mode.
+                        </Description>
+                        <div>
+                            <img src={featureToolbar} alt="Toolbar" width={259} />
+                        </div>
+                    </Card>
+                </Row>
+
+                <div className="flex items-center gap-2 -mb-3">
+                    <IconArrowLeft className="w-5 h-5" />
+                    <p className="m-0">
+                        <strong>Pro tip:</strong> Access this panel again from here
+                    </p>
+                </div>
+            </div>
+        </>
     )
 }
