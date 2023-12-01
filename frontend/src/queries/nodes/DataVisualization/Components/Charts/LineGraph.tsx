@@ -74,12 +74,6 @@ export const LineGraph = (): JSX.Element => {
                     display: () => {
                         return true
                     },
-                    // formatter: (value: number, context) => {
-                    //     const data = context.chart.data as ExtendedChartData
-                    //     const { datasetIndex, dataIndex } = context
-                    //     const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
-                    //     return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
-                    // },
                     borderWidth: 2,
                     borderRadius: 4,
                     borderColor: 'white',
@@ -87,6 +81,7 @@ export const LineGraph = (): JSX.Element => {
                 legend: {
                     display: false,
                 },
+                // @ts-expect-error Types of library are out of date
                 crosshair: {
                     snap: {
                         enabled: true, // Snap crosshair to data points
