@@ -63,6 +63,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import { commandBarLogic } from '../CommandBar/commandBarLogic'
+import { BarStatus } from '../CommandBar/types'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 
@@ -134,7 +136,16 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
+        actions: [
+            personalAPIKeysLogic,
+            ['createKey'],
+            router,
+            ['push'],
+            themeLogic,
+            ['overrideTheme'],
+            commandBarLogic,
+            ['setCommandBar'],
+        ],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
@@ -903,6 +914,30 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const shortcuts: Command = {
+                key: 'shortcuts',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconKeyboard,
+                    display: 'Open keyboard shortcut overview',
+                    executor: () => {
+                        actions.setCommandBar(BarStatus.SHOW_SHORTCUTS)
+
+                        // :HACKY: we need to return a dummy flow here, as otherwise
+                        // the executor will hide the command bar, which also displays
+                        // the shortcut overview
+                        const dummyFlow: CommandFlow = {
+                            resolver: () => ({
+                                icon: <></>,
+                                display: '',
+                                executor: true,
+                            }),
+                        }
+                        return dummyFlow
+                    },
+                },
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -913,6 +948,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(debugCopySessionRecordingURL)
             if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 actions.registerCommand(toggleTheme)
+                actions.registerCommand(shortcuts)
             }
         },
         beforeUnmount: () => {
@@ -925,6 +961,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
             actions.deregisterCommand('toggle-theme')
+            actions.deregisterCommand('shortcuts')
         },
     })),
 ])
