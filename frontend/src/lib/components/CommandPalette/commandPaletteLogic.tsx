@@ -45,6 +45,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconClose } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
@@ -58,6 +59,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
+import { SidePanelTabs } from '~/layout/navigation-3000/sidepanel/SidePanel'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
@@ -134,8 +138,28 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        actions: [
+            personalAPIKeysLogic,
+            ['createKey'],
+            router,
+            ['push'],
+            themeLogic,
+            ['overrideTheme'],
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel'],
+        ],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sidePanelLogic,
+            ['enabledTabs'],
+            sidePanelStateLogic,
+            ['sidePanelOpen'],
+        ],
         logic: [preflightLogic],
     }),
     actions({
@@ -903,6 +927,34 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const sidepanel: Command = {
+                key: 'sidepanel',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: [
+                    ...values.enabledTabs.map((tab) => {
+                        const { Icon, label } = SidePanelTabs[tab]
+                        return {
+                            icon: Icon,
+                            display: `Open ${label} side panel`,
+                            executor: () => {
+                                actions.openSidePanel(tab)
+                            },
+                        }
+                    }),
+                    ...(values.sidePanelOpen
+                        ? [
+                              {
+                                  icon: IconClose,
+                                  display: 'Close side panel',
+                                  executor: () => {
+                                      actions.closeSidePanel()
+                                  },
+                              },
+                          ]
+                        : []),
+                ],
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -913,6 +965,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(debugCopySessionRecordingURL)
             if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 actions.registerCommand(toggleTheme)
+                actions.registerCommand(sidepanel)
             }
         },
         beforeUnmount: () => {
@@ -925,6 +978,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
             actions.deregisterCommand('toggle-theme')
+            actions.deregisterCommand('sidepanel')
         },
     })),
 ])
