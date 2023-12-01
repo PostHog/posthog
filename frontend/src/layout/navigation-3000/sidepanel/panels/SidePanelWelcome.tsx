@@ -30,7 +30,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
-    <div className={`mb-4 gap-4 grid ${className}`} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+    <div className={`mb-6 gap-5 grid ${className}`} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
 )
@@ -128,7 +128,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
-                <Row className="grid grid-cols-2" columns="40% calc(60% - 1rem)">
+                <Row className="grid grid-cols-2" columns="40% calc(60% - 1.25rem)">
                     <Card>
                         <Title>Updated nav</Title>
                         <Description>Products are now split out from project & data.</Description>
@@ -160,7 +160,7 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row>
                     <Card>
-                        <div className="grid grid-cols-2 gap-4 items-center">
+                        <div className="grid grid-cols-2 gap-5 items-center">
                             <div>
                                 <Title>Side panel</Title>
                                 <Description>It’s this multipurpose thing you’re looking at right now!</Description>
@@ -178,7 +178,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
-                <Row className="grid grid-cols-2" columns="calc(60% - 1rem) 40%">
+                <Row className="grid grid-cols-2" columns="calc(60% - 1.25rem) 40%">
                     <Card>
                         <Title>Improved search</Title>
                         <Description>
