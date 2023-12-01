@@ -71,7 +71,11 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <strong>Welcome to PostHog 3000</strong>
                 </div>
                 <div className="flex-shrink">
-                    <button onClick={() => closeSidePanel()} className="btn btn-sm btn-secondary cursor-pointer">
+                    <button
+                        onClick={() => closeSidePanel()}
+                        className="btn btn-sm btn-secondary cursor-pointer"
+                        style={{ background: 'transparent' }}
+                    >
                         <IconX className="text-lg" />
                     </button>
                 </div>
