@@ -192,7 +192,6 @@ export class LazyPluginVM {
             const vm = (await this.resolveInternalVm)?.vm
             try {
                 await instrument(
-                    this.hub.statsd,
                     {
                         metricName: 'vm.setup',
                         key: 'plugin',
@@ -236,7 +235,6 @@ export class LazyPluginVM {
                 }
             }
             await instrument(
-                this.hub.statsd,
                 {
                     metricName: 'plugin.setupPlugin',
                     key: 'plugin',
@@ -244,8 +242,6 @@ export class LazyPluginVM {
                 },
                 () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             )
-            this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             pluginSetupMsSummary
                 .labels({ plugin_id: pluginId, status: 'success' })
                 .observe(new Date().getTime() - timer.getTime())
@@ -257,10 +253,6 @@ export class LazyPluginVM {
                 PluginLogEntryType.Debug
             )
         } catch (error) {
-            this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
-                plugin: this.pluginConfig.plugin?.name ?? '?',
-            })
             pluginSetupMsSummary
                 .labels({ plugin_id: pluginId, status: 'fail' })
                 .observe(new Date().getTime() - timer.getTime())
@@ -308,10 +300,6 @@ export class LazyPluginVM {
     }
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
-        this.hub.statsd?.increment('plugin.disabled.by_system', {
-            teamId: this.pluginConfig.team_id.toString(),
-            plugin: this.pluginConfig.plugin?.name ?? '?',
-        })
         pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)

@@ -26,12 +26,6 @@ async function runSingleTeamPluginOnEvent(
     }, 10 * 1000) // 10 seconds
     try {
         // Runs onEvent for a single plugin without any retries
-        const metricName = 'plugin.on_event'
-        const metricTags = {
-            plugin: pluginConfig.plugin?.name ?? '?',
-            teamId: event.team_id.toString(),
-        }
-
         const timer = new Date()
         try {
             await onEvent!(event)
@@ -45,7 +39,6 @@ async function runSingleTeamPluginOnEvent(
                 successes: 1,
             })
         } catch (error) {
-            hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
@@ -63,7 +56,6 @@ async function runSingleTeamPluginOnEvent(
                 }
             )
         }
-        hub.statsd?.timing(metricName, timer, metricTags)
     } finally {
         clearTimeout(timeout)
     }
@@ -78,7 +70,6 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
             .filter(([, method]) => !!method)
             .map(([pluginConfig, onEvent]) =>
                 instrument(
-                    hub.statsd,
                     {
                         metricName: 'plugin.runOnEvent',
                         key: 'plugin',
@@ -105,11 +96,6 @@ async function runSingleTeamPluginComposeWebhook(
     }, slowWarningTimeout)
     try {
         // Runs composeWebhook for a single plugin without any retries
-        const metricName = 'plugin.compose_webhook'
-        const metricTags = {
-            plugin: pluginConfig.plugin?.name ?? '?',
-            teamId: event.team_id.toString(),
-        }
         const timer = new Date()
         try {
             const webhook: Webhook | null = await composeWebhook!(event)
@@ -139,7 +125,6 @@ async function runSingleTeamPluginComposeWebhook(
                     successes: 1,
                 })
             } else {
-                hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
                 pluginActionMsSummary
                     .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'error')
                     .observe(new Date().getTime() - timer.getTime())
@@ -159,7 +144,6 @@ async function runSingleTeamPluginComposeWebhook(
                 )
             }
         } catch (error) {
-            hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'error')
                 .observe(new Date().getTime() - timer.getTime())
@@ -177,7 +161,6 @@ async function runSingleTeamPluginComposeWebhook(
                 }
             )
         }
-        hub.statsd?.timing(metricName, timer, metricTags)
     } finally {
         clearTimeout(timeout)
     }
@@ -192,7 +175,6 @@ export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<
             .filter(([, method]) => !!method)
             .map(([pluginConfig, composeWebhook]) =>
                 instrument(
-                    hub.statsd,
                     {
                         metricName: 'plugin.runComposeWebhook',
                         key: 'plugin',
@@ -225,7 +207,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
             try {
                 returnedEvent =
                     (await instrument(
-                        hub.statsd,
                         {
                             metricName: 'plugin.processEvent',
                             key: 'plugin',
@@ -252,10 +233,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                 pluginActionMsSummary
                     .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
                     .observe(new Date().getTime() - timer.getTime())
-                hub.statsd?.increment(`plugin.process_event.ERROR`, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: String(event.team_id),
-                })
                 pluginsFailed.push(pluginIdentifier)
                 await hub.appMetrics.queueError(
                     {
@@ -270,10 +247,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     }
                 )
             }
-            hub.statsd?.timing(`plugin.process_event`, timer, {
-                plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: teamId.toString(),
-            })
 
             if (!returnedEvent) {
                 return null
@@ -330,7 +303,6 @@ export async function runPluginTask(
 
         shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
         response = await instrument(
-            hub.statsd,
             {
                 metricName: 'plugin.runTask',
                 key: 'plugin',
@@ -356,12 +328,7 @@ export async function runPluginTask(
         }
     } catch (error) {
         await processError(hub, pluginConfig || null, error)
-        hub.statsd?.increment(`plugin.task.ERROR`, {
-            taskType: taskType,
-            taskName: taskName,
-            pluginConfigId: pluginConfigId.toString(),
-            teamId: teamId?.toString() ?? '?',
-        })
+
         pluginActionMsSummary
             .labels(String(pluginConfig?.plugin?.id), 'task', 'error')
             .observe(new Date().getTime() - timer.getTime())
@@ -377,10 +344,7 @@ export async function runPluginTask(
             )
         }
     }
-    hub.statsd?.timing(`plugin.task`, timer, {
-        plugin: pluginConfig?.plugin?.name ?? '?',
-        teamId: teamId?.toString() ?? '?',
-    })
+
     return response
 }
 
