@@ -706,7 +706,7 @@ export class PersonOverrideWriter {
                 UNION ALL
                 SELECT id
                 FROM posthog_personoverridemapping
-                WHERE uuid = '${personId}'
+                WHERE team_id = ${teamId} AND uuid = '${personId}'
             `,
             undefined,
             'personOverrideMapping'
