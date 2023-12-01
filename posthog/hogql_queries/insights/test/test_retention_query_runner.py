@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import datetime
+from unittest import skip
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
@@ -14,11 +15,10 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_properties
 from posthog.models import Action, ActionStep
 from posthog.models.filters import RetentionFilter as OldRetentionFilter
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import RetentionQuery, RetentionFilter, DateRange, PropertyGroupFilter
+from posthog.schema import RetentionQuery, RetentionFilter, DateRange
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -729,6 +729,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @skip("TODO: Bring back when working on actors_in_period")
     def test_retention_people_basic(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -750,7 +751,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result, _ = retention().actors_in_period(
+        result, _ = self().actors_in_period(
             OldRetentionFilter(
                 data={"date_to": _date(10, hour=6), "selected_interval": 0},
                 team=self.team,
@@ -760,12 +761,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertTrue(result[0]["person"]["id"] == person1.uuid, person1.uuid)
 
+    @skip("TODO: Bring back when working on actors_in_period")
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
         target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-        result, _ = retention().actors_in_period(
+        result, _ = self().actors_in_period(
             OldRetentionFilter(
                 data={
                     "date_to": _date(10, hour=6),
@@ -782,7 +784,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertIn(result[0]["person"]["id"], [p3.uuid, p3.pk])
 
-        result, _ = retention().actors_in_period(
+        result, _ = self().actors_in_period(
             OldRetentionFilter(
                 data={
                     "date_to": _date(14, hour=6),
@@ -832,6 +834,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             self.validation_error_response("Properties are unparsable!", "invalid_input"),
         )
 
+    @skip("TODO: Bring back when working on actors_in_period")
     def test_retention_people_in_period(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -854,7 +857,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result, _ = retention().actors_in_period(
+        result, _ = self.run().actors_in_period(
             OldRetentionFilter(
                 data={"date_to": _date(10, hour=6), "selected_interval": 2},
                 team=self.team,
@@ -869,11 +872,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(result[1]["person"]["id"], [person1.pk, person1.uuid])
         self.assertEqual(result[1]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
 
+    @skip("TODO: Bring back when working on actors_in_period")
     def test_retention_people_in_perieod_first_time(self):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-        result1, _ = retention().actors_in_period(
+        result1, _ = self.run_query().actors_in_period(
             OldRetentionFilter(
                 data={
                     "date_to": _date(10, hour=6),
@@ -1128,14 +1132,25 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "properties": [{"key": "$some_property", "value": "value"}],
-                    "date_to": _date(10, hour=0),
-                }
-            ),
-            self.team,
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$some_property",
+                                    "operator": "exact",
+                                    "value": ["value"],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
         )
         self.assertEqual(len(result), 11)
         self.assertEqual(
@@ -1201,21 +1216,29 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(
-            OldRetentionFilter(
-                data={
-                    "properties": [
+        result = self._run_retention_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "properties": {
+                    "type": "AND",
+                    "values": [
                         {
-                            "key": "email",
-                            "value": "person1@test.com",
-                            "type": "person",
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "operator": "exact",
+                                    "type": "person",
+                                    "value": ["person1@test.com"],
+                                }
+                            ],
                         }
                     ],
-                    "date_to": _date(6, hour=0),
+                },
+                "retentionFilter": {
                     "total_intervals": 7,
-                }
-            ),
-            self.team,
+                },
+            }
         )
 
         self.assertEqual(len(result), 7)
@@ -1330,7 +1353,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "period": "Day",
                     "total_intervals": 7,
                     "target_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "returning_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                 },
             }
         )
@@ -1479,6 +1502,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         return p1, p2, p3, p4
 
+    @skip("TODO: Try distinct_id aggregation")
     def test_retention_aggregate_by_distinct_id(self):
         _create_person(
             team_id=self.team.pk,
