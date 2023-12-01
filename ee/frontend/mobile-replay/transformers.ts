@@ -1,7 +1,8 @@
-import { EventType, fullSnapshotEvent, metaEvent } from '@rrweb/types'
+import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } from '@rrweb/types'
 
 import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
+    incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     metaEvent as MobileMetaEvent,
     NodeType,
     serializedNodeWithId,
@@ -37,6 +38,8 @@ function* ids(): Generator<number> {
     }
 }
 const idSequence = ids()
+
+const BODY_ID = 5
 
 export const makeMetaEvent = (
     mobileMetaEvent: MobileMetaEvent & {
@@ -200,6 +203,32 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }, [] as serializedNodeWithId[])
 }
 
+/**
+ * We've not implemented mutations, until then this is almost an index function.
+ *
+ * But, we want to ensure that any mouse/touch events don't use id = 0.
+ * They must always represent a valid ID from the dom, so we swap in the body id.
+ *
+ */
+export const makeIncrementalEvent = (
+    mobileEvent: MobileIncrementalSnapshotEvent & {
+        timestamp: number
+        delay?: number
+    }
+): incrementalSnapshotEvent & {
+    timestamp: number
+    delay?: number
+} => {
+    const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
+        timestamp: number
+        delay?: number
+    }
+    if ('id' in converted.data && converted.data.id === 0) {
+        converted.data.id = BODY_ID
+    }
+    return converted
+}
+
 export const makeFullEvent = (
     mobileEvent: MobileFullSnapshotEvent & {
         timestamp: number
@@ -247,7 +276,7 @@ export const makeFullEvent = (
                                 type: NodeType.Element,
                                 tagName: 'body',
                                 attributes: {},
-                                id: 5,
+                                id: BODY_ID,
                                 childNodes: [
                                     {
                                         type: NodeType.Element,
