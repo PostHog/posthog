@@ -98,11 +98,11 @@ class RetentionQueryRunner(QueryRunner):
                 ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
             )
 
-        filter_expressions = []
+        event_filters = []
         if self.query.properties is not None and self.query.properties != []:
-            filter_expressions.append(property_to_expr(self.query.properties, self.team))
+            event_filters.append(property_to_expr(self.query.properties, self.team))
 
-        filter_expressions.append(
+        event_filters.append(
             self.entity_to_expr(
                 entity=self.target_entity
                 if self.event_query_type == RetentionQueryType.TARGET
@@ -113,7 +113,15 @@ class RetentionQueryRunner(QueryRunner):
 
         date_filter_expr = self.date_filter_expr()
         if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
-            filter_expressions.append(date_filter_expr)
+            event_filters.append(date_filter_expr)
+
+        if (
+            self.query.filterTestAccounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for prop in self.team.test_account_filters:
+                event_filters.append(property_to_expr(prop, self.team))
 
         group_by_fields = None
         having_expr = None
@@ -126,7 +134,7 @@ class RetentionQueryRunner(QueryRunner):
         result = parse_select("SELECT * FROM events", timings=self.timings)
         result.select = fields
         result.distinct = self.event_query_type == RetentionQueryType.TARGET
-        result.where = ast.And(exprs=filter_expressions)
+        result.where = ast.And(exprs=event_filters)
         result.group_by = group_by_fields
         result.having = having_expr
 
