@@ -1,18 +1,22 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Iterable, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import stripe
 from dlt.common import pendulum
-from dlt.common.typing import TDataItem
 from pendulum import DateTime
 from asgiref.sync import sync_to_async
-from .settings import ENDPOINTS
+
+stripe.api_version = "2022-11-15"
 
 
 async def stripe_pagination(
-    api_key: str, endpoint: str, start_date: Optional[Any] = None, end_date: Optional[Any] = None
-) -> Iterable[TDataItem]:
+    api_key: str,
+    endpoint: str,
+    start_date: Optional[Any] = None,
+    end_date: Optional[Any] = None,
+    starting_after: Optional[str] = None,
+):
     """
     Retrieves data from an endpoint with pagination.
 
@@ -24,7 +28,6 @@ async def stripe_pagination(
     Returns:
         Iterable[TDataItem]: Data items retrieved from the endpoint.
     """
-    starting_after = None
     while True:
         response = await stripe_get_data(
             api_key,
@@ -36,7 +39,7 @@ async def stripe_pagination(
 
         if len(response["data"]) > 0:
             starting_after = response["data"][-1]["id"]
-        yield response["data"]
+        yield response["data"], starting_after
 
         if not response["has_more"]:
             break

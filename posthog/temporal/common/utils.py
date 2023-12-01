@@ -29,6 +29,37 @@ class HeartbeatParseError(Exception):
 
 
 @dataclasses.dataclass
+class DataImportHeartbeatDetails:
+    """Data import heartbeat details.
+
+    Attributes:
+        endpoint: The endpoint we are importing data from.
+        cursor: The cursor we are using to paginate through the endpoint.
+    """
+
+    endpoint: str
+    cursor: str
+
+    @property
+    def total_details(self) -> int:
+        """The total number of details that we have parsed + those remaining to parse."""
+        return (len(dataclasses.fields(self.__class__)) - 1) + len(self._remaining)
+
+    @classmethod
+    def from_activity(cls, activity):
+        """Attempt to initialize DataImportHeartbeatDetails from an activity's info."""
+        details = activity.info().heartbeat_details
+
+        if len(details) == 0:
+            raise EmptyHeartbeatError()
+
+        if len(details) != 2:
+            raise NotEnoughHeartbeatValuesError(len(details), 2)
+
+        return cls(details[0], details[1])
+
+
+@dataclasses.dataclass
 class HeartbeatDetails:
     """The batch export details included in every heartbeat.
 

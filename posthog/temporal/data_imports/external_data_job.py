@@ -9,16 +9,11 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
-from posthog.warehouse.data_load.pipeline import (
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
-    move_draft_to_production,
 )
-from posthog.warehouse.data_load.sync_table import (
-    SchemaValidationError,
-    is_schema_valid,
-)
+from posthog.warehouse.data_load.sync_table import SchemaValidationError, is_schema_valid, move_draft_to_production
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     get_external_data_source,
@@ -111,10 +106,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     )
     job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
 
-    heartbeat_details = AsyncHeartbeatDetails()
-    func = heartbeat_details.make_activity_heartbeat_while_running(job_fn, dt.timedelta(seconds=10))
-
-    await func(job_inputs)
+    await job_fn(job_inputs)
 
 
 # TODO: update retry policies
@@ -155,8 +147,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_external_data_job,
                 inputs,
                 start_to_close_timeout=dt.timedelta(minutes=60),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=10),
+                heartbeat_timeout=dt.timedelta(seconds=20),
             )
 
             # check schema first

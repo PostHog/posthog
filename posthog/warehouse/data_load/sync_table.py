@@ -1,8 +1,9 @@
 import structlog
 from django.conf import settings
 from django.db.models import Q
+import s3fs
 
-from posthog.warehouse.data_load.pipeline import (
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
@@ -72,3 +73,39 @@ def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
                 table.save()
 
     return True
+
+
+def get_s3fs():
+    return s3fs.S3FileSystem(key=settings.AIRBYTE_BUCKET_KEY, secret=settings.AIRBYTE_BUCKET_SECRET)
+
+
+# TODO: Make this a proper async function with boto3...
+def move_draft_to_production(team_id: int, external_data_source_id: str):
+    model = ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
+    bucket_name = settings.BUCKET_URL
+    s3 = get_s3fs()
+    try:
+        s3.copy(
+            f"{bucket_name}/{model.draft_folder_path}",
+            f"{bucket_name}/{model.draft_folder_path}_success",
+            recursive=True,
+        )
+    except FileNotFoundError:
+        # TODO: log
+        pass
+
+    try:
+        s3.delete(f"{bucket_name}/{model.folder_path}", recursive=True)
+    except FileNotFoundError:
+        # This folder won't exist on initial run
+        pass
+
+    try:
+        s3.copy(
+            f"{bucket_name}/{model.draft_folder_path}_success", f"{bucket_name}/{model.folder_path}", recursive=True
+        )
+    except FileNotFoundError:
+        pass
+
+    s3.delete(f"{bucket_name}/{model.draft_folder_path}_success", recursive=True)
+    s3.delete(f"{bucket_name}/{model.draft_folder_path}", recursive=True)

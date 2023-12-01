@@ -20,13 +20,13 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
     validate_schema_activity,
 )
-from posthog.warehouse.data_load.pipeline import (
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     SourceColumnType,
     SourceSchema,
     StripeJobInputs,
 )
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.warehouse.data_load.service import ExternalDataJobInputs
-from posthog.warehouse.data_load.stripe import ENDPOINTS
 from posthog.warehouse.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -99,11 +99,11 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
     inputs = ExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
     with mock.patch(
-        "posthog.warehouse.data_load.pipeline.create_pipeline",
+        "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
     ) as mock_create_pipeline, mock.patch(
-        "posthog.warehouse.data_load.pipeline.stripe_source",
+        "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.stripe_source",
     ) as mock_run_stripe, mock.patch(
-        "posthog.warehouse.data_load.pipeline.get_schema",
+        "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.get_schema",
     ) as mock_data_tables:
         mock_data_tables.return_value = [
             SourceSchema(
@@ -315,15 +315,15 @@ async def test_external_data_job_workflow(team):
     ):
         # TODO: don't need to test all the activities here, just the workflow
         with mock.patch(
-            "posthog.warehouse.data_load.pipeline.create_pipeline",
+            "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
         ) as mock_create_pipeline, mock.patch(
-            "posthog.warehouse.data_load.pipeline.stripe_source",
+            "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.stripe_source",
         ) as mock_run_stripe, mock.patch(
-            "posthog.warehouse.data_load.pipeline.get_schema",
+            "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.get_schema",
         ) as mock_data_tables, mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
         ) as mock_get_columns, mock.patch(
-            "posthog.temporal.data_imports.external_data_job.move_draft_to_production"
+            "posthog.warehouse.data_load.sync_table.move_draft_to_production"
         ) as mock_move_draft_to_production, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
             mock_get_columns.return_value = {"id": "string"}
             mock_data_tables.return_value = [
