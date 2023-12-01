@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.external_data_job import ExternalDataJob
 
 logger = structlog.get_logger(__name__)
 
@@ -18,20 +18,20 @@ class SchemaValidationError(Exception):
 
 
 # TODO: make async
-def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
-    resource = ExternalDataSource.objects.get(pk=external_data_source_id)
+def is_schema_valid(run_id: str, create: bool = False) -> bool:
+    job = ExternalDataJob.objects.get(pk=run_id)
     credential, _ = DataWarehouseCredential.objects.get_or_create(
-        team_id=resource.team_id,
+        team_id=job.team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[resource.source_type]
+    source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[job.pipeline.source_type]
 
     for schema_name in source_schemas:
-        table_name = f"{resource.prefix or ''}{resource.source_type}_{schema_name}".lower()
+        table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{schema_name}".lower()
 
-        folder_path = resource.folder_path if create else resource.draft_folder_path
+        folder_path = job.folder_path if create else job.draft_folder_path
         url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{folder_path}/{schema_name.lower()}/*.parquet"
 
         data = {
@@ -39,13 +39,13 @@ def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
             "name": table_name,
             "format": "Parquet",
             "url_pattern": url_pattern,
-            "team_id": resource.team_id,
+            "team_id": job.team_id,
         }
 
         if create:
             exists = (
                 DataWarehouseTable.objects.filter(
-                    team_id=resource.team_id, external_data_source_id=resource.id, url_pattern=url_pattern
+                    team_id=job.team_id, external_data_source_id=job.pipeline.id, url_pattern=url_pattern
                 )
                 .filter(Q(deleted=False) | Q(deleted__isnull=True))
                 .exists()
@@ -53,10 +53,10 @@ def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
 
             if exists:
                 table = DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
-                    team_id=resource.team_id, external_data_source_id=resource.id, url_pattern=url_pattern
+                    team_id=job.team_id, external_data_source_id=job.pipeline.id, url_pattern=url_pattern
                 )
             else:
-                table = DataWarehouseTable.objects.create(external_data_source_id=resource.id, **data)
+                table = DataWarehouseTable.objects.create(external_data_source_id=job.pipeline.id, **data)
         else:
             table = DataWarehouseTable(**data)
 
@@ -64,7 +64,7 @@ def is_schema_valid(external_data_source_id: str, create: bool = False) -> bool:
             table.columns = table.get_columns()
         except Exception as e:
             logger.exception(
-                f"Data Warehouse: Sync Resource failed with an unexpected exception for connection: {resource.pk}",
+                f"Data Warehouse: Sync Resource failed with an unexpected exception for connection: {job.pipeline.pk}",
                 exc_info=e,
             )
             raise SchemaValidationError()
@@ -80,8 +80,8 @@ def get_s3fs():
 
 
 # TODO: Make this a proper async function with boto3...
-def move_draft_to_production(team_id: int, external_data_source_id: str):
-    model = ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
+def move_draft_to_production(team_id: int, run_id: str):
+    model = ExternalDataJob.objects.get(team_id=team_id, id=run_id)
     bucket_name = settings.BUCKET_URL
     s3 = get_s3fs()
     try:

@@ -22,7 +22,7 @@ import asyncio
 
 @dataclass
 class PipelineInputs:
-    source_id: str
+    run_id: str
     dataset_name: str
     job_type: str
     team_id: int
@@ -49,8 +49,8 @@ class StripeJobInputs(PipelineInputs):
 
 
 def create_pipeline(inputs: PipelineInputs):
-    pipeline_name = f"{inputs.job_type}_pipeline_{inputs.team_id}_source_{inputs.source_id}"
-    pipelines_dir = f"{os.getcwd()}/.dlt/{inputs.team_id}/{inputs.source_id}/{inputs.job_type}"
+    pipeline_name = f"{inputs.job_type}_pipeline_{inputs.team_id}_run_{inputs.run_id}"
+    pipelines_dir = f"{os.getcwd()}/.dlt/{inputs.team_id}/{inputs.run_id}/{inputs.job_type}"
     return dlt.pipeline(
         pipeline_name=pipeline_name,
         pipelines_dir=pipelines_dir,  # workers can be created and destroyed so it doesn't matter where the metadata gets put temporarily

@@ -8,6 +8,10 @@ def get_external_data_source(team_id: str, external_data_source_id: str) -> Exte
     return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
 
 
+def get_external_data_job(team_id: str, run_id: str) -> ExternalDataJob:
+    return ExternalDataJob.objects.prefetch_related("pipeline").get(id=run_id, team_id=team_id)
+
+
 def create_external_data_job(external_data_source_id: str, team_id: str) -> ExternalDataJob:
     job = ExternalDataJob.objects.create(
         team_id=team_id, pipeline_id=external_data_source_id, status=ExternalDataJob.Status.RUNNING, rows_synced=0

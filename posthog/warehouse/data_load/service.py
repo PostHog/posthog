@@ -21,7 +21,7 @@ from posthog.temporal.common.schedule import (
     delete_schedule,
 )
 from posthog.temporal.data_imports.external_data_job import (
-    ExternalDataJobInputs,
+    ExternalDataWorkflowInputs,
     ExternalDataJobWorkflow,
 )
 from posthog.warehouse.models import ExternalDataSource
@@ -30,7 +30,7 @@ import temporalio
 
 def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:
     temporal = sync_connect()
-    inputs = ExternalDataJobInputs(
+    inputs = ExternalDataWorkflowInputs(
         team_id=external_data_source.team.id,
         external_data_source_id=external_data_source.pk,
     )

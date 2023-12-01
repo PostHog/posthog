@@ -16,11 +16,10 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
 from posthog.warehouse.data_load.sync_table import SchemaValidationError, is_schema_valid, move_draft_to_production
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
-    get_external_data_source,
+    get_external_data_job,
     update_external_job_status,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -70,7 +69,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 @dataclasses.dataclass
 class ValidateSchemaInputs:
-    external_data_source_id: str
+    run_id: str
     create: bool
     team_id: int
 
@@ -78,13 +77,13 @@ class ValidateSchemaInputs:
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
     is_valid = await sync_to_async(is_schema_valid)(  # type: ignore
-        external_data_source_id=inputs.external_data_source_id,
+        run_id=inputs.run_id,
         create=inputs.create,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
-        f"Validated schema for external data source {inputs.external_data_source_id}",
+        f"Validated schema for external data job {inputs.run_id}",
     )
 
     return is_valid
@@ -93,43 +92,49 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
 @dataclasses.dataclass
 class MoveDraftToProductionExternalDataJobInputs:
     team_id: int
-    external_data_source_id: str
+    run_id: str
 
 
 @activity.defn
 async def move_draft_to_production_activity(inputs: MoveDraftToProductionExternalDataJobInputs) -> None:
     await sync_to_async(move_draft_to_production)(  # type: ignore
         team_id=inputs.team_id,
-        external_data_source_id=inputs.external_data_source_id,
+        run_id=inputs.run_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
-        f"Moved draft to production for external data source {inputs.external_data_source_id}",
+        f"Moved draft to production for external data job {inputs.run_id}",
     )
+
+
+@dataclasses.dataclass
+class ExternalDataWorkflowInputs:
+    team_id: int
+    external_data_source_id: str
 
 
 @dataclasses.dataclass
 class ExternalDataJobInputs:
     team_id: int
-    external_data_source_id: str
+    run_id: str
 
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataSource = await sync_to_async(get_external_data_source)(  # type: ignore
+    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
         team_id=inputs.team_id,
-        external_data_source_id=inputs.external_data_source_id,
+        run_id=inputs.run_id,
     )
 
-    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
-        source_id=inputs.external_data_source_id,
+    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.pipeline.source_type](
+        run_id=inputs.run_id,
         team_id=inputs.team_id,
-        job_type=model.source_type,
+        job_type=model.pipeline.source_type,
         dataset_name=model.draft_folder_path,
-        **model.job_inputs,
+        **model.pipeline.job_inputs,
     )
-    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
+    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.pipeline.source_type]
 
     await job_fn(job_inputs)
 
@@ -138,12 +143,12 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> ExternalDataJobInputs:
+    def parse_inputs(inputs: list[str]) -> ExternalDataWorkflowInputs:
         loaded = json.loads(inputs[0])
-        return ExternalDataJobInputs(**loaded)
+        return ExternalDataWorkflowInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: ExternalDataJobInputs):
+    async def run(self, inputs: ExternalDataWorkflowInputs):
         logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
         # create external data job and trigger activity
@@ -169,19 +174,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         try:
+            job_inputs = ExternalDataJobInputs(
+                team_id=inputs.team_id,
+                run_id=run_id,
+            )
+
             # TODO: can make this a child workflow for separate worker pool
             await workflow.execute_activity(
                 run_external_data_job,
-                inputs,
+                job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=60),
-                retry_policy=RetryPolicy(maximum_attempts=10),
+                retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(seconds=20),
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(
-                external_data_source_id=inputs.external_data_source_id, create=False, team_id=inputs.team_id
-            )
+            validate_inputs = ValidateSchemaInputs(run_id=run_id, create=False, team_id=inputs.team_id)
 
             await workflow.execute_activity(
                 validate_schema_activity,
@@ -192,7 +200,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             move_inputs = MoveDraftToProductionExternalDataJobInputs(
                 team_id=inputs.team_id,
-                external_data_source_id=inputs.external_data_source_id,
+                run_id=run_id,
             )
 
             await workflow.execute_activity(
