@@ -85,46 +85,40 @@ pub struct Job<J> {
 }
 
 impl<J> Job<J> {
+    /// Consume Job to retry it.
+    /// This returns a RetryableJob that can be enqueued by PgQueue.
+    ///
+    /// # Arguments
+    ///
+    /// * `error`: Any JSON-serializable value to be stored as an error.
     pub fn retry<E: Serialize>(self, error: E) -> Result<RetryableJob<E>, PgQueueError> {
-        if self.attempt == self.max_attempts {
+        if self.attempt >= self.max_attempts {
             Err(PgQueueError::MaxAttemptsReachedError(self.target))
         } else {
             Ok(RetryableJob {
                 id: self.id,
                 attempt: self.attempt,
-                max_attempts: self.max_attempts,
                 error: sqlx::types::Json(error),
             })
         }
     }
 
+    /// Consume Job to complete it.
+    /// This returns a CompletedJob that can be enqueued by PgQueue.
     pub fn complete(self) -> CompletedJob {
         CompletedJob { id: self.id }
     }
 
+    /// Consume Job to fail it.
+    /// This returns a FailedJob that can be enqueued by PgQueue.
+    ///
+    /// # Arguments
+    ///
+    /// * `error`: Any JSON-serializable value to be stored as an error.
     pub fn fail<E: Serialize>(self, error: E) -> FailedJob<E> {
         FailedJob {
             id: self.id,
             error: sqlx::types::Json(error),
-        }
-    }
-}
-
-pub struct RetryPolicy {
-    backoff_coefficient: i32,
-    initial_interval: Duration,
-    maximum_interval: Option<Duration>,
-}
-
-impl RetryPolicy {
-    pub fn time_until_next_retry<J>(&self, job: &RetryableJob<J>) -> Duration {
-        let candidate_interval =
-            self.initial_interval * self.backoff_coefficient.pow(job.attempt as u32);
-
-        if let Some(max_interval) = self.maximum_interval {
-            std::cmp::min(candidate_interval, max_interval)
-        } else {
-            candidate_interval
         }
     }
 }
@@ -139,19 +133,28 @@ impl Default for RetryPolicy {
     }
 }
 
+/// A Job that has failed but can still be enqueued into a PgQueue to be retried at a later point.
+/// The time until retry will depend on the PgQueue's RetryPolicy.
 pub struct RetryableJob<J> {
+    /// A unique id identifying a job.
     pub id: i64,
+    /// A number corresponding to the current job attempt.
     pub attempt: i32,
-    pub max_attempts: i32,
+    /// Any JSON-serializable value to be stored as an error.
     pub error: sqlx::types::Json<J>,
 }
 
+/// A Job that has completed to be enqueued into a PgQueue and marked as completed.
 pub struct CompletedJob {
+    /// A unique id identifying a job.
     pub id: i64,
 }
 
+/// A Job that has failed to be enqueued into a PgQueue and marked as failed.
 pub struct FailedJob<J> {
+    /// A unique id identifying a job.
     pub id: i64,
+    /// Any JSON-serializable value to be stored as an error.
     pub error: sqlx::types::Json<J>,
 }
 
@@ -171,6 +174,30 @@ impl<J> NewJob<J> {
             max_attempts,
             parameters: sqlx::types::Json(parameters),
             target: target.to_owned(),
+        }
+    }
+}
+
+/// The retry policy that PgQueue will use to determine how to set scheduled_at when enqueuing a retry.
+pub struct RetryPolicy {
+    /// Coeficient to multiply initial_interval with for every past attempt.
+    backoff_coefficient: i32,
+    /// The backoff interval for the first retry.
+    initial_interval: Duration,
+    /// The maximum possible backoff between retries.
+    maximum_interval: Option<Duration>,
+}
+
+impl RetryPolicy {
+    /// Calculate the time until the next retry for a given RetryableJob.
+    pub fn time_until_next_retry<J>(&self, job: &RetryableJob<J>) -> Duration {
+        let candidate_interval =
+            self.initial_interval * self.backoff_coefficient.pow(job.attempt as u32);
+
+        if let Some(max_interval) = self.maximum_interval {
+            std::cmp::min(candidate_interval, max_interval)
+        } else {
+            candidate_interval
         }
     }
 }
