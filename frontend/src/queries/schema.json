@@ -505,6 +505,41 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "chartSettings": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "xAxisIndex": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "yAxisIndex": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "kind": {
+                    "const": "DataVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1934,6 +1969,7 @@
                 "PersonsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
+                "DataVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -2377,6 +2413,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/AnyDataNode"
+                },
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"

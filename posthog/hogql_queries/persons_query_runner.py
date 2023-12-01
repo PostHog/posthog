@@ -119,10 +119,7 @@ class PersonsQueryRunner(QueryRunner):
                 elif expr == "person":
                     tuple_exprs = []
                     for field in PERSON_FULL_TUPLE:
-                        if field == "distinct_ids":
-                            column = parse_expr("'id'")
-                        else:
-                            column = ast.Field(chain=[field])
+                        column = ast.Field(chain=[field])
                         tuple_exprs.append(column)
                         if has_aggregation(column):
                             aggregations.append(column)

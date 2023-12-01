@@ -24,10 +24,11 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
     const {
@@ -287,32 +288,6 @@ export function Transformations(): JSX.Element {
                 </>
             )}
         </>
-    )
-}
-
-type RenderAppProps = {
-    plugin: PluginType
-}
-
-function RenderApp({ plugin }: RenderAppProps): JSX.Element {
-    return (
-        <div className="flex items-center gap-4">
-            <Tooltip
-                title={
-                    <>
-                        {plugin.name}
-                        <br />
-                        {plugin.description}
-                        <br />
-                        Click to view app source code
-                    </>
-                }
-            >
-                <Link to={plugin.url} target="_blank">
-                    <PluginImage plugin={plugin} />
-                </Link>
-            </Tooltip>
-        </div>
     )
 }
 
