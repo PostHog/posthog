@@ -12,6 +12,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
         toggleSearchBar: true,
         toggleActionsBar: true,
         toggleShortcutOverview: true,
+        clearInitialQuery: true,
     }),
     reducers({
         barStatus: [
@@ -31,6 +32,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
             null as string | null,
             {
                 setCommandBar: (_, { initialQuery }) => initialQuery || null,
+                clearInitialQuery: () => null,
             },
         ],
     }),
