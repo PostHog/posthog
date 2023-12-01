@@ -741,10 +741,18 @@ export class DeferredPersonOverrideWriter {
         return []
     }
 
-    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper): Promise<void> {
+    /**
+     * Process all pending overrides. An advisory lock is acquired prior to
+     * processing to ensure that this function has exclusive access to the
+     * pending overrides during the update process.
+     *
+     * @param kafkaProducer
+     * @returns the number of overrides processed
+     */
+    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper): Promise<number> {
         const writer = new PersonOverrideWriter(this.postgres)
 
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
+        return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
             const {
                 rows: [{ acquired }],
             } = await this.postgres.query(
@@ -776,6 +784,8 @@ export class DeferredPersonOverrideWriter {
             }
 
             await kafkaProducer.queueMessages(messages, true)
+
+            return rows.length
         })
     }
 }

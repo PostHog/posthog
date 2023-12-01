@@ -2190,6 +2190,6 @@ describe('DeferredPersonOverrideWriter', () => {
         }
 
         expect(acquiredLock!).toBe(false)
-        await expect(writer.processPendingOverrides(kafkaProducer)).resolves.not.toThrow()
+        await expect(writer.processPendingOverrides(kafkaProducer)).resolves.toEqual(0)
     })
 })
