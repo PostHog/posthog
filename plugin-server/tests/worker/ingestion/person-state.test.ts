@@ -14,6 +14,7 @@ import {
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
+import { WaitEvent } from '../../helpers/promises'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
 jest.setTimeout(5000) // 5 sec timeout
@@ -2137,5 +2138,58 @@ describe('PersonState.update()', () => {
             date = DateTime.fromMillis(0)
             expect(ageInMonthsLowCardinality(date)).toEqual(50)
         })
+    })
+})
+
+describe('DeferredPersonOverrideWriter', () => {
+    let hub: Hub
+    let closeHub: () => Promise<void>
+
+    const lockId = 456
+    let writer: DeferredPersonOverrideWriter
+
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub({})
+        writer = new DeferredPersonOverrideWriter(hub.db.postgres, lockId)
+    })
+
+    afterAll(async () => {
+        await closeHub()
+    })
+
+    it('ensures advisory lock is held before processing', async () => {
+        const { postgres, kafkaProducer } = hub.db
+
+        let acquiredLock: boolean
+        const tryLockComplete = new WaitEvent()
+        const readyToReleaseLock = new WaitEvent()
+
+        const transactionHolder = postgres
+            .transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+                const { rows } = await postgres.query(
+                    tx,
+                    `SELECT pg_try_advisory_lock(${lockId}) as acquired, pg_backend_pid()`,
+                    undefined,
+                    ''
+                )
+                ;[{ acquired: acquiredLock }] = rows
+                tryLockComplete.set()
+                await readyToReleaseLock.wait()
+            })
+            .then(() => {
+                acquiredLock = false
+            })
+
+        try {
+            await tryLockComplete.wait()
+            expect(acquiredLock!).toBe(true)
+            await expect(writer.processPendingOverrides(kafkaProducer)).rejects.toThrow(Error('could not acquire lock'))
+        } finally {
+            readyToReleaseLock.set()
+            await transactionHolder
+        }
+
+        expect(acquiredLock!).toBe(false)
+        await expect(writer.processPendingOverrides(kafkaProducer)).resolves.not.toThrow()
     })
 })

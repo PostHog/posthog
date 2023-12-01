@@ -14,7 +14,7 @@ export function createPromise<T = void>(): MockPromise<T> {
     return result as MockPromise<T>
 }
 
-export class Event {
+export class WaitEvent {
     private promise: Promise<void>
     private resolve: () => void
 
