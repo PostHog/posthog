@@ -59,7 +59,7 @@ class RetentionQueryRunner(QueryRunner):
         }
         self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
 
-    def retention_events_query(self):
+    def retention_events_query(self) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
@@ -163,7 +163,7 @@ class RetentionQueryRunner(QueryRunner):
             right=ast.Constant(value=PAGEVIEW_EVENT),
         )
 
-    def date_filter_expr(self):
+    def date_filter_expr(self) -> ast.Expr:
         field_to_compare = (
             ast.Field(chain=["event_date"])
             if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -184,7 +184,7 @@ class RetentionQueryRunner(QueryRunner):
             ]
         )
 
-    def build_target_event_query(self):
+    def build_target_event_query(self) -> ast.SelectQuery:
         self.event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
             if self.query.retentionFilter.retention_type == RetentionType.retention_first_time
@@ -192,7 +192,7 @@ class RetentionQueryRunner(QueryRunner):
         )
         return self.retention_events_query()
 
-    def build_returning_event_query(self):
+    def build_returning_event_query(self) -> ast.SelectQuery:
         self.event_query_type = RetentionQueryType.RETURNING
         return self.retention_events_query()
 
@@ -267,7 +267,7 @@ class RetentionQueryRunner(QueryRunner):
         return retention_query
 
     @cached_property
-    def query_date_range(self):
+    def query_date_range(self) -> QueryDateRangeWithIntervals:
         total_intervals = self.query.retentionFilter.total_intervals or DEFAULT_TOTAL_INTERVALS
         interval = (
             IntervalType(self.query.retentionFilter.period.lower())
