@@ -71,6 +71,9 @@ async def stripe_get_data(
 
     _resource = getattr(stripe, resource)
     resource_dict = await sync_to_async(_resource.list)(
-        api_key=api_key, created={"gte": start_date, "lt": end_date}, limit=100, **kwargs
+        api_key=api_key,
+        created={"gte": start_date, "lt": end_date},
+        limit=100,
+        **kwargs,  # type: ignore
     )
     return dict(resource_dict)

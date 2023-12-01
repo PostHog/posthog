@@ -32,7 +32,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_rows_exported_metric,
 )
 from posthog.temporal.common.utils import (
-    HeartbeatDetails,
+    BatchExportHeartbeatDetails,
     HeartbeatParseError,
     NotEnoughHeartbeatValuesError,
     should_resume_from_activity_heartbeat,
@@ -58,7 +58,7 @@ class SnowflakeFileNotLoadedError(Exception):
 
 
 @dataclasses.dataclass
-class SnowflakeHeartbeatDetails(HeartbeatDetails):
+class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat.
 
     Attributes:

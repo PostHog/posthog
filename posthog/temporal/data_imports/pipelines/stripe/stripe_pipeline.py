@@ -65,13 +65,13 @@ def create_pipeline(inputs: PipelineInputs):
 
 # a temporal activity
 async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
-    ordered_endpoints = ENDPOINTS
+    ordered_endpoints = list(ENDPOINTS)
 
     # basic logger for now
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     should_resume, details = await should_resume_from_activity_heartbeat(activity, DataImportHeartbeatDetails, logger)
 
-    if should_resume:
+    if should_resume and details:
         ordered_endpoints = ordered_endpoints[ordered_endpoints.index(details.endpoint) :]
         logger.info(f"Resuming from {details.endpoint} with cursor {details.cursor}")
 
@@ -86,7 +86,7 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
     asyncio.create_task(worker_shutdown_handler())
 
     for endpoint in ordered_endpoints:
-        if should_resume and endpoint == details.endpoint:
+        if should_resume and details and endpoint == details.endpoint:
             starting_after = details.cursor
         else:
             starting_after = None

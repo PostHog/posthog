@@ -98,7 +98,14 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
-    inputs = ExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
+    inputs = ExternalDataJobInputs(team_id=team.id, run_id=new_job.pk)
 
     with mock.patch(
         "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
@@ -116,11 +123,11 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
 
         mock_create_pipeline.assert_called_with(
             StripeJobInputs(
+                run_id=new_job.pk,
                 job_type="Stripe",
                 team_id=team.id,
                 stripe_secret_key="test-key",
                 dataset_name=new_source.draft_folder_path,
-                source_id=new_source.pk,
             )
         )
 
@@ -138,6 +145,13 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
@@ -145,7 +159,7 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
         await activity_environment.run(
             validate_schema_activity,
             ValidateSchemaInputs(
-                external_data_source_id=new_source.pk,
+                run_id=new_job.pk,
                 create=False,
                 team_id=team.id,
             ),
@@ -167,6 +181,13 @@ async def test_is_schema_valid_activity_failed(activity_environment, team, **kwa
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
@@ -177,7 +198,7 @@ async def test_is_schema_valid_activity_failed(activity_environment, team, **kwa
             await activity_environment.run(
                 validate_schema_activity,
                 ValidateSchemaInputs(
-                    external_data_source_id=new_source.pk,
+                    run_id=new_job.pk,
                     create=False,
                     team_id=team.id,
                 ),
@@ -199,6 +220,13 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
@@ -206,7 +234,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         await activity_environment.run(
             validate_schema_activity,
             ValidateSchemaInputs(
-                external_data_source_id=new_source.pk,
+                run_id=new_job.pk,
                 create=True,
                 team_id=team.id,
             ),
@@ -221,7 +249,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         await activity_environment.run(
             validate_schema_activity,
             ValidateSchemaInputs(
-                external_data_source_id=new_source.pk,
+                run_id=new_job.pk,
                 create=True,
                 team_id=team.id,
             ),

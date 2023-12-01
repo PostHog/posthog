@@ -29,7 +29,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_rows_exported_metric,
 )
 from posthog.temporal.common.utils import (
-    HeartbeatDetails,
+    BatchExportHeartbeatDetails,
     should_resume_from_activity_heartbeat,
 )
 
@@ -63,7 +63,7 @@ async def create_table_in_bigquery(
 
 
 @dataclasses.dataclass
-class BigQueryHeartbeatDetails(HeartbeatDetails):
+class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
 
     pass
