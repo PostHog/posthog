@@ -16,9 +16,9 @@ export const scene: SceneExport = {
 }
 
 const StatusTagSetting = {
-    running: 'default',
-    succeeded: 'primary',
-    error: 'danger',
+    Running: 'primary',
+    Completed: 'success',
+    Error: 'danger',
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
@@ -66,7 +66,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     {
                         title: 'Source Type',
                         key: 'name',
-                        width: 0,
                         render: function RenderName(_, source) {
                             return source.source_type
                         },
@@ -74,11 +73,17 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
-                        width: 0,
                         render: function RenderStatus(_, source) {
                             return (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
+                        },
+                    },
+                    {
+                        title: 'Table Prefix',
+                        key: 'prefix',
+                        render: function RenderPrefix(_, source) {
+                            return source.prefix
                         },
                     },
                     {

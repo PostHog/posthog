@@ -3303,6 +3303,7 @@ export interface ExternalDataStripeSource {
     connection_id: string
     status: string
     source_type: string
+    prefix: string
 }
 
 export type BatchExportDestinationS3 = {
