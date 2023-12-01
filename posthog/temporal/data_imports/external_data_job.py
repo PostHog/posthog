@@ -184,9 +184,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=60),
-                retry_policy=RetryPolicy(maximum_attempts=5),
-                heartbeat_timeout=dt.timedelta(seconds=20),
+                start_to_close_timeout=dt.timedelta(minutes=120),
+                retry_policy=RetryPolicy(maximum_attempts=10),
+                heartbeat_timeout=dt.timedelta(seconds=60),
             )
 
             # check schema first
