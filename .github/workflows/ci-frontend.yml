@@ -119,7 +119,7 @@ jobs:
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
-                  minimum-change-threshold: 1000
+                  minimum-change-threshold: '1000'
 
     jest:
         runs-on: ubuntu-latest
