@@ -18,7 +18,7 @@ from posthog.temporal.data_imports.external_data_job import (
 from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     StripeJobInputs,
 )
-from posthog.warehouse.data_load.service import ExternalDataJobInputs
+from posthog.temporal.data_imports.external_data_job import ExternalDataJobInputs
 from posthog.warehouse.models import (
     DataWarehouseTable,
     ExternalDataJob,
