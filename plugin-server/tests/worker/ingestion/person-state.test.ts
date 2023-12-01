@@ -2145,16 +2145,76 @@ describe('DeferredPersonOverrideWriter', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
+    // not always used, but used more often then not
+    let organizationId: string
+    let teamId: number
+
     const lockId = 456
     let writer: DeferredPersonOverrideWriter
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
+        organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres, lockId)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'TRUNCATE TABLE posthog_pendingpersonoverride',
+            undefined,
+            ''
+        )
     })
 
     afterAll(async () => {
         await closeHub()
+    })
+
+    it('moves overrides from the pending table to the overrides table', async () => {
+        const { postgres, kafkaProducer } = hub.db
+
+        const override = {
+            old_person_id: new UUIDT().toString(),
+            override_person_id: new UUIDT().toString(),
+        }
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
+        })
+
+        expect(
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `SELECT old_person_id, override_person_id
+                FROM posthog_pendingpersonoverride
+                WHERE team_id = ${teamId}`,
+                undefined,
+                ''
+            )
+        ).toMatchObject({
+            rows: [override],
+        })
+
+        expect(await writer.processPendingOverrides(kafkaProducer)).toEqual(1)
+
+        expect(
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `SELECT old_person_id, override_person_id
+                FROM posthog_pendingpersonoverride
+                WHERE team_id = ${teamId}`,
+                undefined,
+                ''
+            )
+        ).toMatchObject({ rows: [] })
+
+        expect(await fetchPostgresPersonIdOverrides(hub, teamId)).toEqual([
+            [override.old_person_id, override.override_person_id],
+        ])
+
+        // TODO would also be good to check that this produces to kafka and/or clickhouse
     })
 
     it('ensures advisory lock is held before processing', async () => {
