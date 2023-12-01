@@ -16,7 +16,7 @@ export const Chart = (): JSX.Element => {
                     <ChartSelection />
                 </div>
             )}
-            <div className="w-full">
+            <div className="w-full overflow-auto">
                 <LineGraph />
             </div>
         </div>
