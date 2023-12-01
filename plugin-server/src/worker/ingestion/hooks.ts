@@ -319,10 +319,6 @@ export class HookCommander {
                     await Promise.all(restHookRequests).catch((error) =>
                         captureException(error, { tags: { team_id: event.teamId } })
                     )
-
-                    this.statsd?.increment('zapier_hooks_fired', {
-                        team_id: String(team.id),
-                    })
                 }
             })
         }
@@ -397,9 +393,6 @@ export class HookCommander {
                         successes: 1,
                     })
                 }
-            })
-            this.statsd?.increment('webhook_firings', {
-                team_id: event.teamId.toString(),
             })
         } catch (error) {
             await this.appMetrics.queueError(
@@ -478,7 +471,6 @@ export class HookCommander {
                     successes: 1,
                 })
             }
-            this.statsd?.increment('rest_hook_firings')
         } catch (error) {
             await this.appMetrics.queueError(
                 {

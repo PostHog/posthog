@@ -16,6 +16,7 @@ import { instrument } from '../../utils/metrics'
 import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
+import { graphileEnqueueJobCounter } from './metrics'
 
 export interface InstrumentationContext {
     key: string
@@ -80,10 +81,7 @@ export class GraphileWorker {
             enqueueFn = () =>
                 runRetriableFunction({
                     hub: this.hub,
-                    metricName: 'job_queues_enqueue',
-                    metricTags: {
-                        jobName,
-                    },
+                    metricName: `job_queues_enqueue_${jobName}`,
                     maxAttempts: 10,
                     retryBaseMs: 6000,
                     retryMultiplier: 2,
@@ -110,8 +108,10 @@ export class GraphileWorker {
         try {
             await this.addJob(jobName, job)
             this.hub.statsd?.increment('enqueue_job.success', { jobName })
+            graphileEnqueueJobCounter.labels({ status: 'success', job: jobName }).inc()
         } catch (error) {
             this.hub.statsd?.increment('enqueue_job.fail', { jobName })
+            graphileEnqueueJobCounter.labels({ status: 'fail', job: jobName }).inc()
             throw error
         }
     }

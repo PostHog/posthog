@@ -1,6 +1,5 @@
 import {
     IconApps,
-    IconAsterisk,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -9,6 +8,7 @@ import {
     IconDatabase,
     IconDay,
     IconExternal,
+    IconEye,
     IconFunnels,
     IconGear,
     IconGithub,
@@ -16,6 +16,7 @@ import {
     IconHogQL,
     IconHome,
     IconKeyboard,
+    IconLaptop,
     IconLeave,
     IconLifecycle,
     IconList,
@@ -45,6 +46,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
@@ -57,12 +59,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 
@@ -134,8 +135,26 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push'], themeLogic, ['overrideTheme']],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        actions: [
+            personalAPIKeysLogic,
+            ['createKey'],
+            router,
+            ['push'],
+            userLogic,
+            ['updateUser'],
+            hedgehogbuddyLogic,
+            ['setHedgehogModeEnabled'],
+        ],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            hedgehogbuddyLogic,
+            ['hedgehogModeEnabled'],
+        ],
         logic: [preflightLogic],
     }),
     actions({
@@ -509,7 +528,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL[InsightType.SQL])
+                            push(insightTypeURL(Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ]))[InsightType.SQL])
                         },
                     },
                     {
@@ -871,7 +890,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'toggle-theme',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: ThemeIcon,
+                    icon: IconEye,
                     display: 'Switch theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
@@ -879,27 +898,40 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: [
                             {
                                 icon: IconDay,
-                                display: 'Light theme',
+                                display: 'Light mode',
                                 executor: () => {
-                                    actions.overrideTheme(false)
+                                    actions.updateUser({ theme_mode: 'light' })
                                 },
                             },
                             {
                                 icon: IconNight,
-                                display: 'Dark theme',
+                                display: 'Dark mode',
                                 executor: () => {
-                                    actions.overrideTheme(true)
+                                    actions.updateUser({ theme_mode: 'dark' })
                                 },
                             },
                             {
-                                icon: IconAsterisk,
-                                display: 'Sync with system settings',
+                                icon: IconLaptop,
+                                display: 'Sync with system preferences',
                                 executor: () => {
-                                    actions.overrideTheme(null)
+                                    actions.updateUser({ theme_mode: null })
                                 },
                             },
                         ],
                     }),
+                },
+            }
+
+            const toggleHedgehogMode: Command = {
+                key: 'toggle-hedgehog-mode',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconFlare,
+                    display: `${values.hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
+                    synonyms: ['buddy', 'toggle', 'max'],
+                    executor: () => {
+                        actions.setHedgehogModeEnabled(!values.hedgehogModeEnabled)
+                    },
                 },
             }
 
@@ -913,6 +945,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(debugCopySessionRecordingURL)
             if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 actions.registerCommand(toggleTheme)
+                actions.registerCommand(toggleHedgehogMode)
             }
         },
         beforeUnmount: () => {
@@ -925,6 +958,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
             actions.deregisterCommand('toggle-theme')
+            actions.deregisterCommand('toggle-hedgehog-mode')
         },
     })),
 ])
