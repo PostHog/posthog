@@ -751,17 +751,18 @@ export class DeferredPersonOverrideWriter {
                 undefined,
                 'processPendingOverrides'
             )
-            const results = rows.map(async ({ id, ...mergeOperation }) => {
-                const messages = await writer.addPersonOverride(tx, mergeOperation)
+
+            const messages: ProducerRecord[] = []
+            for (const { id, ...mergeOperation } of rows) {
+                messages.push(...(await writer.addPersonOverride(tx, mergeOperation)))
                 await this.postgres.query(
                     tx,
                     SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
                     undefined,
                     'processPendingOverrides'
                 )
-                return messages
-            })
-            const messages = (await Promise.all(results)).flat()
+            }
+
             await kafkaProducer.queueMessages(messages, true)
         })
     }
