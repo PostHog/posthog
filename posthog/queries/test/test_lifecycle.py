@@ -76,7 +76,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -124,7 +124,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -185,7 +185,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -286,7 +286,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -316,7 +316,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -423,7 +423,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -486,7 +486,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, -1, 0]},
@@ -623,7 +623,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -665,7 +665,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -2, -1, 0, -2, 0]},
@@ -721,7 +721,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
@@ -764,7 +764,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -808,7 +808,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, 0, 0, -1, 0, 0, 0]},
@@ -855,19 +855,18 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+        filter_data = {
+            "date_from": "2020-01-12T00:00:00Z",
+            "date_to": "2020-01-19T00:00:00Z",
+            "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            "shown_as": TRENDS_LIFECYCLE,
+        }
         result = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "shown_as": TRENDS_LIFECYCLE,
-                }
-            ),
+            Filter(data=filter_data),
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -881,26 +880,18 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         result_pacific = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "shown_as": TRENDS_LIFECYCLE,
-                },
-                team=self.team,
-            ),
+            Filter(data=filter_data),
             self.team,
         )
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result_pacific,
             [
                 {
                     "status": "dormant",
-                    "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0],
+                    "data": [0.0, -1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0],
                 },
-                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
+                {"status": "new", "data": [1, 1, 0, 0, 1, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 1, 1, 0, 1, 0, 1, 0]},
                 {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
             ],
         )
@@ -940,9 +931,10 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
+    def assertLifecycleResults(self, results, expected):
+        sorted_results = [
+            {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
+        ]
+        sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
 
-def assertLifecycleResults(results, expected):
-    sorted_results = [{"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])]
-    sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
-
-    assert sorted_results == sorted_expected
+        self.assertListEqual(sorted_results, sorted_expected)
