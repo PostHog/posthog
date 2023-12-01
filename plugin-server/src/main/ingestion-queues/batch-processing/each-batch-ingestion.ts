@@ -13,6 +13,8 @@ import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-c
 import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
+    ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingInputLengthSummary,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -117,9 +119,11 @@ export async function eachBatchParallelIngestion(
         const splitBatch = splitIngestionBatch(tokenBlockList, messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
+        ingestEventBatchingInputLengthSummary.observe(messages.length)
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', messages.length, {
             key: metricKey,
         })
+        ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
             key: metricKey,
         })
@@ -241,7 +245,6 @@ export async function eachBatchParallelIngestion(
             }ms (${loggingKey})`
         )
     } finally {
-        queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
@@ -251,18 +254,8 @@ async function ingestEvent(
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<EventPipelineResult> {
-    const eachEventStartTimer = new Date()
-
     checkAndPause?.()
-
-    server.statsd?.increment('kafka_queue_ingest_event_hit', {
-        pipeline: 'runEventPipeline',
-    })
-
     const result = await runEventPipeline(server, event)
-
-    server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-
     return result
 }
 
