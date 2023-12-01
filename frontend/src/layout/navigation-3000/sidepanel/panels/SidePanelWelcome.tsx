@@ -1,6 +1,6 @@
 import './SidePanelWelcome.scss'
 
-import { IconArrowLeft, IconX } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -12,6 +12,7 @@ import featureNavDark from 'public/3000/3000-nav-dark.png'
 import featureNotebooks from 'public/3000/3000-notebooks.png'
 import featureNotebooksDark from 'public/3000/3000-notebooks-dark.png'
 import featureSearch from 'public/3000/3000-search.png'
+import featureSearchDark from 'public/3000/3000-search-dark.png'
 import featureSidePanel from 'public/3000/3000-side-panel.png'
 import featureSidePanelDark from 'public/3000/3000-side-panel-dark.png'
 import featureToolbar from 'public/3000/3000-toolbar.png'
@@ -37,13 +38,14 @@ const Row = ({ className, columns, children }: RowProps): JSX.Element => (
 type CardProps = {
     width?: string
     children: React.ReactNode
+    className?: string
 }
 
-const Card = ({ width, children }: CardProps): JSX.Element => (
+const Card = ({ width, children, className }: CardProps): JSX.Element => (
     <div
         className={`welcome-card bg-accent-3000 border rounded-md px-4 py-3 w-full overflow-hidden ${
             width ? width : 'w-full'
-        }`}
+        } ${className}`}
     >
         {children}
     </div>
@@ -90,15 +92,22 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </div>
             </div>
             <div className="flex flex-col m-4 my-6 flex-1">
-                <h1 className="font-bold text-xl mb-4 w-full">
-                    Welcome to
+                <h1 className="font-bold text-xl mb-2 w-full">
+                    👋 Say hello to
                     <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
                 </h1>
-                <p className="max-w-120 text-sm font-medium mb-6">
-                    We're past 0 to 1. In this new version of PostHog, we're going from 1 to 3000.
+                <p className="max-w-120 text-sm font-medium mb-3">
+                    We're past 0 to 1. In this new version of PostHog, we're going from 1 to 3000. (And this is just the
+                    beginning...)
                 </p>
-                <div className="mb-4">
-                    <LemonButton to={blogPostUrl} type="primary" fullWidth={false} style={{ display: 'inline-flex' }}>
+                <div className="mb-6">
+                    <LemonButton
+                        to={blogPostUrl}
+                        targetBlank
+                        type="primary"
+                        fullWidth={false}
+                        style={{ display: 'inline-flex' }}
+                    >
                         Read the blog post
                     </LemonButton>
                 </div>
@@ -108,7 +117,12 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <Title>Dark mode</Title>
                         <Description>Toggle between light, dark, or sync with your system</Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={featureDarkMode} alt="Dark mode" width="100%" />
+                            <img
+                                src={featureDarkMode}
+                                alt="Dark mode"
+                                width="100%"
+                                style={{ borderTopLeftRadius: '0.25rem' }}
+                            />
                         </div>
                     </Card>
                 </Row>
@@ -118,17 +132,26 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <Title>Updated nav</Title>
                         <Description>Products are now split out from project & data.</Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={isDarkModeOn ? featureNavDark : featureNav} alt="Updated nav" width="100%" />
+                            <img
+                                src={isDarkModeOn ? featureNavDark : featureNav}
+                                alt="Updated nav"
+                                width="100%"
+                                style={{ borderTopLeftRadius: '0.25rem' }}
+                            />
                         </div>
                     </Card>
                     <Card>
                         <Title>Notebooks</Title>
-                        <Description>Analyze data from different angles and share results with your team.</Description>
+                        <Description>
+                            Analyze data from different angles and share results with your team - all in a single
+                            document.
+                        </Description>
                         <div className="-mr-4 -mb-3">
                             <img
                                 src={isDarkModeOn ? featureNotebooksDark : featureNotebooks}
-                                alt="Notebooks in sidebar"
+                                alt="Notebooks"
                                 width="100%"
+                                style={{ borderTopLeftRadius: '0.25rem' }}
                             />
                         </div>
                     </Card>
@@ -161,19 +184,27 @@ export const SidePanelWelcome = (): JSX.Element => {
                             Search for anything with <KeyboardShortcut command k />
                         </Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={featureSearch} alt="Improved search" width="100%" />
+                            <img
+                                src={isDarkModeOn ? featureSearchDark : featureSearch}
+                                alt="Improved search"
+                                width="100%"
+                                style={{ borderTopLeftRadius: '0.25rem' }}
+                            />
                         </div>
                     </Card>
-                    <Card>
-                        <Title>Command palette</Title>
-                        <Description>
-                            Use <KeyboardShortcut command shift k /> to navigate faster.
-                        </Description>
-                        <div className="-mr-4 -mb-3">
+                    <Card className="flex flex-col">
+                        <div className="flex-1">
+                            <Title>Command palette</Title>
+                            <Description>
+                                Navigate faster with <KeyboardShortcut command shift k />
+                            </Description>
+                        </div>
+                        <div className="-mr-4 -mb-3 flex-shrink">
                             <img
                                 src={isDarkModeOn ? featureCommandPaletteDark : featureCommandPalette}
                                 alt="Command palette"
                                 width="100%"
+                                style={{ borderTopLeftRadius: '0.25rem' }}
                             />
                         </div>
                     </Card>
@@ -195,7 +226,11 @@ export const SidePanelWelcome = (): JSX.Element => {
                 <div className="flex items-center gap-2 -mb-3">
                     <IconArrowLeft className="w-5 h-5" />
                     <p className="m-0">
-                        <strong>Pro tip:</strong> Access this panel again from here
+                        <strong>Pro tip:</strong> Access this panel again from the{' '}
+                        <span className="w-6 h-6 border p-1 rounded mx-1">
+                            <IconEllipsis className="" />
+                        </span>{' '}
+                        menu
                     </p>
                 </div>
             </div>
