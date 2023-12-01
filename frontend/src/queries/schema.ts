@@ -501,18 +501,15 @@ export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
 
 export type RetentionValue = {
     /** @asType integer */
-    count: number;
-    people: any[];
-    people_url: string; // deprecated
-};
+    count: number
+}
 
 export type RetentionResult = {
-    values: RetentionValue[];
-    label: string;
+    values: RetentionValue[]
+    label: string
     /** @format date-time */
-    date: string;
-    people_url: string; // deprecated
-};
+    date: string
+}
 
 export interface RetentionQueryResponse extends QueryResponse {
     results: RetentionResult[]

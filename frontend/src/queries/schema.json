@@ -2616,9 +2616,6 @@
                 "label": {
                     "type": "string"
                 },
-                "people_url": {
-                    "type": "string"
-                },
                 "values": {
                     "items": {
                         "$ref": "#/definitions/RetentionValue"
@@ -2626,7 +2623,7 @@
                     "type": "array"
                 }
             },
-            "required": ["values", "label", "date", "people_url"],
+            "required": ["values", "label", "date"],
             "type": "object"
         },
         "RetentionType": {
@@ -2638,16 +2635,9 @@
             "properties": {
                 "count": {
                     "type": "integer"
-                },
-                "people": {
-                    "items": {},
-                    "type": "array"
-                },
-                "people_url": {
-                    "type": "string"
                 }
             },
-            "required": ["count", "people", "people_url"],
+            "required": ["count"],
             "type": "object"
         },
         "SavedInsightNode": {

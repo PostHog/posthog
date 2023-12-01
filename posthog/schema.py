@@ -498,8 +498,6 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
-    people: List
-    people_url: str
 
 
 class SessionPropertyFilter(BaseModel):
@@ -938,7 +936,6 @@ class RetentionResult(BaseModel):
     )
     date: datetime
     label: str
-    people_url: str
     values: List[RetentionValue]
 
 

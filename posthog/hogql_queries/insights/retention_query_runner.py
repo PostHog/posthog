@@ -320,8 +320,6 @@ class RetentionQueryRunner(QueryRunner):
         result_dict = {
             (tuple(breakdown_values), intervals_from_base): {
                 "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                "people": [],
-                "people_url": "",  # TODO: URL
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }
@@ -329,7 +327,7 @@ class RetentionQueryRunner(QueryRunner):
         results = [
             {
                 "values": [
-                    result_dict.get(((first_interval,), return_interval), {"count": 0, "people": [], "people_url": ""})
+                    result_dict.get(((first_interval,), return_interval), {"count": 0})
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
@@ -339,7 +337,6 @@ class RetentionQueryRunner(QueryRunner):
                         first_interval, self.query_date_range.interval_name.title()
                     )
                 ),
-                "people_url": "",  # TODO: URL
             }
             for first_interval in range(self.query_date_range.total_intervals)
         ]
