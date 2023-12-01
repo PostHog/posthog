@@ -5,33 +5,48 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
-import { Tab } from './constants'
+import { clickhouseTabs, Tab } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus, PersonResult, SearchResult } from './types'
+import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
 
 const DEBOUNCE_MS = 300
 
-function rankPersons(persons: PersonType[], query: string): PersonResult[] {
-    // We know each person matches the query. To rank them
+function calculateRank(query: string): number {
+    // We know each item matches the query. To rank them
     // between the other results, we rank them higher, when the
     // query is longer.
-    const personsRank = query.length / (query.length + 2.0)
+    return query.length / (query.length + 2.0)
+}
+
+function rankPersons(persons: PersonType[], query: string): PersonResult[] {
+    const rank = calculateRank(query)
     return persons.map((person) => ({
         type: 'person',
         result_id: person.distinct_ids[0],
         extra_fields: { ...person },
-        rank: personsRank,
+        rank,
+    }))
+}
+
+function rankGroups(groups: Group[], query: string): GroupResult[] {
+    const rank = calculateRank(query)
+    return groups.map((group) => ({
+        type: 'group',
+        result_id: group.group_key,
+        extra_fields: { ...group },
+        rank,
     }))
 }
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
+        values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar', 'clearInitialQuery']],
-        values: [commandBarLogic, ['initialQuery', 'barStatus']],
     }),
     actions({
         search: true,
@@ -67,8 +82,52 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-
                     return await api.persons.list({ search: values.searchQuery })
+                },
+            },
+        ],
+        rawGroup0Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                loadGroup0Response: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+                    return await api.groups.list({ group_type_index: 0, search: values.searchQuery })
+                },
+            },
+        ],
+        rawGroup1Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                loadGroup1Response: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+                    return await api.groups.list({ group_type_index: 1, search: values.searchQuery })
+                },
+            },
+        ],
+        rawGroup2Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                loadGroup2Response: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+                    return await api.groups.list({ group_type_index: 2, search: values.searchQuery })
+                },
+            },
+        ],
+        rawGroup3Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                loadGroup3Response: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+                    return await api.groups.list({ group_type_index: 3, search: values.searchQuery })
+                },
+            },
+        ],
+        rawGroup4Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                loadGroup4Response: async (_, breakpoint) => {
+                    await breakpoint(DEBOUNCE_MS)
+                    return await api.groups.list({ group_type_index: 4, search: values.searchQuery })
                 },
             },
         ],
@@ -83,6 +142,36 @@ export const searchBarLogic = kea<searchBarLogicType>([
         ],
         rawPersonsResponse: [
             null as CountedPaginatedResponse<PersonType> | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawGroup0Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawGroup1Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawGroup2Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawGroup3Response: [
+            null as CountedPaginatedResponse<Group> | null,
+            {
+                search: () => null,
+            },
+        ],
+        rawGroup4Response: [
+            null as CountedPaginatedResponse<Group> | null,
             {
                 search: () => null,
             },
@@ -118,35 +207,134 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     selectors({
         combinedSearchResults: [
-            (s) => [s.rawSearchResponse, s.rawPersonsResponse, s.searchQuery],
-            (searchResponse, personsResponse, query) => {
-                if (!searchResponse && !personsResponse) {
+            (s) => [
+                s.rawSearchResponse,
+                s.rawPersonsResponse,
+                s.rawGroup0Response,
+                s.rawGroup1Response,
+                s.rawGroup2Response,
+                s.rawGroup3Response,
+                s.rawGroup4Response,
+                s.searchQuery,
+            ],
+            (
+                searchResponse,
+                personsResponse,
+                group0Response,
+                group1Response,
+                group2Response,
+                group3Response,
+                group4Response,
+                query
+            ) => {
+                if (
+                    !searchResponse &&
+                    !personsResponse &&
+                    !group0Response &&
+                    !group1Response &&
+                    !group2Response &&
+                    !group3Response &&
+                    !group4Response
+                ) {
                     return null
                 }
 
                 return [
                     ...(searchResponse ? searchResponse.results : []),
                     ...(personsResponse ? rankPersons(personsResponse.results, query) : []),
+                    ...(group0Response ? rankGroups(group0Response.results, query) : []),
+                    ...(group1Response ? rankGroups(group1Response.results, query) : []),
+                    ...(group2Response ? rankGroups(group2Response.results, query) : []),
+                    ...(group3Response ? rankGroups(group3Response.results, query) : []),
+                    ...(group4Response ? rankGroups(group4Response.results, query) : []),
                 ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
             },
         ],
         combinedSearchLoading: [
-            (s) => [s.rawSearchResponseLoading, s.rawPersonsResponseLoading],
-            (searchLoading, personsLoading) => searchLoading && personsLoading,
+            (s) => [
+                s.rawSearchResponseLoading,
+                s.rawPersonsResponseLoading,
+                s.rawGroup0ResponseLoading,
+                s.rawGroup1ResponseLoading,
+                s.rawGroup2ResponseLoading,
+                s.rawGroup3ResponseLoading,
+                s.rawGroup4ResponseLoading,
+            ],
+            (
+                searchLoading,
+                personsLoading,
+                group0Loading,
+                group1Loading,
+                group2Loading,
+                group3Loading,
+                group4Loading
+            ) =>
+                searchLoading &&
+                personsLoading &&
+                group0Loading &&
+                group1Loading &&
+                group2Loading &&
+                group3Loading &&
+                group4Loading,
+        ],
+        tabs: [
+            (s) => [s.groupTypes],
+            (groupTypes): Tab[] => {
+                return [
+                    Tab.All,
+                    Tab.EventDefinition,
+                    Tab.Action,
+                    Tab.Person,
+                    Tab.Cohort,
+                    ...Array.from(groupTypes.values()).map(
+                        ({ group_type_index }) => `group_${group_type_index}` as Tab
+                    ),
+                    Tab.Insight,
+                    Tab.Dashboard,
+                    Tab.Notebook,
+                    Tab.Experiment,
+                    Tab.FeatureFlag,
+                ]
+            },
         ],
         tabsCount: [
-            (s) => [s.rawSearchResponse, s.rawPersonsResponse],
-            (searchResponse, personsResponse): Record<Tab, string | null> => {
+            (s) => [
+                s.rawSearchResponse,
+                s.rawPersonsResponse,
+                s.rawGroup0Response,
+                s.rawGroup1Response,
+                s.rawGroup2Response,
+                s.rawGroup3Response,
+                s.rawGroup4Response,
+            ],
+            (
+                searchResponse,
+                personsResponse,
+                group0Response,
+                group1Response,
+                group2Response,
+                group3Response,
+                group4Response
+            ): Record<Tab, string | null> => {
                 const counts = {}
-                const personsResults = personsResponse?.results
 
                 Object.values(Tab).forEach((tab) => {
                     counts[tab] = searchResponse?.counts[tab]?.toString() || null
                 })
 
-                if (personsResults !== undefined) {
-                    counts[Tab.Person] = personsResults.length === 100 ? '>=100' : personsResults.length.toString()
-                }
+                const clickhouseTabsResults: [string, unknown[] | undefined][] = [
+                    [Tab.Person, personsResponse?.results],
+                    [Tab.Group0, group0Response?.results],
+                    [Tab.Group1, group1Response?.results],
+                    [Tab.Group2, group2Response?.results],
+                    [Tab.Group3, group3Response?.results],
+                    [Tab.Group4, group4Response?.results],
+                ]
+                clickhouseTabsResults.forEach(([tab, results]) => {
+                    if (results !== undefined) {
+                        counts[tab] = results.length === 100 ? '>=100' : results.length.toString()
+                    }
+                })
 
                 return counts as Record<Tab, string | null>
             },
@@ -184,11 +372,23 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setSearchQuery: actions.search,
         setActiveTab: actions.search,
         search: (_) => {
-            if (values.activeTab === Tab.All || values.activeTab !== Tab.Person) {
+            // postgres search
+            if (values.activeTab === Tab.All || !clickhouseTabs.includes(values.activeTab)) {
                 actions.loadSearchResponse(_)
             }
+
+            // clickhouse persons
             if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
                 actions.loadPersonsResponse(_)
+            }
+
+            // clickhouse groups
+            if (values.activeTab === Tab.All) {
+                for (const type of Array.from(values.groupTypes.values())) {
+                    actions[`loadGroup${type.group_type_index}Response`](_)
+                }
+            } else if (values.activeTab.startsWith('group_')) {
+                actions[`loadGroup${values.activeTab.split('_')[1]}Response`](_)
             }
         },
         openResult: ({ index }) => {
@@ -246,14 +446,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 }
             } else if (event.key === 'Tab') {
                 event.preventDefault()
-                const tabs = Object.values(Tab)
-                const currentIndex = tabs.findIndex((tab) => tab === values.activeTab)
+
+                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
                 if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(tabs[prevIndex])
+                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                    actions.setActiveTab(values.tabs[prevIndex])
                 } else {
-                    const nextIndex = currentIndex === tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(tabs[nextIndex])
+                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                    actions.setActiveTab(values.tabs[nextIndex])
                 }
             }
         }
@@ -279,6 +479,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.experiment(result.result_id)
         case 'feature_flag':
             return urls.featureFlag(result.result_id)
+        case 'group':
+            return urls.group(result.extra_fields.group_type_index, result.result_id)
         case 'insight':
             return urls.insightView(result.result_id as InsightShortId)
         case 'notebook':
