@@ -9,6 +9,7 @@ from posthog.warehouse.models import ExternalDataSource
 
 from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_pagination
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 import os
 from temporalio import activity
@@ -16,7 +17,6 @@ from posthog.temporal.common.utils import (
     DataImportHeartbeatDetails,
     should_resume_from_activity_heartbeat,
 )
-import structlog
 import asyncio
 
 
@@ -63,11 +63,12 @@ def create_pipeline(inputs: PipelineInputs):
     )
 
 
+# a temporal activity
 async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
     ordered_endpoints = ENDPOINTS
 
     # basic logger for now
-    logger = structlog.get_logger(__name__)
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     should_resume, details = await should_resume_from_activity_heartbeat(activity, DataImportHeartbeatDetails, logger)
 
     if should_resume:
@@ -101,7 +102,7 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
                 pipeline.deactivate()
                 activity.heartbeat(endpoint, cursor)
             except PipelineStepFailed:
-                # TODO: log
+                logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
                 raise
 
 

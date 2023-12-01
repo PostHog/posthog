@@ -21,6 +21,7 @@ from posthog.warehouse.external_data_source.jobs import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 @dataclasses.dataclass
@@ -35,6 +36,11 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
     )
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    logger.info(
+        f"Created external data job with for external data source {inputs.external_data_source_id}",
+    )
 
     return str(run.id)
 
@@ -42,6 +48,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     id: str
+    team_id: int
     run_id: str
     status: str
     latest_error: str | None
@@ -55,19 +62,32 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         latest_error=inputs.latest_error,
     )
 
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    logger.info(
+        f"Updated external data job with for external data source {inputs.run_id} to status {inputs.status}",
+    )
+
 
 @dataclasses.dataclass
 class ValidateSchemaInputs:
     external_data_source_id: str
     create: bool
+    team_id: int
 
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
-    return await sync_to_async(is_schema_valid)(  # type: ignore
+    is_valid = await sync_to_async(is_schema_valid)(  # type: ignore
         external_data_source_id=inputs.external_data_source_id,
         create=inputs.create,
     )
+
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    logger.info(
+        f"Validated schema for external data source {inputs.external_data_source_id}",
+    )
+
+    return is_valid
 
 
 @dataclasses.dataclass
@@ -81,6 +101,11 @@ async def move_draft_to_production_activity(inputs: MoveDraftToProductionExterna
     await sync_to_async(move_draft_to_production)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
+    )
+
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    logger.info(
+        f"Moved draft to production for external data source {inputs.external_data_source_id}",
     )
 
 
@@ -119,6 +144,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ExternalDataJobInputs):
+        logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
         # create external data job and trigger activity
         create_external_data_job_inputs = CreateExternalDataJobInputs(
             team_id=inputs.team_id,
@@ -138,7 +165,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None
+            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None, team_id=inputs.team_id
         )
 
         try:
@@ -152,7 +179,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(external_data_source_id=inputs.external_data_source_id, create=False)
+            validate_inputs = ValidateSchemaInputs(
+                external_data_source_id=inputs.external_data_source_id, create=False, team_id=inputs.team_id
+            )
 
             await workflow.execute_activity(
                 validate_schema_activity,
@@ -187,14 +216,20 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
                 update_inputs.status = ExternalDataJob.Status.FAILED
-
+            logger.error(
+                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
+            )
             update_inputs.latest_error = str(e.cause)
             raise
         except SchemaValidationError as e:
+            logger.error(f"Schema validation failed for external data source {inputs.external_data_source_id}")
             update_inputs.latest_error = str(e)
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
-        except Exception:
+        except Exception as e:
+            logger.error(
+                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e}"
+            )
             # Catch all
             update_inputs.latest_error = "An unexpected error has ocurred"
             update_inputs.status = ExternalDataJob.Status.FAILED
