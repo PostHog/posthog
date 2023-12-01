@@ -1,7 +1,29 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
+import { Summary } from 'prom-client'
 
 import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
+
+const loadPluginsMsSummary = new Summary({
+    name: 'load_plugins_ms',
+    help: 'Time to load plugins from DB',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+const loadPluginAttachmentsMsSummary = new Summary({
+    name: 'load_plugin_attachments_ms',
+    help: 'Time to load plugin attachments from DB',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+const loadPluginConfigsMsSummary = new Summary({
+    name: 'load_plugin_configs_ms',
+    help: 'Time to load plugin configs from DB',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+const loadPluginsTotalMsSummary = new Summary({
+    name: 'load_plugins_total_ms',
+    help: 'Time to load all plugin content from DB',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 export async function loadPluginsFromDB(
     hub: Hub
@@ -14,6 +36,7 @@ export async function loadPluginsFromDB(
         plugins.set(row.id, row)
     }
     hub.statsd?.timing('load_plugins.plugins', startTimer)
+    loadPluginsMsSummary.observe(new Date().getTime() - startTimer.getTime())
 
     const pluginAttachmentTimer = new Date()
     const pluginAttachmentRows = await getPluginAttachmentRows(hub)
@@ -31,6 +54,7 @@ export async function loadPluginsFromDB(
         }
     }
     hub.statsd?.timing('load_plugins.plugin_attachments', pluginAttachmentTimer)
+    loadPluginAttachmentsMsSummary.observe(new Date().getTime() - pluginAttachmentTimer.getTime())
 
     const pluginConfigTimer = new Date()
     const pluginConfigRows = await getPluginConfigRows(hub)
@@ -74,8 +98,10 @@ export async function loadPluginsFromDB(
         teamConfigs.push(pluginConfig)
     }
     hub.statsd?.timing('load_plugins.plugin_configs', pluginConfigTimer)
+    loadPluginConfigsMsSummary.observe(new Date().getTime() - pluginConfigTimer.getTime())
 
     hub.statsd?.timing('load_plugins.total', startTimer)
+    loadPluginsTotalMsSummary.observe(new Date().getTime() - startTimer.getTime())
 
     return { plugins, pluginConfigs, pluginConfigsPerTeam }
 }

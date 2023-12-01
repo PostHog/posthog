@@ -19,6 +19,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         null=True, blank=True
     )
     are_tables_created: models.BooleanField = models.BooleanField(default=False)
+    prefix: models.CharField = models.CharField(max_length=100, null=True, blank=True)
 
     __repr__ = sane_repr("source_id")
 

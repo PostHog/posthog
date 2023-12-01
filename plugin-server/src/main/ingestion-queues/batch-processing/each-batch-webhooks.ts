@@ -8,10 +8,12 @@ import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -95,6 +97,8 @@ export async function eachBatchHandlerHelper(
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
+        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
+        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
         for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
@@ -134,7 +138,6 @@ export async function eachBatchHandlerHelper(
             }ms (${loggingKey})`
         )
     } finally {
-        statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
@@ -178,13 +181,13 @@ async function runWebhooks(
     const timer = new Date()
 
     try {
-        statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
         await processWebhooksStep(event, actionMatcher, hookCannon)
-        statsd?.increment('kafka_queue.webhooks.processed')
         statsd?.increment('kafka_queue.event_pipeline.step', { step: processWebhooksStep.name })
         statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: processWebhooksStep.name })
+        pipelineStepMsSummary.labels('processWebhooksStep').observe(Date.now() - timer.getTime())
     } catch (error) {
         statsd?.increment('kafka_queue.event_pipeline.step.error', { step: processWebhooksStep.name })
+        pipelineStepErrorCounter.labels('processWebhooksStep').inc()
 
         if (error instanceof DependencyUnavailableError) {
             // If this is an error with a dependency that we control, we want to
