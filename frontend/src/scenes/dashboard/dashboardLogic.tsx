@@ -949,13 +949,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
+            const hardRefreshWithoutCache = action === 'refresh_manual' || action === 'refresh_above_threshold'
+
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: true,
+                    refresh: hardRefreshWithoutCache,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
@@ -1054,12 +1056,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
-            // Edit mode special handling
-            if (mode === DashboardMode.Fullscreen) {
-                document.body.classList.add('fullscreen-scroll')
-            } else {
-                document.body.classList.remove('fullscreen-scroll')
-            }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
             }

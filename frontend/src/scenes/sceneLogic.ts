@@ -77,7 +77,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
-                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
+                    [loadedScene.id]: { ...loadedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -289,11 +289,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component: defaultExport,
                         logic: logic,
                         sceneParams: params,
@@ -301,7 +301,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]

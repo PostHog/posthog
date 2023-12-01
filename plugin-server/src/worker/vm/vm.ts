@@ -6,7 +6,6 @@ import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
-import { createGoogle } from './extensions/google'
 import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
@@ -44,7 +43,8 @@ export function createPluginConfigVM(
         })
     }
 
-    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS)
+    const usedImports: Set<string> = new Set()
+    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
     // Create virtual machine
     const vm = new VM({
@@ -58,9 +58,13 @@ export function createPluginConfigVM(
 
     // Add non-PostHog utilities to virtual machine
     vm.freeze(AVAILABLE_IMPORTS['node-fetch'], 'fetch')
-    vm.freeze(createGoogle(), 'google')
 
-    vm.freeze(AVAILABLE_IMPORTS, '__pluginHostImports')
+    // Add used imports to the virtual machine
+    const pluginHostImports: Record<string, any> = {}
+    for (const usedImport of usedImports) {
+        pluginHostImports[usedImport] = (AVAILABLE_IMPORTS as Record<string, any>)[usedImport]
+    }
+    vm.freeze(pluginHostImports, '__pluginHostImports')
 
     if (process.env.NODE_ENV === 'test') {
         vm.freeze(setTimeout, '__jestSetTimeout')
@@ -245,5 +249,6 @@ export function createPluginConfigVM(
         methods,
         tasks,
         vmResponseVariable: responseVar,
+        usedImports,
     }
 }

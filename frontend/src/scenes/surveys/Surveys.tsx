@@ -106,6 +106,7 @@ export function Surveys(): JSX.Element {
                         to learn more.
                     </>
                 }
+                tabbedPage
             />
             <LemonTabs
                 activeKey={tab}
