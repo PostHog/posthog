@@ -23,6 +23,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
+    'loadRecordingMeta', // Gracefully handled in the recording player
 ]
 
 interface InitKeaProps {
@@ -83,9 +84,13 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                         (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                 ) {
+                    let errorMessageFallback = 'PostHog may be offline'
+                    if (error.status === 404) {
+                        errorMessageFallback = 'URL not found'
+                    }
                     lemonToast.error(
                         `${identifierToHuman(actionKey)} failed: ${
-                            error.detail || error.statusText || 'PostHog may be offline'
+                            error.detail || error.statusText || errorMessageFallback
                         }`
                     )
                 }
