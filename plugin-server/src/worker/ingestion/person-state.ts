@@ -329,7 +329,6 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: mergeIntoDistinctId })
             await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: mergeIntoDistinctId,
                 otherDistinctId: otherPersonDistinctId,
@@ -338,7 +337,6 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: otherPersonDistinctId })
             await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: otherPersonDistinctId,
                 otherDistinctId: mergeIntoDistinctId,

@@ -45,6 +45,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
@@ -65,6 +66,7 @@ import { DashboardType, InsightType } from '~/types'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
+import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 
@@ -143,10 +145,21 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['push'],
             themeLogic,
             ['overrideTheme'],
+            hedgehogbuddyLogic,
+            ['setHedgehogModeEnabled'],
             commandBarLogic,
             ['setCommandBar'],
         ],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            hedgehogbuddyLogic,
+            ['hedgehogModeEnabled'],
+        ],
         logic: [preflightLogic],
     }),
     actions({
@@ -520,7 +533,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL[InsightType.SQL])
+                            push(insightTypeURL(Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ]))[InsightType.SQL])
                         },
                     },
                     {
@@ -914,6 +927,19 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const toggleHedgehogMode: Command = {
+                key: 'toggle-hedgehog-mode',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconFlare,
+                    display: `${values.hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
+                    synonyms: ['buddy', 'toggle', 'max'],
+                    executor: () => {
+                        actions.setHedgehogModeEnabled(!values.hedgehogModeEnabled)
+                    },
+                },
+            }
+
             const shortcuts: Command = {
                 key: 'shortcuts',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -948,6 +974,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(debugCopySessionRecordingURL)
             if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 actions.registerCommand(toggleTheme)
+                actions.registerCommand(toggleHedgehogMode)
                 actions.registerCommand(shortcuts)
             }
         },
@@ -961,6 +988,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
             actions.deregisterCommand('toggle-theme')
+            actions.deregisterCommand('toggle-hedgehog-mode')
             actions.deregisterCommand('shortcuts')
         },
     })),

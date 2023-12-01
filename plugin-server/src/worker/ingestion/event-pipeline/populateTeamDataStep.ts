@@ -1,17 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
+import { tokenOrTeamPresentCounter } from './metrics'
 import { EventPipelineRunner } from './runner'
-
-export const tokenOrTeamPresentCounter = new Counter({
-    name: 'ingestion_event_hasauthinfo_total',
-    help: 'Count of events by presence of the team_id and token field.',
-    labelNames: ['team_id_present', 'token_present'],
-})
 
 export async function populateTeamDataStep(
     runner: EventPipelineRunner,
