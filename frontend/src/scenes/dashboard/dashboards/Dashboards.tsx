@@ -9,10 +9,12 @@ import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/D
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { DashboardTemplateChooser, NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+
+import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 
 export const scene: SceneExport = {
     component: Dashboards,
