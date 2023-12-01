@@ -1,6 +1,6 @@
 import './SidePanelWelcome.scss'
 
-import { IconArrowLeft, IconEllipsis, IconX } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -96,7 +96,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     👋 Say hello to
                     <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
                 </h1>
-                <p className="max-w-120 text-sm font-medium mb-3">
+                <p className="max-w-120 text-sm font-medium mb-3 opacity-75">
                     We're past 0 to 1. In this new version of PostHog, we're going from 1 to 3000. (And this is just the
                     beginning...)
                 </p>
@@ -109,6 +109,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         style={{ display: 'inline-flex' }}
                     >
                         Read the blog post
+                        <IconExternal className="ml-1 h-5 w-5" />
                     </LemonButton>
                 </div>
 
