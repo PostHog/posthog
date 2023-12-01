@@ -92,8 +92,12 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
 
         async for item, cursor in stripe_pagination(inputs.stripe_secret_key, endpoint, starting_after=starting_after):
             try:
+                # init pipeline and run data import
                 pipeline = create_pipeline(inputs)
                 pipeline.run(item, table_name=endpoint.lower(), loader_file_format="parquet")
+
+                # clear everything from pipeline
+                pipeline.drop()
                 pipeline.deactivate()
                 activity.heartbeat(endpoint, cursor)
             except PipelineStepFailed:
