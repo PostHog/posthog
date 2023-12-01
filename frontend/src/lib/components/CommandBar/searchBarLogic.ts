@@ -30,6 +30,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
         actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar']],
+        values: [commandBarLogic, ['initialQuery']],
     }),
     actions({
         search: true,
@@ -196,8 +197,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        // load initial results
-        actions.setSearchQuery('')
+        if (values.initialQuery) {
+            // set default query from url
+            actions.setSearchQuery(values.initialQuery)
+        } else {
+            // load initial results
+            actions.setSearchQuery('')
+        }
 
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {

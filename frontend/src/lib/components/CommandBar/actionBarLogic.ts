@@ -25,6 +25,8 @@ export const actionBarLogic = kea<actionBarLogicType>([
             ],
         ],
         values: [
+            commandBarLogic,
+            ['initialQuery'],
             commandPaletteLogic,
             [
                 'input',
@@ -43,6 +45,11 @@ export const actionBarLogic = kea<actionBarLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // set default query from url
+        if (values.initialQuery) {
+            actions.setInput(values.initialQuery)
+        }
+
         // trigger show action from legacy palette
         actions.showPalette()
 
