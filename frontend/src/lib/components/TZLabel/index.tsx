@@ -117,9 +117,7 @@ function TZLabelRaw({
     const innerContent = children ?? (
         <span
             className={
-                !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
-                    : className
+                !noStyles ? clsx('whitespace-nowrap', showPopover && 'border-dotted border-b', className) : className
             }
         >
             {formattedContent}
