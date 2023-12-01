@@ -48,6 +48,10 @@
             border-style: solid;
             border-width: var(--lemon-button-border-width);
 
+            .LemonButton__content {
+                overflow: hidden;
+            }
+
             .LemonButton__icon {
                 opacity: var(--lemon-button-icon-opacity);
             }
