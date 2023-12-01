@@ -28,9 +28,9 @@ export const commandBarLogic = kea<commandBarLogicType>([
             },
         ],
         initialQuery: [
-            null,
+            null as string | null,
             {
-                setCommandBar: (_, { initialQuery }) => initialQuery,
+                setCommandBar: (_, { initialQuery }) => initialQuery || null,
             },
         ],
     }),
