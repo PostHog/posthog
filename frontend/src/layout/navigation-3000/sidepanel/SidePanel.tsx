@@ -136,7 +136,7 @@ export function SidePanel(): JSX.Element | null {
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
                 <div className="SidePanel3000__tabs">
-                    <div className="SidePanel3000__tabsrotation">
+                    <div className="SidePanel3000__tabs-content">
                         {visibleTabs.map((tab: SidePanelTab) => {
                             const { Icon, label } = SidePanelTabs[tab]
                             return (
