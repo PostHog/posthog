@@ -39,25 +39,28 @@ export const OnboardingProductConfiguration = ({
                                 labelClassName={'text-base font-semibold'}
                                 checked={option.value || false}
                             />
+                            <p className="prompt-text ml-0">{option.description}</p>
                         </>
                     ) : (
-                        <div className="flex justify-between items-end mb-1">
+                        <>
                             <label className="text-base font-semibold">{option.title}</label>
-                            <LemonSelect
-                                dropdownMatchSelectWidth={false}
-                                onChange={(v) => {
-                                    setConfigOptions(
-                                        configOptions.map((o) =>
-                                            o.teamProperty === option.teamProperty ? { ...o, value: v } : o
+                            <div className="flex justify-between items-center mb-1 gap-x-4">
+                                <p className="prompt-text m-0">{option.description}</p>
+                                <LemonSelect
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={(v) => {
+                                        setConfigOptions(
+                                            configOptions.map((o) =>
+                                                o.teamProperty === option.teamProperty ? { ...o, value: v } : o
+                                            )
                                         )
-                                    )
-                                }}
-                                options={option.selectOptions || []}
-                                value={option.value}
-                            />
-                        </div>
+                                    }}
+                                    options={option.selectOptions || []}
+                                    value={option.value}
+                                />
+                            </div>
+                        </>
                     )}
-                    <p className="prompt-text ml-0">{option.description}</p>
                 </div>
             ))}
         </OnboardingStep>
