@@ -21,9 +21,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
 from posthog.models.action.util import Action
-from posthog.models.filters.mixins.retention import RetentionDateDerivedMixin
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.retention.types import CohortKey
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -320,7 +318,7 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         result_dict = {
-            CohortKey(tuple(breakdown_values), intervals_from_base): {
+            (tuple(breakdown_values), intervals_from_base): {
                 "count": correct_result_for_sampling(count, self.query.samplingFactor),
                 "people": [],
                 "people_url": "",  # TODO: URL
@@ -331,17 +329,19 @@ class RetentionQueryRunner(QueryRunner):
         results = [
             {
                 "values": [
-                    result_dict.get(CohortKey((first_day,), day), {"count": 0, "people": [], "people_url": ""})
-                    for day in range(self.query_date_range.total_intervals - first_day)
+                    result_dict.get(((first_interval,), return_interval), {"count": 0, "people": [], "people_url": ""})
+                    for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
-                "label": f"{self.query_date_range.interval_name.title()} {first_day}",
-                "date": self.query_date_range.date_from()
-                + RetentionDateDerivedMixin.determine_time_delta(
-                    first_day, self.query_date_range.interval_name.title()
-                )[0],  # TODO: fix
+                "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
+                "date": (
+                    self.query_date_range.date_from()
+                    + self.query_date_range.determine_time_delta(
+                        first_interval, self.query_date_range.interval_name.title()
+                    )
+                ),
                 "people_url": "",  # TODO: URL
             }
-            for first_day in range(self.query_date_range.total_intervals)
+            for first_interval in range(self.query_date_range.total_intervals)
         ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
