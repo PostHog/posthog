@@ -431,14 +431,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 }
             } else if (event.key === 'Tab') {
                 event.preventDefault()
-                const tabs = Object.values(Tab)
-                const currentIndex = tabs.findIndex((tab) => tab === values.activeTab)
+
+                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
                 if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(tabs[prevIndex])
+                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                    actions.setActiveTab(values.tabs[prevIndex])
                 } else {
-                    const nextIndex = currentIndex === tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(tabs[nextIndex])
+                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                    actions.setActiveTab(values.tabs[nextIndex])
                 }
             }
         }
