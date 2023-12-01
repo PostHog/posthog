@@ -69,9 +69,11 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
         fetchPostgresPersonIdOverrides: (hub, teamId) => fetchPostgresPersonIdOverrides(hub, teamId),
     },
     deferred: {
-        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
+        // XXX: This is kind of a mess -- ideally it'd be preferable to just
+        // instantiate the writer once and share it
+        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres, 456),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            await new DeferredPersonOverrideWriter(hub.db.postgres).processPendingOverrides(hub.db.kafkaProducer)
+            await new DeferredPersonOverrideWriter(hub.db.postgres, 456).processPendingOverrides(hub.db.kafkaProducer)
             return await fetchPostgresPersonIdOverrides(hub, teamId)
         },
     },

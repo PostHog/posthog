@@ -717,7 +717,7 @@ export class PersonOverrideWriter {
 }
 
 export class DeferredPersonOverrideWriter {
-    constructor(private postgres: PostgresRouter) {}
+    constructor(private postgres: PostgresRouter, private lockId: number) {}
 
     public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
         await this.postgres.query(
@@ -745,6 +745,18 @@ export class DeferredPersonOverrideWriter {
         const writer = new PersonOverrideWriter(this.postgres)
 
         await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
+            const {
+                rows: [{ acquired }],
+            } = await this.postgres.query(
+                tx,
+                SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
+                undefined,
+                'processPendingOverrides'
+            )
+            if (!acquired) {
+                throw new Error('could not acquire lock')
+            }
+
             const { rows } = await this.postgres.query(
                 tx,
                 `SELECT * FROM posthog_pendingpersonoverride ORDER BY id`,
