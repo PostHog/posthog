@@ -574,23 +574,28 @@ RETURNING
             .fetch_one(&mut *connection)
             .await;
 
-        let job: Job<J> = match query_result {
-            Ok(j) => j,
-            Err(sqlx::Error::RowNotFound) => return Ok(None),
+        match query_result {
+            Ok(job) => Ok(Some(PgJob {
+                job,
+                table: self.table.to_owned(),
+                connection,
+                retry_policy: self.retry_policy,
+            })),
+
+            // Although connection would be closed once it goes out of scope, sqlx recommends explicitly calling close().
+            // See: https://docs.rs/sqlx/latest/sqlx/postgres/any/trait.AnyConnectionBackend.html#tymethod.close.
+            Err(sqlx::Error::RowNotFound) => {
+                let _ = connection.close().await;
+                Ok(None)
+            }
             Err(e) => {
-                return Err(PgQueueError::QueryError {
+                let _ = connection.close().await;
+                Err(PgQueueError::QueryError {
                     command: "UPDATE".to_owned(),
                     error: e,
                 })
             }
-        };
-
-        Ok(Some(PgJob {
-            job,
-            table: self.table.to_owned(),
-            connection,
-            retry_policy: self.retry_policy,
-        }))
+        }
     }
 
     /// Dequeue a Job from this PgQueue to work on it.
@@ -646,23 +651,21 @@ RETURNING
             .fetch_one(&mut *tx)
             .await;
 
-        let job: Job<J> = match query_result {
-            Ok(j) => j,
-            Err(sqlx::Error::RowNotFound) => return Ok(None),
-            Err(e) => {
-                return Err(PgQueueError::QueryError {
-                    command: "UPDATE".to_owned(),
-                    error: e,
-                })
-            }
-        };
+        match query_result {
+            Ok(job) => Ok(Some(PgTransactionJob {
+                job,
+                table: self.table.to_owned(),
+                transaction: tx,
+                retry_policy: self.retry_policy,
+            })),
 
-        Ok(Some(PgTransactionJob {
-            job,
-            table: self.table.to_owned(),
-            transaction: tx,
-            retry_policy: self.retry_policy,
-        }))
+            // Transaction is rolledback on drop.
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(PgQueueError::QueryError {
+                command: "UPDATE".to_owned(),
+                error: e,
+            }),
+        }
     }
 
     /// Enqueue a Job into this PgQueue.
