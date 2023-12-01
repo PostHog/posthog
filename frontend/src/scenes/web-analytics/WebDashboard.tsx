@@ -64,6 +64,7 @@ const Filters = (): JSX.Element => {
                             '$geoip_country_code',
                             '$geoip_subdivision_1_code',
                             '$geoip_city_name',
+                            '$site_name',
                             // re-enable after https://github.com/PostHog/posthog-js/pull/875 is merged
                             // '$client_session_initial_pathname',
                             // '$client_session_initial_referring_host',

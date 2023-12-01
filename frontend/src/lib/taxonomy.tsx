@@ -730,6 +730,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'App Version',
             description: 'The version of the app',
         },
+        $site_name: {
+            label: 'Site Name',
+            description: 'The internal name of the site',
+            examples: ['marketing-site', 'support-forum', 'ios-app'],
+        },
         $device_manufacturer: {
             label: 'Device Manufacturer',
             description: 'The manufacturer of the device',
