@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +30,8 @@ function rankPersons(persons: PersonType[], query: string): PersonResult[] {
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
-        actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar']],
+        actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar', 'clearInitialQuery']],
+        values: [commandBarLogic, ['initialQuery', 'barStatus']],
     }),
     actions({
         search: true,
@@ -195,10 +197,24 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.hideCommandBar()
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        // load initial results
-        actions.setSearchQuery('')
+    subscriptions(({ values, actions }) => ({
+        barStatus: (value, oldvalue) => {
+            if (value !== BarStatus.SHOW_SEARCH || oldvalue === BarStatus.SHOW_SEARCH) {
+                return
+            }
 
+            if (values.initialQuery !== null) {
+                // set default query from url
+                actions.setSearchQuery(values.initialQuery)
+                actions.clearInitialQuery()
+            } else {
+                // load initial results
+                actions.setSearchQuery('')
+                actions.clearInitialQuery()
+            }
+        },
+    })),
+    afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Enter') {

@@ -3295,6 +3295,8 @@ export interface DataWarehouseViewLink {
 export interface ExternalDataStripeSourceCreatePayload {
     account_id: string
     client_secret: string
+    prefix: string
+    source_type: string
 }
 
 export interface ExternalDataStripeSource {

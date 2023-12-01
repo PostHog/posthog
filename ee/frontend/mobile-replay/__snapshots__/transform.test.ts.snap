@@ -519,3 +519,36 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
   },
 ]
 `;
+
+exports[`replay/transform transform respect incremental ids, replace with body otherwise 1`] = `
+[
+  {
+    "data": {
+      "id": 5,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
+  },
+  {
+    "data": {
+      "id": 145,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
+  },
+]
+`;
