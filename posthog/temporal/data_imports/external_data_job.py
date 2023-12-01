@@ -59,6 +59,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
+        team_id=inputs.team_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)

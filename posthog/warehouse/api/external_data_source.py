@@ -17,7 +17,7 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_workflow,
     delete_external_data_workflow,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +25,6 @@ logger = structlog.get_logger(__name__)
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
-    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -41,14 +40,6 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
         ]
         read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type"]
-
-    # TODO: temporary just to test
-    def get_status(self, instance: ExternalDataSource) -> str:
-        job = ExternalDataJob.objects.filter(pipeline_id=instance.id).order_by("-created_at").first()
-        if job:
-            return job.status
-
-        return instance.status
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -123,4 +114,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance = self.get_object()
         trigger_external_data_workflow(instance)
+
+        instance.status = "Running"
+        instance.save()
         return Response(status=status.HTTP_200_OK)
