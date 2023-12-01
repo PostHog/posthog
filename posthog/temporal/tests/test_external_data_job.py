@@ -150,17 +150,6 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 external_data_source_id=new_source.pk,
-                source_schemas=[
-                    SourceSchema(
-                        resource="customers",
-                        name="customers",
-                        columns={
-                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
-                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
-                        },
-                        write_disposition="overwrite",
-                    )
-                ],
                 create=False,
             ),
         )
@@ -192,17 +181,6 @@ async def test_is_schema_valid_activity_failed(activity_environment, team, **kwa
                 validate_schema_activity,
                 ValidateSchemaInputs(
                     external_data_source_id=new_source.pk,
-                    source_schemas=[
-                        SourceSchema(
-                            resource="customers",
-                            name="customers",
-                            columns={
-                                "id": SourceColumnType(name="id", data_type="string", nullable=False),
-                                "name": SourceColumnType(name="name", data_type="string", nullable=True),
-                            },
-                            write_disposition="overwrite",
-                        )
-                    ],
                     create=False,
                 ),
             )
@@ -231,17 +209,6 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 external_data_source_id=new_source.pk,
-                source_schemas=[
-                    SourceSchema(
-                        resource="customers",
-                        name="customers",
-                        columns={
-                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
-                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
-                        },
-                        write_disposition="overwrite",
-                    )
-                ],
                 create=True,
             ),
         )
@@ -256,17 +223,6 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 external_data_source_id=new_source.pk,
-                source_schemas=[
-                    SourceSchema(
-                        resource="customers",
-                        name="customers",
-                        columns={
-                            "id": SourceColumnType(name="id", data_type="string", nullable=False),
-                            "name": SourceColumnType(name="name", data_type="string", nullable=True),
-                        },
-                        write_disposition="overwrite",
-                    )
-                ],
                 create=True,
             ),
         )
