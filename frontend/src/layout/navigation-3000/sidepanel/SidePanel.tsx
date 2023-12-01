@@ -1,6 +1,7 @@
 import './SidePanel.scss'
 
 import {
+    IconConfetti,
     IconEllipsis,
     IconFeatures,
     IconGear,
@@ -14,7 +15,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
-import { IconFlare } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
@@ -70,8 +70,8 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Content: SidePanelActivity,
     },
     [SidePanelTab.Welcome]: {
-        label: 'Welcome',
-        Icon: IconFlare,
+        label: "What's new?",
+        Icon: IconConfetti,
         Content: SidePanelWelcome,
     },
 }
