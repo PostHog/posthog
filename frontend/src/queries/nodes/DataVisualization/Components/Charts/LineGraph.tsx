@@ -143,8 +143,8 @@ export const LineGraph = (): JSX.Element => {
     }, [xData, yData])
 
     return (
-        <div className="DataVisualization__LineGraph rounded bg-bg-light flex">
-            <div className={'chart-canvas w-full h-full overflow-hidden'}>
+        <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
+            <div className="flex w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>
         </div>

@@ -1,19 +1,19 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
-import { uuid } from 'lib/utils'
 import { useCallback, useState } from 'react'
 
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { ElapsedTime } from '../DataNode/ElapsedTime'
+import { Reload } from '../DataNode/Reload'
 import { DataTable } from '../DataTable/DataTable'
 import { HogQLQueryEditor } from '../HogQLQuery/HogQLQueryEditor'
 import { Chart } from './Components/Chart'
-import { ElapsedTime } from './Components/ElapsedTime'
-import { Reload } from './Components/Reload'
 import { TableDisplay } from './Components/TableDisplay'
-import { dataVisualizationLogic } from './dataVisualizationLogic'
+import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 
 interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -25,18 +25,27 @@ interface DataTableVisualizationProps {
     cachedResults?: AnyResponseType
 }
 
-export function DataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
-    const [key] = useState(props.uniqueKey?.toString() ?? uuid())
+let uniqueNode = 0
 
-    const logicProps = {
+export function DataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const [uniqueNodeKey] = useState(() => uniqueNode++)
+    const [key] = useState(`DataVisualizationNode.${props.uniqueKey?.toString() ?? uniqueNodeKey}`)
+
+    const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key,
         query: props.query,
         setQuery: props.setQuery,
         cachedResults: props.cachedResults,
     }
-    const logic = dataVisualizationLogic(logicProps)
+    const builtDataVisualizationLogic = dataVisualizationLogic(dataVisualizationLogicProps)
 
-    const { query, visualizationType, showEditingUI } = useValues(logic)
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: props.query.source,
+        key,
+        cachedResults: props.cachedResults,
+    }
+
+    const { query, visualizationType, showEditingUI } = useValues(builtDataVisualizationLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -47,6 +56,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <DataTable
+                uniqueKey={key}
                 query={{ kind: NodeKind.DataTableNode, source: query.source }}
                 context={{
                     showQueryEditor: false,
@@ -59,23 +69,25 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     }
 
     return (
-        <BindLogic logic={dataVisualizationLogic} props={logicProps}>
-            <div className="DataVisualization">
-                <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                    {showEditingUI && <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />}
-                    <LemonDivider className="my-0" />
-                    <div className="flex gap-4 justify-between flex-wrap">
-                        <div className="flex gap-4 items-center">
-                            <Reload />
-                            <ElapsedTime />
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                <div className="DataVisualization">
+                    <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                        {showEditingUI && <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />}
+                        <LemonDivider className="my-0" />
+                        <div className="flex gap-4 justify-between flex-wrap">
+                            <div className="flex gap-4 items-center">
+                                <Reload />
+                                <ElapsedTime />
+                            </div>
+                            <div className="flex gap-4 items-center">
+                                <TableDisplay />
+                            </div>
                         </div>
-                        <div className="flex gap-4 items-center">
-                            <TableDisplay />
-                        </div>
+                        {component}
                     </div>
-                    {component}
                 </div>
-            </div>
+            </BindLogic>
         </BindLogic>
     )
 }

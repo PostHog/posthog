@@ -1,12 +1,3 @@
 .DataVisualization__LineGraph {
-    position: relative;
-    display: flex;
-    flex: 1;
-    flex-direction: column;
     min-height: var(--viz-min-height);
-    padding: 0.5rem;
-
-    .chart-canvas {
-        flex: 1;
-    }
 }

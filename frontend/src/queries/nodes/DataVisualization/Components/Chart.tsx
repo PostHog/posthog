@@ -1,16 +1,16 @@
 import './Chart.scss'
 
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { LineGraph } from './Charts/LineGraph'
 import { ChartSelection } from './ChartSelection'
 
 export const Chart = (): JSX.Element => {
-    const logic = useMountedLogic(dataVisualizationLogic)
-    const { showEditingUI } = useValues(logic)
+    const { showEditingUI } = useValues(dataVisualizationLogic)
+
     return (
-        <div className="Chart__Container">
+        <div className="flex flex-row gap-4">
             {showEditingUI && (
                 <div className="h-full">
                     <ChartSelection />

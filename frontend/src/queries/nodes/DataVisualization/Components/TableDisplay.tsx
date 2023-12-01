@@ -1,5 +1,5 @@
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconShowChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
@@ -7,9 +7,8 @@ import { ChartDisplayType } from '~/types'
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const TableDisplay = (): JSX.Element => {
-    const logic = useMountedLogic(dataVisualizationLogic)
-    const { setVisualizationType } = useActions(logic)
-    const { visualizationType } = useValues(logic)
+    const { setVisualizationType } = useActions(dataVisualizationLogic)
+    const { visualizationType } = useValues(dataVisualizationLogic)
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {

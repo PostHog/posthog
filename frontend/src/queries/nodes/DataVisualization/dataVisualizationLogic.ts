@@ -1,16 +1,13 @@
-import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
-import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { query } from '~/queries/query'
 import { AnyResponseType, DataVisualizationNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ItemMode } from '~/types'
 
+import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
 export interface DataVisualizationLogicProps {
@@ -24,70 +21,17 @@ export interface DataVisualizationLogicProps {
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'dataVisualizationLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], insightSceneLogic, ['insightMode']],
+        values: [teamLogic, ['currentTeamId'], insightSceneLogic, ['insightMode'], dataNodeLogic, ['response']],
+        actions: [dataNodeLogic, ['loadDataSuccess']],
     }),
     props({ query: {} } as DataVisualizationLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (!props.query) {
-            return // Can't do anything without a query
-        }
-        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
-            actions.clearResponse()
-        }
-        if (!objectsEqual(props.query, oldProps.query)) {
-            if (!props.cachedResults || (!props.cachedResults['result'] && !props.cachedResults['results'])) {
-                actions.loadData()
-            } else {
-                actions.setResponse(props.cachedResults)
-            }
-        }
-    }),
     actions({
-        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
-        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
-        clearResponse: true,
-        abortQuery: (payload: { queryId: string }) => payload,
-        cancelQuery: true,
-        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
         setXAxis: (columnIndex: number) => ({ selectedXAxisColumnIndex: columnIndex }),
         setYAxis: (columnIndex: number) => ({ selectedYAxisColumnIndex: columnIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
     }),
-    loaders(({ props, actions, cache }) => ({
-        response: [
-            props.cachedResults ?? null,
-            {
-                setResponse: (response) => response,
-                clearResponse: () => null,
-                loadData: async ({ refresh, queryId }, breakpoint) => {
-                    const now = performance.now()
-                    try {
-                        cache.abortController = new AbortController()
-                        const data =
-                            (await query<DataVisualizationNode>(
-                                props.query,
-                                { signal: cache.abortController.signal },
-                                refresh,
-                                queryId
-                            )) ?? null
-                        breakpoint()
-                        actions.setElapsedTime(performance.now() - now)
-                        return data
-                    } catch (e: any) {
-                        actions.setElapsedTime(performance.now() - now)
-                        if (shouldCancelQuery(e)) {
-                            actions.abortQuery({ queryId })
-                        }
-                        breakpoint()
-                        e.queryId = queryId
-                        throw e
-                    }
-                },
-            },
-        ],
-    })),
     reducers({
         columns: [
             [] as { name: string; type: string }[],
@@ -108,36 +52,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
                     })
                 },
-            },
-        ],
-        loadingStart: [
-            null as number | null,
-            {
-                setElapsedTime: () => null,
-                loadData: () => performance.now(),
-            },
-        ],
-        elapsedTime: [
-            null as number | null,
-            {
-                setElapsedTime: (_, { elapsedTime }) => elapsedTime,
-                loadData: () => null,
-            },
-        ],
-        responseError: [
-            null as string | null,
-            {
-                loadData: () => null,
-                loadDataFailure: (_, { error, errorObject }) => {
-                    if (errorObject && 'error' in errorObject) {
-                        return errorObject.error
-                    }
-                    if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail
-                    }
-                    return error ?? 'Error loading data'
-                },
-                loadDataSuccess: () => null,
             },
         ],
         visualizationType: [
@@ -197,21 +111,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
     }),
-    listeners(({ values, cache, props }) => ({
-        abortQuery: async ({ queryId }) => {
-            try {
-                const { currentTeamId } = values
-                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
-            } catch (e) {
-                console.warn('Failed cancelling query', e)
-            }
-        },
-        cancelQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
-        },
+    listeners(({ props }) => ({
         setQuery: ({ node }) => {
             if (props.setQuery) {
                 props.setQuery(node)
@@ -249,10 +149,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0) {
-            actions.loadData()
-        }
-
         if (props.query.display) {
             actions.setVisualizationType(props.query.display)
         }

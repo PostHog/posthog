@@ -2,17 +2,8 @@
 
 .DataVisualization {
     .ChartSelectionWrapper {
-        flex-shrink: 0;
         width: 20vw;
         height: var(--viz-min-height);
-        padding: 1rem;
-        background: var(--bg-light);
-        border: 1px solid var(--border);
         border-radius: var(--radius);
-
-        .ChartSelection {
-            display: flex;
-            flex-direction: column;
-        }
     }
 }

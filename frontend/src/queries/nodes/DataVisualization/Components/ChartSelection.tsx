@@ -1,14 +1,15 @@
 import './ChartSelection.scss'
 
 import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const ChartSelection = (): JSX.Element => {
-    const logic = useMountedLogic(dataVisualizationLogic)
-    const { columns, responseLoading, selectedXIndex, selectedYIndex } = useValues(logic)
-    const { setXAxis, setYAxis } = useActions(logic)
+    const { columns, selectedXIndex, selectedYIndex } = useValues(dataVisualizationLogic)
+    const { responseLoading } = useValues(dataNodeLogic)
+    const { setXAxis, setYAxis } = useActions(dataVisualizationLogic)
 
     const options = columns.map(({ name, type }) => ({
         value: name,
@@ -16,8 +17,8 @@ export const ChartSelection = (): JSX.Element => {
     }))
 
     return (
-        <div className="ChartSelectionWrapper">
-            <div className="ChartSelection">
+        <div className="ChartSelectionWrapper bg-bg-light border p-4">
+            <div className="flex flex-col">
                 <LemonLabel>X-axis</LemonLabel>
                 <LemonSelect
                     value={selectedXIndex !== null ? options[selectedXIndex]?.label : 'None'}
