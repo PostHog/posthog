@@ -2,14 +2,18 @@ import './SidePanelWelcome.scss'
 
 import { IconArrowLeft, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import featureCommandPalette from 'public/3000/3000-command-palette.png'
+import featureCommandPaletteDark from 'public/3000/3000-command-palette-dark.png'
 import featureDarkMode from 'public/3000/3000-dark-mode.png'
 import featureNav from 'public/3000/3000-nav.png'
+import featureNavDark from 'public/3000/3000-nav-dark.png'
 import featureNotebooks from 'public/3000/3000-notebooks.png'
+import featureNotebooksDark from 'public/3000/3000-notebooks-dark.png'
 import featureSearch from 'public/3000/3000-search.png'
 import featureSidePanel from 'public/3000/3000-side-panel.png'
+import featureSidePanelDark from 'public/3000/3000-side-panel-dark.png'
 import featureToolbar from 'public/3000/3000-toolbar.png'
 import { useEffect } from 'react'
 
@@ -48,10 +52,15 @@ const Card = ({ width, children }: CardProps): JSX.Element => (
 const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <h3 className="mb-1 font-bold leading-5">{children}</h3>
 )
-const Description = ({ children }: { children: React.ReactNode }): JSX.Element => <p className="text-sm">{children}</p>
+const Description = ({ children }: { children: React.ReactNode }): JSX.Element => (
+    <p className="text-sm opacity-75">{children}</p>
+)
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
         return () => {
@@ -104,19 +113,23 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
-                <Row className="grid grid-cols-2" columns="40% 60%">
-                    <Card width="40%">
+                <Row className="grid grid-cols-2" columns="40% calc(60% - 1rem)">
+                    <Card>
                         <Title>Updated nav</Title>
                         <Description>Products are now split out from project & data.</Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={featureNav} alt="Updated nav" width="100%" />
+                            <img src={isDarkModeOn ? featureNavDark : featureNav} alt="Updated nav" width="100%" />
                         </div>
                     </Card>
-                    <Card width="60%">
+                    <Card>
                         <Title>Notebooks</Title>
                         <Description>Analyze data from different angles and share results with your team.</Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={featureNotebooks} alt="Notebooks in sidebar" width="100%" />
+                            <img
+                                src={isDarkModeOn ? featureNotebooksDark : featureNotebooks}
+                                alt="Notebooks in sidebar"
+                                width="100%"
+                            />
                         </div>
                     </Card>
                 </Row>
@@ -130,13 +143,18 @@ export const SidePanelWelcome = (): JSX.Element => {
                                 <Description>Access docs, notebooks, contact support, and more.</Description>
                             </div>
                             <div className="-mr-4 -my-3">
-                                <img src={featureSidePanel} alt="Side panel" height="100%" style={{ maxHeight: 208 }} />
+                                <img
+                                    src={isDarkModeOn ? featureSidePanelDark : featureSidePanel}
+                                    alt="Side panel"
+                                    height="100%"
+                                    style={{ maxHeight: 205 }}
+                                />
                             </div>
                         </div>
                     </Card>
                 </Row>
 
-                <Row className="grid grid-cols-2" columns="60% 40%">
+                <Row className="grid grid-cols-2" columns="calc(60% - 1rem) 40%">
                     <Card>
                         <Title>Improved search</Title>
                         <Description>
@@ -152,7 +170,11 @@ export const SidePanelWelcome = (): JSX.Element => {
                             Use <KeyboardShortcut command shift k /> to navigate faster.
                         </Description>
                         <div className="-mr-4 -mb-3">
-                            <img src={featureCommandPalette} alt="Command palette" width="100%" />
+                            <img
+                                src={isDarkModeOn ? featureCommandPaletteDark : featureCommandPalette}
+                                alt="Command palette"
+                                width="100%"
+                            />
                         </div>
                     </Card>
                 </Row>
