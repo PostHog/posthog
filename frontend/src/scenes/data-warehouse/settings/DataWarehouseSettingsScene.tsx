@@ -19,6 +19,7 @@ const StatusTagSetting = {
     Running: 'primary',
     Completed: 'success',
     Error: 'danger',
+    Failed: 'danger',
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
