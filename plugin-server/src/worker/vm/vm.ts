@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
+import { Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
@@ -27,6 +28,12 @@ export class TimeoutError extends RetryError {
         this.pluginConfig = pluginConfig
     }
 }
+
+const vmSetupMsSummary = new Summary({
+    name: 'vm_setup_ms',
+    help: 'Time to setup vm',
+    labelNames: ['plugin_id'],
+})
 
 export function createPluginConfigVM(
     hub: Hub,
@@ -243,6 +250,7 @@ export function createPluginConfigVM(
     }
 
     statsdTiming('vm_setup_full')
+    vmSetupMsSummary.labels(String(pluginConfig.plugin?.id)).observe(new Date().getTime() - timer.getTime())
 
     return {
         vm,
