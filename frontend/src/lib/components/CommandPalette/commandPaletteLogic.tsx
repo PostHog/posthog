@@ -1,6 +1,5 @@
 import {
     IconApps,
-    IconAsterisk,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -9,6 +8,7 @@ import {
     IconDatabase,
     IconDay,
     IconExternal,
+    IconEye,
     IconFunnels,
     IconGear,
     IconGithub,
@@ -16,6 +16,7 @@ import {
     IconHogQL,
     IconHome,
     IconKeyboard,
+    IconLaptop,
     IconLeave,
     IconLifecycle,
     IconList,
@@ -132,7 +133,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
+        actions: [personalAPIKeysLogic, ['createKey'], userLogic, ['updateUser'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
         logic: [preflightLogic],
     }),
@@ -869,7 +870,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'toggle-theme',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: <></>,
+                    icon: IconEye,
                     display: 'Switch theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
@@ -877,23 +878,23 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: [
                             {
                                 icon: IconDay,
-                                display: 'Light theme',
+                                display: 'Light mode',
                                 executor: () => {
-                                    // TODO: actions.overrideTheme(false)
+                                    actions.updateUser({ theme_mode: 'light' })
                                 },
                             },
                             {
                                 icon: IconNight,
-                                display: 'Dark theme',
+                                display: 'Dark mode',
                                 executor: () => {
-                                    // TODO: actions.overrideTheme(true)
+                                    actions.updateUser({ theme_mode: 'dark' })
                                 },
                             },
                             {
-                                icon: IconAsterisk,
-                                display: 'Sync with system settings',
+                                icon: IconLaptop,
+                                display: 'Sync with system preferences',
                                 executor: () => {
-                                    // TODO: actions.overrideTheme(null)
+                                    actions.updateUser({ theme_mode: null })
                                 },
                             },
                         ],
