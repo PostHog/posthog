@@ -2168,6 +2168,10 @@ describe('DeferredPersonOverrideWriter', () => {
         )
     })
 
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     afterAll(async () => {
         await closeHub()
     })
@@ -2215,6 +2219,51 @@ describe('DeferredPersonOverrideWriter', () => {
         ])
 
         // TODO would also be good to check that this produces to kafka and/or clickhouse
+    })
+
+    it('rolls back on kafka producer error', async () => {
+        const { postgres, kafkaProducer } = hub.db
+
+        const override = {
+            old_person_id: new UUIDT().toString(),
+            override_person_id: new UUIDT().toString(),
+        }
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
+        })
+
+        expect(
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `SELECT old_person_id, override_person_id
+                FROM posthog_pendingpersonoverride
+                WHERE team_id = ${teamId}`,
+                undefined,
+                ''
+            )
+        ).toMatchObject({
+            rows: [override],
+        })
+
+        jest.spyOn(kafkaProducer, 'queueMessages').mockImplementation(() => {
+            throw new Error('something bad happened')
+        })
+
+        await expect(writer.processPendingOverrides(kafkaProducer)).rejects.toThrow()
+
+        expect(
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `SELECT old_person_id, override_person_id
+                FROM posthog_pendingpersonoverride
+                WHERE team_id = ${teamId}`,
+                undefined,
+                ''
+            )
+        ).toMatchObject({
+            rows: [override],
+        })
     })
 
     it('ensures advisory lock is held before processing', async () => {
