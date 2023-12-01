@@ -18,6 +18,8 @@ pub enum PgQueueError {
     ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
     QueryError { command: String, error: sqlx::Error },
+    #[error("transaction {command} failed with: {error}")]
+    TransactionError { command: String, error: sqlx::Error },
     #[error("{0} is not a valid JobStatus")]
     ParseJobStatusError(String),
     #[error("{0} Job has reached max attempts and cannot be retried further")]
@@ -78,6 +80,8 @@ pub struct Job<J> {
     pub max_attempts: i32,
     /// Arbitrary job parameters stored as JSON.
     pub parameters: JobParameters<J>,
+    /// The queue this job belongs to.
+    pub queue: String,
     /// The current status of the job.
     pub status: JobStatus,
     /// The target of the job. E.g. an endpoint or service we are trying to reach.
@@ -99,6 +103,7 @@ impl<J> Job<J> {
                 id: self.id,
                 attempt: self.attempt,
                 error: sqlx::types::Json(error),
+                queue: self.queue,
             })
         }
     }
@@ -106,7 +111,10 @@ impl<J> Job<J> {
     /// Consume Job to complete it.
     /// This returns a CompletedJob that can be enqueued by PgQueue.
     pub fn complete(self) -> CompletedJob {
-        CompletedJob { id: self.id }
+        CompletedJob {
+            id: self.id,
+            queue: self.queue,
+        }
     }
 
     /// Consume Job to fail it.
@@ -119,17 +127,152 @@ impl<J> Job<J> {
         FailedJob {
             id: self.id,
             error: sqlx::types::Json(error),
+            queue: self.queue,
         }
     }
 }
 
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        Self {
-            backoff_coefficient: 2,
-            initial_interval: Duration::seconds(1),
-            maximum_interval: None,
-        }
+/// A Job within an open PostgreSQL transaction.
+/// This implementation allows 'hiding' the job from any other workers running SKIP LOCKED queries.
+pub struct PgTransactionJob<'c, J> {
+    pub job: Job<J>,
+    pub table: String,
+    pub transaction: sqlx::Transaction<'c, sqlx::postgres::Postgres>,
+}
+
+impl<'c, J> PgTransactionJob<'c, J> {
+    pub async fn retry<E: Serialize + std::marker::Sync>(
+        mut self,
+        error: E,
+        retry_policy: &RetryPolicy,
+    ) -> Result<RetryableJob<E>, PgQueueError> {
+        let retryable_job = self.job.retry(error)?;
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'available'::job_status,
+    scheduled_at = NOW() + $3,
+    errors = array_append("{0}".errors, $4)
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&retryable_job.queue)
+            .bind(retryable_job.id)
+            .bind(retry_policy.time_until_next_retry(&retryable_job))
+            .bind(&retryable_job.error)
+            .execute(&mut *self.transaction)
+            .await
+            .map_err(|error| PgQueueError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        self.transaction
+            .commit()
+            .await
+            .map_err(|error| PgQueueError::TransactionError {
+                command: "COMMIT".to_owned(),
+                error,
+            })?;
+
+        Ok(retryable_job)
+    }
+
+    pub async fn complete(mut self) -> Result<CompletedJob, PgQueueError> {
+        let completed_job = self.job.complete();
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'completed'::job_status,
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&completed_job.queue)
+            .bind(completed_job.id)
+            .execute(&mut *self.transaction)
+            .await
+            .map_err(|error| PgQueueError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        self.transaction
+            .commit()
+            .await
+            .map_err(|error| PgQueueError::TransactionError {
+                command: "COMMIT".to_owned(),
+                error,
+            })?;
+
+        Ok(completed_job)
+    }
+
+    pub async fn fail<E: Serialize + std::marker::Sync>(
+        mut self,
+        error: E,
+    ) -> Result<FailedJob<E>, PgQueueError> {
+        let failed_job = self.job.fail(error);
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'failed'::job_status,
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&failed_job.queue)
+            .bind(failed_job.id)
+            .execute(&mut *self.transaction)
+            .await
+            .map_err(|error| PgQueueError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        self.transaction
+            .commit()
+            .await
+            .map_err(|error| PgQueueError::TransactionError {
+                command: "COMMIT".to_owned(),
+                error,
+            })?;
+
+        Ok(failed_job)
     }
 }
 
@@ -142,12 +285,16 @@ pub struct RetryableJob<J> {
     pub attempt: i32,
     /// Any JSON-serializable value to be stored as an error.
     pub error: sqlx::types::Json<J>,
+    /// A unique id identifying a job queue.
+    pub queue: String,
 }
 
 /// A Job that has completed to be enqueued into a PgQueue and marked as completed.
 pub struct CompletedJob {
     /// A unique id identifying a job.
     pub id: i64,
+    /// A unique id identifying a job queue.
+    pub queue: String,
 }
 
 /// A Job that has failed to be enqueued into a PgQueue and marked as failed.
@@ -156,6 +303,8 @@ pub struct FailedJob<J> {
     pub id: i64,
     /// Any JSON-serializable value to be stored as an error.
     pub error: sqlx::types::Json<J>,
+    /// A unique id identifying a job queue.
+    pub queue: String,
 }
 
 /// A NewJob to be enqueued into a PgQueue.
@@ -198,6 +347,16 @@ impl RetryPolicy {
             std::cmp::min(candidate_interval, max_interval)
         } else {
             candidate_interval
+        }
+    }
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            backoff_coefficient: 2,
+            initial_interval: Duration::seconds(1),
+            maximum_interval: None,
         }
     }
 }
@@ -294,6 +453,73 @@ RETURNING
             })?;
 
         Ok(item)
+    }
+
+    /// Dequeue a Job from this PgQueue to work on it.
+    pub async fn dequeue_tx<
+        J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static,
+    >(
+        &self,
+    ) -> PgQueueResult<Option<PgTransactionJob<J>>> {
+        // The query that follows uses a FOR UPDATE SKIP LOCKED clause.
+        // For more details on this see: 2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5.
+        let mut tx = self.pool.begin().await.unwrap();
+
+        let base_query = format!(
+            r#"
+WITH available_in_queue AS (
+    SELECT
+        id
+    FROM
+        "{0}"
+    WHERE
+        status = 'available'
+        AND scheduled_at <= NOW()
+        AND queue = $1
+    ORDER BY
+        id
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE
+    "{0}"
+SET
+    attempted_at = NOW(),
+    status = 'running'::job_status,
+    attempt = "{0}".attempt + 1,
+    attempted_by = array_append("{0}".attempted_by, $2::text)
+FROM
+    available_in_queue
+WHERE
+    "{0}".id = available_in_queue.id
+RETURNING
+    "{0}".*
+            "#,
+            &self.table
+        );
+
+        let query_result: Result<Job<J>, sqlx::Error> = sqlx::query_as(&base_query)
+            .bind(&self.name)
+            .bind(&self.worker)
+            .fetch_one(&mut *tx)
+            .await;
+
+        let job: Job<J> = match query_result {
+            Ok(j) => j,
+            Err(sqlx::Error::RowNotFound) => return Ok(None),
+            Err(e) => {
+                return Err(PgQueueError::QueryError {
+                    command: "UPDATE".to_owned(),
+                    error: e,
+                })
+            }
+        };
+
+        Ok(Some(PgTransactionJob {
+            job,
+            table: self.table.to_owned(),
+            transaction: tx,
+        }))
     }
 
     /// Enqueue a Job into this PgQueue.
@@ -493,6 +719,54 @@ mod tests {
         assert_eq!(job.parameters.url, "https://localhost".to_string());
         assert_eq!(job.status, JobStatus::Running);
         assert_eq!(job.target, job_target.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_can_dequeue_tx_job() {
+        let job_parameters = JobParameters {
+            method: "POST".to_string(),
+            body: "{\"event\":\"event-name\"}".to_string(),
+            url: "https://localhost".to_string(),
+        };
+        let job_target = "https://myhost/endpoint";
+        let new_job = NewJob::new(1, job_parameters, job_target);
+
+        let worker_id = std::process::id().to_string();
+        let retry_policy = RetryPolicy::default();
+        let queue = PgQueue::new(
+            "test_queue_tx_1",
+            "job_queue",
+            retry_policy,
+            "postgres://posthog:posthog@localhost:15432/test_database",
+            &worker_id,
+        )
+        .await
+        .expect("failed to connect to local test postgresql database");
+
+        queue.enqueue(new_job).await.expect("failed to enqueue job");
+
+        let tx_job: PgTransactionJob<'_, JobParameters> = queue
+            .dequeue_tx()
+            .await
+            .expect("failed to dequeue job")
+            .expect("didn't find a job to dequeue");
+        let another_job: Option<PgTransactionJob<'_, JobParameters>> =
+            queue.dequeue_tx().await.expect("failed to dequeue job");
+
+        assert!(another_job.is_none());
+
+        assert_eq!(tx_job.job.attempt, 1);
+        assert!(tx_job.job.attempted_by.contains(&worker_id));
+        assert_eq!(tx_job.job.attempted_by.len(), 1);
+        assert_eq!(tx_job.job.max_attempts, 1);
+        assert_eq!(tx_job.job.parameters.method, "POST".to_string());
+        assert_eq!(
+            tx_job.job.parameters.body,
+            "{\"event\":\"event-name\"}".to_string()
+        );
+        assert_eq!(tx_job.job.parameters.url, "https://localhost".to_string());
+        assert_eq!(tx_job.job.status, JobStatus::Running);
+        assert_eq!(tx_job.job.target, job_target.to_string());
     }
 
     #[tokio::test]
