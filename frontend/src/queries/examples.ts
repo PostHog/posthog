@@ -317,6 +317,17 @@ const HogQLRaw: HogQLQuery = {
     },
 }
 
+const HogQLForDataVisualization: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+where timestamp > now() - INTERVAL 7 day
+group by timestamp
+order by timestamp asc
+limit 100`,
+    explain: true,
+}
+
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
@@ -325,7 +336,7 @@ const HogQLTable: DataTableNode = {
 
 const DataVisualization: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
-    source: HogQLRaw,
+    source: HogQLForDataVisualization,
 }
 
 /* a subset of examples including only those we can show all users and that don't use HogQL */

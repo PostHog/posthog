@@ -165,14 +165,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         }
     }),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         columns: (value, oldValue) => {
-            if (!oldValue || !oldValue.length) {
-                return
+            if (oldValue && oldValue.length) {
+                if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
+                    actions.clearAxis()
+                }
             }
 
-            if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
-                actions.clearAxis()
+            // Set default axis values
+            if (values.response && values.selectedXIndex === null && values.selectedYIndex === null) {
+                const types: string[][] = values.response['types']
+                const yAxisIndex = types.findIndex((n) => n[1].indexOf('Int') !== -1)
+                const xAxisIndex = types.findIndex((n) => n[1].indexOf('Date') !== -1)
+
+                if (yAxisIndex >= 0) {
+                    actions.setYAxis(yAxisIndex)
+                }
+
+                if (xAxisIndex >= 0) {
+                    actions.setXAxis(xAxisIndex)
+                }
             }
         },
     })),
