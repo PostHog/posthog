@@ -79,7 +79,7 @@ export const SidePanelWelcome = (): JSX.Element => {
         <>
             <div className="flex-shrink bg-accent-3000 border-b sticky top-0 pl-4 pr-1 py-1 z-10 flex items-center">
                 <div className="flex-1">
-                    <strong>Welcome to PostHog 3000</strong>
+                    <strong>What's new?</strong>
                 </div>
                 <div className="flex-shrink">
                     <button
