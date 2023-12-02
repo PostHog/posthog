@@ -717,8 +717,15 @@ export class PersonOverrideWriter {
 }
 
 export class DeferredPersonOverrideWriter {
+    /**
+     * @param lockId the lock identifier/key used to ensure that only one
+     *               process is updating the overrides at a time
+     */
     constructor(private postgres: PostgresRouter, private lockId: number) {}
 
+    /**
+     * Enqueue an override for deferred processing.
+     */
     public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
         await this.postgres.query(
             tx,
@@ -746,7 +753,6 @@ export class DeferredPersonOverrideWriter {
      * processing to ensure that this function has exclusive access to the
      * pending overrides during the update process.
      *
-     * @param kafkaProducer
      * @returns the number of overrides processed
      */
     public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper): Promise<number> {
@@ -765,6 +771,7 @@ export class DeferredPersonOverrideWriter {
                 throw new Error('could not acquire lock')
             }
 
+            // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
             const { rows } = await this.postgres.query(
                 tx,
                 `SELECT * FROM posthog_pendingpersonoverride ORDER BY id`,
@@ -783,6 +790,10 @@ export class DeferredPersonOverrideWriter {
                 )
             }
 
+            // n.b.: We publish the messages here (and wait for acks) to ensure
+            // that all of our override updates are sent to Kafka before
+            // prior to committing the transaction. If we're unable to publish,
+            // we should discard updates and try again later when it's available
             await kafkaProducer.queueMessages(messages, true)
 
             return rows.length
