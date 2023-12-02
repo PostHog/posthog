@@ -2176,6 +2176,18 @@ describe('DeferredPersonOverrideWriter', () => {
         await closeHub()
     })
 
+    const getPendingPersonOverrides = async () => {
+        const { rows } = await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `SELECT old_person_id, override_person_id
+                FROM posthog_pendingpersonoverride
+                WHERE team_id = ${teamId}`,
+            undefined,
+            ''
+        )
+        return rows
+    }
+
     it('moves overrides from the pending table to the overrides table', async () => {
         const { postgres, kafkaProducer } = hub.db
 
@@ -2188,31 +2200,11 @@ describe('DeferredPersonOverrideWriter', () => {
             await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
         })
 
-        expect(
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `SELECT old_person_id, override_person_id
-                FROM posthog_pendingpersonoverride
-                WHERE team_id = ${teamId}`,
-                undefined,
-                ''
-            )
-        ).toMatchObject({
-            rows: [override],
-        })
+        expect(await getPendingPersonOverrides()).toEqual([override])
 
         expect(await writer.processPendingOverrides(kafkaProducer)).toEqual(1)
 
-        expect(
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `SELECT old_person_id, override_person_id
-                FROM posthog_pendingpersonoverride
-                WHERE team_id = ${teamId}`,
-                undefined,
-                ''
-            )
-        ).toMatchObject({ rows: [] })
+        expect(await getPendingPersonOverrides()).toMatchObject([])
 
         expect(await fetchPostgresPersonIdOverrides(hub, teamId)).toEqual([
             [override.old_person_id, override.override_person_id],
@@ -2233,18 +2225,7 @@ describe('DeferredPersonOverrideWriter', () => {
             await writer.addPersonOverride(tx, { team_id: teamId, ...override, oldest_event: DateTime.fromMillis(0) })
         })
 
-        expect(
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `SELECT old_person_id, override_person_id
-                FROM posthog_pendingpersonoverride
-                WHERE team_id = ${teamId}`,
-                undefined,
-                ''
-            )
-        ).toMatchObject({
-            rows: [override],
-        })
+        expect(await getPendingPersonOverrides()).toEqual([override])
 
         jest.spyOn(kafkaProducer, 'queueMessages').mockImplementation(() => {
             throw new Error('something bad happened')
@@ -2252,18 +2233,7 @@ describe('DeferredPersonOverrideWriter', () => {
 
         await expect(writer.processPendingOverrides(kafkaProducer)).rejects.toThrow()
 
-        expect(
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `SELECT old_person_id, override_person_id
-                FROM posthog_pendingpersonoverride
-                WHERE team_id = ${teamId}`,
-                undefined,
-                ''
-            )
-        ).toMatchObject({
-            rows: [override],
-        })
+        expect(await getPendingPersonOverrides()).toEqual([override])
     })
 
     it('ensures advisory lock is held before processing', async () => {
