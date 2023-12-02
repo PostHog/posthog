@@ -66,7 +66,10 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    if (values.activeTab === Tab.All) {
+                    if (clickhouseTabs.includes(values.activeTab)) {
+                        // prevent race conditions when switching tabs quickly
+                        return values.rawSearchResponse
+                    } else if (values.activeTab === Tab.All) {
                         return await api.search.list({ q: values.searchQuery })
                     } else {
                         return await api.search.list({
