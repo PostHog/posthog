@@ -19,7 +19,7 @@ export const SearchResults = (): JSX.Element => {
                 </div>
             ) : (
                 <div className="overflow-hidden overscroll-contain flex h-full">
-                    <div className="border-r bg-bg-light overscroll-contain overflow-y-scroll grow-0 shrink-0 w-80">
+                    <div className="border-r bg-bg-3000 overscroll-contain overflow-y-scroll grow-0 shrink-0 w-80">
                         {combinedSearchLoading && (
                             <>
                                 <SearchResultSkeleton />
