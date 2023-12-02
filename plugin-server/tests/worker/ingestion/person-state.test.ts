@@ -1841,7 +1841,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIdsAfterFailure).toEqual(expect.arrayContaining([['first'], ['second']]))
 
                 // verify Postgres person_id overrides
-                const overridesAfterFailure = await fetchPostgresPersonIdOverrides(hub, teamId)
+                const overridesAfterFailure = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
                 expect(overridesAfterFailure).toEqual([])
 
                 // Now verify we successfully get to our target state if we do not have
@@ -1876,7 +1876,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second']))
 
                 // verify Postgres person_id overrides
-                const overrides = await fetchPostgresPersonIdOverrides(hub, teamId)
+                const overrides = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
                 expect(overrides).toEqual([[second.uuid, first.uuid]])
             })
 
