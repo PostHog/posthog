@@ -13,9 +13,9 @@ export const SearchBar = (): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
     return (
-        <div className="flex h-full">
+        <div className="flex w-full h-full">
             <SearchTabs inputRef={inputRef} />
-            <div className="w-full">
+            <div className="grow flex flex-col overscroll-contain overflow-hidden">
                 <SearchInput ref={inputRef} />
                 <SearchResults />
             </div>
