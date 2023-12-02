@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
 )
-from posthog.warehouse.data_load.sync_table import SchemaValidationError, is_schema_valid, move_draft_to_production
+from posthog.warehouse.data_load.sync_table import SchemaValidationError, validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     get_external_data_job,
@@ -71,15 +71,13 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 @dataclasses.dataclass
 class ValidateSchemaInputs:
     run_id: str
-    create: bool
     team_id: int
 
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
-    is_valid = await sync_to_async(is_schema_valid)(  # type: ignore
+    is_valid = await sync_to_async(validate_schema_and_update_table)(  # type: ignore
         run_id=inputs.run_id,
-        create=inputs.create,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
@@ -88,25 +86,6 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
     )
 
     return is_valid
-
-
-@dataclasses.dataclass
-class MoveDraftToProductionExternalDataJobInputs:
-    team_id: int
-    run_id: str
-
-
-@activity.defn
-async def move_draft_to_production_activity(inputs: MoveDraftToProductionExternalDataJobInputs) -> None:
-    await sync_to_async(move_draft_to_production)(  # type: ignore
-        team_id=inputs.team_id,
-        run_id=inputs.run_id,
-    )
-
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
-        f"Moved draft to production for external data job {inputs.run_id}",
-    )
 
 
 @dataclasses.dataclass
@@ -132,7 +111,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         job_type=model.pipeline.source_type,
-        dataset_name=model.draft_folder_path,
+        dataset_name=model.folder_path,
         **model.pipeline.job_inputs,
     )
     job_fn = PIPELINE_TYPE_RUN_MAPPING[model.pipeline.source_type]
@@ -190,29 +169,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(run_id=run_id, create=False, team_id=inputs.team_id)
+            validate_inputs = ValidateSchemaInputs(run_id=run_id, team_id=inputs.team_id)
 
-            await workflow.execute_activity(
-                validate_schema_activity,
-                validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            move_inputs = MoveDraftToProductionExternalDataJobInputs(
-                team_id=inputs.team_id,
-                run_id=run_id,
-            )
-
-            await workflow.execute_activity(
-                move_draft_to_production_activity,
-                move_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            # if not errors, then create the schema
-            validate_inputs.create = True
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,

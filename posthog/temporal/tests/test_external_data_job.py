@@ -127,14 +127,14 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
                 job_type="Stripe",
                 team_id=team.id,
                 stripe_secret_key="test-key",
-                dataset_name=new_source.draft_folder_path,
+                dataset_name=new_job.folder_path,
             )
         )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
+async def test_validate_schema_and_update_table_activity(activity_environment, team, **kwargs):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -160,7 +160,6 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 run_id=new_job.pk,
-                create=False,
                 team_id=team.id,
             ),
         )
@@ -170,7 +169,7 @@ async def test_is_schema_valid_activity(activity_environment, team, **kwargs):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_is_schema_valid_activity_failed(activity_environment, team, **kwargs):
+async def test_validate_schema_and_update_table_activity_failed(activity_environment, team, **kwargs):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -199,7 +198,6 @@ async def test_is_schema_valid_activity_failed(activity_environment, team, **kwa
                 validate_schema_activity,
                 ValidateSchemaInputs(
                     run_id=new_job.pk,
-                    create=False,
                     team_id=team.id,
                 ),
             )
@@ -235,12 +233,11 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 run_id=new_job.pk,
-                create=True,
                 team_id=team.id,
             ),
         )
 
-        assert mock_get_columns.call_count == 5
+        assert mock_get_columns.call_count == 10
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)  # type: ignore
         assert table_length == 5
@@ -250,7 +247,6 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
             validate_schema_activity,
             ValidateSchemaInputs(
                 run_id=new_job.pk,
-                create=True,
                 team_id=team.id,
             ),
         )

@@ -23,8 +23,4 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     @property
     def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pipeline.pk)}".lower().replace("-", "_")
-
-    @property
-    def draft_folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}_draft".lower().replace("-", "_")
+        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
