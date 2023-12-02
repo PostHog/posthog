@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { waitForExpect } from '../../../functional_tests/expectations'
 import { Database, Hub, Person } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
@@ -2210,7 +2211,19 @@ describe('DeferredPersonOverrideWriter', () => {
             [override.old_person_id, override.override_person_id],
         ])
 
-        // TODO would also be good to check that this produces to kafka and/or clickhouse
+        const clickhouseOverrides = await waitForExpect(async () => {
+            const { data } = await hub.db.clickhouse.querying(
+                `
+                SELECT old_person_id, override_person_id
+                FROM person_overrides
+                WHERE team_id = ${teamId}
+                `,
+                { dataObjects: true }
+            )
+            expect(data).toHaveLength(1)
+            return data
+        })
+        expect(clickhouseOverrides).toEqual([override])
     })
 
     it('rolls back on kafka producer error', async () => {
