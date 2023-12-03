@@ -63,7 +63,7 @@ const getProductTiers = (
             {tiers ? (
                 tiers?.map((tier, i) => (
                     <div
-                        key={`${plan.key}-${product.type}-${tier.up_to}`}
+                        key={`${plan.plan_key}-${product.type}-${tier.up_to}`}
                         className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
                         ref={tiersRef}
                     >
@@ -79,7 +79,7 @@ const getProductTiers = (
                 ))
             ) : product?.free_allocation ? (
                 <div
-                    key={`${plan.key}-${product.type}-tiers`}
+                    key={`${plan.plan_key}-${product.type}-tiers`}
                     className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
                     ref={tiersRef}
                 >
@@ -111,7 +111,7 @@ export const PlanComparison = ({
 
     const upgradeButtons = plans?.map((plan) => {
         return (
-            <td key={`${plan.key}-cta`} className="PlanTable__td__upgradeButton">
+            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}

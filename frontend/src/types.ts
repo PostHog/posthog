@@ -92,15 +92,6 @@ export enum AvailableFeature {
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
-export type AvailableProductFeature = {
-    key: AvailableFeature
-    name: string
-    description?: string | null
-    limit?: number | null
-    note?: string | null
-    unit?: string | null
-}
-
 export enum ProductKey {
     COHORTS = 'cohorts',
     ACTIONS = 'actions',
@@ -234,7 +225,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    available_product_features: AvailableProductFeature[]
+    available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -1201,14 +1192,13 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingV2FeatureType {
-    key: string
+export type BillingV2FeatureType = {
+    key: AvailableFeature
     name: string
-    description?: string
-    unit?: string
-    limit?: number
-    note?: string
-    group?: AvailableFeature
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
 }
 
 export interface BillingV2TierType {
@@ -1247,12 +1237,6 @@ export interface BillingProductV2Type {
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
-    feature_groups: {
-        // deprecated, remove after removing the billing plans table
-        group: string
-        name: string
-        features: BillingV2FeatureType[]
-    }[]
     addons: BillingProductV2AddonType[]
 
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
@@ -1314,11 +1298,9 @@ export interface BillingV2Type {
 export interface BillingV2PlanType {
     free_allocation?: number
     features: BillingV2FeatureType[]
-    key: string
     name: string
     description: string
     is_free?: boolean
-    products: BillingProductV2Type[]
     plan_key?: string
     current_plan?: any
     tiers?: BillingV2TierType[]
@@ -3428,7 +3410,13 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string | JSX.Element
+    image:
+        | string
+        | JSX.Element
+        // storybook handles require() differently, so we need to support both
+        | {
+              default: string
+          }
     docsLink: string
 }
 
