@@ -5,7 +5,11 @@ import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 
 export const SearchResultPreview = (): JSX.Element | null => {
-    const { activeResultIndex, combinedSearchResults } = useValues(searchBarLogic)
+    const { activeResultIndex, combinedSearchResults, resultsCache } = useValues(searchBarLogic)
+
+    console.debug(resultsCache)
+
+    return <pre>{JSON.stringify(resultsCache, null, 2)}</pre>
 
     if (!combinedSearchResults || combinedSearchResults.length === 0) {
         return null

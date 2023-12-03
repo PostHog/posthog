@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { groupBy } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -11,7 +12,7 @@ import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } f
 import { commandBarLogic } from './commandBarLogic'
 import { clickhouseTabs, Tab } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
+import { BarStatus, GroupResult, PersonResult, ResultType, SearchResult } from './types'
 
 const DEBOUNCE_MS = 300
 
@@ -42,6 +43,8 @@ function rankGroups(groups: Group[], query: string): GroupResult[] {
     }))
 }
 
+export type ResultCache = Record<string, Record<ResultType, SearchResult[] | null>>
+
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
@@ -58,25 +61,48 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onMouseLeaveResult: true,
         setIsAutoScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
+        updateResultCache: (query: string, type: ResultType, results: SearchResult[]) => ({ query, type, results }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         rawSearchResponse: [
             null as SearchResponse | null,
             {
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    if (clickhouseTabs.includes(values.activeTab)) {
-                        // prevent race conditions when switching tabs quickly
-                        return values.rawSearchResponse
-                    } else if (values.activeTab === Tab.All) {
-                        return await api.search.list({ q: values.searchQuery })
-                    } else {
-                        return await api.search.list({
+                    const postgresEntities = values.tabs.filter(
+                        (tab) => !clickhouseTabs.includes(tab) && tab !== Tab.All
+                    )
+                    const allEntities = postgresEntities.filter((tab) => tab !== values.activeTab)
+                    const detailEntities = postgresEntities.filter((tab) => tab === values.activeTab)
+
+                    const allResults = (
+                        await api.search.list({
                             q: values.searchQuery,
-                            entities: [values.activeTab.toLowerCase() as SearchableEntity],
+                            entities: allEntities,
                         })
-                    }
+                    ).results
+
+                    const detailResults = (
+                        await api.search.list({
+                            q: values.searchQuery,
+                            entities: detailEntities,
+                        })
+                    ).results
+
+                    const combinedResponse = [
+                        ...allResults.filter((r) => r.type !== values.activeTab),
+                        ...detailResults,
+                    ]
+
+                    const groupedResults = groupBy(combinedResponse, (r) => r.type)
+
+                    // console.debug(groupedResults)
+                    Object.entries(groupedResults).forEach(([key, value]) => {
+                        actions.updateResultCache(values.searchQuery, key, value)
+                    })
+
+                    return null
                 },
             },
         ],
@@ -85,7 +111,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.persons.list({ search: values.searchQuery })
+                    const response = await api.persons.list({ search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Person,
+                        rankPersons(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
@@ -94,7 +126,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup0Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 0, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 0, search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Group0,
+                        rankGroups(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
@@ -103,7 +141,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup1Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 1, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 1, search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Group1,
+                        rankGroups(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
@@ -112,7 +156,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup2Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 2, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 2, search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Group2,
+                        rankGroups(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
@@ -121,7 +171,13 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup3Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 3, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 3, search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Group3,
+                        rankGroups(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
@@ -130,12 +186,30 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup4Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 4, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 4, search: values.searchQuery })
+                    actions.updateResultCache(
+                        values.searchQuery,
+                        Tab.Group4,
+                        rankGroups(response.results, values.searchQuery)
+                    )
+                    return response
                 },
             },
         ],
     })),
     reducers({
+        resultsCache: [
+            {} as ResultCache,
+            {
+                updateResultCache: (cache, { query, type, results }): ResultCache => {
+                    cache[query] = {
+                        ...cache[query],
+                        [type]: results,
+                    }
+                    return cache
+                },
+            },
+        ],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         rawSearchResponse: [
             null as SearchResponse | null,
@@ -375,23 +449,10 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setSearchQuery: actions.search,
         setActiveTab: actions.search,
         search: (_) => {
-            // postgres search
-            if (values.activeTab === Tab.All || !clickhouseTabs.includes(values.activeTab)) {
-                actions.loadSearchResponse(_)
-            }
-
-            // clickhouse persons
-            if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
-                actions.loadPersonsResponse(_)
-            }
-
-            // clickhouse groups
-            if (values.activeTab === Tab.All) {
-                for (const type of Array.from(values.groupTypes.values())) {
-                    actions[`loadGroup${type.group_type_index}Response`](_)
-                }
-            } else if (values.activeTab.startsWith('group_')) {
-                actions[`loadGroup${values.activeTab.split('_')[1]}Response`](_)
+            actions.loadSearchResponse(_)
+            actions.loadPersonsResponse(_)
+            for (const type of Array.from(values.groupTypes.values())) {
+                actions[`loadGroup${type.group_type_index}Response`](_)
             }
         },
         openResult: ({ index }) => {
