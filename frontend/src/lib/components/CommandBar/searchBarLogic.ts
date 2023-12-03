@@ -9,7 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
-import { clickhouseTabs, Tab } from './constants'
+import { clickhouseTabs, Tab, TabGroup } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
 
@@ -288,11 +288,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
         ],
         tabsGrouped: [
             (s) => [s.tabsForGroups],
-            (tabsForGroups): Record<string, Tab[]> => {
+            (tabsForGroups): Record<TabGroup, Tab[]> => {
                 return {
                     all: [Tab.All],
-                    data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
-                    meta: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag],
+                    event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
+                    posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag],
                 }
             },
         ],
