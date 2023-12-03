@@ -300,7 +300,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 ]
             },
         ],
-        tabsCount: [
+        tabsCount: [(s) => [s.tabsCountMemoized], (tabsCountMemoized) => tabsCountMemoized[0]],
+        tabsCountMemoized: [
             (s) => [
                 s.rawSearchResponse,
                 s.rawPersonsResponse,
@@ -309,6 +310,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup2Response,
                 s.rawGroup3Response,
                 s.rawGroup4Response,
+                s.searchQuery,
             ],
             (
                 searchResponse,
@@ -317,8 +319,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group1Response,
                 group2Response,
                 group3Response,
-                group4Response
-            ): Record<Tab, string | null> => {
+                group4Response,
+                searchQuery
+            ): [Record<Tab, string | null>, string] => {
+                /** :TRICKY: We need to pull in the searchQuery to memoize the counts. */
+
                 const counts = {}
 
                 Object.values(Tab).forEach((tab) => {
@@ -339,7 +344,26 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     }
                 })
 
-                return counts as Record<Tab, string | null>
+                return [counts as Record<Tab, string | null>, searchQuery]
+            },
+            {
+                resultEqualityCheck: (prev, next) => {
+                    const [prevCounts, prevQuery] = prev
+                    const [nextCounts, nextQuery] = next
+
+                    if (prevQuery !== nextQuery) {
+                        return false
+                    }
+
+                    const prevNulls = Object.values(prevCounts).filter((v) => v === null).length
+                    const nextNulls = Object.values(nextCounts).filter((v) => v === null).length
+
+                    if (nextNulls !== prevNulls) {
+                        return false
+                    }
+
+                    return true
+                },
             },
         ],
         tabsLoading: [
