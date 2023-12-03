@@ -26,6 +26,7 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
                 setActiveTab(tab)
                 inputRef.current?.focus()
             }}
+            style={tab === Tab.All ? { height: 37 } : {}}
         >
             {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
             <Count tab={tab} />

@@ -280,24 +280,26 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Loading &&
                 group4Loading,
         ],
-        tabs: [
+        tabsForGroups: [
             (s) => [s.groupTypes],
             (groupTypes): Tab[] => {
-                return [
-                    Tab.All,
-                    Tab.EventDefinition,
-                    Tab.Action,
-                    Tab.Person,
-                    Tab.Cohort,
-                    ...Array.from(groupTypes.values()).map(
-                        ({ group_type_index }) => `group_${group_type_index}` as Tab
-                    ),
-                    Tab.Insight,
-                    Tab.Dashboard,
-                    Tab.Notebook,
-                    Tab.Experiment,
-                    Tab.FeatureFlag,
-                ]
+                return Array.from(groupTypes.values()).map(({ group_type_index }) => `group_${group_type_index}` as Tab)
+            },
+        ],
+        tabsGrouped: [
+            (s) => [s.tabsForGroups],
+            (tabsForGroups): Record<string, Tab[]> => {
+                return {
+                    all: [Tab.All],
+                    data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
+                    meta: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag],
+                }
+            },
+        ],
+        tabs: [
+            (s) => [s.tabsGrouped],
+            (tabsGrouped): Tab[] => {
+                return Object.values(tabsGrouped).reduce((acc, val) => acc.concat(val), [])
             },
         ],
         tabsCount: [(s) => [s.tabsCountMemoized], (tabsCountMemoized) => tabsCountMemoized[0]],
