@@ -6,6 +6,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type, ProductKey } from '~/types'
@@ -47,6 +48,26 @@ export const _OnboardingSDKs = (): JSX.Element => {
         const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY) + '?step=sdks')
+    }, [])
+    return <App />
+}
+
+export const _OnboardingBilling = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingUnsubscribedJson,
+            },
+        },
+    })
+    useMountedLogic(onboardingLogic)
+    const { setProduct, setStepKey } = useActions(onboardingLogic)
+
+    useEffect(() => {
+        const product: BillingProductV2Type = billingUnsubscribedJson.products[1] as BillingProductV2Type
+        setProduct(product)
+        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY))
+        setStepKey(OnboardingStepKey.BILLING)
     }, [])
     return <App />
 }

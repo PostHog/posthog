@@ -1213,26 +1213,26 @@ export interface BillingV2TierType {
 
 export interface BillingProductV2Type {
     type: string
-    usage_key: string
+    usage_key: string | null
     name: string
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
-    free_allocation?: number
-    subscribed: boolean
+    free_allocation?: number | null
+    subscribed: boolean | null
     tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage?: number
-    projected_amount_usd?: string
+    projected_amount_usd?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
     current_amount_usd: string | null
     usage_limit: number | null
     has_exceeded_limit: boolean
-    unit: string
+    unit: string | null
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
@@ -1265,7 +1265,7 @@ export interface BillingProductV2AddonType {
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
     usage_key: string
-    free_allocation?: number
+    free_allocation?: number | null
     percentage_usage?: number
 }
 export interface BillingV2Type {
@@ -1296,14 +1296,14 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
-    free_allocation?: number
+    free_allocation?: number | null
     features: BillingV2FeatureType[]
     name: string
     description: string
     is_free?: boolean
     plan_key?: string
     current_plan?: any
-    tiers?: BillingV2TierType[]
+    tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
 }
