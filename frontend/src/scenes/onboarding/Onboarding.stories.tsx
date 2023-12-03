@@ -10,7 +10,7 @@ import billingJson from '~/mocks/fixtures/_billing_v2.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
-import { onboardingLogic } from './onboardingLogic'
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
@@ -47,6 +47,26 @@ export const _OnboardingSDKs = (): JSX.Element => {
         const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY) + '?step=sdks')
+    }, [])
+    return <App />
+}
+
+export const _OnboardingOtherProducts = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingJson,
+            },
+        },
+    })
+    useMountedLogic(onboardingLogic)
+    const { setProduct, setStepKey } = useActions(onboardingLogic)
+
+    useEffect(() => {
+        const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
+        setProduct(product)
+        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY))
+        setStepKey(OnboardingStepKey.OTHER_PRODUCTS)
     }, [])
     return <App />
 }
