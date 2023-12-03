@@ -7,6 +7,7 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_job import ExternalDataJob
+import s3fs
 
 logger = structlog.get_logger(__name__)
 
@@ -28,10 +29,19 @@ def get_latest_run_if_exists(team_id: int, pipeline_id: str) -> ExternalDataJob 
     return job
 
 
+def get_s3_client():
+    return s3fs.S3FileSystem(
+        key=settings.AIRBYTE_BUCKET_KEY,
+        secret=settings.AIRBYTE_BUCKET_SECRET,
+    )
+
+
 # TODO: make async
 def validate_schema_and_update_table(run_id: str) -> None:
     job = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job = get_latest_run_if_exists(job.team_id, job.pipeline_id)
+    s3 = get_s3_client()
+    bucket_name = settings.BUCKET_URL
 
     credential, _ = DataWarehouseCredential.objects.get_or_create(
         team_id=job.team_id,
@@ -87,5 +97,15 @@ def validate_schema_and_update_table(run_id: str) -> None:
 
         table_created.columns = table_created.get_columns()
         table_created.save()
+
+    if last_successful_job:
+        try:
+            s3.delete(f"{bucket_name}/{last_successful_job.folder_path}", recursive=True)
+        except Exception as e:
+            logger.exception(
+                f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
+                exc_info=e,
+            )
+            pass
 
     return True

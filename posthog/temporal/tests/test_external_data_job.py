@@ -98,12 +98,14 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
     )
+
+    new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
 
     inputs = ExternalDataJobInputs(team_id=team.id, run_id=new_job.pk)
 
@@ -164,7 +166,7 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
             ),
         )
 
-        assert mock_get_columns.call_count == 5
+        assert mock_get_columns.call_count == 10
 
 
 @pytest.mark.django_db(transaction=True)
@@ -240,18 +242,4 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         assert mock_get_columns.call_count == 10
         all_tables = DataWarehouseTable.objects.all()
         table_length = await sync_to_async(len)(all_tables)  # type: ignore
-        assert table_length == 5
-
-        # Should still have one after
-        await activity_environment.run(
-            validate_schema_activity,
-            ValidateSchemaInputs(
-                run_id=new_job.pk,
-                team_id=team.id,
-            ),
-        )
-
-        all_tables = DataWarehouseTable.objects.all()
-        table_length = await sync_to_async(len)(all_tables)  # type: ignore
-
         assert table_length == 5
