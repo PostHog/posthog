@@ -223,7 +223,9 @@ export const billingLogic = kea<billingLogicType>([
                         title: 'You will soon hit your usage limit',
                         message: `You have currently used ${parseFloat(
                             (productApproachingLimit.percentage_usage * 100).toFixed(2)
-                        )}% of your ${productApproachingLimit.usage_key.toLowerCase()} allocation.`,
+                        )}% of your ${
+                            productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
+                        } allocation.`,
                     }
                 }
 
