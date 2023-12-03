@@ -40,11 +40,15 @@ type CountProps = {
 const Count = ({ tab }: CountProps): JSX.Element | null => {
     const { activeTab, tabsCount, tabsLoading } = useValues(searchBarLogic)
 
-    if (tabsLoading.length > 0 && tab === Tab.All && activeTab === Tab.All) {
+    const isLoading = tabsLoading.length > 0
+
+    if (isLoading && tab === Tab.All && activeTab === Tab.All) {
         return <Spinner className="ml-0.5" />
     } else if (tabsLoading.includes(tab) && activeTab !== Tab.All) {
         return <Spinner className="ml-0.5" />
-    } else if (tabsCount[tab] != null) {
+    } else if (!isLoading && tabsCount[tab] != null) {
         return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
+    } else {
+        return null
     }
 }
