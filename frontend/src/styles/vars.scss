@@ -134,19 +134,21 @@ $colors: (
 
     'link-3000-light': #f54e00,
     'primary-3000-frame-bg-light': #eb9d2a,
-    'primary-3000-frame-border-light': #c28926,
     'primary-3000-button-bg-light': #fff,
     'primary-3000-button-border-light': #b17816,
     'primary-3000-button-border-hover-light': #8e5b03,
 
     'secondary-3000-frame-bg-light': #e1dddd,
-    'secondary-3000-frame-border-light': #d7d7d7,
     'secondary-3000-button-bg-light': #f3f4ef,
     'secondary-3000-button-border-light': #ccc,
     'secondary-3000-button-border-hover-light': #aaa,
 
-    'shadow-elevation-3000-light': 0 2px 0 var(--border-3000-light),
-    'shadow-elevation-3000-dark': 0 2px 0 var(--border-3000-dark),
+    'danger-3000-frame-bg-light': #f54e0080,
+    'danger-3000-button-border-light': #e96b30,
+    'danger-3000-button-border-hover-light': #f54e00,
+
+    'shadow-elevation-3000-light': 0 3px 0 var(--border-3000-light),
+    'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
     'text-3000-dark': #fff,
     'text-secondary-3000-dark': rgba(#fff, 0.7),
     'muted-3000-dark': rgba(#fff, 0.5),
@@ -168,17 +170,19 @@ $colors: (
     'link-3000-dark': #f1a82c,
 
     'primary-3000-frame-bg-dark': #926826,
-    'primary-3000-frame-border-dark': #a97a2f,
     'primary-3000-button-bg-dark': #e0a045,
     'primary-3000-button-border-dark': #b17816,
     'primary-3000-button-border-hover-dark': #8e5b03,
     'primary-alt-highlight-3000-dark': #232429,
 
     'secondary-3000-frame-bg-dark': #323232,
-    'secondary-3000-frame-border-dark': #383838,
     'secondary-3000-button-bg-dark': #1d1f27,
     'secondary-3000-button-border-dark': #4a4c52,
     'secondary-3000-button-border-hover-dark': #5e6064,
+
+    'danger-3000-frame-bg-dark': #f54e0080,
+    'danger-3000-button-border-dark': #c44003,
+    'danger-3000-button-border-hover-dark': #f54e00,
 
     // The derived colors
     'text-3000': var(--text-3000),
@@ -197,14 +201,11 @@ $colors: (
     'glass-bg-3000': var(--glass-bg-3000),
     'glass-border-3000': var(--border-3000),
     'link-3000': var(--link-3000),
-    // 'bg-light': var(--accent-3000),
     'primary-3000-frame-bg': var(--primary-3000-frame-bg),
-    'primary-3000-frame-border': var(--primary-3000-frame-border),
     'primary-3000-button-bg': var(--primary-3000-button-bg),
     'primary-3000-button-border': var(--primary-3000-button-border),
     'primary-3000-button-border-hover': var(--primary-3000-button-border-hover),
     'secondary-3000-frame-bg': var(--secondary-3000-frame-bg),
-    'secondary-3000-frame-border': var(--secondary-3000-frame-border),
     'secondary-3000-button-bg': var(--secondary-3000-button-bg),
     'secondary-3000-button-border': var(--secondary-3000-button-border),
     'secondary-3000-button-border-hover': var(--secondary-3000-button-border-hover),
@@ -405,16 +406,17 @@ $_lifecycle_dormant: $_danger;
     --link: var(--link-3000-light);
     --shadow-elevation-3000: var(--shadow-elevation-3000-light);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-    --primary-3000-frame-border: var(--primary-3000-frame-border-light);
     --primary-3000-button-bg: var(--primary-3000-button-bg-light);
     --primary-3000-button-border: var(--primary-3000-button-border-light);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
-    --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
     --secondary-3000-button-border: var(--secondary-3000-button-border-light);
     --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-light);
+    --danger-3000-button-border: var(--danger-3000-button-border-light);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-light);
     --tooltip-bg: var(--tooltip-bg-light);
 }
 
@@ -442,16 +444,17 @@ $_lifecycle_dormant: $_danger;
     --link: var(--link-3000-dark);
     --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-    --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
     --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
     --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
-    --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
     --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
     --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
+    --danger-3000-button-border: var(--danger-3000-button-border-dark);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
     --tooltip-bg: var(--tooltip-bg-dark);
     --data-color-2: #7f26d9;
     --data-color-3: #3e7a76;

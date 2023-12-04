@@ -42,10 +42,13 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         if (selectedConnector) {
             return (
                 <Form logic={sourceModalLogic} formKey={'externalDataSource'} className="space-y-4" enableFormOnSubmit>
-                    <Field name="account_id" label="Account Id">
+                    <Field name="prefix" label="Table Prefix">
+                        <LemonInput className="ph-ignore-input" autoFocus data-attr="prefix" placeholder="internal_" />
+                    </Field>
+                    <Field name="account_id" label="Stripe Account ID">
                         <LemonInput className="ph-ignore-input" autoFocus data-attr="account-id" placeholder="acct_" />
                     </Field>
-                    <Field name="client_secret" label="Client Secret">
+                    <Field name="client_secret" label="Stripe Client Secret">
                         <LemonInput
                             className="ph-ignore-input"
                             autoFocus
