@@ -76,10 +76,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
 
 const ButtonVariants3000 = ({
     tertiary = false,
-    additionalProps,
+    active = false,
 }: {
     tertiary?: boolean
-    additionalProps?: LemonButtonProps
+    active?: LemonButtonProps['active']
 }): JSX.Element => {
     const variants: LemonButtonProps[] = tertiary
         ? [
@@ -87,16 +87,16 @@ const ButtonVariants3000 = ({
               { type: 'tertiary', status: 'danger', children: 'Danger' },
           ]
         : [
-              { type: 'onboarding', children: 'Onboarding' },
               { type: 'primary', children: 'Primary' },
+              { type: 'primary', status: 'primary-alt', children: 'Primary alt' },
               { type: 'secondary', children: 'Secondary' },
               { type: 'secondary', status: 'danger', children: 'Danger' },
               { type: 'secondary', stealth: true, status: 'primary', children: 'Stealth' },
           ]
     return (
         <div className="flex gap-2 flex-wrap">
-            {variants.map((buttonProps, index) => (
-                <LemonButton key={index} {...additionalProps} {...buttonProps} icon={<IconCalculate />} />
+            {variants.map((props, index) => (
+                <LemonButton key={index} active={active} {...props} icon={<IconCalculate />} />
             ))}
         </div>
     )
@@ -112,7 +112,7 @@ export const Types3000: Story = () => {
                 </div>
                 <div className="p-2">
                     <h5>Active</h5>
-                    <ButtonVariants3000 additionalProps={{ active: true }} />
+                    <ButtonVariants3000 active />
                 </div>
                 <div className="p-2 bg-bg-light rounded-b">
                     <h5>Light background</h5>
@@ -122,8 +122,16 @@ export const Types3000: Story = () => {
                 </div>
             </div>
             <h5>type=TERTIARY</h5>
-            <div className="flex gap-2 border rourounded p-2 flex-wrap">
-                <ButtonVariants3000 tertiary />
+            <div className="border rounded">
+                <div className="p-2">
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <ButtonVariants3000 tertiary />
+                    </div>
+                </div>
             </div>
         </div>
     )
@@ -227,29 +235,33 @@ export const Active = (): JSX.Element => {
 export const PseudoStates = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <div>
-                <h5>TYPE=3D STATE=DEFAULT</h5>
-                <ButtonVariants3000 />
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=3D STATE=DEFAULT</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=3D STATE=HOVER</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="active">
+                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 />
+                </div>
             </div>
-            <div id="hover">
-                <h5>TYPE=3D STATE=HOVER</h5>
-                <ButtonVariants3000 />
-            </div>
-            <div id="active">
-                <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
-                <ButtonVariants3000 />
-            </div>
-            <div>
-                <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
-                <ButtonVariants3000 tertiary />
-            </div>
-            <div id="hover">
-                <h5>TYPE=TERTIARY STATE=HOVER</h5>
-                <ButtonVariants3000 tertiary />
-            </div>
-            <div id="active">
-                <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
-                <ButtonVariants3000 tertiary />
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="active">
+                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
             </div>
         </div>
     )
