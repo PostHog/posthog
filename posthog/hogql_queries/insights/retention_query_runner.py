@@ -94,22 +94,17 @@ class RetentionQueryRunner(QueryRunner):
                 ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
             )
 
-        event_filters = []
-        if self.query.properties is not None and self.query.properties != []:
-            event_filters.append(property_to_expr(self.query.properties, self.team))
-
-        event_filters.append(
+        event_filters = [
             self.entity_to_expr(
                 entity=self.target_entity
                 if event_query_type == RetentionQueryType.TARGET
                 or event_query_type == RetentionQueryType.TARGET_FIRST_TIME
                 else self.returning_entity
             )
-        )
+        ]
 
-        date_filter_expr = self.date_filter_expr(event_query_type)
-        if event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
-            event_filters.append(date_filter_expr)
+        if self.query.properties is not None and self.query.properties != []:
+            event_filters.append(property_to_expr(self.query.properties, self.team))
 
         if (
             self.query.filterTestAccounts
@@ -118,6 +113,10 @@ class RetentionQueryRunner(QueryRunner):
         ):
             for prop in self.team.test_account_filters:
                 event_filters.append(property_to_expr(prop, self.team))
+
+        date_filter_expr = self.date_filter_expr(event_query_type)
+        if event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
+            event_filters.append(date_filter_expr)
 
         group_by_fields = None
         having_expr = None
