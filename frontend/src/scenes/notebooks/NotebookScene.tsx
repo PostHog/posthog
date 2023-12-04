@@ -5,10 +5,9 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { NotebookTarget } from '~/types'
 
 import { Notebook } from './Notebook/Notebook'
@@ -40,8 +39,8 @@ export function NotebookScene(): JSX.Element {
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
+    const { is3000 } = useValues(themeLogic)
+    const buttonSize = is3000 ? 'small' : 'medium'
 
     if (!notebook && !loading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
