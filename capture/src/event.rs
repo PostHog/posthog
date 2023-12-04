@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::io::prelude::*;
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use crate::api::CaptureError;
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::OffsetDateTime;
+use tracing::instrument;
 use uuid::Uuid;
+
+use crate::api::CaptureError;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -59,6 +60,8 @@ pub struct RawEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
+static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RawRequest {
@@ -78,33 +81,30 @@ impl RawRequest {
 }
 
 impl RawEvent {
-    /// We post up _at least one_ event, so when decompressiong and deserializing there
-    /// could be more than one. Hence this function has to return a Vec.
-    /// TODO: Use an axum extractor for this
-    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<RawEvent>, CaptureError> {
+    /// Takes a request payload and tries to decompress and unmarshall it into events.
+    /// While posthog-js sends a compression query param, a sizable portion of requests
+    /// fail due to it being missing when the body is compressed.
+    /// Instead of trusting the parameter, we peek at the payload's first three bytes to
+    /// detect gzip, fallback to uncompressed utf8 otherwise.
+    #[instrument(skip_all)]
+    pub fn from_bytes(_query: &EventQuery, bytes: Bytes) -> Result<Vec<RawEvent>, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
-        let payload = match query.compression {
-            Some(Compression::Gzip) => {
-                let mut d = GzDecoder::new(bytes.reader());
-                let mut s = String::new();
-                d.read_to_string(&mut s).map_err(|e| {
-                    tracing::error!("failed to decode gzip: {}", e);
-                    CaptureError::RequestDecodingError(String::from("invalid gzip data"))
-                })?;
-                s
-            }
-            Some(_) => {
-                return Err(CaptureError::RequestDecodingError(String::from(
-                    "unsupported compression format",
-                )))
-            }
-
-            None => String::from_utf8(bytes.into()).map_err(|e| {
+        let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
+            let mut d = GzDecoder::new(bytes.reader());
+            let mut s = String::new();
+            d.read_to_string(&mut s).map_err(|e| {
+                tracing::error!("failed to decode gzip: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid gzip data"))
+            })?;
+            s
+        } else {
+            String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!("failed to decode body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid body encoding"))
-            })?,
+            })?
         };
+
         tracing::debug!(json = payload, "decoded event data");
         Ok(serde_json::from_str::<RawRequest>(&payload)?.events())
     }

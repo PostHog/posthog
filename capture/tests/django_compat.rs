@@ -82,7 +82,12 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let mut mismatches = 0;
 
     for (line_number, line_contents) in reader.lines().enumerate() {
-        let case: RequestDump = serde_json::from_str(&line_contents?)?;
+        let line_contents = line_contents?;
+        if line_contents.starts_with('#') {
+            // Skip comment lines
+            continue;
+        }
+        let case: RequestDump = serde_json::from_str(&line_contents)?;
         if !case.path.starts_with("/e/") {
             println!("Skipping {} test case", &case.path);
             continue;
