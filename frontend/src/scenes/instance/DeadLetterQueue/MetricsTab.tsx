@@ -1,4 +1,4 @@
-import { Button, Col, Divider, Row, Statistic } from 'antd'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -36,19 +36,14 @@ export function MetricsTab(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <Row gutter={32}>
+            <div className="flex space-x-8 mb-4">
                 {singleValueMetrics.map((row) => (
-                    <Col key={row.key}>
-                        <Statistic
-                            title={row.metric}
-                            value={(row.value || '0').toLocaleString('en-US')}
-                            loading={deadLetterQueueMetricsLoading}
-                        />
-                    </Col>
+                    <div key={row.key} className="space-y-1">
+                        <div>{row.metric}</div>
+                        <div className="text-2xl">{(row.value || '0').toLocaleString('en-US')}</div>
+                    </div>
                 ))}
-            </Row>
-
-            <Divider />
+            </div>
 
             {tableMetrics.map((row) => (
                 <div key={row.key}>
@@ -72,15 +67,15 @@ export function MetricsTab(): JSX.Element {
                         }}
                         embedded
                     />
-                    <div className="m-4 text-center">
-                        <Button
-                            disabled={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0}
+                    <div className="flex justify-center m-4 text-center">
+                        <LemonButton
+                            disabledReason={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0 && 'No more values'}
                             onClick={() => loadMoreRows(row.key)}
                         >
                             Load more values
-                        </Button>
+                        </LemonButton>
                     </div>
-                    <Divider />
+                    <LemonDivider />
                 </div>
             ))}
         </div>

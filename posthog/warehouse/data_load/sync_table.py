@@ -32,7 +32,7 @@ def is_schema_valid(source_schemas: List[SourceSchema], external_data_source_id:
     source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[resource.source_type]
 
     for schema_name in source_schemas:
-        table_name = f"{resource.source_type}_{schema_name.lower()}"
+        table_name = f"{resource.prefix or ''}{resource.source_type}_{schema_name}".lower()
 
         folder_path = resource.folder_path if create else resource.draft_folder_path
         url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{folder_path}/{schema_name.lower()}/*.parquet"

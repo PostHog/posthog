@@ -105,3 +105,11 @@ export function makeStylesString(wireframe: wireframe): string {
     styles += makeFontStyles(wireframe)
     return styles
 }
+
+export function makeHTMLStyles(): string {
+    return 'height: 100vh; width: 100vw;'
+}
+
+export function makeBodyStyles(): string {
+    return 'height: 100vh; width: 100vw;'
+}

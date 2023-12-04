@@ -18,7 +18,7 @@ import {
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
-const types: LemonButtonProps['type'][] = ['onboarding', 'primary', 'secondary', 'tertiary']
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
 const meta: Meta<typeof LemonButton> = {
@@ -73,6 +73,83 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
         </div>
     )
 }
+
+export const Types3000: Story = () => {
+    return (
+        <div className="space-y-2">
+            <h5>type=BLOCK</h5>
+            <div className="border rounded">
+                <div className="flex gap-2 flex-wrap p-2">
+                    <LemonButton type={'primary'} icon={<IconCalculate />}>
+                        Primary
+                    </LemonButton>
+                    <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                        Primary Alt
+                    </LemonButton>
+                    <LemonButton type={'secondary'} icon={<IconCalculate />}>
+                        Secondary
+                    </LemonButton>
+                    <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
+                        Destroy
+                    </LemonButton>
+                    <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                        Stealth
+                    </LemonButton>
+                </div>
+                <div className="p-2">
+                    <h5>Active</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <LemonButton active type={'primary'} icon={<IconCalculate />}>
+                            Primary
+                        </LemonButton>
+                        <LemonButton active type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                            Primary Alt
+                        </LemonButton>
+                        <LemonButton active type={'secondary'} icon={<IconCalculate />}>
+                            Secondary
+                        </LemonButton>
+                        <LemonButton active type={'secondary'} status="danger" icon={<IconCalculate />}>
+                            Destroy
+                        </LemonButton>
+                        <LemonButton active stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                            Stealth
+                        </LemonButton>
+                    </div>
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <LemonButton type={'primary'} icon={<IconCalculate />}>
+                            Primary
+                        </LemonButton>
+                        <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
+                            Primary Alt
+                        </LemonButton>
+                        <LemonButton type={'secondary'} icon={<IconCalculate />}>
+                            Secondary
+                        </LemonButton>
+                        <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
+                            Destroy
+                        </LemonButton>
+                        <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
+                            Stealth
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+            <h5>type=MENU</h5>
+            <div className="flex gap-2 border rourounded p-2 flex-wrap">
+                <LemonButton type="tertiary" icon={<IconCalculate />}>
+                    Primary
+                </LemonButton>
+                <LemonButton type="tertiary" status="danger" icon={<IconCalculate />}>
+                    Danger
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+Types3000.args = { ...Default.args }
 
 export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = { ...Default.args }

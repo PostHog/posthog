@@ -112,6 +112,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_social_auth",
             "has_seen_product_intro_for",
             "scene_personalisation",
+            "theme_mode",
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
