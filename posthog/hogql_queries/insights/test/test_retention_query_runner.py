@@ -17,7 +17,6 @@ from posthog.constants import (
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.models import Action, ActionStep
 from posthog.models.filters import RetentionFilter as OldRetentionFilter
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1482,110 +1481,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         _create_events(self.team, [("person4", _date(3)), ("person4", _date(5))])
 
         return p1, p2, p3, p4
-
-    @skip("TODO: Try distinct_id aggregation")
-    def test_retention_aggregate_by_distinct_id(self):
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["person1", "alias1"],
-            properties={"test": "ok"},
-        )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-
-        _create_events(
-            self.team,
-            [
-                ("person1", _date(0)),
-                ("person1", _date(1)),
-                ("person1", _date(2)),
-                ("person1", _date(5)),
-                ("alias1", _date(5, 9)),
-                ("person1", _date(6)),
-                ("person2", _date(1)),
-                ("person2", _date(2)),
-                ("person2", _date(3)),
-                ("person2", _date(6)),
-            ],
-        )
-
-        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
-            # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = self.run()  # run_query(OldRetentionFilter(data={"date_to": _date(10, hour=6)}), self.team)
-            self.assertEqual(len(result), 11)
-            self.assertEqual(
-                pluck(result, "label"),
-                [
-                    "Day 0",
-                    "Day 1",
-                    "Day 2",
-                    "Day 3",
-                    "Day 4",
-                    "Day 5",
-                    "Day 6",
-                    "Day 7",
-                    "Day 8",
-                    "Day 9",
-                    "Day 10",
-                ],
-            )
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
-
-            self.assertEqual(
-                pluck(result, "values", "count"),
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [
-                        2,
-                        1,
-                        0,
-                        0,
-                        0,
-                        0,
-                    ],  # this first day is different b/c of the distinct_id aggregation
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ],
-            )
-
-            result = self.run().query(
-                OldRetentionFilter(
-                    data={
-                        "date_to": _date(10, hour=6),
-                        "properties": [{"key": "test", "value": "ok", "type": "person"}],
-                    }
-                ),
-                self.team,
-            )
-            self.assertEqual(
-                pluck(result, "values", "count"),
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [
-                        2,
-                        1,
-                        0,
-                        0,
-                        0,
-                        0,
-                    ],  # this first day is different b/c of the distinct_id aggregation
-                    [1, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ],
-            )
 
     @snapshot_clickhouse_queries
     def test_timezones(self):
