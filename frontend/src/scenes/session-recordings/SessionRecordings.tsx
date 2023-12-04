@@ -28,7 +28,7 @@ import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRe
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 
-export function SessionsRecordings(): JSX.Element {
+export function SessionRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -188,6 +188,6 @@ export function SessionsRecordings(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: SessionsRecordings,
+    component: SessionRecordings,
     logic: sessionRecordingsLogic,
 }
