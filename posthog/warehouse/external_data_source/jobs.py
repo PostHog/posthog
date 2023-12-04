@@ -8,19 +8,36 @@ def get_external_data_source(team_id: str, external_data_source_id: str) -> Exte
     return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
 
 
-def create_external_data_job(external_data_source_id: str, team_id: str) -> ExternalDataJob:
+def get_external_data_job(team_id: str, run_id: str) -> ExternalDataJob:
+    return ExternalDataJob.objects.prefetch_related("pipeline").get(id=run_id, team_id=team_id)
+
+
+def create_external_data_job(
+    external_data_source_id: str,
+    workflow_id: str,
+    team_id: str,
+) -> ExternalDataJob:
     job = ExternalDataJob.objects.create(
-        team_id=team_id, pipeline_id=external_data_source_id, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        team_id=team_id,
+        pipeline_id=external_data_source_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=workflow_id,
     )
 
     return job
 
 
-def update_external_job_status(run_id: UUID, status: str, latest_error: str | None) -> ExternalDataJob:
-    model = ExternalDataJob.objects.filter(id=run_id)
-    updated = model.update(status=status, latest_error=latest_error)
+def update_external_job_status(run_id: UUID, team_id: str, status: str, latest_error: str | None) -> ExternalDataJob:
+    model = ExternalDataJob.objects.get(id=run_id, team_id=team_id)
+    model.status = status
+    model.latest_error = latest_error
+    model.save()
 
-    if not updated:
-        raise ValueError(f"ExternalDataJob with id {run_id} not found.")
+    pipeline = ExternalDataSource.objects.get(id=model.pipeline_id, team_id=team_id)
+    pipeline.status = status
+    pipeline.save()
 
-    return model.get()
+    model.refresh_from_db()
+
+    return model
