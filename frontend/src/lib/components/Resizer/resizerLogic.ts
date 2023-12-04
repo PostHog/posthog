@@ -167,6 +167,7 @@ export const resizerLogic = kea<resizerLogicType>([
     })),
     subscriptions(({ props }) => ({
         desiredWidth: (desiredWidth) => {
+            // TODO: Fix this as it doesn't really work for all cases...
             props.containerRef.current?.style.setProperty('width', `${desiredWidth}px`)
         },
     })),
