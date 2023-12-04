@@ -796,9 +796,15 @@ export class DeferredPersonOverrideWriter {
             }
 
             // n.b.: We publish the messages here (and wait for acks) to ensure
-            // that all of our override updates are sent to Kafka
-            // prior to committing the transaction. If we're unable to publish,
-            // we should discard updates and try again later when it's available
+            // that all of our override updates are sent to Kafka prior to
+            // committing the transaction. If we're unable to publish, we should
+            // discard updates and try again later when it's available -- not
+            // doing so would cause the copy of this data in ClickHouse to
+            // slowly drift out of sync with the copy in Postgres. This write is
+            // safe to retry if we write to Kafka but then fail to commit to
+            // Postgres for some reason -- the same row state should be
+            // generated each call, and the receiving ReplacingMergeTree will
+            // ensure we keep only the latest version after all writes settle.)
             await kafkaProducer.queueMessages(messages, true)
 
             return rows.length
