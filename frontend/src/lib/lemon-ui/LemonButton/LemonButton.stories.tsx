@@ -74,77 +74,64 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
+const ButtonVariants3000 = ({
+    tertiary = false,
+    active = false,
+}: {
+    tertiary?: boolean
+    active?: LemonButtonProps['active']
+}): JSX.Element => {
+    const variants: LemonButtonProps[] = tertiary
+        ? [
+              { type: 'tertiary', children: 'Primary' },
+              { type: 'tertiary', status: 'danger', children: 'Danger' },
+          ]
+        : [
+              { type: 'primary', children: 'Primary' },
+              { type: 'primary', status: 'primary-alt', children: 'Primary alt' },
+              { type: 'secondary', children: 'Secondary' },
+              { type: 'secondary', status: 'danger', children: 'Danger' },
+              { type: 'secondary', stealth: true, status: 'primary', children: 'Stealth' },
+          ]
+    return (
+        <div className="flex gap-2 flex-wrap">
+            {variants.map((props, index) => (
+                <LemonButton key={index} active={active} {...props} icon={<IconCalculate />} />
+            ))}
+        </div>
+    )
+}
+
 export const Types3000: Story = () => {
     return (
         <div className="space-y-2">
-            <h5>type=BLOCK</h5>
+            <h5>type=3D</h5>
             <div className="border rounded">
-                <div className="flex gap-2 flex-wrap p-2">
-                    <LemonButton type={'primary'} icon={<IconCalculate />}>
-                        Primary
-                    </LemonButton>
-                    <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
-                        Primary Alt
-                    </LemonButton>
-                    <LemonButton type={'secondary'} icon={<IconCalculate />}>
-                        Secondary
-                    </LemonButton>
-                    <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
-                        Destroy
-                    </LemonButton>
-                    <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
-                        Stealth
-                    </LemonButton>
+                <div className="p-2">
+                    <ButtonVariants3000 />
                 </div>
                 <div className="p-2">
                     <h5>Active</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <LemonButton active type={'primary'} icon={<IconCalculate />}>
-                            Primary
-                        </LemonButton>
-                        <LemonButton active type={'primary'} status="primary-alt" icon={<IconCalculate />}>
-                            Primary Alt
-                        </LemonButton>
-                        <LemonButton active type={'secondary'} icon={<IconCalculate />}>
-                            Secondary
-                        </LemonButton>
-                        <LemonButton active type={'secondary'} status="danger" icon={<IconCalculate />}>
-                            Destroy
-                        </LemonButton>
-                        <LemonButton active stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
-                            Stealth
-                        </LemonButton>
-                    </div>
+                    <ButtonVariants3000 active />
                 </div>
                 <div className="p-2 bg-bg-light rounded-b">
                     <h5>Light background</h5>
                     <div className="flex gap-2 flex-wrap">
-                        <LemonButton type={'primary'} icon={<IconCalculate />}>
-                            Primary
-                        </LemonButton>
-                        <LemonButton type={'primary'} status="primary-alt" icon={<IconCalculate />}>
-                            Primary Alt
-                        </LemonButton>
-                        <LemonButton type={'secondary'} icon={<IconCalculate />}>
-                            Secondary
-                        </LemonButton>
-                        <LemonButton type={'secondary'} status="danger" icon={<IconCalculate />}>
-                            Destroy
-                        </LemonButton>
-                        <LemonButton stealth type={'secondary'} status="primary" icon={<IconCalculate />}>
-                            Stealth
-                        </LemonButton>
+                        <ButtonVariants3000 />
                     </div>
                 </div>
             </div>
-            <h5>type=MENU</h5>
-            <div className="flex gap-2 border rourounded p-2 flex-wrap">
-                <LemonButton type="tertiary" icon={<IconCalculate />}>
-                    Primary
-                </LemonButton>
-                <LemonButton type="tertiary" status="danger" icon={<IconCalculate />}>
-                    Danger
-                </LemonButton>
+            <h5>type=TERTIARY</h5>
+            <div className="border rounded">
+                <div className="p-2">
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <ButtonVariants3000 tertiary />
+                    </div>
+                </div>
             </div>
         </div>
     )
@@ -243,6 +230,47 @@ export const Active = (): JSX.Element => {
             </div>
         </div>
     )
+}
+
+export const PseudoStates = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=3D STATE=DEFAULT</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=3D STATE=HOVER</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="active">
+                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 />
+                </div>
+            </div>
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="active">
+                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+            </div>
+        </div>
+    )
+}
+PseudoStates.parameters = {
+    pseudo: {
+        hover: ['#hover .LemonButton', '#active .LemonButton'],
+        active: ['#active .LemonButton'],
+    },
 }
 
 export const MenuButtons = (): JSX.Element => {
