@@ -1,5 +1,6 @@
 import './DefinitionPopover.scss'
 
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { Divider, DividerProps } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -11,7 +12,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getKeyMapping } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Owner } from 'scenes/events/Owner'
 
 import { KeyMapping, UserBasicType } from '~/types'
 
@@ -159,10 +159,7 @@ function TimeMeta({
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
                         <span className="definition-popover-timemeta-spacer">by</span>
-                        <Owner
-                            user={updatedBy}
-                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
-                        />
+                        <Owner user={updatedBy} />
                     </span>
                 )}
             </span>
@@ -174,17 +171,28 @@ function TimeMeta({
                 <span className="definition-popover-timemeta-time">Created {dayjs().to(dayjs.utc(createdAt))} </span>
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
-                        <span className="definition-popover-timemeta-spacer">by</span>{' '}
-                        <Owner
-                            user={createdBy}
-                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
-                        />
+                        <span className="definition-popover-timemeta-spacer">by</span> <Owner user={createdBy} />
                     </span>
                 )}
             </div>
         )
     }
     return <></>
+}
+
+function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
+    return (
+        <>
+            {user?.uuid ? (
+                <div className="flex items-center flex-row">
+                    <ProfilePicture name={user.first_name} email={user.email} size="sm" />
+                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                </div>
+            ) : (
+                <span className="text-muted italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
+            )}
+        </>
+    )
 }
 
 function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {

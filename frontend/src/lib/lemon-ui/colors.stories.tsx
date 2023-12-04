@@ -94,7 +94,7 @@ export function ColorPalette(): JSX.Element {
     return (
         <div className="flex gap-4 flex-wrap items-start">
             {Object.keys(colorGroups).map((group) => (
-                <div key={group} className="flex flex-col" style={{ width: 150, height: 200 }}>
+                <div key={group} className="flex flex-col w-40 h-50">
                     <div className="font-bold text-ellipsis mb-2">{group}</div>
                     <div className="rounded-lg overflow-hidden flex flex-col flex-1">
                         {colorGroups[group].map((color: string) => (
