@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { RefObject } from 'react'
 
 import { Tab, tabToName } from './constants'
@@ -11,7 +12,7 @@ type SearchBarTabProps = {
 }
 
 export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element => {
-    const { activeTab } = useValues(searchBarLogic)
+    const { activeTab, aggregationLabel } = useValues(searchBarLogic)
     const { setActiveTab } = useActions(searchBarLogic)
 
     const isActive = tab === activeTab
@@ -26,7 +27,7 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
                 inputRef.current?.focus()
             }}
         >
-            {tabToName[tab]}
+            {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
             <Count tab={tab} />
         </div>
     )
