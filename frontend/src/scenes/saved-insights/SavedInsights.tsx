@@ -20,7 +20,6 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconAction,
     IconBarChart,
@@ -44,7 +43,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -55,6 +53,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
@@ -318,9 +317,9 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { is3000 } = useValues(themeLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+    const overrides3000: Partial<LemonButtonWithSideActionProps> = is3000
         ? {
               size: 'small',
               icon: <IconPlusMini />,

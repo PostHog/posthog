@@ -1,10 +1,11 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
@@ -26,6 +27,9 @@ export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit o
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
+    connect({
+        values: [themeLogic, ['is3000']],
+    }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Recent) => ({ tab }),
     }),

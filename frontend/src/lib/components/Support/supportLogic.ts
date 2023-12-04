@@ -3,9 +3,7 @@ import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -13,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
@@ -127,10 +126,10 @@ export const supportLogic = kea<supportLogicType>([
             ['user'],
             preflightLogic,
             ['preflight'],
-            featureFlagLogic,
-            ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelAvailable'],
+            themeLogic,
+            ['is3000'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -336,7 +335,7 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values }) => {
         return {
             closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                if (values.is3000) {
                     return
                 }
 

@@ -7,7 +7,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -27,15 +26,13 @@ import { RecentPersons } from './RecentPersons'
 import { RecentRecordings } from './RecentRecordings'
 
 export function ProjectHomepage(): JSX.Element {
-    const { dashboardLogicProps } = useValues(projectHomepageLogic)
+    const { dashboardLogicProps, is3000 } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
-
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     const headerButtons = (
         <>

@@ -1,6 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookListItemType } from '~/types'
@@ -14,9 +13,7 @@ export type NotebookListMiniProps = {
 }
 
 export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {
-    const { notebooks, notebookTemplates } = useValues(notebooksModel)
-
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { notebooks, notebookTemplates, is3000 } = useValues(notebooksModel)
 
     const selectedTitle =
         selectedNotebookId === 'scratchpad'

@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
@@ -11,7 +12,7 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId', 'currentTeam']],
+        values: [teamLogic, ['currentTeamId', 'currentTeam'], themeLogic, ['is3000']],
     }),
 
     selectors({

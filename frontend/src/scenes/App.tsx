@@ -1,5 +1,4 @@
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { use3000Body } from 'lib/hooks/use3000Body'
 import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -111,8 +110,7 @@ function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isDarkModeOn, is3000 } = useValues(themeLogic)
 
     const toastContainer = (
         <ToastContainer
@@ -155,7 +153,7 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
-    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? Navigation3000 : NavigationClassic
+    const Navigation = is3000 ? Navigation3000 : NavigationClassic
 
     return (
         <>

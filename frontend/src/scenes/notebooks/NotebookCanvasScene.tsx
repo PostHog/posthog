@@ -1,9 +1,8 @@
 import './NotebookScene.scss'
 
 import { LemonBanner } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { uuid } from 'lib/utils'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,9 +22,8 @@ export function NotebookCanvas(): JSX.Element {
         mode: 'canvas',
     }
 
+    const { is3000 } = useValues(notebookLogic(logicProps))
     const { duplicateNotebook } = useActions(notebookLogic(logicProps))
-
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     if (!is3000) {
         return <NotFound object="canvas" caption={<>Canvas mode requires PostHog 3000</>} />

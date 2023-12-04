@@ -104,7 +104,9 @@ const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
-    connect({}),
+    connect({
+        values: ['themeLogic', ['is3000']],
+    }),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
         togglePropertyFilter: (

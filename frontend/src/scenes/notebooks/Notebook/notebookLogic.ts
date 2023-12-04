@@ -23,6 +23,7 @@ import {
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
@@ -68,7 +69,7 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
     connect(() => ({
-        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
+        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates'], themeLogic, ['is3000']],
         actions: [notebooksModel, ['receiveNotebookUpdate']],
     })),
     actions({

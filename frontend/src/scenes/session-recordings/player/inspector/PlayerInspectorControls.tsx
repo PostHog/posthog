@@ -1,6 +1,5 @@
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     IconGauge,
     IconInfo,
@@ -31,13 +30,12 @@ const TabToIcon = {
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { windowIdFilter, tab, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
+    const { is3000, windowIdFilter, tab, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
         useValues(inspectorLogic)
     const { setWindowIdFilter, setTab, setSyncScrollPaused } = useActions(inspectorLogic)
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
         useActions(playerSettingsLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 

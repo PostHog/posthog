@@ -12,6 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
@@ -75,7 +76,7 @@ export const notebooksModel = kea<notebooksModelType>([
         createNotebookFromDashboard: (dashboard: DashboardType) => ({ dashboard }),
     }),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], themeLogic, ['is3000']],
     }),
 
     reducers({

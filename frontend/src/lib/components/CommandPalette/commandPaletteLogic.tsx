@@ -59,6 +59,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
 
@@ -154,6 +155,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['featureFlags'],
             hedgehogbuddyLogic,
             ['hedgehogModeEnabled'],
+            themeLogic,
+            ['is3000'],
         ],
         logic: [preflightLogic],
     }),
@@ -236,10 +239,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         ],
     }),
     selectors({
-        isUsingCmdKSearch: [
-            (selectors) => [selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000],
-        ],
         isSqueak: [
             (selectors) => [selectors.input],
             (input: string) => {
@@ -255,16 +254,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                selectors.isUsingCmdKSearch,
+                selectors.is3000,
                 dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (
                 rawCommandRegistrations: CommandRegistrations,
-                isUsingCmdKSearch,
+                is3000,
                 dashboards: DashboardType[]
             ): CommandRegistrations => {
-                if (isUsingCmdKSearch) {
+                if (is3000) {
                     // do not add dashboards to commands, as they can be navigated to via search
                     return rawCommandRegistrations
                 }
@@ -943,7 +942,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
-            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            if (values.is3000) {
                 actions.registerCommand(toggleTheme)
                 actions.registerCommand(toggleHedgehogMode)
             }

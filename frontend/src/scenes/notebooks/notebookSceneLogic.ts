@@ -2,6 +2,7 @@ import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { Breadcrumb, NotebookTarget } from '~/types'
 
@@ -16,7 +17,14 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
-        values: [notebookLogic(props), ['notebook', 'notebookLoading'], notebooksModel, ['notebooksLoading']],
+        values: [
+            notebookLogic(props),
+            ['notebook', 'notebookLoading'],
+            notebooksModel,
+            ['notebooksLoading'],
+            themeLogic,
+            ['is3000'],
+        ],
         actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
     selectors(() => ({

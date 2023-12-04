@@ -11,6 +11,7 @@ import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/p
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -117,6 +118,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
+            themeLogic,
+            ['is3000'],
         ],
     })),
     actions(() => ({

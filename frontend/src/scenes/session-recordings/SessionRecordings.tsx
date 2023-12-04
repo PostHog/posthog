@@ -5,7 +5,6 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -30,7 +29,7 @@ import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecording
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { tab } = useValues(sessionRecordingsLogic)
+    const { tab, is3000 } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
@@ -56,8 +55,6 @@ export function SessionsRecordings(): JSX.Element {
         await createPlaylist({ filters }, true)
         reportRecordingPlaylistCreated('filters')
     })
-
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding

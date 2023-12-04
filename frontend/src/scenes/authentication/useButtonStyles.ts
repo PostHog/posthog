@@ -1,7 +1,9 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useValues } from 'kea'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export function useButtonStyle(): Record<string, any> {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { is3000 } = useValues(themeLogic)
 
     return is3000
         ? {

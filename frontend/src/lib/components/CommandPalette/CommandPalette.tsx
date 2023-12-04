@@ -1,12 +1,12 @@
 import './CommandPalette.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import squeakFile from 'public/squeak.mp3'
 import { useMemo, useRef } from 'react'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { CommandBar } from '../CommandBar/CommandBar'
 import { CommandInput } from './CommandInput'
@@ -15,11 +15,9 @@ import { CommandResults } from './CommandResults'
 
 /** Use the new Cmd+K search when the respective feature flag is enabled. */
 export function CommandPalette(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { is3000 } = useValues(themeLogic)
 
-    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-
-    if (isUsingCmdKSearch) {
+    if (is3000) {
         return <CommandBar />
     } else {
         return <_CommandPalette />

@@ -1,8 +1,10 @@
 import './LemonSegmentedButton.scss'
 
 import clsx from 'clsx'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useValues } from 'kea'
 import React from 'react'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { useSliderPositioning } from '../hooks'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
@@ -44,7 +46,7 @@ export function LemonSegmentedButton<T extends React.Key>({
         HTMLDivElement,
         HTMLLIElement
     >(value, 200)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { is3000 } = useValues(themeLogic)
 
     let buttonProps = {}
 

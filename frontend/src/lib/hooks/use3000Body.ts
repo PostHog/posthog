@@ -3,11 +3,8 @@ import { useEffect } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { useFeatureFlag } from './useFeatureFlag'
-
 export function use3000Body(): void {
-    const is3000 = !!useFeatureFlag('POSTHOG_3000')
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { isDarkModeOn, is3000 } = useValues(themeLogic)
 
     useEffect(() => {
         if (is3000) {

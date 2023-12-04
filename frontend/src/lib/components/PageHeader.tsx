@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -27,12 +27,13 @@ export function PageHeader({
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element | null {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { is3000 } = useValues(themeLogic)
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (
         <>
             {!is3000 && (
+                // eslint-disable-next-line react/forbid-dom-props
                 <div className="page-title-row flex justify-between" style={style}>
                     <div className="min-w-0">
                         {!is3000 &&

@@ -13,6 +13,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hogqlQuery } from '~/queries/query'
 import {
     AnyPropertyFilter,
@@ -47,7 +48,7 @@ export const personsLogic = kea<personsLogicType>([
     path((key) => ['scenes', 'persons', 'personsLogic', key]),
     connect(() => ({
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags'], themeLogic, ['is3000']],
     })),
     actions({
         setPerson: (person: PersonType | null) => ({ person }),
@@ -79,7 +80,7 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                        if (values.is3000) {
                             newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         }
                         if (props.cohort) {
