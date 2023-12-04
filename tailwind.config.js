@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-    content: ['./frontend/src/**/*.tsx', './frontend/src/index.html'], // Avoiding analysis of .ts files for performance
+    // Avoiding analysis of .ts files for performance (and we shouldn't have .js(x) anywhere!)
+    content: ['./frontend/src/**/*.tsx', './ee/frontend/**/*.tsx', './frontend/src/index.html'],
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
