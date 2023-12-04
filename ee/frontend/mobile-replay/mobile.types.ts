@@ -130,15 +130,24 @@ export type wireframeInputBase = wireframeBase & {
 export type wireframeCheckBox = wireframeInputBase & {
     inputType: 'checkbox'
     checked: boolean
+    value?: string
+}
+
+export type wireframeRadioValue = {
+    value: string
+    label: string
 }
 
 export type wireframeRadio = wireframeInputBase & {
     inputType: 'radio'
+    /**
+     * @description this matches a member of the values array to indicate which radio is selected
+     */
     checked: string
     /**
      * @description to keep the transformer stateless we don't send each radio separately with a group name. Group name in the generated HTML will be a UUID tying each of these values  together
      */
-    values: string[]
+    values: string[] | wireframeRadioValue[]
 }
 
 export type wireframeInput = wireframeInputBase & {
