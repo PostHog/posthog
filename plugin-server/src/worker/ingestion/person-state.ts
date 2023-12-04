@@ -516,7 +516,7 @@ export class PersonState {
                 if (this.personOverrideWriter) {
                     personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
                         tx,
-                        getMergeOperation(this.teamId, otherPerson, mergeInto)
+                        getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
                     )
                 }
 
@@ -551,14 +551,14 @@ export class PersonState {
  * Django model (and ``posthog_personoverride`` table schema) as defined in
  * ``posthog/models/person/person.py``.
  */
-type MergeOperation = {
+type PersonOverrideDetails = {
     team_id: number
     old_person_id: string
     override_person_id: string
     oldest_event: DateTime
 }
 
-function getMergeOperation(teamId: number, oldPerson: Person, overridePerson: Person): MergeOperation {
+function getPersonOverrideDetails(teamId: number, oldPerson: Person, overridePerson: Person): PersonOverrideDetails {
     if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
         throw new Error('cannot merge persons across different teams')
     }
@@ -573,7 +573,10 @@ function getMergeOperation(teamId: number, oldPerson: Person, overridePerson: Pe
 export class PersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
-    public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
+    public async addPersonOverride(
+        tx: TransactionClient,
+        overrideDetails: PersonOverrideDetails
+    ): Promise<ProducerRecord[]> {
         const mergedAt = DateTime.now()
         /**
             We'll need to do 4 updates:
@@ -584,13 +587,13 @@ export class PersonOverrideWriter {
          */
         const oldPersonMappingId = await this.addPersonOverrideMapping(
             tx,
-            mergeOperation.team_id,
-            mergeOperation.old_person_id
+            overrideDetails.team_id,
+            overrideDetails.old_person_id
         )
         const overridePersonMappingId = await this.addPersonOverrideMapping(
             tx,
-            mergeOperation.team_id,
-            mergeOperation.override_person_id
+            overrideDetails.team_id,
+            overrideDetails.override_person_id
         )
 
         await this.postgres.query(
@@ -603,10 +606,10 @@ export class PersonOverrideWriter {
                     oldest_event,
                     version
                 ) VALUES (
-                    ${mergeOperation.team_id},
+                    ${overrideDetails.team_id},
                     ${oldPersonMappingId},
                     ${overridePersonMappingId},
-                    ${mergeOperation.oldest_event},
+                    ${overrideDetails.oldest_event},
                     0
                 )
             `,
@@ -625,7 +628,7 @@ export class PersonOverrideWriter {
                     SET
                         override_person_id = ${overridePersonMappingId}, version = COALESCE(version, 0)::numeric + 1
                     WHERE
-                        team_id = ${mergeOperation.team_id} AND override_person_id = ${oldPersonMappingId}
+                        team_id = ${overrideDetails.team_id} AND override_person_id = ${oldPersonMappingId}
                     RETURNING
                         old_person_id,
                         version,
@@ -654,19 +657,19 @@ export class PersonOverrideWriter {
                 messages: [
                     {
                         value: JSON.stringify({
-                            team_id: mergeOperation.team_id,
-                            old_person_id: mergeOperation.old_person_id,
-                            override_person_id: mergeOperation.override_person_id,
-                            oldest_event: castTimestampOrNow(mergeOperation.oldest_event, TimestampFormat.ClickHouse),
+                            team_id: overrideDetails.team_id,
+                            old_person_id: overrideDetails.old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
                             merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
                             version: 0,
                         }),
                     },
                     ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
                         value: JSON.stringify({
-                            team_id: mergeOperation.team_id,
+                            team_id: overrideDetails.team_id,
                             old_person_id: old_person_id,
-                            override_person_id: mergeOperation.override_person_id,
+                            override_person_id: overrideDetails.override_person_id,
                             oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
                             merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
                             version: version,
@@ -731,7 +734,10 @@ export class DeferredPersonOverrideWriter {
     /**
      * Enqueue an override for deferred processing.
      */
-    public async addPersonOverride(tx: TransactionClient, mergeOperation: MergeOperation): Promise<ProducerRecord[]> {
+    public async addPersonOverride(
+        tx: TransactionClient,
+        overrideDetails: PersonOverrideDetails
+    ): Promise<ProducerRecord[]> {
         await this.postgres.query(
             tx,
             SQL`
@@ -741,10 +747,10 @@ export class DeferredPersonOverrideWriter {
                 override_person_id,
                 oldest_event
             ) VALUES (
-                ${mergeOperation.team_id},
-                ${mergeOperation.old_person_id},
-                ${mergeOperation.override_person_id},
-                ${mergeOperation.oldest_event}
+                ${overrideDetails.team_id},
+                ${overrideDetails.old_person_id},
+                ${overrideDetails.override_person_id},
+                ${overrideDetails.oldest_event}
             )`,
             undefined,
             'pendingPersonOverride'
