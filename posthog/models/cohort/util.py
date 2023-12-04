@@ -47,7 +47,7 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         return format_static_cohort_query(cohort, index, prepend="")
 
     if cohort.query is not None:
-        return print_cohort_hogql_query(cohort, hogql_context)
+        return print_cohort_hogql_query(cohort, hogql_context), {}
 
     if not cohort.properties.values:
         # No person can match an empty cohort
