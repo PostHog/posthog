@@ -3,10 +3,7 @@
 
 // NOTE: Currently this has to be manually synced wit ./frontend/styles/vars.scss
 module.exports = {
-    content: [
-        './frontend/public/**/*.html',
-        './frontend/src/**/*.{jsx,tsx}',
-      ],
+    content: ['./frontend/public/**/*.html', './frontend/src/**/*.{jsx,tsx}'],
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
@@ -14,24 +11,31 @@ module.exports = {
             // CSS vars in lots of stylesheets
         },
         extend: {
-            screens: { // Sync with vars.scss
+            screens: {
+                // Sync with vars.scss
                 sm: '576px',
                 md: '768px',
                 lg: '992px',
                 xl: '1200px',
-                xxl: '1600px',
+                '2xl': '1600px',
             },
-            width: { // Some additional larger widths
-                '30': '7.5rem',
-                '50': '12.5rem',
-                '100': '25rem',
-                '120': '30rem',
-                '140': '35rem',
-                '160': '40rem',
-                '180': '45rem',
-                '200': '50rem',
-            }
+            width: {
+                // Some additional larger widths for compatibility with our pre-Tailwind system
+                // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
+                18: '4.5rem',
+                30: '7.5rem',
+                50: '12.5rem',
+                100: '25rem',
+                120: '30rem',
+                140: '35rem',
+                160: '40rem',
+                180: '45rem',
+                192: '48rem',
+                200: '50rem',
+                248: '62rem',
+                300: '75rem',
+            },
         },
     },
-    plugins: [],
+    plugins: [require('@tailwindcss/container-queries')],
 }

@@ -150,7 +150,7 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2 w-md max-w-full">
+            <div className="space-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"

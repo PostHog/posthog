@@ -57,7 +57,7 @@ export const OnboardingStep = ({
                 </div>
             }
         >
-            <div className="max-w-md">
+            <div className="max-w-192">
                 <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}
