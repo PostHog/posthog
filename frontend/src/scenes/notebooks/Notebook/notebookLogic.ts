@@ -1,20 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import {
-    actions,
-    beforeUnmount,
-    BuiltLogic,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
+import { actions, beforeUnmount, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -34,6 +22,7 @@ import type { notebookLogicType } from './notebookLogicType'
 import { EditorRange, JSONContent, NotebookEditor } from './utils'
 
 const SYNC_DELAY = 1000
+const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
 
@@ -81,6 +70,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
+        scheduleNotebookRefresh: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
@@ -221,8 +211,14 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     } else {
                         try {
-                            response = await api.notebooks.get(props.shortId)
+                            response = await api.notebooks.get(props.shortId, undefined, {
+                                'If-None-Match': values.notebook?.version,
+                            })
                         } catch (e: any) {
+                            if (e.status === 304) {
+                                // Indicates nothing has changed
+                                return values.notebook
+                            }
                             if (e.status === 404) {
                                 return null
                             }
@@ -232,7 +228,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = migrate(response)
 
-                    if (!values.notebook && notebook.content) {
+                    if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
                         values.editor?.setContent(notebook.content)
                     }
@@ -421,15 +417,7 @@ export const notebookLogic = kea<notebookLogicType>([
             (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
         ],
     }),
-    sharedListeners(({ values, actions }) => ({
-        onNotebookChange: () => {
-            // Keep the list logic up to date with any changes
-            if (values.notebook && values.notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
-                actions.receiveNotebookUpdate(values.notebook)
-            }
-        },
-    })),
-    listeners(({ values, actions, sharedListeners, cache }) => ({
+    listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -560,8 +548,8 @@ export const notebookLogic = kea<notebookLogicType>([
             values.editor?.setContent(values.content)
         },
 
-        saveNotebookSuccess: sharedListeners.onNotebookChange,
-        loadNotebookSuccess: sharedListeners.onNotebookChange,
+        saveNotebookSuccess: actions.scheduleNotebookRefresh,
+        loadNotebookSuccess: actions.scheduleNotebookRefresh,
 
         exportJSON: () => {
             const file = new File(
@@ -592,6 +580,24 @@ export const notebookLogic = kea<notebookLogicType>([
                 values.editor?.setTextSelection(selection)
             })
         },
+
+        scheduleNotebookRefresh: () => {
+            clearTimeout(cache.refreshTimeout)
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadNotebook()
+            }, NOTEBOOK_REFRESH_MS)
+        },
+    })),
+
+    subscriptions(({ actions }) => ({
+        notebook: (notebook?: NotebookType) => {
+            // Keep the list logic up to date with any changes
+            if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
+                actions.receiveNotebookUpdate(notebook)
+            }
+            // If the notebook ever changes, we want to reset the scheduled refresh
+            actions.scheduleNotebookRefresh()
+        },
     })),
 
     urlToAction(({ values, actions, cache }) => ({
@@ -606,7 +612,8 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    beforeUnmount(() => {
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(
