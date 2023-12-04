@@ -149,8 +149,10 @@ export function NotebooksTable(): JSX.Element {
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}
-                sorting={sortValue}
-                onSort={(newSorting) => setSortValue(newSorting)}
+                sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
+                onSort={(newSorting) =>
+                    setSortValue(newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : null)
+                }
             />
         </div>
     )

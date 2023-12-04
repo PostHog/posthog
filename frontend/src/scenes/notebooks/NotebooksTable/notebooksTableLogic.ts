@@ -2,7 +2,6 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -30,7 +29,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
     actions({
         loadNotebooks: true,
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
-        setSortValue: (sortValue: Sorting | null) => ({ sortValue }),
+        setSortValue: (sortValue: string | null) => ({ sortValue }),
         setPage: (page: number) => ({ page }),
     }),
     connect({
@@ -49,7 +48,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
             },
         ],
         sortValue: [
-            null as Sorting | null,
+            null as string | null,
             {
                 setSortValue: (_, { sortValue }) => sortValue,
             },
@@ -80,9 +79,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                         contains,
                         created_by: createdByForQuery,
                         search: values.filters?.search || undefined,
-                        order: values.sortValue
-                            ? `${values.sortValue.order === -1 ? '-' : ''}${values.sortValue.columnKey}`
-                            : '-last_modified_at',
+                        order: values.sortValue ?? '-last_modified_at',
                         limit: RESULTS_PER_PAGE,
                         offset: (values.page - 1) * RESULTS_PER_PAGE,
                     })
