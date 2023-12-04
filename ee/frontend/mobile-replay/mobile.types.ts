@@ -145,7 +145,7 @@ export type wireframeRadio = wireframeInputBase & {
 
 export type wireframeInput = wireframeInputBase & {
     inputType: 'text' | 'password' | 'email' | 'number' | 'search' | 'tel' | 'url'
-    value: string
+    value?: string
 }
 
 export type wireframeSelect = wireframeInputBase & {
