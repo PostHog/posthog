@@ -206,6 +206,7 @@
         "@storybook/theming": "^7.6.4",
         "@storybook/types": "^7.6.4",
         "@sucrase/jest-plugin": "^3.0.0",
+        "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
         "@testing-library/jest-dom": "^5.16.2",
         "@testing-library/react": "^13.4.0",

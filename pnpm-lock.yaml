@@ -420,6 +420,9 @@ devDependencies:
   '@sucrase/jest-plugin':
     specifier: ^3.0.0
     version: 3.0.0(jest@29.7.0)(sucrase@3.29.0)
+  '@tailwindcss/container-queries':
+    specifier: ^0.1.1
+    version: 0.1.1(tailwindcss@3.3.5)
   '@testing-library/jest-dom':
     specifier: ^5.16.2
     version: 5.16.5
@@ -6988,6 +6991,14 @@ packages:
 
   /@swc/types@0.1.5:
     resolution: {integrity: sha512-myfUej5naTBWnqOCc/MdVOLVjXUXtIA+NpDrDBKJtLLg2shUjBu3cZmB/85RyitKc55+lUUyl7oRfLOvkr2hsw==}
+    dev: true
+
+  /@tailwindcss/container-queries@0.1.1(tailwindcss@3.3.5):
+    resolution: {integrity: sha512-p18dswChx6WnTSaJCSGx6lTmrGzNNvm2FtXmiO6AuA1V4U5REyoqwmT6kgAsIMdjo07QdAfYXHJ4hnMtfHzWgA==}
+    peerDependencies:
+      tailwindcss: '>=3.2.0'
+    dependencies:
+      tailwindcss: 3.3.5(ts-node@10.9.1)
     dev: true
 
   /@testing-library/dom@8.19.0:

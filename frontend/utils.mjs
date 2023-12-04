@@ -116,6 +116,7 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     }
 }
 
+/** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
