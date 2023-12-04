@@ -449,7 +449,7 @@ impl<J> NewJob<J> {
 #[derive(Copy, Clone)]
 /// The retry policy that PgQueue will use to determine how to set scheduled_at when enqueuing a retry.
 pub struct RetryPolicy {
-    /// Coeficient to multiply initial_interval with for every past attempt.
+    /// Coefficient to multiply initial_interval with for every past attempt.
     backoff_coefficient: i32,
     /// The backoff interval for the first retry.
     initial_interval: Duration,
