@@ -1,8 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { NotebookNodeResource, SidePanelTab } from '~/types'
 
 import { EditorFocusPosition } from '../Notebook/utils'
@@ -15,10 +16,10 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         values: [
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
+            featureFlagLogic,
+            ['featureFlags'],
             notebookPopoverLogic,
             ['popoverVisibility'],
-            themeLogic,
-            ['convert feature flag in '],
         ],
         actions: [
             sidePanelStateLogic,
@@ -66,6 +67,8 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     })),
 
     selectors(({ cache, actions }) => ({
+        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000]],
+
         visibility: [
             (s) => [s.selectedTab, s.sidePanelOpen, s.popoverVisibility, s.is3000],
             (selectedTab, sidePanelOpen, popoverVisibility, is3000): 'hidden' | 'peek' | 'visible' => {
