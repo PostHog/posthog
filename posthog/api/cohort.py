@@ -161,6 +161,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
+        elif cohort.query is not None:
+            raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             update_cohort(cohort)
 
