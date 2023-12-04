@@ -8,6 +8,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
 export interface DataVisualizationLogicProps {
@@ -78,6 +79,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     selectors({
         query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [(state) => [state.insightMode], (insightMode) => insightMode == ItemMode.Edit],
+        sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
