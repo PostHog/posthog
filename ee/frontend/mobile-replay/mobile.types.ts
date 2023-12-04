@@ -130,7 +130,7 @@ export type wireframeInputBase = wireframeBase & {
 export type wireframeCheckBox = wireframeInputBase & {
     inputType: 'checkbox'
     checked: boolean
-    label: string
+    label?: string
 }
 
 export type wireframeRadioGroup = wireframeBase & {
