@@ -69,7 +69,9 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         source_type="Stripe",
     )  # type: ignore
 
-    new_job = await sync_to_async(create_external_data_job)(team_id=team.id, external_data_source_id=new_source.pk)  # type: ignore
+    new_job = await sync_to_async(create_external_data_job)(
+        team_id=team.id, external_data_source_id=new_source.pk, workflow_id=activity_environment.info.workflow_id
+    )  # type: ignore
 
     inputs = UpdateExternalDataJobStatusInputs(
         id=str(new_job.id),
