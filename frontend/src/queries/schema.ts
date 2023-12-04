@@ -532,7 +532,7 @@ export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
     response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
-    retentionFilter?: RetentionFilter
+    retentionFilter: RetentionFilter
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */

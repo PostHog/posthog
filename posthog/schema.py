@@ -1530,9 +1530,7 @@ class RetentionQuery(BaseModel):
         ]
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
-    retentionFilter: Optional[RetentionFilter] = Field(
-        default=None, description="Properties specific to the retention insight"
-    )
+    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 

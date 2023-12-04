@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import datetime
+from typing import Any
 from unittest import skip
 
 from zoneinfo import ZoneInfo
@@ -71,6 +72,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
+
+    def actors_in_period(self, *args, **kwargs) -> Any:
+        return args, kwargs
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -728,7 +732,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result, _ = self().actors_in_period(
+        result, _ = self.actors_in_period(
             OldRetentionFilter(
                 data={"date_to": _date(10, hour=6), "selected_interval": 0},
                 team=self.team,
@@ -744,7 +748,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
         target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-        result, _ = self().actors_in_period(
+        result, _ = self.actors_in_period(
             OldRetentionFilter(
                 data={
                     "date_to": _date(10, hour=6),
@@ -761,7 +765,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertIn(result[0]["person"]["id"], [p3.uuid, p3.pk])
 
-        result, _ = self().actors_in_period(
+        result, _ = self.actors_in_period(
             OldRetentionFilter(
                 data={
                     "date_to": _date(14, hour=6),
@@ -834,7 +838,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result, _ = self.run().actors_in_period(
+        result, _ = self.actors_in_period(
             OldRetentionFilter(
                 data={"date_to": _date(10, hour=6), "selected_interval": 2},
                 team=self.team,

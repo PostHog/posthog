@@ -2611,7 +2611,7 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "retentionFilter"],
             "type": "object"
         },
         "RetentionQueryResponse": {

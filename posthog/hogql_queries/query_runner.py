@@ -78,6 +78,7 @@ RunnableQueryNode = Union[
     InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
+    RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
