@@ -85,19 +85,21 @@ export function TopBar(): JSX.Element | null {
                     />
                 )}
                 <div className="TopBar3000__breadcrumbs">
-                    <div className="TopBar3000__trail">
-                        {breadcrumbs.slice(0, -1).map((breadcrumb, index) => (
-                            <React.Fragment key={breadcrumb.name || '…'}>
-                                <Breadcrumb breadcrumb={breadcrumb} index={index} />
-                                <div className="TopBar3000__separator" />
-                            </React.Fragment>
-                        ))}
-                        <Breadcrumb
-                            breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
-                            index={breadcrumbs.length - 1}
-                            here
-                        />
-                    </div>
+                    {breadcrumbs.length > 1 && (
+                        <div className="TopBar3000__trail">
+                            {breadcrumbs.slice(0, -1).map((breadcrumb, index) => (
+                                <React.Fragment key={breadcrumb.name || '…'}>
+                                    <Breadcrumb breadcrumb={breadcrumb} index={index} />
+                                    <div className="TopBar3000__separator" />
+                                </React.Fragment>
+                            ))}
+                            <Breadcrumb
+                                breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
+                                index={breadcrumbs.length - 1}
+                                here
+                            />
+                        </div>
+                    )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} />
                 </div>
                 <div className="TopBar3000__actions" ref={setActionsContainer} />

@@ -1,0 +1,341 @@
+{
+    "result": [
+        {
+            "timestamp": "2021-11-30T12:35:27.436000Z",
+            "error_uuid": "018c203a-184c-0001-4137-2671fcdf0238",
+            "error_type": "Error",
+            "error_details": {
+                "error": {
+                    "name": "Error",
+                    "message": "just testing",
+                    "stack": "Error: just testing\n    at processEvent (vm.js:10:9)"
+                },
+                "event": {
+                    "uuid": "018c203a-14a3-7f9e-b3aa-858863b60d66",
+                    "event": "$pageview",
+                    "properties": {
+                        "$os": "Mac OS X",
+                        "$os_version": "10.15.7",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "$current_url": "http://localhost:8000/pipeline/4/metrics",
+                        "$host": "localhost:8000",
+                        "$pathname": "/pipeline/4/metrics",
+                        "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+                        "$browser_version": 118,
+                        "$browser_language": "en-US",
+                        "$screen_height": 1080,
+                        "$screen_width": 1920,
+                        "$viewport_height": 869,
+                        "$viewport_width": 1233,
+                        "$lib": "web",
+                        "$lib_version": "1.93.1",
+                        "$insert_id": "axrimp9tn5pn13in",
+                        "$time": 1701347726.499,
+                        "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "$device_id": "018bddaa-9183-73c5-af72-18cdba158ae9",
+                        "$user_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "is_demo_project": false,
+                        "$groups": {
+                            "project": "018bddaa-6524-0000-70f6-d012752f8c73",
+                            "organization": "018bddaa-5b06-0000-d999-48c619928d95",
+                            "instance": "http://localhost:8000"
+                        },
+                        "$autocapture_disabled_server_side": false,
+                        "$active_feature_flags": [],
+                        "$feature_flag_payloads": {},
+                        "realm": "hosted-clickhouse",
+                        "email_service_available": false,
+                        "slack_service_available": false,
+                        "$console_log_recording_enabled_server_side": true,
+                        "$session_recording_recorder_version_server_side": "v2",
+                        "$session_recording_network_payload_capture": {
+                            "capturePerformance": true
+                        },
+                        "$referrer": "http://localhost:8000/signup",
+                        "$referring_domain": "localhost:8000",
+                        "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                        "$session_id": "018c2035-4b74-7cad-893a-4dbbfeca42f6",
+                        "$window_id": "018c1be8-e593-7bf2-89b1-359fc9e5968a",
+                        "title": "App name • Pipeline • PostHog",
+                        "$ip": "127.0.0.1",
+                        "$set": {
+                            "$os": "Mac OS X",
+                            "$os_version": "10.15.7",
+                            "$browser": "Chrome",
+                            "$device_type": "Desktop",
+                            "$current_url": "http://localhost:8000/pipeline/4/metrics",
+                            "$pathname": "/pipeline/4/metrics",
+                            "$browser_version": 118,
+                            "$referrer": "http://localhost:8000/signup",
+                            "$referring_domain": "localhost:8000"
+                        },
+                        "...": "13 items not stringified"
+                    },
+                    "offset": 773,
+                    "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                    "ip": null,
+                    "site_url": "http://localhost:8000",
+                    "now": "2023-11-30T12:35:27.283425+00:00",
+                    "sent_at": "2023-11-30T12:35:27.274000+00:00",
+                    "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                    "team_id": 1
+                }
+            }
+        },
+        {
+            "timestamp": "2021-11-30T12:35:27.416000Z",
+            "error_uuid": "018c203a-1837-0001-db41-7c5926f4c392",
+            "error_type": "Error",
+            "error_details": {
+                "error": {
+                    "name": "Error",
+                    "message": "just testing",
+                    "stack": "Error: just testing\n    at processEvent (vm.js:10:9)"
+                },
+                "event": {
+                    "uuid": "018c203a-149c-7699-8313-7e19f97fbb87",
+                    "event": "$autocapture",
+                    "properties": {
+                        "$os": "Mac OS X",
+                        "$os_version": "10.15.7",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "$current_url": "http://localhost:8000/pipeline/transformations",
+                        "$host": "localhost:8000",
+                        "$pathname": "/pipeline/transformations",
+                        "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+                        "$browser_version": 118,
+                        "$browser_language": "en-US",
+                        "$screen_height": 1080,
+                        "$screen_width": 1920,
+                        "$viewport_height": 869,
+                        "$viewport_width": 1233,
+                        "$lib": "web",
+                        "$lib_version": "1.93.1",
+                        "$insert_id": "h105muk90x9w09ml",
+                        "$time": 1701347726.492,
+                        "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "$device_id": "018bddaa-9183-73c5-af72-18cdba158ae9",
+                        "$user_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "is_demo_project": false,
+                        "$groups": {
+                            "project": "018bddaa-6524-0000-70f6-d012752f8c73",
+                            "organization": "018bddaa-5b06-0000-d999-48c619928d95",
+                            "instance": "http://localhost:8000"
+                        },
+                        "$autocapture_disabled_server_side": false,
+                        "$active_feature_flags": [],
+                        "$feature_flag_payloads": {},
+                        "realm": "hosted-clickhouse",
+                        "email_service_available": false,
+                        "slack_service_available": false,
+                        "$console_log_recording_enabled_server_side": true,
+                        "$session_recording_recorder_version_server_side": "v2",
+                        "$session_recording_network_payload_capture": {
+                            "capturePerformance": true
+                        },
+                        "$referrer": "http://localhost:8000/signup",
+                        "$referring_domain": "localhost:8000",
+                        "$event_type": "click",
+                        "$ce_version": 1,
+                        "$elements": [
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]"
+                        ],
+                        "$el_text": "View app metrics",
+                        "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                        "$session_id": "018c2035-4b74-7cad-893a-4dbbfeca42f6",
+                        "...": "16 items not stringified"
+                    },
+                    "offset": 779,
+                    "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                    "ip": null,
+                    "site_url": "http://localhost:8000",
+                    "now": "2023-11-30T12:35:27.283425+00:00",
+                    "sent_at": "2023-11-30T12:35:27.274000+00:00",
+                    "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                    "team_id": 1
+                }
+            }
+        },
+        {
+            "timestamp": "2021-11-30T12:35:27.356000Z",
+            "error_uuid": "018c203a-17fc-0001-a63a-106448544b23",
+            "error_type": "Error",
+            "error_details": {
+                "error": {
+                    "name": "Error",
+                    "message": "just testing",
+                    "stack": "Error: just testing\n    at processEvent (vm.js:10:9)"
+                },
+                "event": {
+                    "uuid": "018c203a-10c3-7c14-b50a-5555dfeb3375",
+                    "event": "$autocapture",
+                    "properties": {
+                        "$os": "Mac OS X",
+                        "$os_version": "10.15.7",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "$current_url": "http://localhost:8000/pipeline/transformations",
+                        "$host": "localhost:8000",
+                        "$pathname": "/pipeline/transformations",
+                        "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+                        "$browser_version": 118,
+                        "$browser_language": "en-US",
+                        "$screen_height": 1080,
+                        "$screen_width": 1920,
+                        "$viewport_height": 869,
+                        "$viewport_width": 1233,
+                        "$lib": "web",
+                        "$lib_version": "1.93.1",
+                        "$insert_id": "mhdcytyjhsb29opd",
+                        "$time": 1701347725.507,
+                        "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "$device_id": "018bddaa-9183-73c5-af72-18cdba158ae9",
+                        "$user_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "is_demo_project": false,
+                        "$groups": {
+                            "project": "018bddaa-6524-0000-70f6-d012752f8c73",
+                            "organization": "018bddaa-5b06-0000-d999-48c619928d95",
+                            "instance": "http://localhost:8000"
+                        },
+                        "$autocapture_disabled_server_side": false,
+                        "$active_feature_flags": [],
+                        "$feature_flag_payloads": {},
+                        "realm": "hosted-clickhouse",
+                        "email_service_available": false,
+                        "slack_service_available": false,
+                        "$console_log_recording_enabled_server_side": true,
+                        "$session_recording_recorder_version_server_side": "v2",
+                        "$session_recording_network_payload_capture": {
+                            "capturePerformance": true
+                        },
+                        "$referrer": "http://localhost:8000/signup",
+                        "$referring_domain": "localhost:8000",
+                        "$event_type": "click",
+                        "$ce_version": 1,
+                        "$elements": [
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]",
+                            "[Object]"
+                        ],
+                        "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                        "$session_id": "018c2035-4b74-7cad-893a-4dbbfeca42f6",
+                        "$window_id": "018c1be8-e593-7bf2-89b1-359fc9e5968a",
+                        "...": "15 items not stringified"
+                    },
+                    "offset": 1765,
+                    "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                    "ip": null,
+                    "site_url": "http://localhost:8000",
+                    "now": "2023-11-30T12:35:27.283425+00:00",
+                    "sent_at": "2023-11-30T12:35:27.274000+00:00",
+                    "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                    "team_id": 1
+                }
+            }
+        },
+        {
+            "timestamp": "2021-11-30T12:35:24.402000Z",
+            "error_uuid": "018c203a-0c71-0001-2134-fbae01e003e5",
+            "error_type": "Error",
+            "error_details": {
+                "error": {
+                    "name": "Error",
+                    "message": "just testing",
+                    "stack": "Error: just testing\n    at processEvent (vm.js:10:9)"
+                },
+                "event": {
+                    "uuid": "018c203a-00a6-7f55-962f-635fb2ab70a8",
+                    "event": "$pageview",
+                    "properties": {
+                        "$os": "Mac OS X",
+                        "$os_version": "10.15.7",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "$current_url": "http://localhost:8000/app/4/metrics",
+                        "$host": "localhost:8000",
+                        "$pathname": "/app/4/metrics",
+                        "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+                        "$browser_version": 118,
+                        "$browser_language": "en-US",
+                        "$screen_height": 1080,
+                        "$screen_width": 1920,
+                        "$viewport_height": 869,
+                        "$viewport_width": 1233,
+                        "$lib": "web",
+                        "$lib_version": "1.93.1",
+                        "$insert_id": "jwnkwgou30w5wmrb",
+                        "$time": 1701347721.383,
+                        "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "$device_id": "018bddaa-9183-73c5-af72-18cdba158ae9",
+                        "$user_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                        "is_demo_project": false,
+                        "$groups": {
+                            "project": "018bddaa-6524-0000-70f6-d012752f8c73",
+                            "organization": "018bddaa-5b06-0000-d999-48c619928d95",
+                            "instance": "http://localhost:8000"
+                        },
+                        "$autocapture_disabled_server_side": false,
+                        "$active_feature_flags": [],
+                        "$feature_flag_payloads": {},
+                        "realm": "hosted-clickhouse",
+                        "email_service_available": false,
+                        "slack_service_available": false,
+                        "$console_log_recording_enabled_server_side": true,
+                        "$session_recording_recorder_version_server_side": "v2",
+                        "$session_recording_network_payload_capture": {
+                            "capturePerformance": true
+                        },
+                        "$referrer": "http://localhost:8000/pipeline/apps-management",
+                        "$referring_domain": "localhost:8000",
+                        "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                        "$session_id": "018c2035-4b74-7cad-893a-4dbbfeca42f6",
+                        "$window_id": "018c2035-4b74-7cad-893a-4dbc6a16e1fd",
+                        "title": "testing erroring app • Data pipeline • PostHog",
+                        "$ip": "127.0.0.1",
+                        "$set": {
+                            "$os": "Mac OS X",
+                            "$os_version": "10.15.7",
+                            "$browser": "Chrome",
+                            "$device_type": "Desktop",
+                            "$current_url": "http://localhost:8000/app/4/metrics",
+                            "$pathname": "/app/4/metrics",
+                            "$browser_version": 118,
+                            "$referrer": "http://localhost:8000/pipeline/apps-management",
+                            "$referring_domain": "localhost:8000"
+                        },
+                        "...": "13 items not stringified"
+                    },
+                    "offset": 2897,
+                    "distinct_id": "6Qesn1FHNmlYwKEkQW066devz3mQAduxDrdVFmIQNlv",
+                    "ip": null,
+                    "site_url": "http://localhost:8000",
+                    "now": "2023-11-30T12:35:24.287500+00:00",
+                    "sent_at": "2023-11-30T12:35:24.282000+00:00",
+                    "token": "phc_hHhd3egVQQNNXJlbntvgTSepDwpXPRu4V9CMQMXPiyH",
+                    "team_id": 1
+                }
+            }
+        }
+    ]
+}

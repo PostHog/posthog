@@ -1,4 +1,5 @@
 import { RetryError } from '@posthog/plugin-scaffold'
+import { Counter } from 'prom-client'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
@@ -54,7 +55,6 @@ export interface RetryParams {
 
 export interface MetricsDefinition {
     metricName: string
-    metricTags?: Record<string, string>
     appMetric?: AppMetricIdentifier
     appMetricErrorContext?: Omit<ErrorWithContext, 'error'>
 }
@@ -63,10 +63,15 @@ export type RetriableFunctionPayload = RetriableFunctionDefinition &
     Partial<RetryParams> &
     MetricsDefinition & { hub: Hub }
 
+const retryableFnCounter = new Counter({
+    name: 'retryable_fn_status',
+    help: 'Number of times a retriable function status changed',
+    labelNames: ['status', 'name'],
+})
+
 function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, attempt = 1): Promise<void> {
     const {
         metricName,
-        metricTags = {},
         hub,
         payload,
         tryFn,
@@ -82,7 +87,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
         {
             name: 'retryLoop',
             op: metricName,
-            description: metricTags.plugin || '?',
+            description: '?',
             data: {
                 metricName,
                 payload,
@@ -107,7 +112,8 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                 }
                 if (error instanceof RetryError && attempt < maxAttempts) {
                     const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
-                    hub.statsd?.increment(`${metricName}.RETRY`, metricTags)
+                    hub.statsd?.increment(`${metricName}.RETRY`)
+                    retryableFnCounter.labels({ name: metricName, status: 'retry' }).inc()
                     nextIterationPromise = new Promise((resolve, reject) =>
                         setTimeout(() => {
                             // This is not awaited directly so that attempts beyond the first one don't stall the payload queue
@@ -120,7 +126,8 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                     await hub.promiseManager.awaitPromisesIfNeeded()
                 } else {
                     await catchFn?.(error)
-                    hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
+                    hub.statsd?.increment(`${metricName}.ERROR`)
+                    retryableFnCounter.labels({ name: metricName, status: 'error' }).inc()
                     if (appMetric) {
                         await hub.appMetrics.queueError(
                             {
@@ -144,13 +151,11 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
 
 /** Run function with `RetryError` handling. */
 export async function runRetriableFunction(retriableFunctionPayload: RetriableFunctionPayload): Promise<void> {
-    const timer = new Date()
-    const { hub, finallyFn, metricName, metricTags = {} } = retriableFunctionPayload
+    const { finallyFn } = retriableFunctionPayload
     await iterateRetryLoop({
         ...retriableFunctionPayload,
         finallyFn: async (attempts) => {
             await finallyFn?.(attempts)
-            hub.statsd?.timing(`${metricName}`, timer, metricTags)
         },
     })
 }

@@ -15,7 +15,6 @@ But first, you must answer one question: Does your scene depend on an `id` in th
 Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
 ```ts
-import './Dashboards.scss'
 import { dashboardsLogic } from './dashboardsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
@@ -120,7 +119,6 @@ export const appScenes: Record<Scene, () => any> = {
 Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
 ```ts
-import './Dashboard.scss'
 import { dashboardLogic } from './dashboardLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'

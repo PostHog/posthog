@@ -5,9 +5,11 @@ export function useButtonStyle(): Record<string, any> {
 
     return is3000
         ? {
+              status: 'primary-alt',
               size: 'large',
           }
         : {
+              status: 'primary',
               size: 'medium',
           }
 }

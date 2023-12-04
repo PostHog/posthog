@@ -80,6 +80,17 @@ function makeLayoutStyles(wireframe: wireframe): string {
     return styles
 }
 
+function makeFontStyles(wireframe: wireframe): string {
+    let styles = ''
+    if (wireframe.style?.fontSize) {
+        styles += `font-size: ${ensureUnit(wireframe.style?.fontSize)};`
+    }
+    if (wireframe.style?.fontFamily) {
+        styles += `font-family: ${wireframe.style?.fontFamily};`
+    }
+    return styles
+}
+
 export function makeStylesString(wireframe: wireframe): string {
     let styles = ''
     if (wireframe.style?.color) {
@@ -91,5 +102,6 @@ export function makeStylesString(wireframe: wireframe): string {
     styles += makeBorderStyles(wireframe)
     styles += makePositionStyles(wireframe)
     styles += makeLayoutStyles(wireframe)
+    styles += makeFontStyles(wireframe)
     return styles
 }

@@ -3,6 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+import { Summary } from 'prom-client'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
@@ -35,6 +36,12 @@ import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+
+const processEventMsSummary = new Summary({
+    name: 'process_event_ms',
+    help: 'Duration spent in processEvent',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -91,6 +98,7 @@ export class EventsProcessor {
                 this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                     team_id: teamId.toString(),
                 })
+                processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
             }

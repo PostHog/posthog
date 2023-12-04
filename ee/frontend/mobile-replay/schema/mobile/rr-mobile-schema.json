@@ -102,6 +102,23 @@
             },
             "required": ["data", "timestamp", "type"],
             "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {},
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.IncrementalSnapshot"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
         }
     ],
     "definitions": {
@@ -111,6 +128,10 @@
         },
         "EventType.FullSnapshot": {
             "const": 2,
+            "type": "number"
+        },
+        "EventType.IncrementalSnapshot": {
+            "const": 3,
             "type": "number"
         },
         "EventType.Meta": {
@@ -143,6 +164,14 @@
                 "color": {
                     "description": "maps to CSS color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
                     "type": "string"
+                },
+                "fontFamily": {
+                    "description": "maps to CSS font-family. Accepts any valid CSS font-family value.",
+                    "type": "string"
+                },
+                "fontSize": {
+                    "description": "maps to CSS font-size. Accepts any valid CSS font-size value. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
                 },
                 "horizontalAlign": {
                     "description": "horizontal alignment with respect to its parent",

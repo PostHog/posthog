@@ -2,7 +2,8 @@ import './SelectGradientOverflow.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { LoadingOutlined } from '@ant-design/icons'
-import { ConfigProvider, Empty, Select, Tag } from 'antd'
+import { LemonTag } from '@posthog/lemon-ui'
+import { ConfigProvider, Empty, Select } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import { useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -69,10 +70,10 @@ export function SelectGradientOverflow({
         }
         return (
             <Tooltip title={toString(value)}>
-                <Tag>
+                <LemonTag>
                     <span className="label">{label}</span>
                     <CloseButton onClick={onClose} />
-                </Tag>
+                </LemonTag>
             </Tooltip>
         )
     }

@@ -1,4 +1,4 @@
-import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -14,7 +14,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted the person: {logItem.detail.name}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the person: {logItem.detail.name}
                 </>
             ),
         }
@@ -28,7 +28,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> edited this person's properties
+                    <strong>{userNameForLogItem(logItem)}</strong> edited this person's properties
                 </>
             ),
         }
@@ -40,7 +40,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> merged
+                                <strong>{userNameForLogItem(logItem)}</strong> merged
                             </>
                         }
                         listParts={logItem.detail.merge.source.flatMap((di) => (
@@ -63,7 +63,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> split this person into
+                                <strong>{userNameForLogItem(logItem)}</strong> split this person into
                             </>
                         }
                         listParts={distinctIds.map((di) => (
