@@ -300,7 +300,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
-                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000}>
+                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
                     <ThemeSwitcher />
                 </FlaggedFeature>
                 <LemonButton
