@@ -1,4 +1,5 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
@@ -22,7 +23,24 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+    /** :HACKY: Handle experiment (non-boolean) feature flag for 3000. */
+    let has3000Flag = false
+    const flags = Object.fromEntries(
+        persistedFeatureFlags.map((f) => {
+            if (f === FEATURE_FLAGS.POSTHOG_3000) {
+                has3000Flag = true
+                return [f, 'test']
+            } else {
+                return [f, true]
+            }
+        })
+    )
+
+    if (!has3000Flag) {
+        flags[FEATURE_FLAGS.POSTHOG_3000] = 'control'
+    }
+
+    return flags
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
