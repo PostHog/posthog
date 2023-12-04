@@ -109,7 +109,7 @@ impl<J> Job<J> {
     }
 
     /// Consume Job to complete it.
-    /// This returns a CompletedJob that can be enqueued by PgQueue.
+    /// This returns a CompletedJob that can be marked as completed by PgQueue.
     pub fn complete(self) -> CompletedJob {
         CompletedJob {
             id: self.id,
