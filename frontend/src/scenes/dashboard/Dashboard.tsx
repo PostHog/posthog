@@ -5,9 +5,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -17,6 +15,7 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { groupsModel } from '../../models/groupsModel'
@@ -59,8 +58,8 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { is3000 } = useValues(themeLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -170,9 +169,7 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {placement !== DashboardPlacement.Export && !featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                        <LemonDivider className="my-4" />
-                    )}
+                    {placement !== DashboardPlacement.Export && !is3000 && <LemonDivider className="my-4" />}
                     <DashboardItems />
                 </div>
             )}
