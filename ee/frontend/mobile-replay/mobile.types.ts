@@ -156,7 +156,7 @@ export type wireframeSelect = wireframeInputBase & {
 
 export type wireframeTextArea = wireframeInputBase & {
     inputType: 'textarea'
-    value: string
+    value?: string
 }
 
 export type wireframeButton = wireframeInputBase & {
