@@ -942,7 +942,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
-            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            if (values.is3000) {
                 actions.registerCommand(toggleTheme)
                 actions.registerCommand(toggleHedgehogMode)
             }
