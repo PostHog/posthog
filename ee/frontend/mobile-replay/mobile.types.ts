@@ -130,7 +130,7 @@ export type wireframeInputBase = wireframeBase & {
 export type wireframeCheckBox = wireframeInputBase & {
     inputType: 'checkbox'
     checked: boolean
-    value?: string
+    label: string
 }
 
 export type wireframeRadioGroup = wireframeBase & {
@@ -140,7 +140,6 @@ export type wireframeRadioGroup = wireframeBase & {
 export type wireframeRadio = wireframeInputBase & {
     inputType: 'radio'
     checked: boolean
-    value: string
     label: string
 }
 
@@ -170,6 +169,7 @@ export type wireframeButton = wireframeInputBase & {
 
 export type wireframeInputComponent =
     | wireframeCheckBox
+    | wireframeRadioGroup
     | wireframeRadio
     | wireframeInput
     | wireframeSelect
@@ -200,7 +200,7 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
-export type wireframe = wireframeText | wireframeImage | wireframeRectangle | wireframeDiv
+export type wireframe = wireframeText | wireframeImage | wireframeRectangle | wireframeDiv | wireframeInputComponent
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
