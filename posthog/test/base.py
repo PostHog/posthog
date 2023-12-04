@@ -13,7 +13,7 @@ import freezegun
 
 # we have to import pendulum for the side effect of importing it
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
-# noinspection PyUnresolvedReferences
+import pendulum  # noqa F401
 import pytest
 import sqlparse
 from django.apps import apps
