@@ -29,7 +29,7 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
                 backdropFilter: 'blur(var(--modal-backdrop-blur))',
             }}
         >
-            <div className="h-160 w-full max-w-lg">
+            <div className="h-160 w-full max-w-248">
                 <div
                     data-attr="command-bar"
                     className={`w-full ${
