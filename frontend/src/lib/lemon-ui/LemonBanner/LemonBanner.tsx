@@ -36,6 +36,11 @@ export function LemonBanner({
     const { dismiss } = useActions(logic)
     const showCloseButton = dismissKey || onClose
 
+    const { ref: wrapperRef, size } = useResizeBreakpoints({
+        0: 'compact',
+        400: 'normal',
+    })
+
     const _onClose = (): void => {
         if (dismissKey) {
             dismiss()
@@ -46,11 +51,6 @@ export function LemonBanner({
     if (isDismissed) {
         return <></>
     }
-
-    const { ref: wrapperRef, size } = useResizeBreakpoints({
-        0: 'compact',
-        400: 'normal',
-    })
 
     const isCompact = size === 'compact'
 

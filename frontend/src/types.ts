@@ -27,7 +27,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PluginInstallationType } from 'scenes/plugins/types'
 
 import { QueryContext } from '~/queries/types'
 
@@ -194,6 +193,8 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
+    /** Null means "sync with system". */
+    theme_mode: 'light' | 'dark' | null
 }
 
 export interface NotificationSettings {
@@ -527,6 +528,7 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    AppsManagement = 'apps-management',
 }
 
 export enum PipelineAppTabs {
@@ -665,9 +667,12 @@ export type RecordingConsoleLogV2 = {
     windowId: string | undefined
     level: LogLevel
     content: string
-    lines: string[]
-    trace: string[]
-    count: number
+    // JS code associated with the log - implicitly the empty array when not provided
+    lines?: string[]
+    // stack trace associated with the log - implicitly the empty array when not provided
+    trace?: string[]
+    // number of times this log message was seen - implicitly 1 when not provided
+    count?: number
 }
 
 export interface RecordingSegment {
@@ -830,6 +835,32 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
 }
+
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'event_definition'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResultType = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResultType[]
+    counts: Record<SearchableEntity, number | null>
+}
+
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
 
 export interface MatchedRecordingEvent {
     uuid: string
@@ -1084,6 +1115,13 @@ export type Body =
     | ReadableStream<Uint8Array>
     | null
 
+/**
+ * This is our base type for tracking network requests.
+ * It sticks relatively closely to the spec for the web
+ * see https://developer.mozilla.org/en-US/docs/Web/API/Performance_API
+ * we have renamed/added a few fields for the benefit of ClickHouse
+ * but don't yet clash with the spec
+ */
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1120,6 +1158,8 @@ export interface PerformanceEvent {
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
+    // see https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/transferSize
+    // zero has meaning for this field so should not be used unless the transfer size was known to be zero
     transfer_size?: number
 
     // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
@@ -1465,6 +1505,13 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+}
+
+export enum PluginInstallationType {
+    Local = 'local',
+    Custom = 'custom',
+    Repository = 'repository',
+    Source = 'source',
 }
 
 export interface PluginType {
@@ -3250,6 +3297,8 @@ export interface DataWarehouseViewLink {
 export interface ExternalDataStripeSourceCreatePayload {
     account_id: string
     client_secret: string
+    prefix: string
+    source_type: string
 }
 
 export interface ExternalDataStripeSource {
@@ -3450,4 +3499,5 @@ export enum SidePanelTab {
     Activation = 'activation',
     Settings = 'settings',
     FeaturePreviews = 'feature-previews',
+    Activity = 'activity',
 }

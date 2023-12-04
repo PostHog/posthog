@@ -41,10 +41,18 @@
 
             > ol {
                 list-style-type: decimal;
+
+                ol {
+                    list-style-type: lower-alpha;
+                }
             }
 
             > ul {
                 list-style-type: disc;
+
+                ul {
+                    list-style-type: circle;
+                }
             }
 
             > ul[data-type='taskList'] {
@@ -78,6 +86,11 @@
             > ul,
             > ol {
                 padding-left: 1rem;
+
+                ul,
+                ol {
+                    padding-left: 1rem;
+                }
 
                 li {
                     p {

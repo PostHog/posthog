@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hobby-$HOSTNAME
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hobby-$HOSTNAME
+  template:
+    metadata:
+      labels:
+        app: hobby-$HOSTNAME
+    spec:
+      containers:
+      - name: hobby-$HOSTNAME
+        image: 169684386827.dkr.ecr.us-east-1.amazonaws.com/hobby-base:latest
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        ports:
+        - containerPort: 2375
+        - containerPort: 80
+        env:
+        - name: BRANCH_NAME
+          value: $BRANCH_NAME
+        - name: REGISTRY_URL
+          value: $REGISTRY_URL
+        - name: DOCKER_TAG
+          value: $DOCKER_TAG
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hobby-service-$HOSTNAME
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: hobby-$HOSTNAME
+    tailscale.com/tags: tag:service
+  finalizers:
+    - tailscale.com/finalizer
+spec:
+  selector:
+    app: hobby-$HOSTNAME
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

@@ -15,6 +15,9 @@
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
+    AND event NOT IN ('survey sent',
+                      'survey shown',
+                      'survey dismissed')
   GROUP BY team_id
   '
 ---
@@ -196,6 +199,9 @@
   FROM events
   WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
+    AND event NOT IN ('survey sent',
+                      'survey shown',
+                      'survey dismissed')
   GROUP BY team_id
   '
 ---
