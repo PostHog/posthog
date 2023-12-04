@@ -150,7 +150,7 @@ export type wireframeInput = wireframeInputBase & {
 
 export type wireframeSelect = wireframeInputBase & {
     inputType: 'select'
-    value: string
+    value?: string
     options: string[]
 }
 
