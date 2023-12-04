@@ -167,15 +167,6 @@ export type wireframeButton = wireframeInputBase & {
     value?: string
 }
 
-export type wireframeInputComponent =
-    | wireframeCheckBox
-    | wireframeRadioGroup
-    | wireframeRadio
-    | wireframeInput
-    | wireframeSelect
-    | wireframeTextArea
-    | wireframeButton
-
 export type wireframeText = wireframeBase & {
     type: 'text'
     text: string
@@ -200,7 +191,18 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
-export type wireframe = wireframeText | wireframeImage | wireframeRectangle | wireframeDiv | wireframeInputComponent
+export type wireframe =
+    | wireframeText
+    | wireframeImage
+    | wireframeRectangle
+    | wireframeDiv
+    | wireframeCheckBox
+    | wireframeRadioGroup
+    | wireframeRadio
+    | wireframeInput
+    | wireframeSelect
+    | wireframeTextArea
+    | wireframeButton
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
