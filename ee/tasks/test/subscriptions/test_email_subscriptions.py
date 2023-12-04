@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -14,7 +13,6 @@ from posthog.test.base import APIBaseTest
 
 
 @patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
-@freeze_time("2022-02-02T08:55:00.000Z")
 class TestEmailSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard

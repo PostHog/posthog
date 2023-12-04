@@ -20,7 +20,6 @@ from posthog.test.base import BaseTest
 
 
 @patch.object(settings, "SECRET_KEY", "not-so-secret")
-@freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
         insight = Insight.objects.create(team=self.team)
@@ -71,6 +70,7 @@ class TestSubscription(BaseTest):
         subscription.save()
         assert old_date == subscription.next_delivery_date
 
+    @freeze_time("2022-01-01")
     def test_generating_token(self):
         subscription = self._create_insight_subscription(
             target_value="test1@posthog.com,test2@posthog.com,test3@posthog.com"
@@ -101,6 +101,7 @@ class TestSubscription(BaseTest):
         subscription = unsubscribe_using_token(token)
         assert subscription.target_value == "test1@posthog.com,test3@posthog.com"
 
+    @freeze_time("2022-01-01")
     def test_unsubscribe_using_token_fails_if_too_old(self):
         subscription = self._create_insight_subscription(
             target_value="test1@posthog.com,test2@posthog.com,test3@posthog.com"
@@ -139,6 +140,7 @@ class TestSubscription(BaseTest):
         subscription = unsubscribe_using_token(token)
         assert subscription.deleted
 
+    @freeze_time("2022-01-01")
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(
@@ -158,6 +160,7 @@ class TestSubscription(BaseTest):
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         assert subscription.next_delivery_date == datetime(2022, 5, 27, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
+    @freeze_time("2022-01-01")
     def test_should_work_for_nth_days(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(
@@ -179,6 +182,7 @@ class TestSubscription(BaseTest):
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         assert subscription.next_delivery_date == datetime(2022, 2, 3, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
+    @freeze_time("2022-01-01")
     def test_should_ignore_bysetpos_if_missing_weeekday(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=3)

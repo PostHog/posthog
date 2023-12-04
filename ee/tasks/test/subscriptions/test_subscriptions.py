@@ -23,7 +23,6 @@ from posthog.test.base import APIBaseTest
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
-@freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     subscriptions: List[Subscription] = None  # type: ignore
     dashboard: Dashboard
@@ -51,28 +50,29 @@ class TestSubscriptionsTasks(APIBaseTest):
         mock_send_email: MagicMock,
         mock_send_slack: MagicMock,
     ) -> None:
-        subscriptions = [
-            create_subscription(team=self.team, insight=self.insight, created_by=self.user),
-            create_subscription(team=self.team, insight=self.insight, created_by=self.user),
-            create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
-            create_subscription(
-                team=self.team,
-                dashboard=self.dashboard,
-                created_by=self.user,
-                deleted=True,
-            ),
-        ]
-        # Modify a subscription to have its target time at least an hour ahead
-        subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
-        subscriptions[2].save()
-        assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
+        with freeze_time("2022-02-02T08:55:00.000Z"):
+            subscriptions = [
+                create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+                create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+                create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
+                create_subscription(
+                    team=self.team,
+                    dashboard=self.dashboard,
+                    created_by=self.user,
+                    deleted=True,
+                ),
+            ]
+            # Modify a subscription to have its target time at least an hour ahead
+            subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
+            subscriptions[2].save()
+            assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
 
-        schedule_all_subscriptions()
+            schedule_all_subscriptions()
 
-        assert mock_deliver_task.delay.mock_calls == [
-            call(subscriptions[0].id),
-            call(subscriptions[1].id),
-        ]
+            assert mock_deliver_task.delay.mock_calls == [
+                call(subscriptions[0].id),
+                call(subscriptions[1].id),
+            ]
 
     @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(
