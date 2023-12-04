@@ -544,6 +544,13 @@ export class PersonState {
     }
 }
 
+/**
+ * A record of a merge operation occurring.
+ *
+ * These property names need to be kept in sync with the ``PersonOverride``
+ * Django model (and ``posthog_personoverride`` table schema) as defined in
+ * ``posthog/models/person/person.py``.
+ */
 type MergeOperation = {
     team_id: number
     old_person_id: string
