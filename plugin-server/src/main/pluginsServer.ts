@@ -52,6 +52,11 @@ export type ServerInstance = {
     stop: () => Promise<void>
 }
 
+const pluginServerStartupTimeMs = new Counter({
+    name: 'plugin_server_startup_time_ms',
+    help: 'Time taken to start the plugin server, in milliseconds',
+})
+
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
@@ -405,6 +410,7 @@ export async function startPluginsServer(
             serverInstance.stop = closeJobs
 
             hub.statsd?.timing('total_setup_time', timer)
+            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
             status.info('🚀', 'All systems go')
 
             hub.lastActivity = new Date().valueOf()

@@ -12,6 +12,7 @@ import {
     DateMappingOption,
     EventType,
     GroupActorType,
+    IntervalType,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -863,7 +864,8 @@ const dateOptionsMap = {
     m: 'month',
     w: 'week',
     d: 'day',
-}
+    h: 'hour',
+} as const
 
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
@@ -935,45 +937,171 @@ export function dateFilterToText(
     return defaultValue
 }
 
+export function dateStringToComponents(date: string | null): {
+    amount: number
+    unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
+    clip: 'Start' | 'End'
+} | null {
+    if (!date) {
+        return null
+    }
+    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+    const matches = date.match(parseDate)
+    if (!matches) {
+        return null
+    }
+    const [, sign, rawAmount, rawUnit, clip] = matches
+    const amount = rawAmount ? parseInt(sign + rawAmount) : 0
+    const unit = dateOptionsMap[rawUnit] || 'day'
+    return { amount, unit, clip: clip as 'Start' | 'End' }
+}
+
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([-+]?)([0-9]*)([dmwqy])(|Start|End)$/
-    const matches = (date || '').match(parseDate)
-    let response: null | dayjs.Dayjs = null
-    if (matches) {
-        const [, sign, rawAmount, rawUnit, clip] = matches
-        const amount = rawAmount ? parseInt(sign + rawAmount) : 0
-        const unit = dateOptionsMap[rawUnit] || 'day'
-
-        switch (unit) {
-            case 'year':
-                response = dayjs().add(amount, 'year')
-                break
-            case 'quarter':
-                response = dayjs().add(amount * 3, 'month')
-                break
-            case 'month':
-                response = dayjs().add(amount, 'month')
-                break
-            case 'week':
-                response = dayjs().add(amount * 7, 'day')
-                break
-            default:
-                response = dayjs().add(amount, 'day')
-                break
-        }
-
-        if (clip === 'Start') {
-            return response.startOf(unit)
-        } else if (clip === 'End') {
-            return response.endOf(unit)
-        }
-        return response.startOf('day')
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return null
     }
-    return response
+
+    const { unit, amount, clip } = dateComponents
+    let response: dayjs.Dayjs
+
+    switch (unit) {
+        case 'year':
+            response = dayjs().add(amount, 'year')
+            break
+        case 'quarter':
+            response = dayjs().add(amount * 3, 'month')
+            break
+        case 'month':
+            response = dayjs().add(amount, 'month')
+            break
+        case 'week':
+            response = dayjs().add(amount * 7, 'day')
+            break
+        case 'day':
+            response = dayjs().add(amount, 'day')
+            break
+        case 'hour':
+            response = dayjs().add(amount, 'hour')
+            break
+        default:
+            throw new UnexpectedNeverError(unit)
+    }
+
+    if (clip === 'Start') {
+        return response.startOf(unit)
+    } else if (clip === 'End') {
+        return response.endOf(unit)
+    }
+    return response.startOf('day')
+}
+
+export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
+    // use the default mapping if we can
+    for (const mapping of dateMapping) {
+        const mappingFrom = mapping.values[0] ?? null
+        const mappingTo = mapping.values[1] ?? null
+        if (mappingFrom === dateFrom && mappingTo === dateTo && mapping.defaultInterval) {
+            return mapping.defaultInterval
+        }
+    }
+
+    const parsedDateFrom = dateStringToComponents(dateFrom)
+    const parsedDateTo = dateStringToComponents(dateTo)
+
+    if (parsedDateFrom?.unit === 'hour' || parsedDateTo?.unit === 'hour') {
+        return 'hour'
+    }
+
+    if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        parsedDateFrom?.unit === 'month' ||
+        parsedDateTo?.unit === 'month' ||
+        parsedDateFrom?.unit === 'quarter' ||
+        parsedDateTo?.unit === 'quarter' ||
+        parsedDateFrom?.unit === 'year' ||
+        parsedDateTo?.unit === 'year' ||
+        dateFrom === 'all'
+    ) {
+        return 'month'
+    }
+
+    const dateFromDayJs = dateStringToDayJs(dateFrom)
+    const dateToDayJs = dateStringToDayJs(dateTo)
+
+    const intervalMonths = dateFromDayJs?.diff(dateToDayJs, 'month')
+    if (intervalMonths != null && Math.abs(intervalMonths) >= 2) {
+        return 'month'
+    }
+    const intervalDays = dateFromDayJs?.diff(dateToDayJs, 'day')
+    if (intervalDays != null && Math.abs(intervalDays) >= 14) {
+        return 'week'
+    }
+    if (intervalDays != null && Math.abs(intervalDays) >= 2) {
+        return 'day'
+    }
+    const intervalHours = dateFromDayJs?.diff(dateToDayJs, 'hour')
+    if (intervalHours != null && Math.abs(intervalHours) >= 1) {
+        return 'hour'
+    }
+
+    return 'day'
+}
+
+/* If the interval changes, check if it's compatible with the selected dates, and return new dates
+ * from a map of sensible defaults if not */
+export const areDatesValidForInterval = (
+    interval: IntervalType,
+    oldDateFrom: string | null,
+    oldDateTo: string | null
+): boolean => {
+    const parsedOldDateFrom = dateStringToDayJs(oldDateFrom)
+    const parsedOldDateTo = dateStringToDayJs(oldDateTo) || dayjs()
+
+    if (oldDateFrom === 'all' || !parsedOldDateFrom) {
+        return interval === 'month'
+    } else if (interval === 'month') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'month') >= 2
+    } else if (interval === 'week') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'week') >= 2
+    } else if (interval === 'day') {
+        const diff = parsedOldDateTo.diff(parsedOldDateFrom, 'day')
+        return diff >= 2
+    } else if (interval === 'hour') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
+        )
+    }
+    throw new UnexpectedNeverError(interval)
+}
+
+const defaultDatesForInterval = {
+    hour: { dateFrom: '-24h', dateTo: null },
+    day: { dateFrom: '-7d', dateTo: null },
+    week: { dateFrom: '-28d', dateTo: null },
+    month: { dateFrom: '-6m', dateTo: null },
+}
+
+export const updateDatesWithInterval = (
+    interval: IntervalType,
+    oldDateFrom: string | null,
+    oldDateTo: string | null
+): { dateFrom: string | null; dateTo: string | null } => {
+    if (areDatesValidForInterval(interval, oldDateFrom, oldDateTo)) {
+        return {
+            dateFrom: oldDateFrom,
+            dateTo: oldDateTo,
+        }
+    }
+    return defaultDatesForInterval[interval]
 }
 
 export function clamp(value: number, min: number, max: number): number {

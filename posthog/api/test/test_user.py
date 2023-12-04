@@ -368,7 +368,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
-    @patch("posthog.tasks.email.send_email_verification.delay")
+    @patch("posthog.api.email_verification.send_email_verification")
     def test_notifications_sent_when_user_email_is_changed_and_email_available(
         self,
         mock_send_email_verification,
