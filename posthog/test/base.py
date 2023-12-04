@@ -67,7 +67,7 @@ from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than", "dlt.common.schema.detections"])  # type: ignore
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
 
 
 persons_cache_tests: List[Dict[str, Any]] = []

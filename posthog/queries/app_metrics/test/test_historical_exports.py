@@ -23,6 +23,7 @@ from posthog.test.base import (
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 
+@freeze_time("2021-08-25T13:00:00Z")
 class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
@@ -33,7 +34,6 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             pk=3, plugin=self.plugin, team=self.team, enabled=True, order=1
         )
 
-    @freeze_time("2021-08-25T13:00:00Z")
     @snapshot_postgres_queries
     def test_historical_exports_activity_for_not_finished_export(self):
         self._create_activity_log(
@@ -153,7 +153,6 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             },
         )
 
-    @freeze_time("2021-08-25T13:00:00Z")
     def test_historical_exports_activity_ignores_unrelated_entries(self):
         self._create_activity_log(
             activity="job_triggered",

@@ -13,6 +13,7 @@ from posthog.test.base import APIBaseTest
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@freeze_time("2022-02-02T08:55:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard
@@ -21,21 +22,18 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
     integration: Integration
 
     def setUp(self) -> None:
-        with freeze_time("2022-02-02T08:55:00.000Z"):
-            self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-            self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
-            self.asset = ExportedAsset.objects.create(
-                team=self.team, insight_id=self.insight.id, export_format="image/png"
-            )
-            self.subscription = create_subscription(
-                team=self.team,
-                insight=self.insight,
-                created_by=self.user,
-                target_type="slack",
-                target_value="C12345|#test-channel",
-            )
+        self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
 
-            self.integration = Integration.objects.create(team=self.team, kind="slack")
+        self.integration = Integration.objects.create(team=self.team, kind="slack")
 
     def test_subscription_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
@@ -82,21 +80,20 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         ]
 
     def test_subscription_delivery_new(self, MockSlackIntegration: MagicMock) -> None:
-        with freeze_time("2022-02-02T08:55:00.000Z"):
-            mock_slack_integration = MagicMock()
-            MockSlackIntegration.return_value = mock_slack_integration
-            mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+        mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
 
-            send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=True)
+        send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=True)
 
-            assert mock_slack_integration.client.chat_postMessage.call_count == 1
-            post_message_calls = mock_slack_integration.client.chat_postMessage.call_args_list
-            first_call = post_message_calls[0].kwargs
+        assert mock_slack_integration.client.chat_postMessage.call_count == 1
+        post_message_calls = mock_slack_integration.client.chat_postMessage.call_args_list
+        first_call = post_message_calls[0].kwargs
 
-            assert (
-                first_call["text"]
-                == "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022"
-            )
+        assert (
+            first_call["text"]
+            == "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022"
+        )
 
     def test_subscription_dashboard_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()

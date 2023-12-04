@@ -39,6 +39,7 @@ def create_mock_unfurl_event(team_id: str, links: List[str]):
 
 @patch("ee.tasks.slack.generate_assets")
 @patch("ee.tasks.slack.SlackIntegration")
+@freeze_time("2022-01-01T12:00:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard
@@ -53,48 +54,45 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         self.asset = ExportedAsset.objects.create(team=self.team, export_format="image/png", insight=self.insight)
 
     def test_unfurl_event(self, MockSlackIntegration: MagicMock, mock_generate_assets: MagicMock) -> None:
-        with freeze_time("2022-01-01T12:00:00.000Z"):
-            mock_slack_integration = MagicMock()
-            MockSlackIntegration.return_value = mock_slack_integration
-            mock_generate_assets.return_value = ([self.insight], [self.asset])
-            mock_slack_integration.client.chat_unfurl.return_value = {"ok": "true"}
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+        mock_generate_assets.return_value = ([self.insight], [self.asset])
+        mock_slack_integration.client.chat_unfurl.return_value = {"ok": "true"}
 
-            handle_slack_event(
-                create_mock_unfurl_event(
-                    "T12345",
-                    [
-                        f"{settings.SITE_URL}/shared/{self.sharingconfig.access_token}",
-                        f"{settings.SITE_URL}/shared/not-found",
-                    ],
-                )
+        handle_slack_event(
+            create_mock_unfurl_event(
+                "T12345",
+                [
+                    f"{settings.SITE_URL}/shared/{self.sharingconfig.access_token}",
+                    f"{settings.SITE_URL}/shared/not-found",
+                ],
             )
+        )
 
-            assert mock_slack_integration.client.chat_unfurl.call_count == 1
-            post_message_calls = mock_slack_integration.client.chat_unfurl.call_args_list
-            first_call = post_message_calls[0].kwargs
+        assert mock_slack_integration.client.chat_unfurl.call_count == 1
+        post_message_calls = mock_slack_integration.client.chat_unfurl.call_args_list
+        first_call = post_message_calls[0].kwargs
 
-            valid_url = f"{settings.SITE_URL}/shared/{self.sharingconfig.access_token}"
+        valid_url = f"{settings.SITE_URL}/shared/{self.sharingconfig.access_token}"
 
-            assert first_call == {
-                "unfurls": {
-                    valid_url: {
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {"type": "mrkdwn", "text": "My Test subscription"},
-                                "accessory": {
-                                    "type": "image",
-                                    "image_url": first_call["unfurls"][valid_url]["blocks"][0]["accessory"][
-                                        "image_url"
-                                    ],
-                                    "alt_text": "My Test subscription",
-                                },
-                            }
-                        ]
-                    }
-                },
-                "unfurl_id": "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
-                "source": "conversations_history",
-                "channel": "",
-                "ts": "",
-            }
+        assert first_call == {
+            "unfurls": {
+                valid_url: {
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "My Test subscription"},
+                            "accessory": {
+                                "type": "image",
+                                "image_url": first_call["unfurls"][valid_url]["blocks"][0]["accessory"]["image_url"],
+                                "alt_text": "My Test subscription",
+                            },
+                        }
+                    ]
+                }
+            },
+            "unfurl_id": "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
+            "source": "conversations_history",
+            "channel": "",
+            "ts": "",
+        }

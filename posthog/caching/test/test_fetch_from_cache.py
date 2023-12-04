@@ -21,6 +21,7 @@ from posthog.test.base import (
 from posthog.utils import get_safe_cache
 
 
+@freeze_time("2012-01-14T03:21:34.000Z")
 class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -49,49 +50,45 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         self.dashboard_tile = dashboard_tile
 
     def test_synchronously_update_cache_insight(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            insight = Insight.objects.create(
-                team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []}
-            )
+        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []})
 
-            result = synchronously_update_cache(insight, None)
+        result = synchronously_update_cache(insight, None)
 
-            assert result.result is not None
-            assert result.last_refresh == now()
-            assert not result.is_cached
-            assert result.cache_key is not None
+        assert result.result is not None
+        assert result.last_refresh == now()
+        assert not result.is_cached
+        assert result.cache_key is not None
 
-            assert insight.caching_state.cache_key == result.cache_key
-            assert insight.caching_state.last_refresh == result.last_refresh
+        assert insight.caching_state.cache_key == result.cache_key
+        assert insight.caching_state.last_refresh == result.last_refresh
 
-            cached_result = get_safe_cache(result.cache_key)
-            assert cached_result == {
-                "result": result.result,
-                "type": CacheType.TRENDS,
-                "last_refresh": result.last_refresh,
-                "next_allowed_client_refresh": None,
-            }
+        cached_result = get_safe_cache(result.cache_key)
+        assert cached_result == {
+            "result": result.result,
+            "type": CacheType.TRENDS,
+            "last_refresh": result.last_refresh,
+            "next_allowed_client_refresh": None,
+        }
 
     def test_synchronously_update_cache_dashboard_tile(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            result = synchronously_update_cache(self.insight, self.dashboard)
+        result = synchronously_update_cache(self.insight, self.dashboard)
 
-            assert result.result is not None
-            assert result.last_refresh == now()
-            assert not result.is_cached
-            assert result.cache_key is not None
+        assert result.result is not None
+        assert result.last_refresh == now()
+        assert not result.is_cached
+        assert result.cache_key is not None
 
-            assert self.insight.caching_state.cache_key != result.cache_key
-            assert self.dashboard_tile.caching_state.cache_key == result.cache_key
-            assert self.dashboard_tile.caching_state.last_refresh == result.last_refresh
+        assert self.insight.caching_state.cache_key != result.cache_key
+        assert self.dashboard_tile.caching_state.cache_key == result.cache_key
+        assert self.dashboard_tile.caching_state.last_refresh == result.last_refresh
 
-            cached_result = get_safe_cache(result.cache_key)
-            assert cached_result == {
-                "result": result.result,
-                "type": CacheType.TRENDS,
-                "last_refresh": result.last_refresh,
-                "next_allowed_client_refresh": None,
-            }
+        cached_result = get_safe_cache(result.cache_key)
+        assert cached_result == {
+            "result": result.result,
+            "type": CacheType.TRENDS,
+            "last_refresh": result.last_refresh,
+            "next_allowed_client_refresh": None,
+        }
 
     def test_fetch_cached_insight_result_from_cache(self):
         cached_result = synchronously_update_cache(self.insight, self.dashboard, timedelta(minutes=3))
