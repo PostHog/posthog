@@ -35,6 +35,7 @@ from posthog.test.base import (
 )
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest):
     # this test does not create any session_recording_events, only writes to the session_replay summary table
     # it is a pair with test_session_recording_list
@@ -1339,31 +1340,30 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert session_recordings[0]["session_id"] == "three days before base time"
 
     def test_recording_that_spans_time_bounds(self):
-        with freeze_time("2021-01-01T13:46:23"):
-            user = "test_recording_that_spans_time_bounds-user"
-            Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
-            day_line = datetime(2021, 11, 5)
-            produce_replay_summary(
-                distinct_id=user,
-                session_id="1",
-                first_timestamp=(day_line - relativedelta(hours=3)),
-                last_timestamp=(day_line + relativedelta(hours=3)),
-                team_id=self.team.id,
-            )
+        user = "test_recording_that_spans_time_bounds-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        day_line = datetime(2021, 11, 5)
+        produce_replay_summary(
+            distinct_id=user,
+            session_id="1",
+            first_timestamp=(day_line - relativedelta(hours=3)),
+            last_timestamp=(day_line + relativedelta(hours=3)),
+            team_id=self.team.id,
+        )
 
-            filter = SessionRecordingsFilter(
-                team=self.team,
-                data={
-                    "date_to": day_line.strftime("%Y-%m-%d"),
-                    "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
-                },
-            )
-            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-            (session_recordings, _) = session_recording_list_instance.run()
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "date_to": day_line.strftime("%Y-%m-%d"),
+                "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
 
-            assert len(session_recordings) == 1
-            assert session_recordings[0]["session_id"] == "1"
-            assert session_recordings[0]["duration"] == 6 * 60 * 60
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == "1"
+        assert session_recordings[0]["duration"] == 6 * 60 * 60
 
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
