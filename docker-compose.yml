@@ -1,0 +1,15 @@
+services:
+    db:
+        image: docker.io/library/postgres:16-alpine
+        restart: on-failure
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 5s
+            timeout: 5s
+        ports:
+            - '15432:5432'
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
