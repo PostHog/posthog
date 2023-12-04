@@ -5,7 +5,6 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -19,6 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
@@ -37,6 +37,7 @@ export function SessionsRecordings(): JSX.Element {
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const { is3000 } = useValues(themeLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         actionId: null,
@@ -56,8 +57,6 @@ export function SessionsRecordings(): JSX.Element {
         await createPlaylist({ filters }, true)
         reportRecordingPlaylistCreated('filters')
     })
-
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
