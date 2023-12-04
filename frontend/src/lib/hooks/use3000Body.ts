@@ -6,7 +6,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useFeatureFlag } from './useFeatureFlag'
 
 export function use3000Body(): void {
-    const is3000 = !!useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {

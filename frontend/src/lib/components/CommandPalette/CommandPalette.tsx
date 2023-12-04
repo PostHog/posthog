@@ -17,7 +17,7 @@ import { CommandResults } from './CommandResults'
 export function CommandPalette(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
 
     if (isUsingCmdKSearch) {
         return <CommandBar />

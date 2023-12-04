@@ -35,7 +35,7 @@ export function ProjectHomepage(): JSX.Element {
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const headerButtons = (
         <>

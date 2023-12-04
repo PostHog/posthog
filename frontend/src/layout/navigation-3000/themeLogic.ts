@@ -36,7 +36,7 @@ export const themeLogic = kea<themeLogicType>([
                 }
                 // Dark mode is a PostHog 3000 feature
                 // User-saved preference is used when set, oterwise we fall back to the system value
-                return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+                return featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
                     ? user?.theme_mode
                         ? user.theme_mode === 'dark'
                         : darkModeSystemPreference

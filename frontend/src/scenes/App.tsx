@@ -155,7 +155,7 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
-    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? Navigation3000 : NavigationClassic
+    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? Navigation3000 : NavigationClassic
 
     return (
         <>
