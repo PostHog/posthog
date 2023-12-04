@@ -118,7 +118,7 @@ impl<J> Job<J> {
     }
 
     /// Consume Job to fail it.
-    /// This returns a FailedJob that can be enqueued by PgQueue.
+    /// This returns a FailedJob that can be marked as failed by PgQueue.
     ///
     /// # Arguments
     ///
