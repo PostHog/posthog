@@ -1,6 +1,6 @@
 import './TaxonomicPropertyFilter.scss'
 
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
@@ -159,28 +159,28 @@ export function TaxonomicPropertyFilter({
                         </div>
                     )}
                     <div className="TaxonomicPropertyFilter__row__items">
-                        <LemonButtonWithDropdown
-                            dropdown={{
-                                overlay: dropdownOpen ? taxonomicFilter : null,
-                                visible: dropdownOpen,
-                                placement: 'bottom',
-                                onClickOutside: closeDropdown,
-                            }}
-                            onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                            type="secondary"
-                            status={!valuePresent ? 'primary' : 'stealth'}
-                            icon={!valuePresent ? <IconPlusMini /> : undefined}
-                            sideIcon={null}
-                            data-attr={'property-select-toggle-' + index}
+                        <LemonDropdown
+                            overlay={taxonomicFilter}
+                            placement="bottom-start"
+                            visible={dropdownOpen}
+                            onClickOutside={closeDropdown}
                         >
-                            {filter?.type === 'cohort' ? (
-                                selectedCohortName || `Cohort #${filter?.value}`
-                            ) : filter?.key ? (
-                                <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
-                            ) : (
-                                addText || 'Add filter'
-                            )}
-                        </LemonButtonWithDropdown>
+                            <LemonButton
+                                type="secondary"
+                                status={!valuePresent ? 'primary' : 'stealth'}
+                                icon={!valuePresent ? <IconPlusMini /> : undefined}
+                                data-attr={'property-select-toggle-' + index}
+                                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                            >
+                                {filter?.type === 'cohort' ? (
+                                    selectedCohortName || `Cohort #${filter?.value}`
+                                ) : filter?.key ? (
+                                    <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                                ) : (
+                                    addText || 'Add filter'
+                                )}
+                            </LemonButton>
+                        </LemonDropdown>
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitionsByType(
