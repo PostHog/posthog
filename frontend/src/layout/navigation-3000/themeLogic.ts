@@ -23,9 +23,10 @@ export const themeLogic = kea<themeLogicType>([
         ],
     }),
     selectors({
+        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'],
         isDarkModeOn: [
-            (s) => [s.user, s.darkModeSystemPreference, s.featureFlags, sceneLogic.selectors.sceneConfig],
-            (user, darkModeSystemPreference, featureFlags, sceneConfig) => {
+            (s) => [s.user, s.darkModeSystemPreference, s.is3000, sceneLogic.selectors.sceneConfig],
+            (user, darkModeSystemPreference, is3000, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||
@@ -36,11 +37,7 @@ export const themeLogic = kea<themeLogicType>([
                 }
                 // Dark mode is a PostHog 3000 feature
                 // User-saved preference is used when set, oterwise we fall back to the system value
-                return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-                    ? user?.theme_mode
-                        ? user.theme_mode === 'dark'
-                        : darkModeSystemPreference
-                    : false
+                return is3000 ? (user?.theme_mode ? user.theme_mode === 'dark' : darkModeSystemPreference) : false
             },
         ],
     }),
