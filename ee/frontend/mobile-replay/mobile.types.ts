@@ -122,6 +122,57 @@ type wireframeBase = {
     style?: MobileStyles
 }
 
+export type wireframeInputBase = wireframeBase & {
+    type: 'input'
+    disabled: boolean
+}
+
+export type wireframeCheckBox = wireframeInputBase & {
+    inputType: 'checkbox'
+    checked: boolean
+}
+
+export type wireframeRadio = wireframeInputBase & {
+    inputType: 'radio'
+    checked: string
+    /**
+     * @description to keep the transformer stateless we don't send each radio separately with a group name. Group name in the generated HTML will be a UUID tying each of these values  together
+     */
+    values: string[]
+}
+
+export type wireframeInput = wireframeInputBase & {
+    inputType: 'text' | 'password' | 'email' | 'number' | 'search' | 'tel' | 'url'
+    value: string
+}
+
+export type wireframeSelect = wireframeInputBase & {
+    inputType: 'select'
+    value: string
+    options: string[]
+}
+
+export type wireframeTextArea = wireframeInputBase & {
+    inputType: 'textarea'
+    value: string
+}
+
+export type wireframeButton = wireframeInputBase & {
+    inputType: 'button'
+    /**
+     * @description this is the text that is displayed on the button, if not sent then you must send childNodes with the button content
+     */
+    value?: string
+}
+
+export type wireframeInputComponent =
+    | wireframeCheckBox
+    | wireframeRadio
+    | wireframeInput
+    | wireframeSelect
+    | wireframeTextArea
+    | wireframeButton
+
 export type wireframeText = wireframeBase & {
     type: 'text'
     text: string
