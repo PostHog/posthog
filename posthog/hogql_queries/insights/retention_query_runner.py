@@ -46,10 +46,8 @@ class RetentionQueryRunner(QueryRunner):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         in_export_context: Optional[bool] = None,
-        event_query_type: Optional[RetentionQueryType] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
-        self.event_query_type = event_query_type
         if not self.query.retentionFilter:
             self.query.retentionFilter = RetentionFilter()  # TODO: Clarify default filter
 
@@ -59,12 +57,12 @@ class RetentionQueryRunner(QueryRunner):
         }
         self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
 
-    def retention_events_query(self) -> ast.SelectQuery:
+    def retention_events_query(self, event_query_type) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             event_date_expr = ast.Call(name="min", args=[start_of_interval_sql])
         else:
             event_date_expr = start_of_interval_sql
@@ -74,9 +72,9 @@ class RetentionQueryRunner(QueryRunner):
             ast.Alias(alias="target", expr=ast.Field(chain=["events", "person_id"])),
         ]
 
-        if self.event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
+        if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
             source_timestamp = ast.Field(chain=["events", "timestamp"])
-            if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+            if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 source_timestamp = ast.Call(
                     name="min",
                     args=[source_timestamp],
@@ -103,14 +101,14 @@ class RetentionQueryRunner(QueryRunner):
         event_filters.append(
             self.entity_to_expr(
                 entity=self.target_entity
-                if self.event_query_type == RetentionQueryType.TARGET
-                or self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                if event_query_type == RetentionQueryType.TARGET
+                or event_query_type == RetentionQueryType.TARGET_FIRST_TIME
                 else self.returning_entity
             )
         )
 
-        date_filter_expr = self.date_filter_expr()
-        if self.event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
+        date_filter_expr = self.date_filter_expr(event_query_type)
+        if event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
             event_filters.append(date_filter_expr)
 
         if (
@@ -123,15 +121,15 @@ class RetentionQueryRunner(QueryRunner):
 
         group_by_fields = None
         having_expr = None
-        if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             group_by_fields = [ast.Field(chain=["target"])]
             having_expr = date_filter_expr
-        elif self.event_query_type == RetentionQueryType.RETURNING:
+        elif event_query_type == RetentionQueryType.RETURNING:
             group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
 
         result = parse_select("SELECT * FROM events", timings=self.timings)
         result.select = fields
-        result.distinct = self.event_query_type == RetentionQueryType.TARGET
+        result.distinct = event_query_type == RetentionQueryType.TARGET
         result.where = ast.And(exprs=event_filters)
         result.group_by = group_by_fields
         result.having = having_expr
@@ -163,10 +161,10 @@ class RetentionQueryRunner(QueryRunner):
             right=ast.Constant(value=PAGEVIEW_EVENT),
         )
 
-    def date_filter_expr(self) -> ast.Expr:
+    def date_filter_expr(self, event_query_type) -> ast.Expr:
         field_to_compare = (
             ast.Field(chain=["event_date"])
-            if self.event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+            if event_query_type == RetentionQueryType.TARGET_FIRST_TIME
             else ast.Field(chain=["events", "timestamp"])
         )
         return ast.And(
@@ -185,16 +183,15 @@ class RetentionQueryRunner(QueryRunner):
         )
 
     def build_target_event_query(self) -> ast.SelectQuery:
-        self.event_query_type = (
+        event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
             if self.query.retentionFilter.retention_type == RetentionType.retention_first_time
             else RetentionQueryType.TARGET
         )
-        return self.retention_events_query()
+        return self.retention_events_query(event_query_type=event_query_type)
 
     def build_returning_event_query(self) -> ast.SelectQuery:
-        self.event_query_type = RetentionQueryType.RETURNING
-        return self.retention_events_query()
+        return self.retention_events_query(event_query_type=RetentionQueryType.RETURNING)
 
     def actor_query(self) -> ast.SelectQuery:
         placeholders = {
