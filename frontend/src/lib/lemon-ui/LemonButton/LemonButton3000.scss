@@ -57,14 +57,6 @@
             }
         }
 
-<<<<<<< HEAD
-        &.LemonButton--xsmall {
-            --lemon-button-chrome-depth: 0.1875rem;
-            --lemon-button-press-depth: 1px;
-            --lemon-button-horizontal-padding: 0.375rem;
-            --lemon-button-font-size: 0.75rem;
-            --lemon-button-height: 1.5rem;
-=======
         &:hover:not([aria-disabled='true']),
         &:not([aria-disabled='true']):active {
             --lemon-button-icon-opacity: 0.7;
@@ -79,39 +71,10 @@
             --lemon-button-padding-adjacent-icon: 0.25rem;
             --lemon-button-font-size: 0.75rem;
             --lemon-button-height: 1.6875rem;
->>>>>>> master
             --lemon-button-gap: 0.25rem;
         }
 
         &.LemonButton--small {
-<<<<<<< HEAD
-            --lemon-button-horizontal-padding: 0.5rem;
-            --lemon-button-height: 1.875rem;
-        }
-
-        &.LemonButton--large {
-            --lemon-button-chrome-depth: 0.375rem;
-            --lemon-button-press-depth: 2px;
-            --lemon-button-font-size: 1rem;
-            --lemon-button-height: 3rem;
-            --lemon-button-gap: 0.75rem;
-
-            &.LemonButton--has-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
-                padding-left: 0;
-
-                .LemonButton__chrome {
-                    padding-left: 0.75rem;
-                }
-            }
-
-            &.LemonButton--has-side-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
-                padding-right: 0;
-
-                .LemonButton__chrome {
-                    padding-right: 0.75rem;
-                }
-            }
-=======
             --lemon-button-padding-horizontal: 0.5rem;
             --lemon-button-padding-adjacent-icon: 0.375rem;
             --lemon-button-height: 2.0625rem;
@@ -122,7 +85,6 @@
             --lemon-button-padding-adjacent-icon: 0.75rem;
             --lemon-button-height: 3.0625rem;
             --lemon-button-gap: 0.75rem;
->>>>>>> master
         }
 
         &.LemonButton--no-padding {
@@ -135,22 +97,6 @@
             }
         }
 
-<<<<<<< HEAD
-        &.LemonButton--onboarding {
-            --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
-            --lemon-button-bg-color-active: var(--lemon-button-bg-color);
-            --button-border-color: var(--primary-3000-button-border);
-            --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
-            --lemon-button-color: var(--text-3000-light);
-
-            .LemonButton__chrome {
-                font-weight: 600;
-            }
-        }
-
-=======
->>>>>>> master
         &.LemonButton--primary {
             --lemon-button-bg-color: var(--primary-3000-button-bg);
             --lemon-button-bg-color-active: var(--primary-3000-button-bg);
@@ -159,11 +105,6 @@
             --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
             --lemon-button-color: var(--text-3000-light);
 
-<<<<<<< HEAD
-            .LemonButton__chrome {
-                font-weight: 600;
-                background: var(--primary-3000-button-bg);
-=======
             &.LemonButton--status-primary-alt {
                 --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
                 --lemon-button-bg-color-active: var(--lemon-button-bg-color);
@@ -171,7 +112,6 @@
                 --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
                 --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
                 --lemon-button-color: var(--text-3000-light);
->>>>>>> master
             }
         }
 
@@ -184,14 +124,6 @@
             --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
         }
 
-<<<<<<< HEAD
-        &.LemonButton--primary.LemonButton--status-danger,
-        &.LemonButton--secondary.LemonButton--status-danger {
-            --button-border-color: var(--danger-light);
-            --lemon-button-bg-color-active: transparent;
-            --lemon-button-border-color-hover: var(--danger-dark);
-            --lemon-button-frame-bg-color: var(--danger-lighter);
-=======
         &.LemonButton--status-danger,
         &.LemonButton--primary.LemonButton--status-danger,
         &.LemonButton--secondary.LemonButton--status-danger {
@@ -200,29 +132,19 @@
             --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);
             --lemon-button-icon-opacity: 1;
->>>>>>> master
         }
 
         &.LemonButton--is-stealth {
             --lemon-button-color: var(--muted);
 
             &.LemonButton--active,
-<<<<<<< HEAD
-            &:hover {
-=======
             &:hover:not([aria-disabled='true']) {
->>>>>>> master
                 --lemon-button-color: var(--default);
             }
         }
 
         &.LemonButton--primary,
-<<<<<<< HEAD
-        &.LemonButton--secondary,
-        &.LemonButton--onboarding {
-=======
         &.LemonButton--secondary {
->>>>>>> master
             --lemon-button-border-width: 1px;
 
             &:not([aria-disabled='true']):hover .LemonButton__chrome {
@@ -231,11 +153,6 @@
                 }
             }
 
-<<<<<<< HEAD
-            .LemonButton__chrome {
-                padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding)
-                    calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5) var(--lemon-button-horizontal-padding);
-=======
             &.LemonButton--has-icon:not(.LemonButton--no-content, .LemonButton--no-padding) {
                 --lemon-button-padding-left: var(--lemon-button-padding-adjacent-icon);
             }
@@ -249,7 +166,6 @@
                     var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
                     calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5)
                     var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal));
->>>>>>> master
                 background: transparent;
 
                 & > * {
@@ -287,18 +203,6 @@
                 }
             }
 
-<<<<<<< HEAD
-            &:not([aria-disabled='true']):active {
-                .LemonButton__chrome {
-                    transform: translateY(var(--lemon-button-press-depth));
-
-                    &::after {
-                        box-shadow: 0 calc(var(--lemon-button-chrome-depth) - var(--lemon-button-press-depth)) 0 -1px var(--lemon-button-frame-bg-color);
-                    }
-
-                    &::before {
-                        bottom: calc(var(--lemon-button-press-depth) - 1px);
-=======
             &:hover:not([aria-disabled='true']) {
                 --lemon-button-depth: var(--lemon-button-hover-depth);
             }
@@ -318,7 +222,6 @@
 
                     &::before {
                         bottom: calc(var(--lemon-button-depth) - 1px);
->>>>>>> master
                     }
                 }
             }
@@ -330,13 +233,6 @@
                     }
                 }
             }
-<<<<<<< HEAD
-        }
-
-        &.LemonButton--status-danger {
-            --lemon-button-color: var(--danger);
-=======
->>>>>>> master
         }
 
         &.LemonButton--tertiary {
@@ -370,22 +266,12 @@
         top: 1px;
         right: 1px;
         bottom: calc(var(--lemon-button-chrome-depth) + 1px);
-<<<<<<< HEAD
-=======
         z-index: 1; // Places button content above the main button
->>>>>>> master
         border-top-right-radius: calc(var(--radius) - 1px);
         border-bottom-right-radius: calc(var(--radius) - 1px);
         transform: none;
 
         .LemonButton {
-<<<<<<< HEAD
-            width: calc(var(--lemon-button-side-action-icon-width) + var(--lemon-button-horizontal-padding));
-            height: 100%;
-        }
-
-        .LemonButton__chrome {
-=======
             width: calc(
                 var(--lemon-button-side-action-icon-width) +
                     var(--lemon-button-padding-adjacent-icon, var(--lemon-button-padding-horizontal))
@@ -398,7 +284,6 @@
         .LemonButton__chrome {
             --lemon-button-depth: 0px;
 
->>>>>>> master
             justify-content: center !important;
             padding: 0 !important;
             border: none !important;
