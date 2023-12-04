@@ -1,3 +1,4 @@
+import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -72,6 +73,13 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         },
                     },
                     {
+                        title: 'Table Prefix',
+                        key: 'prefix',
+                        render: function RenderPrefix(_, source) {
+                            return source.prefix
+                        },
+                    },
+                    {
                         title: 'Status',
                         key: 'status',
                         render: function RenderStatus(_, source) {
@@ -81,10 +89,22 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Table Prefix',
+                        title: 'Sync Frequency',
                         key: 'prefix',
-                        render: function RenderPrefix(_, source) {
-                            return source.prefix
+                        render: function RenderFrequency() {
+                            return 'Every 24 hours'
+                        },
+                    },
+                    {
+                        title: 'Last Successful Run',
+                        key: 'last_run_at',
+                        tooltip: 'Time of the last run that completed a data import',
+                        render: (_, run) => {
+                            return run.last_run_at ? (
+                                <TZLabel time={run.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            ) : (
+                                'Never'
+                            )
                         },
                     },
                     {

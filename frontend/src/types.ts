@@ -3307,6 +3307,7 @@ export interface ExternalDataStripeSource {
     status: string
     source_type: string
     prefix: string
+    last_run_at?: Dayjs
 }
 
 export type BatchExportDestinationS3 = {

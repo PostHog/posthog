@@ -34,6 +34,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     run = await sync_to_async(create_external_data_job)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
+        workflow_id=activity.info().workflow_id,
     )
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
@@ -209,6 +210,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
                 ),
             )

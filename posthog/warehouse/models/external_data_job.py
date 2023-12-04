@@ -19,6 +19,8 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         null=True, help_text="The latest error that occurred during this run."
     )
 
+    workflow_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
     __repr__ = sane_repr("id")
 
     @property
