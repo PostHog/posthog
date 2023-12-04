@@ -83,10 +83,12 @@ runs:
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v2-test-breaking-cache
+              custom_cache_key_element: v2-test-breaking-cache-really
 
         - uses: syphar/restore-pip-download-cache@v1
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+          with:
+              custom_cache_key_element: v2-test-breaking-cache-really
 
         - name: Install Python dependencies
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
