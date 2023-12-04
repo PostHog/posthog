@@ -8,7 +8,7 @@ import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
     const { isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
-    const isShowing = nodeLogicsWithChildren.length && !isShowingLeftColumn
+    const isShowing = nodeLogicsWithChildren.length && isShowingLeftColumn
 
     return (
         <div

@@ -25,6 +25,13 @@ const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
+export type NotebookLeftColumnMode = 'none' | 'history' | 'editing' | 'toc'
+
+export type NotebookTocEntry = {
+    type: string
+    title: string
+    level: number
+}
 
 export type NotebookLogicProps = {
     shortId: string
@@ -99,9 +106,9 @@ export const notebookLogic = kea<notebookLogicType>([
             knownStartingPosition?: number
             nodeId?: string
         }) => options,
-        setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        setLeftColumnContent: (leftColumnContent: NotebookLeftColumnMode) => ({ leftColumnContent }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -172,10 +179,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditable: (_, { editable }) => editable,
             },
         ],
-        showHistory: [
-            false,
+        leftColumnContent: [
+            'none' as NotebookLeftColumnMode,
             {
-                setShowHistory: (_, { showHistory }) => showHistory,
+                setEditingNodeId: (_, { editingNodeId }) => (editingNodeId ? 'editing' : 'none'),
+                setLeftColumnContent: (_, { leftColumnContent }) => leftColumnContent ?? 'none',
             },
         ],
         containerSize: [
@@ -406,15 +414,43 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
-            (editingNodeId, showHistory, containerSize) => {
-                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.leftColumnContent, s.containerSize],
+            (leftColumnContent, containerSize) => {
+                return leftColumnContent !== 'none' && containerSize !== 'small'
             },
         ],
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent],
             (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+        ],
+
+        tableOfContents: [
+            (s) => [s.content],
+            (content): NotebookTocEntry[] => {
+                const tableOfContents: NotebookTocEntry[] = []
+                if (content) {
+                    content.content?.forEach((node) => {
+                        if (!node.type) {
+                            return
+                        }
+                        if (node.type === 'heading') {
+                            tableOfContents.push({
+                                type: node.type,
+                                level: (node.attrs?.level ?? 1) - 1,
+                                title: node.content?.[0].text ?? 'Heading',
+                            })
+                        } else if (Object.values(NotebookNodeType).includes(node.type as NotebookNodeType)) {
+                            tableOfContents.push({
+                                type: node.type,
+                                level: 0,
+                                title: node.attrs?.title ?? node.type ?? 'unknown',
+                            })
+                        }
+                    })
+                }
+                return tableOfContents
+            },
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -529,10 +565,8 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: async () => {
             values.editor?.setContent(values.content)
         },
-        setShowHistory: async ({ showHistory }) => {
-            if (!showHistory) {
-                actions.clearPreviewContent()
-            }
+        setLeftColumnContent: () => {
+            actions.clearPreviewContent()
         },
 
         onEditorUpdate: () => {

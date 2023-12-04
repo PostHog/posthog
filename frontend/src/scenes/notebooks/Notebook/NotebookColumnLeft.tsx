@@ -7,9 +7,10 @@ import { useEffect, useRef, useState } from 'react'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
 import { notebookLogic } from './notebookLogic'
+import { NotebookToc } from './NotebookToc'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)
+    const { editingNodeLogic, leftColumnContent, isShowingLeftColumn } = useValues(notebookLogic)
 
     return (
         <div
@@ -17,16 +18,22 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                 'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >
-            {editingNodeLogic ? <NotebookNodeSettingsOffset logic={editingNodeLogic} /> : null}
-            <div className="NotebookColumn__content">
-                {isShowingLeftColumn ? (
-                    editingNodeLogic ? (
-                        <NotebookNodeSettingsWidget logic={editingNodeLogic} />
-                    ) : showHistory ? (
-                        <NotebookHistory />
-                    ) : null
-                ) : null}
-            </div>
+            {isShowingLeftColumn ? (
+                <>
+                    {leftColumnContent === 'editing' && editingNodeLogic ? (
+                        <NotebookNodeSettingsOffset logic={editingNodeLogic} />
+                    ) : null}
+                    <div className="NotebookColumn__content">
+                        {leftColumnContent === 'editing' && editingNodeLogic ? (
+                            <NotebookNodeSettingsWidget logic={editingNodeLogic} />
+                        ) : leftColumnContent === 'history' ? (
+                            <NotebookHistory />
+                        ) : leftColumnContent === 'toc' ? (
+                            <NotebookToc />
+                        ) : null}
+                    </div>
+                </>
+            ) : null}
         </div>
     )
 }

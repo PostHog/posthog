@@ -94,7 +94,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
 }
 
 export function NotebookHistory(): JSX.Element {
-    const { setShowHistory, setPreviewContent } = useActions(notebookLogic)
+    const { setLeftColumnContent, setPreviewContent } = useActions(notebookLogic)
 
     const onRevert = (logItem: ActivityLogItem): void => {
         const content = logItem.detail.changes?.find((x) => x.field === 'content')?.after
@@ -107,7 +107,7 @@ export function NotebookHistory(): JSX.Element {
     }
 
     return (
-        <LemonWidget title="Notebook History" onClose={() => setShowHistory(false)}>
+        <LemonWidget title="Notebook History" onClose={() => setLeftColumnContent('none')}>
             <div className="NotebookHistory">
                 <p className="m-3">
                     Below is the history of all persisted changes. You can select any version to view how it was at that
@@ -122,7 +122,7 @@ export function NotebookHistory(): JSX.Element {
 
 export function NotebookHistoryWarning(): JSX.Element | null {
     const { previewContent } = useValues(notebookLogic)
-    const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
+    const { setLocalContent, clearPreviewContent, duplicateNotebook, setLeftColumnContent } = useActions(notebookLogic)
 
     if (!previewContent) {
         return null
@@ -134,7 +134,7 @@ export function NotebookHistoryWarning(): JSX.Element | null {
     const onRevert = (): void => {
         clearPreviewContent()
         setLocalContent(previewContent)
-        setShowHistory(false)
+        setLeftColumnContent('none')
     }
 
     return (

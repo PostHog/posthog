@@ -13,8 +13,8 @@ import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
 import { openNotebookShareDialog } from './Notebook/NotebookShare'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
+    const { notebook, isLocalOnly, leftColumnContent } = useValues(notebookLogic({ shortId }))
+    const { exportJSON, setLeftColumnContent } = useActions(notebookLogic({ shortId }))
 
     return (
         <LemonMenu
@@ -29,7 +29,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         {
                             label: 'History',
                             icon: <IconNotification />,
-                            onClick: () => setShowHistory(!showHistory),
+                            onClick: () => setLeftColumnContent(leftColumnContent === 'history' ? 'none' : 'history'),
                         },
                         !isLocalOnly && {
                             label: 'Share',

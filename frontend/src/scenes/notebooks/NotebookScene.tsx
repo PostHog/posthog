@@ -1,6 +1,6 @@
 import './NotebookScene.scss'
 
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { IconInfo, IconList, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
@@ -34,9 +34,9 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
-    const { notebook, conflictWarningVisible } = useValues(
-        notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
-    )
+    const builtNotebookLogic = notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
+    const { notebook, conflictWarningVisible, leftColumnContent } = useValues(builtNotebookLogic)
+    const { setLeftColumnContent } = useActions(builtNotebookLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
@@ -76,6 +76,20 @@ export function NotebookScene(): JSX.Element {
         <div className="NotebookScene">
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
                 <div className="flex gap-2 items-center">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconList />}
+                        size={buttonSize}
+                        active={leftColumnContent === 'toc'}
+                        onClick={() => setLeftColumnContent(leftColumnContent === 'toc' ? 'none' : 'toc')}
+                        tooltip={
+                            <>
+                                The Table of Contents is a list of all the nodes in the notebook. You can click on a
+                                node to jump to it.
+                            </>
+                        }
+                    />
+
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>

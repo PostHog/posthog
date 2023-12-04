@@ -196,7 +196,8 @@
                 width: var(--notebook-column-left-width);
                 transform: translateX(-100%);
 
-                > .LemonWidget .LemonWidget__content {
+                > .LemonWidget .LemonWidget__content,
+                .NotebookColumn__content-height {
                     max-height: var(--notebook-sidebar-height);
                     overflow: auto;
                 }
