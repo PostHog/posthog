@@ -1,20 +1,39 @@
-import { useActions, useValues } from 'kea'
-import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
-import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
-import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { IconCalendar, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconPinOutline, IconPinFilled, IconCalendar } from 'lib/lemon-ui/icons'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import { urls } from 'scenes/urls'
+
+import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+
+import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: ReplayTabs.Playlists
+}
+
+function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
+    return {
+        title: 'Name',
+        dataIndex: 'name',
+        render: function Render(name, { short_id, derived_name, description }) {
+            return (
+                <>
+                    <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
+                        {name || derived_name || 'Unnamed'}
+                    </Link>
+                    {description ? <div className="truncate">{description}</div> : null}
+                </>
+            )
+        },
+    }
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
@@ -38,20 +57,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            render: function Render(name, { short_id, derived_name, description }) {
-                return (
-                    <>
-                        <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
-                            {name || derived_name || '(Untitled)'}
-                        </Link>
-                        {description ? <div className="truncate">{description}</div> : null}
-                    </>
-                )
-            },
-        },
+        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
             ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
                 SessionRecordingPlaylistType,

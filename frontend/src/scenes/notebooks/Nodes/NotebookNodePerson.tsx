@@ -92,7 +92,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                     )
                 })
             ) : (
-                <LemonSkeleton className="w-18 my-1" />
+                <LemonSkeleton className="h-4 w-18 my-1" />
             )}
         </div>
     )
@@ -133,7 +133,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
             {expanded && (
                 <>
-                    <LemonDivider className="my-0 mx-2" />
+                    <LemonDivider className="mx-2" />
                     <div className="flex-1 p-2 overflow-y-auto">
                         <PropertiesTable
                             type={PropertyDefinitionType.Person}

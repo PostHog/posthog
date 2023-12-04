@@ -33,7 +33,6 @@ from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import authenticate_secondarily
-from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,
@@ -113,6 +112,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_social_auth",
             "has_seen_product_intro_for",
             "scene_personalisation",
+            "theme_mode",
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
@@ -470,7 +470,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        if is_cloud():  # Protect against SSRF
+        if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)
         response = requests.post(webhook, verify=False, json=message)
 

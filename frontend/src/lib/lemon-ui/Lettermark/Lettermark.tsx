@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './Lettermark.scss'
+
+import clsx from 'clsx'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
 const NUM_LETTERMARK_STYLES = 8

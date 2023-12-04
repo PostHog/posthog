@@ -419,6 +419,7 @@ def retention_test_factory(retention):
                 ],
             )
 
+        @snapshot_clickhouse_queries
         def test_week_interval(self):
             _create_person(
                 team=self.team,
@@ -449,24 +450,27 @@ def retention_test_factory(retention):
                 ],
             )
 
-            result = retention().run(
-                RetentionFilter(
-                    data={
-                        "date_to": _date(10, month=1, hour=0),
-                        "period": "Week",
-                        "total_intervals": 7,
-                    }
-                ),
+            test_filter = RetentionFilter(
+                data={
+                    "date_to": _date(10, month=1, hour=0),
+                    "period": "Week",
+                    "total_intervals": 7,
+                }
+            )
+
+            # Starting with Sunday
+            result_sunday = retention().run(
+                test_filter,
                 self.team,
             )
 
             self.assertEqual(
-                pluck(result, "label"),
+                pluck(result_sunday, "label"),
                 ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
             )
 
             self.assertEqual(
-                pluck(result, "values", "count"),
+                pluck(result_sunday, "values", "count"),
                 [
                     [2, 2, 1, 2, 2, 0, 1],
                     [2, 1, 2, 2, 0, 1],
@@ -479,7 +483,7 @@ def retention_test_factory(retention):
             )
 
             self.assertEqual(
-                pluck(result, "date"),
+                pluck(result_sunday, "date"),
                 [
                     datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
                     datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
@@ -488,6 +492,46 @@ def retention_test_factory(retention):
                     datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
                     datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
                     datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
+                ],
+            )
+
+            # Starting with Monday
+            self.team.week_start_day = 1  # WeekStartDay.MONDAY's concrete value
+            self.team.save()
+
+            result_monday = retention().run(
+                test_filter,
+                self.team,
+            )
+
+            self.assertEqual(
+                pluck(result_monday, "label"),
+                ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+            )
+
+            self.assertEqual(
+                pluck(result_monday, "values", "count"),
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ],
+            )
+
+            self.assertEqual(
+                pluck(result_monday, "date"),
+                [
+                    datetime(2020, 6, 8, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 15, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 22, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 29, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 6, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 13, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 20, 0, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 

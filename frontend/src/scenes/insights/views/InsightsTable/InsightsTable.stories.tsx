@@ -1,16 +1,15 @@
-import { useState } from 'react'
-import { BindLogic } from 'kea'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-
+import { BindLogic } from 'kea'
+import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable } from './InsightsTable'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 
 type Story = StoryObj<typeof InsightsTable>
 const meta: Meta<typeof InsightsTable> = {
@@ -25,7 +24,7 @@ const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/:team_id/insights/trendsLineBreakdown.json')
+    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
     const filters = { ...insight.filters, ...parameters.mergeFilters }
     const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
 

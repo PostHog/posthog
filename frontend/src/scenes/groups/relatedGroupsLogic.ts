@@ -1,9 +1,11 @@
+import { actions, connect, events, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, events } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { ActorType } from '~/types'
+
 import type { relatedGroupsLogicType } from './relatedGroupsLogicType'
 
 export const relatedGroupsLogic = kea<relatedGroupsLogicType>([

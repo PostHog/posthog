@@ -1,10 +1,11 @@
-import { Tag } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
@@ -33,10 +34,11 @@ function CategoryPill({
     const canInteract = totalListCount > 0
 
     return (
-        <Tag
+        <LemonTag
+            type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
-            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
             onClick={canInteract ? onClick : undefined}
+            weight="normal"
         >
             {group?.render ? (
                 group?.name
@@ -47,7 +49,7 @@ function CategoryPill({
                     {totalResultCount ?? '...'}
                 </>
             )}
-        </Tag>
+        </LemonTag>
     )
 }
 
@@ -86,7 +88,7 @@ export function InfiniteSelectResults({
     return (
         <>
             <div className="taxonomic-group-title">Categories</div>
-            <div className="taxonomic-pills">
+            <div className="taxonomic-pills flex gap-0.5 flex-wrap">
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill
@@ -107,7 +109,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
+                    <div key={groupType} className={clsx('mt-2', groupType === openTab ? 'block' : 'hidden')}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

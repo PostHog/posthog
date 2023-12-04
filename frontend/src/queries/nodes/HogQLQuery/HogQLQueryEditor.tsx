@@ -1,19 +1,21 @@
-import { useActions, useValues } from 'kea'
-import { HogQLQuery } from '~/queries/schema'
-import { useEffect, useRef, useState } from 'react'
-import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 import { Monaco } from '@monaco-editor/react'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import clsx from 'clsx'
+import type { editor as importedEditor, IDisposable, languages } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+import { urls } from 'scenes/urls'
+
+import { HogQLQuery } from '~/queries/schema'
+
+import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -238,25 +240,27 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {'Save as View'}
                         </LemonButton>
                     ) : null}
-                    <LemonButtonWithDropdown
-                        className="ml-2"
-                        icon={<IconInfo />}
-                        type="secondary"
-                        size="small"
-                        dropdown={{
-                            overlay: (
-                                <div>
-                                    Save a query as a view that can be referenced in another query. This is useful for
-                                    modeling data and organizing large queries into readable chunks.{' '}
-                                    <Link to={'https://posthog.com/docs/data-warehouse'}>More Info</Link>{' '}
-                                </div>
-                            ),
-                            placement: 'right-start',
-                            fallbackPlacements: ['left-start'],
-                            actionable: true,
-                            closeParentPopoverOnClickInside: true,
-                        }}
-                    />
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                        <LemonButtonWithDropdown
+                            className="ml-2"
+                            icon={<IconInfo />}
+                            type="secondary"
+                            size="small"
+                            dropdown={{
+                                overlay: (
+                                    <div>
+                                        Save a query as a view that can be referenced in another query. This is useful
+                                        for modeling data and organizing large queries into readable chunks.{' '}
+                                        <Link to={'https://posthog.com/docs/data-warehouse'}>More Info</Link>{' '}
+                                    </div>
+                                ),
+                                placement: 'right-start',
+                                fallbackPlacements: ['left-start'],
+                                actionable: true,
+                                closeParentPopoverOnClickInside: true,
+                            }}
+                        />
+                    )}
                 </div>
             </div>
         </div>

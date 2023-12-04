@@ -1,7 +1,9 @@
+import { PostHogEvent } from '@posthog/plugin-scaffold'
+
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Hub, PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
-import { runOnEvent } from '../../plugins/run'
+import { runComposeWebhook, runOnEvent } from '../../plugins/run'
 import { ActionMatcher } from '../action-matcher'
 import { HookCommander, instrumentWebhookStep } from '../hooks'
 
@@ -17,6 +19,20 @@ export async function processOnEventStep(hub: Hub, event: PostIngestionEvent) {
         statsKey: `kafka_queue.single_on_event`,
         timeoutMessage: `After 30 seconds still running onEvent`,
         teamId: event.teamId,
+    })
+    return null
+}
+
+export async function processComposeWebhookStep(hub: Hub, event: PostHogEvent) {
+    await runInstrumentedFunction({
+        timeoutContext: () => ({
+            team_id: event.team_id,
+            event_uuid: event.uuid,
+        }),
+        func: () => runComposeWebhook(hub, event),
+        statsKey: `kafka_queue.single_compose_webhook`,
+        timeoutMessage: `After 30 seconds still running composeWebhook`,
+        teamId: event.team_id,
     })
     return null
 }

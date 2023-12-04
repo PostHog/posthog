@@ -242,11 +242,11 @@ def fetch_batch_export_log_entries(
         clickhouse_where_parts.append("message ILIKE %(search)s")
         clickhouse_kwargs["search"] = f"%{search}%"
     if len(level_filter) > 0:
-        clickhouse_where_parts.append("level in %(levels)s")
+        clickhouse_where_parts.append("upper(level) in %(levels)s")
         clickhouse_kwargs["levels"] = level_filter
 
     clickhouse_query = f"""
-        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, level, message FROM log_entries
+        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, upper(level) as level, message FROM log_entries
         WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
     """
 

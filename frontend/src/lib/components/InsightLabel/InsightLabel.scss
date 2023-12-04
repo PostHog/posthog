@@ -2,17 +2,17 @@
     max-width: 100%;
 
     .value {
+        padding-right: 4px;
         margin-left: 0.3rem;
         font-size: 1.176em;
         font-weight: bold;
-        padding-right: 4px;
     }
 
     .ant-tag {
         margin-right: 0;
+        color: var(--primary-alt);
         background-color: var(--border-light);
         border: 0;
-        color: var(--primary-alt);
     }
 
     .graph-series-glyph {
@@ -22,10 +22,10 @@
     }
 
     .color-icon {
-        border-radius: 50%;
-        margin-left: 2px;
-        margin-right: 6px;
-        border: 2px solid #ffffff;
         box-sizing: border-box;
+        margin-right: 6px;
+        margin-left: 2px;
+        border: 2px solid #fff;
+        border-radius: 50%;
     }
 }

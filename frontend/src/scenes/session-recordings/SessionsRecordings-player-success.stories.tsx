@@ -1,23 +1,25 @@
 import { Meta } from '@storybook/react'
-import recordings from './__mocks__/recordings.json'
-import { useEffect } from 'react'
-import { mswDecorator } from '~/mocks/browser'
 import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
+import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
+
 import recording_playlists from './__mocks__/recording_playlists.json'
+import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
-    title: 'Scenes-App/Recordings',
+    title: 'Replay/Player/Success',
+    tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
-        testOptions: { skip: true }, // TODO: Fix the flakey rendering due to player playback
     },
     decorators: [
         mswDecorator({
@@ -87,7 +89,6 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {

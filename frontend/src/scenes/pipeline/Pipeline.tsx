@@ -1,26 +1,33 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { humanFriendlyTabName, pipelineLogic, singularName } from './pipelineLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { PipelineTabs } from '~/types'
+
+import { AppsManagement } from './AppsManagement'
+import { NewButton } from './NewButton'
+import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
-    const singular = singularName(currentTab)
+    const tab_to_content: Record<PipelineTabs, JSX.Element> = {
+        [PipelineTabs.Filters]: <div>Coming soon</div>,
+        [PipelineTabs.Transformations]: <Transformations />,
+        [PipelineTabs.Destinations]: <div>Coming soon</div>,
+        [PipelineTabs.AppsManagement]: <AppsManagement />,
+    }
+
     return (
         <div className="pipeline-scene">
             <PageHeader
                 title="Pipeline"
-                buttons={
-                    <LemonButton data-attr={`new-${singular}`} to={urls.pipelineNew(currentTab)} type="primary">
-                        New {singular}
-                    </LemonButton>
-                }
+                caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
+                buttons={<NewButton tab={currentTab} />}
             />
             <LemonTabs
                 activeKey={currentTab}
@@ -28,6 +35,7 @@ export function Pipeline(): JSX.Element {
                 tabs={Object.values(PipelineTabs).map((tab) => ({
                     label: humanFriendlyTabName(tab),
                     key: tab,
+                    content: tab_to_content[tab],
                 }))}
             />
         </div>

@@ -1,18 +1,28 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from './supportLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { useEffect } from 'react'
+import { createRoot } from 'react-dom/client'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SupportForm, SupportFormButtons } from './SupportForm'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
-    const { sendSupportRequest, isSupportFormOpen, sendSupportLoggedOutRequest, title } = useValues(supportLogic)
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+
+import { SupportForm } from './SupportForm'
+import { supportLogic } from './supportLogic'
+
+function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
+    const { sendSupportRequest, isSupportFormOpen, title } = useValues(supportLogic)
     const { closeSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
-    // the support model can be shown when logged out, file upload is not offered to anonymous users
+    const { sidePanelAvailable } = useValues(sidePanelStateLogic)
 
-    if (!isCloudOrDev || is3000) {
+    useEffect(() => {
+        if (!isCloudOrDev) {
+            onAfterClose()
+        }
+    }, [isCloudOrDev])
+
+    if (!isCloudOrDev || sidePanelAvailable) {
         return null
     }
 
@@ -23,12 +33,33 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
             title={title}
             footer={
                 <div className="flex items-center gap-2">
-                    <SupportFormButtons onClose={() => closeSupportForm()} />
+                    <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
+                        Submit
+                    </LemonButton>
                 </div>
             }
-            hasUnsavedInput={loggedIn ? !!sendSupportRequest.message : !!sendSupportLoggedOutRequest.message}
+            hasUnsavedInput={!!sendSupportRequest.message}
+            onAfterClose={onAfterClose}
         >
             <SupportForm />
         </LemonModal>
     )
+}
+
+export const openSupportModal = (): void => {
+    const div = document.createElement('div')
+    const root = createRoot(div)
+    function destroy(): void {
+        root.unmount()
+        if (div.parentNode) {
+            div.parentNode.removeChild(div)
+        }
+    }
+
+    document.body.appendChild(div)
+    root.render(<SupportModal onAfterClose={destroy} />)
+    return
 }

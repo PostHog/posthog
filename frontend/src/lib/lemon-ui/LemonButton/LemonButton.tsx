@@ -1,12 +1,16 @@
+import './LemonButton.scss'
+import './LemonButtonLegacy.scss'
+import './LemonButton3000.scss'
+
 import clsx from 'clsx'
-import React, { useContext } from 'react'
 import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import React, { useContext } from 'react'
+
+import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
+import { PopoverReferenceContext } from '../Popover'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
-import './LemonButton.scss'
-import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
-import { PopoverReferenceContext } from '../Popover'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -29,7 +33,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -63,6 +67,8 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
+    /** Hides the button chrome until hover. */
+    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -92,6 +98,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -104,6 +111,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             ref
         ): JSX.Element => {
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+            const within3000PageHeader = useContext(Within3000PageHeaderContext)
 
             if (!active && popoverVisibility) {
                 active = true
@@ -121,6 +129,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (loading) {
                 icon = <Spinner textColored />
                 disabled = true // Cannot interact with a loading button
+            }
+            if (within3000PageHeader) {
+                size = 'small'
             }
 
             let tooltipContent: TooltipProps['title']
@@ -169,6 +180,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
+                        stealth && 'LemonButton--is-stealth',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}
@@ -178,9 +190,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...linkDependentProps}
                     {...buttonProps}
                 >
-                    {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                    {children ? <span className="LemonButton__content">{children}</span> : null}
-                    {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                    <span className="LemonButton__chrome">
+                        {icon ? <span className="LemonButton__icon">{icon}</span> : null}
+                        {children ? <span className="LemonButton__content">{children}</span> : null}
+                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                    </span>
                 </ButtonComponent>
             )
 
@@ -201,6 +215,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
         }
     )
 LemonButton.displayName = 'LemonButton'
+
+export const Within3000PageHeaderContext = React.createContext<boolean>(false)
 
 export type SideAction = Pick<
     LemonButtonProps,

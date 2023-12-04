@@ -1,5 +1,5 @@
-from django.conf import settings
 import requests
+from django.conf import settings
 
 
 def send_request(path, method, params=None, payload=None):
@@ -17,6 +17,7 @@ def send_request(path, method, params=None, payload=None):
         response = requests.patch(path, json=payload, headers=headers)
     elif method == "DELETE":
         response = requests.delete(path, headers=headers)
+        return
     else:
         raise ValueError(f"Invalid method: {method}")
 

@@ -24,6 +24,7 @@ from . import (
     notebook,
     organization,
     organization_domain,
+    organization_feature_flag,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -32,6 +33,7 @@ from . import (
     prompt,
     property_definition,
     query,
+    search,
     sharing,
     survey,
     tagged_item,
@@ -72,6 +74,12 @@ project_plugins_configs_router.register(
     plugin_log_entry.PluginLogEntryViewSet,
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
+)
+pipeline_transformations_configs_router = projects_router.register(
+    r"pipeline_transformations_configs",
+    plugin.PipelineTransformationsConfigsViewSet,
+    "pipeline_transformations_configs",
+    ["team_id"],
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
@@ -170,6 +178,12 @@ organizations_router = router.register(r"organizations", organization.Organizati
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
+organization_pipeline_transformations_router = organizations_router.register(
+    r"pipeline_transformations",
+    plugin.PipelineTransformationsViewSet,
+    "organization_pipeline_transformations",
+    ["organization_id"],
+)
 organizations_router.register(
     r"members",
     organization_member.OrganizationMemberViewSet,
@@ -186,6 +200,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"feature_flags",
+    organization_feature_flag.OrganizationFeatureFlagView,
+    "organization_feature_flags",
     ["organization_id"],
 )
 
@@ -311,3 +331,5 @@ projects_router.register(
     "project_notebooks",
     ["team_id"],
 )
+
+projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])

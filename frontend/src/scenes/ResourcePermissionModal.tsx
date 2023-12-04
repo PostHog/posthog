@@ -1,19 +1,21 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+
 import { AccessLevel, Resource, RoleType } from '~/types'
+
 import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
+} from './settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -113,7 +115,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconSettings />}
-                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        to={`${urls.settings('organization')}?tab=role_based_access`}
                                         status="stealth"
                                         targetBlank
                                         size="small"
@@ -181,12 +183,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div
-                            className="pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
                             {roles.map((role) => {
                                 return (
                                     <RoleRow
@@ -246,7 +243,7 @@ function OrganizationResourcePermissionLabel({
                 icon={
                     <LemonButton
                         icon={<IconSettings />}
-                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        to={`${urls.settings('organization')}?tab=role_based_access`}
                         status="stealth"
                         targetBlank
                         size="small"

@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
+import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import {
@@ -12,7 +13,7 @@ import {
     PluginTaskType,
     VMMethods,
 } from '../../types'
-import { clearError, processError } from '../../utils/db/error'
+import { processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
@@ -32,10 +33,22 @@ export class SetupPluginError extends Error {
     }
 }
 
+const pluginSetupMsSummary = new Summary({
+    name: 'plugin_setup_ms',
+    help: 'Time to setup plugins',
+    labelNames: ['plugin_id', 'status'],
+})
+const pluginDisabledBySystemCounter = new Counter({
+    name: 'plugin_disabled_by_system',
+    help: 'Count of plugins disabled by the system',
+    labelNames: ['plugin_id'],
+})
+
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
+    usedImports: Set<string> | undefined
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
     ready: boolean
@@ -125,6 +138,7 @@ export class LazyPluginVM {
             this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+                    this.usedImports = vm.usedImports
                     this.vmResponseVariable = vm.vmResponseVariable
 
                     if (!this.pluginConfig.plugin) {
@@ -203,6 +217,7 @@ export class LazyPluginVM {
             ? pluginDigest(this.pluginConfig.plugin)
             : `plugin config ID '${this.pluginConfig.id}'`
         this.totalInitAttemptsCounter++
+        const pluginId = this.pluginConfig.plugin?.id.toString() || 'unknown'
         const timer = new Date()
         try {
             // Make sure one can't self-replicate resulting in an infinite loop
@@ -235,6 +250,9 @@ export class LazyPluginVM {
             )
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'success' })
+                .observe(new Date().getTime() - timer.getTime())
             this.ready = true
 
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
@@ -242,13 +260,15 @@ export class LazyPluginVM {
                 `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
                 PluginLogEntryType.Debug
             )
-
-            void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
                 plugin: this.pluginConfig.plugin?.name ?? '?',
             })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'fail' })
+                .observe(new Date().getTime() - timer.getTime())
+
             this.clearRetryTimeoutIfExists()
             if (error instanceof RetryError) {
                 error._attempt = this.totalInitAttemptsCounter
@@ -296,6 +316,7 @@ export class LazyPluginVM {
             teamId: this.pluginConfig.team_id.toString(),
             plugin: this.pluginConfig.plugin?.name ?? '?',
         })
+        pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [

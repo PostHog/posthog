@@ -2,7 +2,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { combineUrl } from 'kea-router'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -31,7 +31,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={async () => await copyToClipboard(url, 'notebook link')}
+                onClick={() => void copyToClipboard(url, 'notebook link')}
                 title={url}
             >
                 <span className="truncate">{url}</span>

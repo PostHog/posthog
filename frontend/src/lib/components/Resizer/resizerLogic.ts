@@ -1,8 +1,8 @@
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import type { resizerLogicType } from './resizerLogicType'
-import posthog from 'posthog-js'
-import { subscriptions } from 'kea-subscriptions'
 
 export type ResizerEvent = {
     originX: number

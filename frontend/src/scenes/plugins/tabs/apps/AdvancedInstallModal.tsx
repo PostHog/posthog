@@ -1,10 +1,11 @@
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { useValues, useActions } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { useActions, useValues } from 'kea'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { PluginInstallationType } from '~/types'
 
 export function AdvancedInstallModal(): JSX.Element {
     const { preflight } = useValues(preflightLogic)

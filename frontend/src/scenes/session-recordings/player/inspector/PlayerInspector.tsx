@@ -1,6 +1,7 @@
-import { PlayerInspectorList } from './PlayerInspectorList'
-import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
+
+import { PlayerInspectorControls } from './PlayerInspectorControls'
+import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 

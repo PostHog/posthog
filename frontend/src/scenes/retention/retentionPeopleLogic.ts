@@ -1,13 +1,13 @@
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePeoplePayload } from 'scenes/retention/types'
-import { InsightLogicProps } from '~/types'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
@@ -31,7 +31,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
                 const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
-                return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
+                return await api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
             },
         },
     })),

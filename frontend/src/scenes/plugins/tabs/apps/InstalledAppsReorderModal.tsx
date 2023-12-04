@@ -1,13 +1,13 @@
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { useValues, useActions } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
-import { PluginTypeWithConfig } from 'scenes/plugins/types'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 const MinimalAppView = ({ plugin, order }: { plugin: PluginTypeWithConfig; order: number }): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: plugin.id })
@@ -16,6 +16,7 @@ const MinimalAppView = ({ plugin, order }: { plugin: PluginTypeWithConfig; order
         <div
             ref={setNodeRef}
             className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 transform: CSS.Transform.toString(transform),

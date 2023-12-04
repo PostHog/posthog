@@ -1,8 +1,10 @@
 import './CompactList.scss'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
+import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
 
 interface CompactListProps {
     title: string
@@ -22,15 +24,18 @@ export function CompactList({
     renderRow,
 }: CompactListProps): JSX.Element {
     return (
-        <div className="compact-list border">
-            <div className="compact-list-header">
-                <h3>{title}</h3>
+        <div className="CompactList">
+            <div className="CompactList__header">
+                <h3 className="px-2 truncate" title={title}>
+                    {title}
+                </h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
-            <div className="spacer-container">
-                <LemonDivider />
+            <div className="mx-2">
+                {/* This divider has to be within a div, because otherwise horizontal margin ADDS to the width */}
+                <LemonDivider className="my-0" />
             </div>
-            <div className="scrollable-list">
+            <div className="CompactList__content">
                 {loading ? (
                     <div className="p-2 space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (

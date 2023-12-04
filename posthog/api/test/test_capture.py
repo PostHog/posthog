@@ -15,7 +15,8 @@ from urllib.parse import quote
 import lzstring
 import pytest
 import structlog
-from django.test.client import Client
+from django.http import HttpResponse
+from django.test.client import Client, MULTIPART_CONTENT
 from django.utils import timezone
 from freezegun import freeze_time
 from kafka.errors import KafkaError
@@ -56,10 +57,91 @@ parser = ResolvingParser(
 )
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
-
 large_data_array = [
-    random.choice(string.ascii_letters) for _ in range(700 * 1024)
+    {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
+
+android_json = {
+    "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
+    "event": "$snapshot",
+    "properties": {
+        "$screen_density": 2.75,
+        "$screen_height": 2154,
+        "$screen_width": 1080,
+        "$app_version": "1.0",
+        "$app_namespace": "com.posthog.android.sample",
+        "$app_build": 1,
+        "$app_name": "PostHog Android Sample",
+        "$device_manufacturer": "Google",
+        "$device_model": "sdk_gphone64_arm64",
+        "$device_name": "emu64a",
+        "$device_type": "Mobile",
+        "$os_name": "Android",
+        "$os_version": "14",
+        "$lib": "posthog-android",
+        "$lib_version": "3.0.0-beta.3",
+        "$locale": "en-US",
+        "$user_agent": "Dalvik/2.1.0 (Linux; U; Android 14; sdk_gphone64_arm64 Build/UPB5.230623.003)",
+        "$timezone": "Europe/Vienna",
+        "$network_wifi": True,
+        "$network_bluetooth": False,
+        "$network_cellular": False,
+        "$network_carrier": "T-Mobile",
+        "$snapshot_data": [
+            {"timestamp": 1699354586963, "type": 0},
+            {"timestamp": 1699354586963, "type": 1},
+            {
+                "data": {"href": "http://localhost", "width": 1080, "height": 2220},
+                "timestamp": 1699354586963,
+                "type": 4,
+            },
+            {
+                "data": {
+                    "node": {
+                        "id": 1,
+                        "type": 0,
+                        "childNodes": [
+                            {"type": 1, "name": "html", "id": 2, "childNodes": []},
+                            {
+                                "id": 3,
+                                "type": 2,
+                                "tagName": "html",
+                                "childNodes": [
+                                    {
+                                        "id": 5,
+                                        "type": 2,
+                                        "tagName": "body",
+                                        "childNodes": [
+                                            {
+                                                "type": 2,
+                                                "tagName": "canvas",
+                                                "id": 7,
+                                                "attributes": {
+                                                    "id": "canvas",
+                                                    "width": "1080",
+                                                    "height": "2220",
+                                                },
+                                                "childNodes": [],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                        "initialOffset": {"left": 0, "top": 0},
+                    }
+                },
+                "timestamp": 1699354586963,
+                "type": 2,
+            },
+        ],
+        "$session_id": "bceaa9ce-dc9d-4728-8a90-4a7c249604b1",
+        "$window_id": "31bfffdc-79fc-4504-9ff4-0216a58bf7f6",
+        "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
+    },
+    "timestamp": "2023-11-07T10:56:46.601Z",
+    "uuid": "deaa7e00-e1a4-480d-9145-fb8461678dae",
+}
 
 
 class TestCapture(BaseTest):
@@ -98,10 +180,10 @@ class TestCapture(BaseTest):
             "sent_at": args["sent_at"],
         }
 
-    def _send_session_recording_event(
+    def _send_original_version_session_recording_event(
         self,
-        number_of_events=1,
-        event_data={},
+        number_of_events: int = 1,
+        event_data: Dict | None = {},
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -109,6 +191,9 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
+
         event = {
             "event": "$snapshot",
             "properties": {
@@ -134,7 +219,53 @@ class TestCapture(BaseTest):
 
         return event
 
-    def test_is_randomly_parititoned(self):
+    def _send_august_2023_version_session_recording_event(
+        self,
+        number_of_events: int = 1,
+        event_data: Dict | List[Dict] | None = None,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+        content_type: str | None = None,
+    ) -> HttpResponse:
+        if event_data is None:
+            # event_data is an array of RRWeb events
+            event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
+
+        if isinstance(event_data, Dict):
+            event_data = [event_data]
+
+        event = {
+            "event": "$snapshot",
+            "properties": {
+                # estimate of the size of the event data
+                "$snapshot_bytes": 60,
+                "$snapshot_data": event_data,
+                "$session_id": session_id,
+                "$window_id": window_id,
+                # snapshot events have the distinct id in the properties
+                # as well as at the top-level
+                "distinct_id": distinct_id,
+            },
+            "timestamp": timestamp,
+            "distinct_id": distinct_id,
+        }
+
+        post_data: List[Dict[str, Any]] | Dict[str, Any]
+
+        if content_type == "application/json":
+            post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
+        else:
+            post_data = {"api_key": self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
+
+        return self.client.post(
+            "/s/",
+            data=post_data,
+            content_type=content_type or MULTIPART_CONTENT,
+        )
+
+    def test_is_randomly_partitioned(self):
         """Test is_randomly_partitioned under local configuration."""
         distinct_id = 100
         override_key = f"{self.team.pk}:{distinct_id}"
@@ -161,7 +292,9 @@ class TestCapture(BaseTest):
                     HTTP_ORIGIN="https://localhost",
                 )
 
-            kafka_produce.assert_called_with(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None)
+            kafka_produce.assert_called_with(
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None, headers=None
+            )
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
@@ -248,6 +381,28 @@ class TestCapture(BaseTest):
         log_context = structlog.contextvars.get_contextvars()
         assert "token" in log_context
         assert log_context["token"] == self.team.api_token
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event(self, _kafka_produce: MagicMock) -> None:
+        response = self._send_august_2023_version_session_recording_event()
+        assert response.status_code == 200
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=android_json,
+            content_type=MULTIPART_CONTENT,
+        )
+        assert response.status_code == 200
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event_from_android_as_json(self, _kafka_produce: MagicMock) -> None:
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=android_json,
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
 
     @patch("axes.middleware.AxesMiddleware")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1365,7 +1520,7 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
-        self._send_session_recording_event(session_id=session_id)
+        self._send_original_version_session_recording_event(session_id=session_id)
         self.assertEqual(kafka_produce.call_count, 1)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS)
@@ -1384,7 +1539,7 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        self._send_session_recording_event(
+        self._send_original_version_session_recording_event(
             timestamp=timestamp,
             snapshot_source=snapshot_source,
             snapshot_type=snapshot_type,
@@ -1424,7 +1579,7 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
         ):
-            self._send_session_recording_event(event_data=large_data_array)
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
@@ -1434,10 +1589,19 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_session_recording_event(event_data=large_data_array)
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_august_2023_version_session_recording_event()
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
@@ -1457,8 +1621,7 @@ class TestCapture(BaseTest):
             # avoid logs from being printed because the mock is None
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
 
-            data = "example"
-            self._send_session_recording_event(event_data=data)
+            self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
                 compression_type=None,
@@ -1489,9 +1652,9 @@ class TestCapture(BaseTest):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
 
-            data = "example"
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
-            self._send_session_recording_event(event_data=data, session_id=session_id)
+            # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
             # session events don't get routed through the default kafka producer
             default_kafka_producer_mock.assert_not_called()
             session_recording_producer_factory_mock.assert_called()
@@ -1562,7 +1725,7 @@ class TestCapture(BaseTest):
             QuotaResource.EVENTS,
             {self.team.api_token: timezone.now().timestamp() + 10000},
         )
-        self._send_session_recording_event()
+        self._send_august_2023_version_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1572,7 +1735,7 @@ class TestCapture(BaseTest):
 
         def _produce_events():
             kafka_produce.reset_mock()
-            self._send_session_recording_event()
+            self._send_august_2023_version_session_recording_event()
             self.client.post(
                 "/e/",
                 data={

@@ -1,19 +1,21 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { billingProductLogic } from './billingProductLogic'
 import { useActions, useValues } from 'kea'
+
 import { BillingProductV2Type } from '~/types'
+
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
-    const { setSurveyResponse, setSurveyID, reportSurveySent } = useActions(billingProductLogic({ product }))
+    const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
 
-    const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     return (
         <LemonModal
             onClose={() => {
-                setSurveyID('')
+                reportSurveyDismissed(surveyID)
             }}
             width={'max(40vw)'}
         >
@@ -34,6 +36,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             <Link
                                 to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
                                 target="_blank"
+                                onClick={() => {
+                                    reportSurveyDismissed(surveyID)
+                                }}
                             >
                                 reduce your bill
                             </Link>
@@ -41,6 +46,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             <Link
                                 to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
                                 target="_blank"
+                                onClick={() => {
+                                    reportSurveyDismissed(surveyID)
+                                }}
                             >
                                 chat with support
                             </Link>
@@ -51,6 +59,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                                     <Link
                                         to="mailto:sales@posthog.com?subject=Joining%session%replay%controls%20beta"
                                         target="_blank"
+                                        onClick={() => {
+                                            reportSurveyDismissed(surveyID)
+                                        }}
                                     >
                                         join our beta
                                     </Link>
@@ -64,7 +75,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             type="tertiary"
                             status="muted"
                             onClick={() => {
-                                setSurveyID('')
+                                reportSurveyDismissed(surveyID)
                             }}
                         >
                             Cancel
@@ -73,7 +84,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                             status={textAreaNotEmpty ? 'primary' : 'muted'}
                             onClick={() => {
-                                reportSurveySent(surveyID, surveyResponse)
+                                textAreaNotEmpty
+                                    ? reportSurveySent(surveyID, surveyResponse)
+                                    : reportSurveyDismissed(surveyID)
                                 deactivateProduct(product.type)
                             }}
                         >

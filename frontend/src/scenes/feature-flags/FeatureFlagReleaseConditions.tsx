@@ -1,26 +1,29 @@
-import { Row, Col, InputNumber, Select } from 'antd'
-import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from './featureFlagLogic'
 import './FeatureFlag.scss'
-import { IconCopy, IconDelete, IconPlus, IconSubArrowRight, IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { groupsModel } from '~/models/groupsModel'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { urls } from 'scenes/urls'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { router } from 'kea-router'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { cohortsModel } from '~/models/cohortsModel'
+
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { InputNumber, Select } from 'antd'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { IconCopy, IconDelete, IconErrorOutline, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+
+import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
@@ -75,7 +78,7 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <div className="flex items-center justify-between">
@@ -244,7 +247,7 @@ export function FeatureFlagReleaseConditions({
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
@@ -314,7 +317,7 @@ export function FeatureFlagReleaseConditions({
                         </>
                     )}
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -323,8 +326,11 @@ export function FeatureFlagReleaseConditions({
             return <></>
         }
 
+        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
+        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
+
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <div className="flex items-center justify-between">
@@ -365,6 +371,10 @@ export function FeatureFlagReleaseConditions({
                     <div className="flex items-center justify-between">
                         <div />
                         <LemonButton
+                            disabledReason={
+                                !hasMatchingEarlyAccessFeature &&
+                                'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
+                            }
                             aria-label="more"
                             data-attr={'feature-flag-feature-list-button'}
                             status="primary"
@@ -375,11 +385,11 @@ export function FeatureFlagReleaseConditions({
                                 router.actions.push(urls.earlyAccessFeature(featureFlag.features[0].id))
                             }
                         >
-                            View Early Access Feature
+                            {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
                         </LemonButton>
                     </div>
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -449,11 +459,11 @@ export function FeatureFlagReleaseConditions({
                     </div>
                 )}
             </div>
-            <Row className="FeatureConditionCard" gutter={16}>
+            <div className="FeatureConditionCard">
                 {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
-            </Row>
+            </div>
             {!readOnly && (
                 <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set

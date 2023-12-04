@@ -1,9 +1,9 @@
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { useEffect, useState } from 'react'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useEffect, useState } from 'react'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick'> {

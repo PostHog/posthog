@@ -1,3 +1,14 @@
+import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { IconLock } from 'lib/lemon-ui/icons'
+
+import { AvailableFeature } from '~/types'
+
+import { surveysLogic } from './surveysLogic'
+
 export const satisfiedEmoji = (
     <svg className="emoji-svg" xmlns="http://www.w3.org/2000/svg" height="48" viewBox="0 -960 960 960" width="48">
         <path d="M626-533q22.5 0 38.25-15.75T680-587q0-22.5-15.75-38.25T626-641q-22.5 0-38.25 15.75T572-587q0 22.5 15.75 38.25T626-533Zm-292 0q22.5 0 38.25-15.75T388-587q0-22.5-15.75-38.25T334-641q-22.5 0-38.25 15.75T280-587q0 22.5 15.75 38.25T334-533Zm146 272q66 0 121.5-35.5T682-393h-52q-23 40-63 61.5T480.5-310q-46.5 0-87-21T331-393h-53q26 61 81 96.5T480-261Zm0 181q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-400Zm0 340q142.375 0 241.188-98.812Q820-337.625 820-480t-98.812-241.188Q622.375-820 480-820t-241.188 98.812Q140-622.375 140-480t98.812 241.188Q337.625-140 480-140Z" />
@@ -103,4 +114,148 @@ export function getTextColor(el: never): string {
         b = parseInt(colorMatch[3]),
         hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
     return hsp > 127.5 ? 'black' : 'white'
+}
+
+export function PresentationTypeCard({
+    title,
+    description,
+    children,
+    onClick,
+    value,
+    active,
+}: {
+    title: string
+    description?: string
+    children: React.ReactNode
+    onClick: () => void
+    value: any
+    active: boolean
+}): JSX.Element {
+    return (
+        <div
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: 230, width: 260 }}
+            className={clsx(
+                'border rounded-md relative px-4 py-2 overflow-hidden',
+                active ? 'border-primary' : 'border-border'
+            )}
+        >
+            <p className="font-semibold m-0">{title}</p>
+            {description && <p className="m-0 text-xs">{description}</p>}
+            <div className="relative mt-2 presentation-preview">{children}</div>
+            <input
+                onClick={onClick}
+                className="opacity-0 absolute inset-0 h-full w-full cursor-pointer"
+                name="type"
+                value={value}
+                type="radio"
+            />
+        </div>
+    )
+}
+
+export function HTMLEditor({
+    value,
+    onChange,
+    writingHTMLDescription,
+    setWritingHTMLDescription,
+    textPlaceholder,
+}: {
+    value?: string
+    onChange: (value: any) => void
+    writingHTMLDescription: boolean
+    setWritingHTMLDescription: (writingHTML: boolean) => void
+    textPlaceholder?: string
+}): JSX.Element {
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
+    return (
+        <>
+            <LemonTabs
+                activeKey={writingHTMLDescription ? 'html' : 'text'}
+                onChange={(key) => setWritingHTMLDescription(key === 'html')}
+                tabs={[
+                    {
+                        key: 'text',
+                        label: <span className="text-sm">Text</span>,
+                        content: (
+                            <LemonTextArea
+                                minRows={2}
+                                value={value}
+                                onChange={(v) => onChange(v)}
+                                placeholder={textPlaceholder}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'html',
+                        label: (
+                            <div>
+                                <span className="text-sm">HTML</span>
+                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
+                            </div>
+                        ),
+                        content: (
+                            <div>
+                                {surveysHTMLAvailable ? (
+                                    <CodeEditor
+                                        className="border"
+                                        language="html"
+                                        value={value}
+                                        onChange={(v) => onChange(v ?? '')}
+                                        height={150}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            scrollbar: {
+                                                alwaysConsumeMouseWheel: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: false,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            lineNumbers: 'off',
+                                            glyphMargin: false,
+                                            folding: false,
+                                        }}
+                                    />
+                                ) : (
+                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                        <CodeEditor
+                                            className="border"
+                                            language="html"
+                                            value={value}
+                                            onChange={(v) => onChange(v ?? '')}
+                                            height={150}
+                                            options={{
+                                                minimap: {
+                                                    enabled: false,
+                                                },
+                                                scrollbar: {
+                                                    alwaysConsumeMouseWheel: false,
+                                                },
+                                                wordWrap: 'on',
+                                                scrollBeyondLastLine: false,
+                                                automaticLayout: true,
+                                                fixedOverflowWidgets: true,
+                                                lineNumbers: 'off',
+                                                glyphMargin: false,
+                                                folding: false,
+                                            }}
+                                        />
+                                    </PayGateMini>
+                                )}
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+            {value && value?.toLowerCase().includes('<script') && (
+                <LemonBanner type="warning">
+                    Scripts won't run in the survey popover and we'll remove these on save. Use the API question mode to
+                    run your own scripts in surveys.
+                </LemonBanner>
+            )}
+        </>
+    )
 }

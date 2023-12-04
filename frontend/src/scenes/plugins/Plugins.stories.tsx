@@ -1,8 +1,9 @@
 import { Meta, Story } from '@storybook/react'
-import { App } from 'scenes/App'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 

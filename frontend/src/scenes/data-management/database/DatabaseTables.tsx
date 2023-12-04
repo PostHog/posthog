@@ -1,18 +1,21 @@
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useActions, useValues } from 'kea'
-import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import { DatabaseTable } from './DatabaseTable'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, NodeKind } from '~/queries/schema'
+
+import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
-    const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
+    const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
     const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -21,7 +24,7 @@ export function DatabaseTablesContainer(): JSX.Element {
             <DatabaseTables
                 tables={filteredTables}
                 loading={databaseLoading}
-                renderRow={(row: DatabaseSceneRow) => {
+                renderRow={(row: DatabaseTableListRow) => {
                     return (
                         <div className="px-4 py-3">
                             <div className="mt-2">
@@ -59,7 +62,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables<T extends DatabaseSceneRow>({
+export function DatabaseTables<T extends DatabaseTableListRow>({
     tables,
     loading,
     renderRow,
@@ -106,10 +109,12 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                   title: 'Type',
                                   key: 'type',
                                   dataIndex: 'name',
-                                  render: function RenderType() {
+                                  render: function RenderType(_, obj: T) {
                                       return (
                                           <LemonTag type="default" className="uppercase">
-                                              PostHog
+                                              {obj.external_data_source
+                                                  ? obj.external_data_source.source_type
+                                                  : 'PostHog'}
                                           </LemonTag>
                                       )
                                   },

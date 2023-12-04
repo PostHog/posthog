@@ -1,7 +1,8 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonBadge, LemonBadgeNumberProps } from './LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { LemonBadge, LemonBadgeNumberProps } from './LemonBadge'
 
 type Story = StoryObj<typeof LemonBadge.Number>
 const meta: Meta<typeof LemonBadge.Number> = {

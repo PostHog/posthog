@@ -1,4 +1,13 @@
+import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import clsx from 'clsx'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { capitalizeFirstLetter, delay, range } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import {
     LemonButton,
     LemonButtonProps,
@@ -6,17 +15,9 @@ import {
     LemonButtonWithDropdownProps,
     LemonButtonWithSideAction,
 } from './LemonButton'
-import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
 import { More } from './More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { capitalizeFirstLetter, delay, range } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import clsx from 'clsx'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
@@ -28,6 +29,9 @@ const meta: Meta<typeof LemonButton> = {
         icon: {
             type: 'function',
         },
+    },
+    parameters: {
+        testOptions: { include3000: true },
     },
 }
 export default meta
@@ -69,6 +73,70 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
         </div>
     )
 }
+
+const ButtonVariants3000 = ({
+    tertiary = false,
+    active = false,
+}: {
+    tertiary?: boolean
+    active?: LemonButtonProps['active']
+}): JSX.Element => {
+    const variants: LemonButtonProps[] = tertiary
+        ? [
+              { type: 'tertiary', children: 'Primary' },
+              { type: 'tertiary', status: 'danger', children: 'Danger' },
+          ]
+        : [
+              { type: 'primary', children: 'Primary' },
+              { type: 'primary', status: 'primary-alt', children: 'Primary alt' },
+              { type: 'secondary', children: 'Secondary' },
+              { type: 'secondary', status: 'danger', children: 'Danger' },
+              { type: 'secondary', stealth: true, status: 'primary', children: 'Stealth' },
+          ]
+    return (
+        <div className="flex gap-2 flex-wrap">
+            {variants.map((props, index) => (
+                <LemonButton key={index} active={active} {...props} icon={<IconCalculate />} />
+            ))}
+        </div>
+    )
+}
+
+export const Types3000: Story = () => {
+    return (
+        <div className="space-y-2">
+            <h5>type=3D</h5>
+            <div className="border rounded">
+                <div className="p-2">
+                    <ButtonVariants3000 />
+                </div>
+                <div className="p-2">
+                    <h5>Active</h5>
+                    <ButtonVariants3000 active />
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <ButtonVariants3000 />
+                    </div>
+                </div>
+            </div>
+            <h5>type=TERTIARY</h5>
+            <div className="border rounded">
+                <div className="p-2">
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <ButtonVariants3000 tertiary />
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+Types3000.args = { ...Default.args }
 
 export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = { ...Default.args }
@@ -162,6 +230,47 @@ export const Active = (): JSX.Element => {
             </div>
         </div>
     )
+}
+
+export const PseudoStates = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=3D STATE=DEFAULT</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=3D STATE=HOVER</h5>
+                    <ButtonVariants3000 />
+                </div>
+                <div id="active">
+                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 />
+                </div>
+            </div>
+            <div className="border rounded p-2">
+                <div>
+                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+                <div id="active">
+                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
+                    <ButtonVariants3000 tertiary />
+                </div>
+            </div>
+        </div>
+    )
+}
+PseudoStates.parameters = {
+    pseudo: {
+        hover: ['#hover .LemonButton', '#active .LemonButton'],
+        active: ['#active .LemonButton'],
+    },
 }
 
 export const MenuButtons = (): JSX.Element => {

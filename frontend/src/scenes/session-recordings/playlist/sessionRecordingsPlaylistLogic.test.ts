@@ -1,15 +1,17 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
-    sessionRecordingsPlaylistLogic,
-    RECORDINGS_LIMIT,
     DEFAULT_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
+    RECORDINGS_LIMIT,
+    sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
-import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
-import { useMocks } from '~/mocks/jest'
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
@@ -165,7 +167,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 it('starts as null', () => {
                     expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })
                 })
-                it('is set by setSessionRecordingId', async () => {
+                it('is set by setSessionRecordingId', () => {
                     expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
                         .toDispatchActions(['loadSessionRecordingsSuccess'])
                         .toMatchValues({
@@ -175,7 +177,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
                 })
 
-                it('is partial if sessionRecordingId not in list', async () => {
+                it('is partial if sessionRecordingId not in list', () => {
                     expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
                         .toDispatchActions(['loadSessionRecordingsSuccess'])
                         .toMatchValues({
@@ -198,7 +200,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
 
                 it('mounts and loads the recording when a recording is opened', () => {
-                    expectLogic(logic, async () => await logic.actions.setSelectedRecordingId('abcd'))
+                    expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
                         .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
                         .toDispatchActions(['loadEntireRecording'])
                 })
@@ -485,6 +487,30 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     } satisfies Partial<RecordingFilters>)
                     logic.actions.resetFilters()
                 }).toMatchValues({ totalFiltersCount: 0 })
+            })
+        })
+
+        describe('pinned playlists', () => {
+            it('should not show others if there are pinned recordings', () => {
+                logic = sessionRecordingsPlaylistLogic({
+                    key: 'tests',
+                    updateSearchParams: true,
+                    pinnedRecordings: ['1234'],
+                })
+                logic.mount()
+
+                expectLogic(logic).toMatchValues({ showOtherRecordings: false })
+            })
+
+            it('should show others if there are no pinned recordings', () => {
+                logic = sessionRecordingsPlaylistLogic({
+                    key: 'tests',
+                    updateSearchParams: true,
+                    pinnedRecordings: [],
+                })
+                logic.mount()
+
+                expectLogic(logic).toMatchValues({ showOtherRecordings: true })
             })
         })
     })

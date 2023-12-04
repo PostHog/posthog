@@ -1,4 +1,5 @@
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
 import { InsightShortId } from '~/types'
 
 const Insight123 = '123' as InsightShortId

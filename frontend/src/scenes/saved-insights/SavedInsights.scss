@@ -2,28 +2,34 @@
 
 .saved-insights {
     > .LemonTable td {
-        padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
-        &.icon-column .LemonSkeleton {
-            height: 2rem;
-            width: 2rem;
+        padding-bottom: 0.75rem !important;
+
+        &.icon-column {
+            font-size: 1.5rem;
+            color: var(--muted);
+
+            .LemonSkeleton {
+                width: 2rem;
+                height: 2rem;
+            }
         }
     }
 
     .new-insight-dropdown-btn {
-        cursor: pointer;
         height: 40px;
-        background-color: var(--primary);
         padding: 8px 12px 8px 16px;
-        border: 1px solid var(--border);
-        border-radius: 4px;
         color: white;
+        cursor: pointer;
+        background-color: var(--primary-3000);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
     }
 
     .saved-insight-empty-state {
         display: flex;
-        justify-content: center;
         align-items: center;
+        justify-content: center;
         text-align: center;
 
         .insight-empty-state__wrapper {
@@ -32,22 +38,22 @@
             margin-bottom: 17rem;
 
             .illustration-main {
+                margin-bottom: 1rem;
                 font-size: 5rem;
                 line-height: 1em;
-                text-align: center;
-                margin-bottom: 1rem;
                 color: var(--border);
+                text-align: center;
             }
 
             .empty-state__title {
-                font-weight: 600;
                 font-size: 1.5rem;
+                font-weight: 600;
                 line-height: 1.6rem;
             }
 
             .empty-state__description {
-                font-weight: 500;
                 font-size: 1rem;
+                font-weight: 500;
                 line-height: 1.7rem;
                 color: var(--muted);
             }
@@ -67,14 +73,16 @@
 .insight-type-icon-wrapper {
     display: flex;
     align-items: center;
+
     .icon-container {
-        height: 22px;
-        width: 22px;
-        margin-right: 8px;
         position: relative;
+        width: 22px;
+        height: 22px;
+        margin-right: 8px;
+
         .icon-container-inner {
-            font-size: 22px;
             margin-left: -2px;
+            font-size: 22px;
         }
     }
 }
@@ -83,9 +91,11 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
+
     @include screen($xl) {
         grid-template-columns: repeat(2, 1fr);
     }
+
     @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
     }

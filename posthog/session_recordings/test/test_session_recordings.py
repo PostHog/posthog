@@ -48,26 +48,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id,
         timestamp,
         team_id=None,
-        window_id="",
-        source=0,
-        has_full_snapshot=True,
-        type=2,
-        snapshot_data=None,
-        use_replay_table=True,
-        use_recording_table=False,
     ):
         if team_id is None:
             team_id = self.team.pk
-
-        snapshot = {
-            "timestamp": timestamp.timestamp() * 1000,
-            "has_full_snapshot": has_full_snapshot,
-            "type": type,
-            "data": {"source": source},
-        }
-
-        if snapshot_data:
-            snapshot.update(snapshot_data)
 
         produce_replay_summary(
             team_id=team_id,
@@ -77,53 +60,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
         )
 
-    def create_snapshots(
-        self,
-        snapshot_count,
-        distinct_id,
-        session_id,
-        timestamp,
-        has_full_snapshot=True,
-        window_id="",
-        use_replay_table=True,
-        use_recording_table=False,
-    ):
-        snapshots = []
-        for index in range(snapshot_count):
-            snapshots.append(
-                {
-                    "type": 2 if has_full_snapshot else 3,
-                    "data": {
-                        "source": 0,
-                        "texts": [],
-                        "attributes": [],
-                        "removes": [],
-                        "adds": [
-                            {
-                                "parentId": 4,
-                                "nextId": 386,
-                                "node": {
-                                    "type": 2,
-                                    "tagName": "style",
-                                    "attributes": {"data-emotion": "css"},
-                                    "childNodes": [],
-                                    "id": 729,
-                                },
-                            }
-                        ],
-                    },
-                    "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
-                }
-            )
-
-        produce_replay_summary(
-            team_id=self.team.pk,
-            session_id=session_id,
-            distinct_id=distinct_id,
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
-        )
-
+    @snapshot_postgres_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
@@ -137,12 +74,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["user2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
+
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
+        session_id_one = f"test_get_session_recordings-1"
         self.create_snapshot("user_one_0", session_id_one, base_time)
         self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
         self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
-        session_id_two = f"test_get_session_recordings-2-{uuid.uuid4()}"
+        session_id_two = f"test_get_session_recordings-2"
         self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
@@ -151,7 +89,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         results_ = response_data["results"]
         assert results_ is not None
-
         assert [
             (
                 r["id"],
@@ -180,7 +117,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 30,
                 False,
                 user.pk,
-                10,  # limited from 12 because we don't need that many
+                1,  # even though the user has many distinct ids we don't load them
             ),
         ]
 
@@ -273,8 +210,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
-        self.create_snapshot("u1", "1", base_time, use_recording_table=True)
-        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30), use_recording_table=True)
+        self.create_snapshot("u1", "1", base_time)
+        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
@@ -390,12 +327,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "click_count": 0,
             "keypress_count": 0,
             "start_url": None,
-            "mouse_activity_count": None,
-            "inactive_seconds": None,
-            "active_seconds": None,
-            "console_error_count": None,
-            "console_log_count": None,
-            "console_warn_count": None,
+            "mouse_activity_count": 0,
+            "inactive_seconds": 30,
+            "active_seconds": 0,
+            "console_error_count": 0,
+            "console_log_count": 0,
+            "console_warn_count": 0,
             "person": {
                 "id": p.id,
                 "name": "bob@bob.com",
@@ -470,19 +407,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "user",
                 "1",
                 now() - relativedelta(days=1),
-                use_recording_table=use_recording_events,
             )
             self.create_snapshot(
                 "user",
                 "2",
                 now() - relativedelta(days=2),
-                use_recording_table=use_recording_events,
             )
             self.create_snapshot(
                 "user",
                 "3",
                 now() - relativedelta(days=3),
-                use_recording_table=use_recording_events,
             )
 
             # Fetch playlist

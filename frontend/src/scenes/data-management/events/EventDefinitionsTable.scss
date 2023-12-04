@@ -2,13 +2,14 @@
     .LemonTable__content > table > tbody {
         td.definition-column-icon {
             width: 36px;
+            padding-right: 0.5rem;
 
             .definition-column-name-icon {
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 width: 30px;
-                font-size: 1.5rem;
+                font-size: 1.2rem;
 
                 svg.taxonomy-icon {
                     flex-shrink: 0;
@@ -30,26 +31,22 @@
             align-items: center;
 
             .definition-column-name-content {
+                position: relative;
                 display: flex;
                 flex-direction: column;
-                position: relative;
-                min-height: 32px;
                 justify-content: center;
+                min-height: 32px;
 
                 .definition-column-name-content-title {
-                    font-weight: 600;
-                    cursor: pointer;
                     position: relative;
+                    display: flex;
+                    gap: 0.25rem;
+                    align-items: center;
                     overflow: visible;
+                    font-weight: 600;
 
-                    &:before {
-                        content: '';
-                        position: absolute;
-                        top: -5px;
-                        bottom: -5px;
-                        left: -10px;
-                        right: -50px;
-                        height: 22px;
+                    svg {
+                        color: var(--success);
                     }
                 }
             }
@@ -65,22 +62,23 @@
             display: flex;
             align-items: center;
             width: fit-content;
+            max-width: 300px;
             padding: 0.125rem 0.25rem;
-            letter-spacing: 0.25px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-light);
-            background: var(--mid);
-            color: var(--muted-alt);
             font-size: 0.625rem;
             font-weight: 500;
+            color: var(--muted-alt);
+            letter-spacing: 0.25px;
             word-break: break-all;
-            max-width: 300px;
             cursor: text;
+            background: var(--mid);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
         }
 
         .LemonTable__expansion {
             .event-properties-wrapper {
                 padding: 1rem 0 1rem 1rem;
+
                 .event-properties-header {
                     font-weight: 600;
                 }

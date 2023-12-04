@@ -104,6 +104,7 @@ CROSS JOIN sessions_query
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         row = response.results[0]

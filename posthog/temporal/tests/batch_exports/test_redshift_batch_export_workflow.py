@@ -1,39 +1,36 @@
 import datetime as dt
 import json
 import os
+import warnings
 from random import randint
 from uuid import uuid4
 
-import psycopg2
+import psycopg
 import pytest
+import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
-from psycopg2 import sql
+from psycopg import sql
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.test.test_organization import acreate_organization
-from posthog.api.test.test_team import acreate_team
-from posthog.temporal.tests.batch_exports.base import (
-    EventValues,
-    amaterialize,
-    insert_events,
-)
-from posthog.temporal.tests.batch_exports.fixtures import (
-    acreate_batch_export,
-    afetch_batch_export_runs,
-)
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
-from posthog.temporal.workflows.redshift_batch_export import (
+from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
     RedshiftInsertInputs,
     insert_into_redshift_activity,
+    remove_escaped_whitespace_recursive,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 REQUIRED_ENV_VARS = (
@@ -42,36 +39,43 @@ REQUIRED_ENV_VARS = (
     "REDSHIFT_HOST",
 )
 
-pytestmark = pytest.mark.skipif(
-    any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS),
-    reason="Redshift required env vars are not set",
-)
+MISSING_REQUIRED_ENV_VARS = any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS)
 
 
-def assert_events_in_redshift(connection, schema, table_name, events):
+pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
+
+
+async def assert_events_in_redshift(connection, schema, table_name, events, exclude_events: list[str] | None = None):
     """Assert provided events written to a given Redshift table."""
 
     inserted_events = []
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT * FROM {} ORDER BY timestamp").format(sql.Identifier(schema, table_name)))
+    async with connection.cursor() as cursor:
+        await cursor.execute(
+            sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name))
+        )
         columns = [column.name for column in cursor.description]
 
-        for row in cursor.fetchall():
+        for row in await cursor.fetchall():
             event = dict(zip(columns, row))
             event["timestamp"] = dt.datetime.fromisoformat(event["timestamp"].isoformat())
             inserted_events.append(event)
 
     expected_events = []
     for event in events:
-        properties = event.get("properties", None)
-        elements_chain = event.get("elements_chain", None)
+        event_name = event.get("event")
+
+        if exclude_events is not None and event_name in exclude_events:
+            continue
+
+        raw_properties = event.get("properties", None)
+        properties = remove_escaped_whitespace_recursive(raw_properties) if raw_properties else None
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain) if elements_chain else None,
-            "event": event.get("event"),
+            "elements": "",
+            "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
-            "properties": json.dumps(properties) if properties else None,
+            "properties": json.dumps(properties, ensure_ascii=False) if properties else None,
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
@@ -83,7 +87,7 @@ def assert_events_in_redshift(connection, schema, table_name, events):
         }
         expected_events.append(expected_event)
 
-    expected_events.sort(key=lambda x: x["timestamp"])
+    expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
 
     assert len(inserted_events) == len(expected_events)
     # First check one event, the first one, so that we can get a nice diff if
@@ -96,17 +100,26 @@ def assert_events_in_redshift(connection, schema, table_name, events):
 def redshift_config():
     """Fixture to provide a default configuration for Redshift batch exports.
 
-    Reads required env vars to construct configuration.
+    Reads required env vars to construct configuration, but if not present
+    we default to local development PostgreSQL database, which should be mostly compatible.
     """
-    user = os.environ["REDSHIFT_USER"]
-    password = os.environ["REDSHIFT_PASSWORD"]
-    host = os.environ["REDSHIFT_HOST"]
-    port = os.environ.get("REDSHIFT_PORT", "5439")
+    if MISSING_REQUIRED_ENV_VARS:
+        user = settings.PG_USER
+        password = settings.PG_PASSWORD
+        host = settings.PG_HOST
+        port = int(settings.PG_PORT)
+        warnings.warn("Missing required Redshift env vars. Running tests against local PG database.", stacklevel=1)
+
+    else:
+        user = os.environ["REDSHIFT_USER"]
+        password = os.environ["REDSHIFT_PASSWORD"]
+        host = os.environ["REDSHIFT_HOST"]
+        port = os.environ.get("REDSHIFT_PORT", "5439")
 
     return {
         "user": user,
         "password": password,
-        "database": "exports_test_database",
+        "database": "posthog_batch_exports_test_2",
         "schema": "exports_test_schema",
         "host": host,
         "port": int(port),
@@ -114,243 +127,130 @@ def redshift_config():
 
 
 @pytest.fixture
-def setup_test_db(redshift_config):
-    """Fixture to manage a database for Redshift export testing.
+def postgres_config(redshift_config):
+    """We shadow this name so that setup_postgres_test_db works with Redshift."""
+    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-    Managing a test database involves the following steps:
-    1. Creating a test database.
-    2. Initializing a connection to that database.
-    3. Creating a test schema.
-    4. Yielding the connection to be used in tests.
-    5. After tests, drop the test schema and any tables in it.
-    6. Drop the test database.
-    """
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database="dev",
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"), (redshift_config["database"],))
-
-        if cursor.fetchone() is None:
-            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(redshift_config["database"])))
-
-    connection.close()
-
-    # We need a new connection to connect to the database we just created.
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database=redshift_config["database"],
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(redshift_config["schema"])))
-
-    yield
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(redshift_config["schema"])))
-
-    connection.close()
-
-    # We need a new connection to drop the database, as we cannot drop the current database.
-    connection = psycopg2.connect(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
-        port=redshift_config["port"],
-        database="dev",
-    )
-    connection.set_session(autocommit=True)
-
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(redshift_config["database"])))
-
-    connection.close()
+    yield redshift_config
 
 
-@pytest.fixture
-def psycopg2_connection(redshift_config, setup_test_db):
+@pytest_asyncio.fixture
+async def psycopg_connection(redshift_config, setup_postgres_test_db):
     """Fixture to manage a psycopg2 connection."""
-    connection = psycopg2.connect(
+    connection = await psycopg.AsyncConnection.connect(
         user=redshift_config["user"],
         password=redshift_config["password"],
-        database=redshift_config["database"],
+        dbname=redshift_config["database"],
         host=redshift_config["host"],
         port=redshift_config["port"],
     )
+    connection.prepare_threshold = None
 
     yield connection
 
-    connection.close()
+    await connection.close()
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
-    activity_environment, psycopg2_connection, redshift_config
+    clickhouse_client, activity_environment, psycopg_connection, redshift_config, exclude_events
 ):
-    """Test that the insert_into_postgres_activity function inserts data into a Postgres table."""
+    """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
 
-    data_interval_start = "2023-04-20 14:00:00"
-    data_interval_end = "2023-04-25 15:00:00"
+    We use the generate_test_events_in_clickhouse function to generate several sets
+    of events. Some of these sets are expected to be exported, and others not. Expected
+    events are those that:
+    * Are created for the team_id of the batch export.
+    * Are created in the date range of the batch export.
+    * Are not duplicates of other events that are in the same batch.
+    * Do not have an event name contained in the batch export's exclude_events.
+
+    Once we have these events, we pass them to the assert_events_in_redshift function to check
+    that they appear in the expected Redshift table.
+    """
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
     team_id = randint(1, 1000000)
 
-    # Add a materialized column such that we can verify that it is NOT included
-    # in the export.
-    await amaterialize("events", "$browser")
-
-    # Create enough events to ensure we span more than 5MB, the smallest
-    # multipart chunk size for multipart uploads to POSTGRES.
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(1000)
-    ]
-
-    events += [
-        # Insert an events with an empty string in `properties` and
-        # `person_properties` to ensure that we handle empty strings correctly.
-        EventValues(
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "_timestamp": "2023-04-20 14:29:00",
-                "timestamp": "2023-04-20 14:29:00.000000",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:29:00.000000",
-                "distinct_id": str(uuid4()),
-                "person_id": str(uuid4()),
-                "person_properties": None,
-                "team_id": team_id,
-                "properties": None,
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            }
-        )
-    ]
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=1000,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "whitespace": "hi\t\n\r\f\bhi",
+            "nested_whitespace": {"whitespace": "hi\t\n\r\f\bhi"},
+            "sequence": {"mucho_whitespace": ["hi", "hi\t\n\r\f\bhi", "hi\t\n\r\f\bhi", "hi"]},
+            "multi-byte": "é",
+        },
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
-        client=ch_client,
-        events=events,
+    (events_with_no_properties, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=None,
+        person_properties=None,
     )
 
-    # Insert some events before the hour and after the hour, as well as some
-    # events from another team to ensure that we only export the events from
-    # the team that the batch export is for.
-    other_team_id = team_id + 1
-    await insert_events(
-        client=ch_client,
-        events=[
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 13:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 15:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 14:30:00",
-                "_timestamp": "2023-04-20 14:30:00",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": other_team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-        ],
-    )
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=team_id,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
 
     insert_inputs = RedshiftInsertInputs(
         team_id=team_id,
         table_name="test_table",
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
         **redshift_config,
     )
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    assert_events_in_redshift(
-        connection=psycopg2_connection,
+    await assert_events_in_redshift(
+        connection=psycopg_connection,
         schema=redshift_config["schema"],
         table_name="test_table",
-        events=events,
+        events=events + events_with_no_properties,
+        exclude_events=exclude_events,
     )
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@pytest.mark.parametrize("interval", ["hour", "day"])
-async def test_redshift_export_workflow(
-    redshift_config,
-    psycopg2_connection,
-    interval,
-):
-    """Test Redshift Export Workflow end-to-end."""
-    table_name = "test_workflow_table"
+@pytest.fixture
+def table_name(ateam, interval):
+    return f"test_workflow_table_{ateam.pk}_{interval}"
+
+
+@pytest_asyncio.fixture
+async def redshift_batch_export(ateam, table_name, redshift_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Redshift",
-        "config": {**redshift_config, "table_name": table_name},
+        "config": {**redshift_config, "table_name": table_name, "exclude_events": exclude_events},
     }
     batch_export_data = {
         "name": "my-production-redshift-export",
@@ -358,100 +258,71 @@ async def test_redshift_export_workflow(
         "interval": interval,
     }
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name=batch_export_data["name"],
         destination_data=batch_export_data["destination"],
         interval=batch_export_data["interval"],
     )
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "172.16.0.1",
-                "$current_url": "https://app.posthog.com",
-            },
-            "distinct_id": str(uuid4()),
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$current_url": "https://app.posthog.com",
-                "$ip": "172.16.0.1",
-            },
-            "team_id": team.pk,
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        },
-    ]
+    yield batch_export
 
-    if interval == "day":
-        # Add an event outside the hour range but within the day range to ensure it's exported too.
-        events_outside_hour: list[EventValues] = [
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-25 00:30:00.000000",
-                "created_at": "2023-04-25 00:30:00.000000",
-                "inserted_at": "2023-04-25 00:30:00.000000",
-                "_timestamp": "2023-04-25 00:30:00",
-                "person_id": str(uuid4()),
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "team_id": team.pk,
-                "properties": {
-                    "$browser": "Chrome",
-                    "$os": "Mac OS X",
-                    "$current_url": "https://app.posthog.com",
-                    "$ip": "172.16.0.1",
-                },
-                "distinct_id": str(uuid4()),
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            }
-        ]
-        events += events_outside_hour
+    await adelete_batch_export(batch_export, temporal_client)
 
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+async def test_redshift_export_workflow(
+    clickhouse_client,
+    redshift_config,
+    psycopg_connection,
+    interval,
+    redshift_batch_export,
+    ateam,
+    exclude_events,
+    table_name,
+):
+    """Test Redshift Export Workflow end-to-end.
+
+    The workflow should update the batch export run status to completed and produce the expected
+    records to the provided Redshift instance.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - redshift_batch_export.interval_time_delta
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    await insert_events(
-        client=ch_client,
-        events=events,
-    )
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
 
     workflow_id = str(uuid4())
     inputs = RedshiftBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(redshift_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
         interval=interval,
-        **batch_export.destination.config,
+        **redshift_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -476,10 +347,33 @@ async def test_redshift_export_workflow(
                     execution_timeout=dt.timedelta(seconds=10),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_redshift(psycopg2_connection, redshift_config["schema"], table_name, events)
+    await assert_events_in_redshift(
+        psycopg_connection,
+        redshift_config["schema"],
+        table_name,
+        events=events,
+        exclude_events=exclude_events,
+    )
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ([1, 2, 3], [1, 2, 3]),
+        ("hi\t\n\r\f\bhi", "hi hi"),
+        ([["\t\n\r\f\b"]], [[""]]),
+        (("\t\n\r\f\b",), ("",)),
+        ({"\t\n\r\f\b"}, {""}),
+        ({"key": "\t\n\r\f\b"}, {"key": ""}),
+        ({"key": ["\t\n\r\f\b"]}, {"key": [""]}),
+    ],
+)
+def test_remove_escaped_whitespace_recursive(value, expected):
+    """Test we remove some whitespace values."""
+    assert remove_escaped_whitespace_recursive(value) == expected

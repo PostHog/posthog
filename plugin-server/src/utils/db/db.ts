@@ -36,7 +36,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
-    PluginSourceFileStatus,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -67,6 +66,12 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import {
+    groupDataMissingCounter,
+    groupInfoCacheResultCounter,
+    personUpdateVersionMismatchCounter,
+    pluginLogEntryCounter,
+} from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -159,8 +164,8 @@ export class DB {
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
-    /** Whether to write to clickhouse_person_unique_id topic */
-    writeToPersonUniqueId?: boolean
+    /** Default log level for plugins that don't specify it */
+    pluginsDefaultLogLevel: PluginLogLevel
 
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
@@ -171,6 +176,7 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
+        pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
@@ -178,6 +184,7 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
+        this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }
 
@@ -496,6 +503,7 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
+                    groupInfoCacheResultCounter.labels({ result: 'hit' }).inc()
                     groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
                     groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
 
@@ -506,6 +514,7 @@ export class DB {
             }
 
             this.statsd?.increment('group_info_cache.miss')
+            groupInfoCacheResultCounter.labels({ result: 'miss' }).inc()
 
             // If we didn't find cached data, lookup the group from Postgres
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
@@ -533,6 +542,7 @@ export class DB {
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
                 this.statsd?.increment('groups_data_missing_entirely')
+                groupDataMissingCounter.inc()
                 status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
                 groupPropertiesColumns[propertiesColumnName] = '{}'
@@ -773,6 +783,7 @@ export class DB {
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
             this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+            personUpdateVersionMismatchCounter.inc()
         }
 
         const kafkaMessages = []
@@ -1077,10 +1088,9 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
+        const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
-        const logLevel = pluginConfig.plugin?.log_level
-
-        if (!shouldStoreLog(logLevel || PluginLogLevel.Full, source, type)) {
+        if (!shouldStoreLog(configuredLogLevel, type)) {
             return
         }
 
@@ -1099,11 +1109,6 @@ export class DB {
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
             status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            this.statsd?.increment('logs.entries_too_large', {
-                source,
-                team_id: pluginConfig.team_id.toString(),
-                plugin_id: pluginConfig.plugin_id.toString(),
-            })
             return
         }
 
@@ -1112,11 +1117,7 @@ export class DB {
             team_id: pluginConfig.team_id.toString(),
             plugin_id: pluginConfig.plugin_id.toString(),
         })
-        this.statsd?.increment('logs.entries_size', {
-            source,
-            team_id: pluginConfig.team_id.toString(),
-            plugin_id: pluginConfig.plugin_id.toString(),
-        })
+        pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
             await this.kafkaProducer.queueSingleJsonMessage(
@@ -1531,39 +1532,5 @@ export class DB {
             'getPluginSource'
         )
         return rows[0]?.source ?? null
-    }
-
-    public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, transpiled = $5, error = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
-            'setPluginTranspiled'
-        )
-    }
-
-    public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, error = $5, transpiled = NULL, updated_at = NOW()`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
-            'setPluginTranspiledError'
-        )
-    }
-
-    public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
-        const response = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, NULL, NOW())
-                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
-                DO UPDATE SET status = $4, updated_at = NOW() WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
-            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
-            'getPluginTranspilationLock'
-        )
-        return response.rowCount > 0
     }
 }

@@ -1,29 +1,32 @@
 .BillingPlan {
-    max-width: 500px;
     flex-grow: 1;
+    max-width: 500px;
+
     .BillingPlan__description {
         ol,
         ul {
-            margin-top: 1rem;
             padding-left: 0;
-            list-style: none;
+            margin-top: 1rem;
             text-align: center;
+            list-style: none;
+
             li {
-                line-height: 1.2rem;
                 margin-bottom: 1rem;
+                line-height: 1.2rem;
             }
+
             .disclaimer {
+                padding-left: 1px;
                 font-size: 10px;
                 font-weight: bold;
                 vertical-align: top;
-                padding-left: 1px;
             }
         }
 
         .disclaimer-details {
+            margin-top: 1rem;
             font-size: 0.75rem;
             color: var(--muted);
-            margin-top: 1rem;
         }
     }
 }

@@ -155,7 +155,9 @@ def _kafka_topic(event_name: str, data: Dict) -> str:
             return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 
-def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
+def log_event(
+    data: Dict, event_name: str, partition_key: Optional[str], headers: Optional[List] = None
+) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, data)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
@@ -167,7 +169,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
@@ -260,11 +262,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
     results = []
-    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
+    limited_tokens_events = list_limited_team_attributes(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_attributes(QuotaResource.RECORDINGS)
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -558,7 +560,10 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         kafka_partition_key = event["properties"]["$session_id"]
-        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+        headers = [
+            ("token", token),
+        ]
+        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
 
     candidate_partition_key = f"{token}:{distinct_id}"
 

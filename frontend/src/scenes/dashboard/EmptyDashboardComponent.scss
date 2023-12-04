@@ -5,33 +5,35 @@
     margin-top: 1rem;
 
     .EmptyDashboard__fade {
-        margin-top: 1rem;
-        height: 150px;
-        overflow: hidden;
         position: relative;
+        height: 150px;
+        margin-top: 1rem;
+        overflow: hidden;
 
         &::after {
+            width: 100%;
+            height: 150px;
+
             .posthog-3000 & {
                 --bg-light: var(--bg-3000); // Make the fade blend in with the 3000 background smoothly
             }
+
             @extend %mixin-gradient-overlay;
-            width: 100%;
-            height: 150px;
         }
     }
 
     .EmptyDashboard__cta {
-        border-width: 1px;
-        border-radius: var(--radius);
-        padding: 1.5rem;
-        box-shadow: var(--shadow-elevation);
-        background: var(--bg-light);
-        width: 360px;
-        max-width: calc(100% - 32px);
         position: absolute;
         top: 16px;
         left: 50%;
-        transform: translateX(-50%);
         z-index: var(--z-content-overlay);
+        width: 360px;
+        max-width: calc(100% - 32px);
+        padding: 1.5rem;
+        background: var(--bg-light);
+        border-width: 1px;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation);
+        transform: translateX(-50%);
     }
 }

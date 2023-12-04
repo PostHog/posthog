@@ -1,9 +1,11 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { BuilderHog3, DetectiveHog } from '../hedgehogs'
-import { userLogic } from 'scenes/userLogic'
 import { useActions } from 'kea'
+import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { userLogic } from 'scenes/userLogic'
+
 import { ProductKey } from '~/types'
+
+import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
 export const ProductIntroduction = ({
     productName,
@@ -85,7 +87,7 @@ export const ProductIntroduction = ({
                         {action ? (
                             <LemonButton
                                 type="primary"
-                                sideIcon={<IconPlus />}
+                                icon={<IconPlus />}
                                 onClick={() => {
                                     updateHasSeenProductIntroFor(productKey, true)
                                     action && action()
@@ -100,7 +102,7 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted-alt"
+                                status="muted"
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"

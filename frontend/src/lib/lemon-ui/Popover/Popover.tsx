@@ -1,22 +1,23 @@
 import './Popover.scss'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
-import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import clsx from 'clsx'
+
 import {
-    useFloating,
+    arrow,
     autoUpdate,
+    flip,
+    FloatingPortal,
     Middleware,
     Placement,
     shift,
-    flip,
     size,
-    arrow,
-    FloatingPortal,
+    useFloating,
     UseFloatingReturn,
     useMergeRefs,
 } from '@floating-ui/react'
-import { CSSTransition } from 'react-transition-group'
+import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
+import { CSSTransition } from 'react-transition-group'
 
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null

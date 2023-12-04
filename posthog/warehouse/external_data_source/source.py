@@ -1,7 +1,9 @@
-from posthog.models.utils import UUIDT
-from pydantic import BaseModel, field_validator
-from typing import Dict, Optional
 import datetime as dt
+from typing import Dict, Optional
+
+from pydantic import BaseModel, field_validator
+
+from posthog.models.utils import UUIDT
 from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_SOURCE_URL = "https://api.airbyte.com/v1/sources"

@@ -1,40 +1,44 @@
-import { Dropdown, Menu, Tag } from 'antd'
+import './PersonScene.scss'
+
+// eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
-import { personsLogic } from './personsLogic'
-import { PersonDisplay } from './PersonDisplay'
-import './Persons.scss'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { MergeSplitPerson } from './MergeSplitPerson'
-import { PersonCohorts } from './PersonCohorts'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { TZLabel } from 'lib/components/TZLabel'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+
+import { MergeSplitPerson } from './MergeSplitPerson'
+import { PersonCohorts } from './PersonCohorts'
 import { PersonDashboard } from './PersonDashboard'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { PersonDisplay } from './PersonDisplay'
 import PersonFeedCanvas from './PersonFeedCanvas'
+import { personsLogic } from './personsLogic'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -75,10 +79,10 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                         }
                         trigger={['click']}
                     >
-                        <Tag className="extra-ids">
-                            +{person.distinct_ids.length - 1}
+                        <LemonTag className="extra-ids space-x-1">
+                            <div>+{person.distinct_ids.length - 1}</div>
                             <DownOutlined />
-                        </Tag>
+                        </LemonTag>
                     </Dropdown>
                 )}
             </div>
@@ -147,10 +151,8 @@ export function PersonScene(): JSX.Element | null {
                     <div className="flex gap-2">
                         <NotebookSelectButton
                             resource={{
-                                attrs: {
-                                    id: person?.distinct_ids[0],
-                                },
                                 type: NotebookNodeType.Person,
+                                attrs: { id: person?.distinct_ids[0] },
                             }}
                             type="secondary"
                         />
@@ -239,7 +241,7 @@ export function PersonScene(): JSX.Element | null {
                                         <LemonBanner type="info">
                                             Session recordings are currently disabled for this project. To use this
                                             feature, please go to your{' '}
-                                            <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link>{' '}
+                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>

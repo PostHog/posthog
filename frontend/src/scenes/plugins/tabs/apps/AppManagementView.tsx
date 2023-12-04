@@ -1,16 +1,17 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconCloudDownload } from 'lib/lemon-ui/icons'
+import { IconCheckmark, IconCloudDownload, IconDelete, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTypeWithConfig, PluginRepositoryEntry, PluginInstallationType } from 'scenes/plugins/types'
-import { PluginType } from '~/types'
-import { PluginTags } from './components'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Popconfirm } from 'antd'
-import { DeleteOutlined, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
-import { canGloballyManagePlugins } from 'scenes/plugins/access'
+import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { userLogic } from 'scenes/userLogic'
+
+import { PluginInstallationType, PluginType } from '~/types'
+
+import { PluginTags } from './components'
 
 export function AppManagementView({
     plugin,
@@ -71,7 +72,7 @@ export function AppManagementView({
                                 type="primary"
                                 status="danger"
                                 size="small"
-                                icon={<DeleteOutlined />}
+                                icon={<IconDelete />}
                                 disabledReason={
                                     unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
                                 }
@@ -93,7 +94,7 @@ export function AppManagementView({
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    icon={<RollbackOutlined />}
+                                    icon={<IconReplay />}
                                     onClick={() => patchPlugin(plugin.id, { is_global: false })}
                                 >
                                     Make local
@@ -111,7 +112,7 @@ export function AppManagementView({
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    icon={<GlobalOutlined />}
+                                    icon={<IconWeb />}
                                     onClick={() => patchPlugin(plugin.id, { is_global: true })}
                                 >
                                     Make global

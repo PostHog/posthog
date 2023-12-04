@@ -1,24 +1,26 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import {
-    surveyLogic,
-    SurveyRatingResults,
-    QuestionResultsReady,
-    SurveySingleChoiceResults,
-    SurveyMultipleChoiceResults,
-    SurveyOpenTextResults,
-    SurveyUserStats,
-} from './surveyLogic'
-import { useActions, useValues, BindLogic } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { BindLogic, useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { GraphType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useEffect } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { GraphType } from '~/types'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
-import { useEffect } from 'react'
+
+import {
+    QuestionResultsReady,
+    surveyLogic,
+    SurveyMultipleChoiceResults,
+    SurveyOpenTextResults,
+    SurveyRatingResults,
+    SurveySingleChoiceResults,
+    SurveyUserStats,
+} from './surveyLogic'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -65,7 +67,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
         <>
             {total > 0 && (
                 <div className="mb-8">
-                    <div className="w-full mx-auto h-10 mb-4">
+                    <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
                                 count: seen,
@@ -102,6 +104,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             >
                                 <div
                                     className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={style}
                                 >
                                     <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
@@ -121,6 +124,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 ({ count, label, style }) =>
                                     count > 0 && (
                                         <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <div className="w-3 h-3 rounded-full mr-2" style={style} />
                                             <span className="font-semibold text-muted-alt">{`${label} (${(
                                                 (count / total) *
@@ -345,6 +349,7 @@ export function SingleChoiceQuestionPieChart({
                                     >
                                         <div
                                             className="w-3 h-3 rounded-full mr-2"
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
                                         <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
@@ -480,10 +485,12 @@ export function OpenTextViz({
 
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
-                                        {event.properties[surveyResponseField]}
+                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                                        {typeof event.properties[surveyResponseField] !== 'string'
+                                            ? JSON.stringify(event.properties[surveyResponseField])
+                                            : event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

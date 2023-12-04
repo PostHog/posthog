@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { batchExportLogic } from './batchExportLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { batchExportLogic } from './batchExportLogic'
 
 export function BatchExportBackfillModal(): JSX.Element {
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(batchExportLogic)
@@ -54,11 +52,6 @@ export function BatchExportBackfillModal(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-2"
             >
-                <LemonBanner type="warning">
-                    Exporting historical data beyond 1 month is not recommended. We are actively working on increasing
-                    this limit.
-                </LemonBanner>
-
                 <Field name="start_at" label="Start Date" className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput value={value} onChange={onChange} placeholder="Select start date" />
