@@ -21,16 +21,18 @@ from posthog.temporal.common.schedule import (
     delete_schedule,
 )
 from posthog.temporal.data_imports.external_data_job import (
-    ExternalDataJobInputs,
+    ExternalDataWorkflowInputs,
     ExternalDataJobWorkflow,
 )
 from posthog.warehouse.models import ExternalDataSource
 import temporalio
+from temporalio.client import Client as TemporalClient
+from asgiref.sync import async_to_sync
 
 
 def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:
     temporal = sync_connect()
-    inputs = ExternalDataJobInputs(
+    inputs = ExternalDataWorkflowInputs(
         team_id=external_data_source.team.id,
         external_data_source_id=external_data_source.pk,
     )
@@ -65,7 +67,7 @@ def pause_external_data_workflow(external_data_source: ExternalDataSource):
     pause_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def delete_external_data_workflow(external_data_source: ExternalDataSource):
+def delete_external_data_schedule(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     try:
         delete_schedule(temporal, schedule_id=str(external_data_source.id))
@@ -74,3 +76,14 @@ def delete_external_data_workflow(external_data_source: ExternalDataSource):
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return
         raise
+
+
+def cancel_external_data_workflow(workflow_id: str):
+    temporal = sync_connect()
+    cancel_workflow(temporal, workflow_id)
+
+
+@async_to_sync
+async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
+    handle = temporal.get_workflow_handle(workflow_id)
+    await handle.cancel()

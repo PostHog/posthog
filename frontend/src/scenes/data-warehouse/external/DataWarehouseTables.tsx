@@ -21,8 +21,14 @@ export function DataWarehouseTablesContainer(): JSX.Element {
                 return (
                     <div className="px-4 py-3">
                         <div className="flex flex-col">
-                            <span className="card-secondary mt-2">Files URL pattern</span>
-                            <span>{row.url_pattern}</span>
+                            {row.external_data_source ? (
+                                <></>
+                            ) : (
+                                <>
+                                    <span className="card-secondary mt-2">Files URL pattern</span>
+                                    <span>{row.url_pattern}</span>
+                                </>
+                            )}
 
                             <span className="card-secondary mt-2">File format</span>
                             <span>{row.format}</span>

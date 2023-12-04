@@ -23,7 +23,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresInsertInputs,
@@ -202,7 +202,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Redshift")
     logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,
