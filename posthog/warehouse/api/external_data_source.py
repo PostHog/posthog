@@ -17,6 +17,7 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_workflow,
     delete_external_data_schedule,
     cancel_external_data_workflow,
+    delete_data_import_folder,
 )
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models import ExternalDataJob
@@ -128,6 +129,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         if latest_job and latest_job.workflow_id and latest_job.status == "Running":
             cancel_external_data_workflow(latest_job.workflow_id)
+            try:
+                delete_data_import_folder(latest_job.folder_path)
+            except Exception as e:
+                logger.exception(f"Could not clean up data import folder: {latest_job.folder_path}", exc_info=e)
+                pass
 
         delete_external_data_schedule(instance)
         return super().destroy(request, *args, **kwargs)
