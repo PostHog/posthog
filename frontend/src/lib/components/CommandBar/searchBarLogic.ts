@@ -342,7 +342,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 ]
                 clickhouseTabsResults.forEach(([tab, results]) => {
                     if (results !== undefined) {
-                        counts[tab] = results.length === 100 ? '>=100' : results.length.toString()
+                        counts[tab] = results.length === 100 ? '100+' : results.length.toString()
                     }
                 })
 
