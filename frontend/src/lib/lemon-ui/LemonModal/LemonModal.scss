@@ -91,6 +91,10 @@
         height: 100%;
         overflow: hidden;
     }
+
+    .posthog-3000 & {
+        border-color: var(--secondary-3000-button-border);
+    }
 }
 
 .LemonModal__header {

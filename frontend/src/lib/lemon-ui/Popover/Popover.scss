@@ -94,13 +94,11 @@
         width: max-content;
     }
 
-    .posthog-3000 & {
+    .posthog-3000 &,
+    .posthog-3000 .Popover--actionable & {
         padding: 0.25rem;
         background: var(--bg-light);
-    }
-
-    .posthog-3000 .Popover--actionable & {
-        border-color: var(--border);
+        border-color: var(--secondary-3000-button-border);
     }
 }
 
