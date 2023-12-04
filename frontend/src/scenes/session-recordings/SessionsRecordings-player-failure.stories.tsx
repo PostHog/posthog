@@ -88,7 +88,6 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {

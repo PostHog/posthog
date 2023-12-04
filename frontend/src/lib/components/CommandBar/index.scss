@@ -8,10 +8,15 @@
 
 .SearchBarTab {
     &:hover {
-        border-top: 2px solid var(--border-3000);
+        border-left: 2px solid var(--border-3000);
     }
 
     &.SearchBarTab__active {
         border-color: var(--primary-3000);
     }
+}
+
+.SearchResults {
+    // offset container height by input
+    height: 'calc(100% - 2.375rem)';
 }

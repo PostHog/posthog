@@ -1,6 +1,5 @@
 import {
     IconApps,
-    IconAsterisk,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -9,6 +8,7 @@ import {
     IconDatabase,
     IconDay,
     IconExternal,
+    IconEye,
     IconFunnels,
     IconGear,
     IconGithub,
@@ -16,6 +16,7 @@ import {
     IconHogQL,
     IconHome,
     IconKeyboard,
+    IconLaptop,
     IconLeave,
     IconLifecycle,
     IconList,
@@ -58,12 +59,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ThemeIcon } from '~/layout/navigation-3000/components/Navbar'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import { commandBarLogic } from '../CommandBar/commandBarLogic'
+import { BarStatus } from '../CommandBar/types'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
@@ -141,10 +142,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['createKey'],
             router,
             ['push'],
-            themeLogic,
-            ['overrideTheme'],
+            userLogic,
+            ['updateUser'],
             hedgehogbuddyLogic,
             ['setHedgehogModeEnabled'],
+            commandBarLogic,
+            ['setCommandBar'],
         ],
         values: [
             teamLogic,
@@ -891,7 +894,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 key: 'toggle-theme',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: ThemeIcon,
+                    icon: IconEye,
                     display: 'Switch theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
@@ -899,23 +902,23 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         resolver: [
                             {
                                 icon: IconDay,
-                                display: 'Light theme',
+                                display: 'Light mode',
                                 executor: () => {
-                                    actions.overrideTheme(false)
+                                    actions.updateUser({ theme_mode: 'light' })
                                 },
                             },
                             {
                                 icon: IconNight,
-                                display: 'Dark theme',
+                                display: 'Dark mode',
                                 executor: () => {
-                                    actions.overrideTheme(true)
+                                    actions.updateUser({ theme_mode: 'dark' })
                                 },
                             },
                             {
-                                icon: IconAsterisk,
-                                display: 'Sync with system settings',
+                                icon: IconLaptop,
+                                display: 'Sync with system preferences',
                                 executor: () => {
-                                    actions.overrideTheme(null)
+                                    actions.updateUser({ theme_mode: null })
                                 },
                             },
                         ],
@@ -936,6 +939,30 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const shortcuts: Command = {
+                key: 'shortcuts',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconKeyboard,
+                    display: 'Open keyboard shortcut overview',
+                    executor: () => {
+                        actions.setCommandBar(BarStatus.SHOW_SHORTCUTS)
+
+                        // :HACKY: we need to return a dummy flow here, as otherwise
+                        // the executor will hide the command bar, which also displays
+                        // the shortcut overview
+                        const dummyFlow: CommandFlow = {
+                            resolver: () => ({
+                                icon: <></>,
+                                display: '',
+                                executor: true,
+                            }),
+                        }
+                        return dummyFlow
+                    },
+                },
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -947,6 +974,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 actions.registerCommand(toggleTheme)
                 actions.registerCommand(toggleHedgehogMode)
+                actions.registerCommand(shortcuts)
             }
         },
         beforeUnmount: () => {
@@ -960,6 +988,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('debug-copy-session-recording-url')
             actions.deregisterCommand('toggle-theme')
             actions.deregisterCommand('toggle-hedgehog-mode')
+            actions.deregisterCommand('shortcuts')
         },
     })),
 ])
