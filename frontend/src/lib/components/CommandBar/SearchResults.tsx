@@ -10,7 +10,7 @@ export const SearchResults = (): JSX.Element => {
         useValues(searchBarLogic)
 
     return (
-        <div className="grow" style={{ height: 'calc(100% - 2.375rem)' }}>
+        <div className="SearchResults grow">
             {!combinedSearchLoading && combinedSearchResults?.length === 0 ? (
                 <div className="w-full h-full flex flex-col items-center justify-center p-3">
                     <h3 className="mb-0 text-xl">No results</h3>

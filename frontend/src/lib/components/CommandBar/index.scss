@@ -15,3 +15,8 @@
         border-color: var(--primary-3000);
     }
 }
+
+.SearchResults {
+    // offset container height by input
+    height: 'calc(100% - 2.375rem)';
+}
