@@ -1536,13 +1536,19 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: NotebookNodeResource[],
-            createdBy?: UserBasicType['uuid'],
-            search?: string
-        ): Promise<PaginatedResponse<NotebookType>> {
+            params: {
+                contains?: NotebookNodeResource[]
+                created_by?: UserBasicType['uuid']
+                search?: string
+                order?: string
+                offset?: number
+                limit?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<NotebookType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
-            let q = {}
+            const { contains, ...queryParams } = objectClean(params)
+
             if (contains?.length) {
                 const containsString =
                     contains
@@ -1552,15 +1558,11 @@ const api = {
                             return `${target}${match}`
                         })
                         .join(',') || undefined
-                q = { ...q, contains: containsString, created_by: createdBy }
+
+                queryParams['contains'] = containsString
             }
-            if (createdBy) {
-                q = { ...q, created_by: createdBy }
-            }
-            if (search) {
-                q = { ...q, search: search }
-            }
-            return await apiRequest.withQueryString(q).get()
+
+            return await apiRequest.withQueryString(queryParams).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })

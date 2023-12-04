@@ -6,6 +6,23 @@ import { UserBasicType } from '~/types'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
 
+export function atColumn<T extends Record<string, any>>(key: keyof T, title: string): LemonTableColumn<T, typeof key> {
+    return {
+        title: title,
+        dataIndex: key,
+        render: function RenderAt(created_at) {
+            return created_at ? (
+                <div className="whitespace-nowrap text-right">
+                    <TZLabel time={created_at} />
+                </div>
+            ) : (
+                <span className="text-muted">—</span>
+            )
+        },
+        align: 'right',
+        sorter: (a, b) => dayjs(a[key] || 0).diff(b[key] || 0),
+    }
+}
 export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
         title: 'Created',
