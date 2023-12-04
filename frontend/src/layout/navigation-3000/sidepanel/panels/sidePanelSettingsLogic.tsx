@@ -1,19 +1,18 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Settings } from 'scenes/settings/Settings'
 import { SettingsLogicProps } from 'scenes/settings/types'
 
 import { SidePanelTab } from '~/types'
 
+import { themeLogic } from '../../themeLogic'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [themeLogic, ['is3000']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
 
@@ -43,7 +42,7 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
 
     listeners(({ actions, values }) => ({
         openSettingsPanel: ({ settingsLogicProps }) => {
-            if (!values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            if (!values.is3000) {
                 LemonDialog.open({
                     title: 'Settings',
                     content: <Settings {...settingsLogicProps} hideSections logicKey="modal" />,
