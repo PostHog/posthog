@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import structlog
 from dateutil import parser
@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -45,6 +46,9 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
 
+    if cohort.query is not None:
+        return print_cohort_hogql_query(cohort, hogql_context)
+
     if not cohort.properties.values:
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
@@ -61,11 +65,19 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         cohort_pk=cohort.pk,
     )
 
-    # TODO: add query support
-
     query, params = query_builder.get_query()
 
     return query, params
+
+
+def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
+    from posthog.hogql_queries.query_runner import get_query_runner
+
+    persons_query = cast(Dict, cohort.query)
+    persons_query["select"] = ["id as actor_id"]
+    query = get_query_runner(persons_query, team=cast(Team, cohort.team)).to_query()
+    hogql_context.enable_select_queries = True
+    return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:

@@ -55,7 +55,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_dependent_cohorts
+from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -132,14 +132,14 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
         ]
 
-    def _handle_static(self, cohort: Cohort, context: Dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: Dict, validated_data: Dict) -> None:
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
-        elif context.get("query"):
-            insert_cohort_from_query(cohort.pk, context["query"], self.context["team_id"])
+        elif validated_data.get("query"):
+            insert_cohort_from_query(cohort.pk, validated_data["query"], self.context["team_id"])
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -160,7 +160,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, self.context)
+            self._handle_static(cohort, self.context, validated_data)
         else:
             update_cohort(cohort)
 
@@ -505,6 +505,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             "version": existing_cohort.version,
         }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
+        insert_actors_into_cohort_by_query(cohort, query, params, context)
+    elif cohort.query is not None:
+        context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
+        query = print_cohort_hogql_query(cohort, context)
+        insert_actors_into_cohort_by_query(cohort, query, {}, context)
     else:
         insight_type = filter_data.get("insight")
         query_builder: ActorBaseQuery
@@ -547,7 +552,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         else:
             query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, query, params, context)
+        insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
 def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any], context: HogQLContext):
