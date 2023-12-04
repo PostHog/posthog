@@ -1,14 +1,14 @@
-// NOTE: We do not actually use Tailwind but having this file allows
-// Tailwind-supporting IDEs to autocomplete classnames, most of which we follow by convention
-
-// NOTE: Currently this has to be manually synced wit ./frontend/styles/vars.scss
+/** @type {import('tailwindcss').Config} */
 module.exports = {
-    content: ['./frontend/public/**/*.html', './frontend/src/**/*.{jsx,tsx}'],
+    content: ['./frontend/src/**/*.tsx', './frontend/src/index.html'], // Avoiding analysis of .ts files for performance
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
+        },
+        fontFamily: {
+          // TODO
         },
         extend: {
             screens: {
