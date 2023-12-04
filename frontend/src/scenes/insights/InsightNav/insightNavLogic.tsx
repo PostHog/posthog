@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -209,7 +210,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 if (view === InsightType.JSON) {
                     actions.setQuery(TotalEventsTable)
                 } else if (view === InsightType.SQL) {
-                    actions.setQuery(examples.HogQLTable)
+                    const biVizFlag = Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ])
+                    actions.setQuery(biVizFlag ? examples.DataVisualization : examples.HogQLTable)
                 }
             } else {
                 let query: InsightVizNode

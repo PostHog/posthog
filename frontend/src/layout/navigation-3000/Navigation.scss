@@ -78,7 +78,7 @@
         background: var(--accent-3000);
 
         .LemonButton__chrome {
-            padding: 0.25rem !important;
+            --lemon-button-padding-horizontal: 0.25rem !important;
         }
 
         ul {
@@ -87,10 +87,6 @@
 
         ul + ul {
             border-top-width: 1px;
-        }
-
-        li + li {
-            margin-top: -1px;
         }
     }
 }

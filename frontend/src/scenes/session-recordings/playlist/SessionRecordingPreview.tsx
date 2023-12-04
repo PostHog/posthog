@@ -154,11 +154,11 @@ function ActivityIndicators({
             <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
 
             <span
-                title={`Mouse activity: ${recording.mouse_activity_count}`}
+                title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
                 <IconAutocapture />
-                {recording.mouse_activity_count}
+                {recording.click_count}
             </span>
 
             <span

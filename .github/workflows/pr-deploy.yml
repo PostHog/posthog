@@ -35,7 +35,7 @@ jobs:
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
-    
+
             - uses: aws-actions/configure-aws-credentials@v1
               with:
                   aws-region: us-east-1

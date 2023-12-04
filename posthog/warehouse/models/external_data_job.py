@@ -19,4 +19,10 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         null=True, help_text="The latest error that occurred during this run."
     )
 
+    workflow_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
     __repr__ = sane_repr("id")
+
+    @property
+    def folder_path(self) -> str:
+        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")

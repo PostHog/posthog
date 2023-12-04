@@ -1,5 +1,7 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { BarStatus } from 'lib/components/CommandBar/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
@@ -25,7 +27,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -333,10 +335,26 @@ export const sceneLogic = kea<sceneLogicType>([
             window.location.reload()
         },
         locationChanged: () => {
-            // Remove trailing slash
             const {
                 location: { pathname, search, hash },
             } = router.values
+
+            // Open search or command bar
+            const params = new URLSearchParams(search)
+            const searchBar = params.get('searchBar')
+            const commandBar = params.get('commandBar')
+
+            if (searchBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
+                params.delete('searchBar')
+                router.actions.replace(pathname, params, hash)
+            } else if (commandBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
+                params.delete('commandBar')
+                router.actions.replace(pathname, params, hash)
+            }
+
+            // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }

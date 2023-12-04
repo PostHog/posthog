@@ -1171,10 +1171,6 @@ describe('PersonState.update()', () => {
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(0)
-
-            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: illegalId,
-            })
         })
 
         it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
@@ -1189,10 +1185,6 @@ describe('PersonState.update()', () => {
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(0)
-
-            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: illegalId,
-            })
         })
 
         it('stops $create_alias if current distinct_id is illegal', async () => {
@@ -1207,10 +1199,6 @@ describe('PersonState.update()', () => {
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(0)
-
-            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: 'false',
-            })
         })
 
         it('stops $create_alias if alias is illegal', async () => {
@@ -1225,8 +1213,6 @@ describe('PersonState.update()', () => {
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(0)
-
-            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', { distinctId: 'null' })
         })
     })
 
