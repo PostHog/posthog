@@ -75,17 +75,16 @@ class ValidateSchemaInputs:
 
 
 @activity.defn
-async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
-    is_valid = await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
+    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
         run_id=inputs.run_id,
+        team_id=inputs.team_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         f"Validated schema for external data job {inputs.run_id}",
     )
-
-    return is_valid
 
 
 @dataclasses.dataclass

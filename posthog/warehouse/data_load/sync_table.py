@@ -1,4 +1,3 @@
-import structlog
 from django.conf import settings
 from django.db.models import Q
 
@@ -7,9 +6,9 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
 )
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 import s3fs
-
-logger = structlog.get_logger(__name__)
+from asgiref.sync import async_to_sync
 
 
 class SchemaValidationError(Exception):
@@ -37,7 +36,9 @@ def get_s3_client():
 
 
 # TODO: make async
-def validate_schema_and_update_table(run_id: str) -> None:
+def validate_schema_and_update_table(run_id: str, team_id: int) -> None:
+    logger = async_to_sync(bind_temporal_worker_logger)(team_id=team_id)
+
     job = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job = get_latest_run_if_exists(job.team_id, job.pipeline_id)
     s3 = get_s3_client()
@@ -107,5 +108,3 @@ def validate_schema_and_update_table(run_id: str) -> None:
                 exc_info=e,
             )
             pass
-
-    return True
