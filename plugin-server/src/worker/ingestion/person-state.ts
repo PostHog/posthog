@@ -789,7 +789,7 @@ export class DeferredPersonOverrideWriter {
             }
 
             // n.b.: We publish the messages here (and wait for acks) to ensure
-            // that all of our override updates are sent to Kafka before
+            // that all of our override updates are sent to Kafka
             // prior to committing the transaction. If we're unable to publish,
             // we should discard updates and try again later when it's available
             await kafkaProducer.queueMessages(messages, true)
