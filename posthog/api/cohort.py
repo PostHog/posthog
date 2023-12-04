@@ -139,7 +139,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
-            insert_cohort_from_query(cohort.pk, validated_data["query"], self.context["team_id"])
+            insert_cohort_from_query.delay(cohort.pk, validated_data["query"], self.context["team_id"])
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
