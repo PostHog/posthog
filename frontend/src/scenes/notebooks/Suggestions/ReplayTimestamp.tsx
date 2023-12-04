@@ -38,7 +38,8 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
             <LemonButton
                 size="small"
                 noPadding
-                type="secondary"
+                type="tertiary"
+                active
                 status="primary-alt"
                 onClick={() => insertTimestamp({ previousNode, editor })}
             >
