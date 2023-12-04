@@ -19,15 +19,13 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
 
     return (
         <div
-            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-r-2 ${
+            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-l-2 ${
                 isActive ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
-            }`}
+            } ${tab === Tab.All ? 'h-9' : ''}`}
             onClick={() => {
                 setActiveTab(tab)
                 inputRef.current?.focus()
             }}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={tab === Tab.All ? { height: 37 } : {}}
         >
             {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
             <Count tab={tab} />
