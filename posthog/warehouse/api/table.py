@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List
 
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
@@ -35,7 +35,6 @@ class TableSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
-    url_pattern = serializers.SerializerMethodField(read_only=True)
     external_data_source = ExternalDataSourceSerializers(read_only=True)
 
     class Meta:
@@ -53,9 +52,6 @@ class TableSerializer(serializers.ModelSerializer):
             "external_data_source",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source"]
-
-    def get_url_pattern(self, table: DataWarehouseTable) -> Optional[str]:
-        return None if table.external_data_source_id else table.url_pattern
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)
