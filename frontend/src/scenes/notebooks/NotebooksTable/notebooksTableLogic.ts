@@ -94,19 +94,10 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        setFilters: () => {
-            actions.loadNotebooks()
-        },
-        setSortValue: (value) => {
-            actions.loadNotebooks()
-        },
-        setPage: () => {
-            actions.loadNotebooks()
-        },
-        deleteNotebookSuccess: () => {
-            // TODO at some point this will be slow enough it makes sense to patch the in-memory list but for simplicity...
-            actions.loadNotebooks()
-        },
+        setFilters: () => actions.loadNotebooks(),
+        setSortValue: () => actions.loadNotebooks(),
+        setPage: () => actions.loadNotebooks(),
+        deleteNotebookSuccess: () => actions.loadNotebooks(),
     })),
     selectors(({ actions }) => ({
         notebooksAndTemplates: [
