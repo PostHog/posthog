@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
@@ -54,7 +54,7 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source"]
 
-    def get_url_pattern(self, table: DataWarehouseTable) -> str:
+    def get_url_pattern(self, table: DataWarehouseTable) -> Optional[str]:
         return None if table.external_data_source_id else table.url_pattern
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
