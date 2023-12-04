@@ -7,7 +7,6 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { Field, PureField } from 'lib/forms/Field'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -17,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { PrevalidatedInvite } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
@@ -191,9 +191,9 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
+    const { is3000 } = useValues(themeLogic)
     const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     return (
         <BridgePage
