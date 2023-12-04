@@ -499,16 +499,24 @@ pub type PgQueueResult<T> = std::result::Result<T, PgQueueError>;
 
 impl PgQueue {
     /// Initialize a new PgQueue backed by table in PostgreSQL.
+    ///
+    /// # Arguments
+    ///
+    /// * `queue_name`: A name for the queue we are going to initialize.
+    /// * `table_name`: The name for the table the queue will use in PostgreSQL.
+    /// * `url`: A URL pointing to where the PostgreSQL database is hosted.
+    /// * `worker_name`: The name of the worker that is operating with this queue.
+    /// * `retry_policy`: A retry policy to pass to jobs from this queue.
     pub async fn new(
-        name: &str,
-        table: &str,
+        queue_name: &str,
+        table_name: &str,
         url: &str,
-        worker: &str,
+        worker_name: &str,
         retry_policy: RetryPolicy,
     ) -> PgQueueResult<Self> {
-        let name = name.to_owned();
-        let table = table.to_owned();
-        let worker = worker.to_owned();
+        let name = queue_name.to_owned();
+        let table = table_name.to_owned();
+        let worker = worker_name.to_owned();
         let pool = PgPoolOptions::new()
             .connect(url)
             .await
