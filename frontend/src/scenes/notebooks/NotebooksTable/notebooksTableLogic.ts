@@ -2,7 +2,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -82,7 +82,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                         search: values.filters?.search || undefined,
                         order: values.sortValue
                             ? `${values.sortValue.order === -1 ? '-' : ''}${values.sortValue.columnKey}`
-                            : '-created_at',
+                            : '-last_modified_at',
                         limit: RESULTS_PER_PAGE,
                         offset: (values.page - 1) * RESULTS_PER_PAGE,
                     })
