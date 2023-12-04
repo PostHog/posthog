@@ -16,7 +16,7 @@ async fn main() {
     let app = handlers::router();
 
     match listen(app).await {
-        Ok(_) => {},
-        Err(e) => tracing::error!("failed to start hook-producer http server, {}", e)
+        Ok(_) => {}
+        Err(e) => tracing::error!("failed to start hook-producer http server, {}", e),
     }
 }
