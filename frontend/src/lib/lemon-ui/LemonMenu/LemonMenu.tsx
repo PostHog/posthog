@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 
 import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
@@ -128,10 +127,10 @@ export interface LemonMenuOverlayProps {
 }
 
 export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { is3000 } = useValues(themeLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
 
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
+    const buttonSize = is3000 ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
