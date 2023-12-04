@@ -6,6 +6,7 @@ import {
     ActionsNode,
     DatabaseSchemaQuery,
     DataTableNode,
+    DataVisualizationNode,
     DateRange,
     EventsNode,
     EventsQuery,
@@ -67,6 +68,7 @@ export function isNodeWithSource(
 
     return (
         isDataTableNode(node) ||
+        isDataVisualizationNode(node) ||
         isInsightVizNode(node) ||
         isTimeToSeeDataWaterfallNode(node) ||
         isTimeToSeeDataJSONNode(node)
@@ -95,6 +97,10 @@ export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isDataVisualizationNode(node?: Node | null): node is DataVisualizationNode {
+    return node?.kind === NodeKind.DataVisualizationNode
 }
 
 export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {

@@ -92,13 +92,8 @@ export function upgradeExportEvents(
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         meta: PluginMeta<ExportEventsUpgrade>
     ) => {
-        const start = new Date()
         try {
             await methods.exportEvents?.(payload.batch)
-            hub.statsd?.timing('plugin.export_events.success', start, {
-                plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: pluginConfig.team_id.toString(),
-            })
             await hub.appMetrics.queueMetric({
                 teamId: pluginConfig.team_id,
                 pluginConfigId: pluginConfig.id,

@@ -1,9 +1,11 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -23,7 +25,7 @@ type SearchResultProps = {
 }
 
 export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { isAutoScrolling } = useValues(searchBarLogic)
+    const { isAutoScrolling, aggregationLabel } = useValues(searchBarLogic)
     const { onMouseEnterResult, onMouseLeaveResult, openResult, setIsAutoScrolling } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
@@ -69,7 +71,11 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">{tabToName[result.type]}</span>
+                <span className="text-muted-3000 text-xs">
+                    {result.type !== 'group'
+                        ? tabToName[result.type]
+                        : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                </span>
                 <span className="text-text-3000 font-bold">
                     <ResultName result={result} />
                 </span>
@@ -116,6 +122,8 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
         return <span>{extra_fields.key}</span>
     } else if (type === 'notebook') {
         return <span>{extra_fields.title}</span>
+    } else if (type === 'group') {
+        return <span>{groupDisplayId(extra_fields.group_key, extra_fields.group_properties)}</span>
     } else {
         return <span>{extra_fields.name}</span>
     }

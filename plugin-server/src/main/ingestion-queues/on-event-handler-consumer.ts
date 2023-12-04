@@ -37,10 +37,6 @@ export const startAsyncOnEventHandlerConsumer = async ({
 
     await queue.start()
 
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
-
     const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
     return { queue, isHealthy: () => isHealthy() }
