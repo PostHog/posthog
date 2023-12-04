@@ -44,7 +44,14 @@ def sync_external_data_job_workflow(external_data_source: ExternalDataSource, cr
             id=str(external_data_source.pk),
             task_queue=DATA_WAREHOUSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=24))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(hours=24), offset=timedelta(hours=external_data_source.created_at.hour)
+                )
+            ],
+            jitter=timedelta(hours=2),
+        ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_source.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.CANCEL_OTHER),
     )
