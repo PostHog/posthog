@@ -25,7 +25,17 @@ def create_action(**kwargs):
     return action
 
 
-class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
+class TestLifecycleBase(ClickhouseTestMixin, APIBaseTest):
+    def assertLifecycleResults(self, results, expected):
+        sorted_results = [
+            {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
+        ]
+        sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
+
+        self.assertListEqual(sorted_results, sorted_expected)
+
+
+class TestLifecycle(TestLifecycleBase):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -930,11 +940,3 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-
-    def assertLifecycleResults(self, results, expected):
-        sorted_results = [
-            {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
-        ]
-        sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
-
-        self.assertListEqual(sorted_results, sorted_expected)
