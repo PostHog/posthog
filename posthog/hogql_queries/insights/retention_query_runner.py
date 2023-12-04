@@ -6,21 +6,18 @@ from typing import Optional
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.caching.utils import is_stale
 from posthog.constants import (
-    PAGEVIEW_EVENT,
-    TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
     RetentionQueryType,
 )
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import property_to_expr, entity_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
-from posthog.models.action.util import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
@@ -95,10 +92,9 @@ class RetentionQueryRunner(QueryRunner):
             )
 
         event_filters = [
-            self.entity_to_expr(
+            entity_to_expr(
                 entity=self.target_entity
-                if event_query_type == RetentionQueryType.TARGET
-                or event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]
                 else self.returning_entity
             )
         ]
@@ -139,26 +135,6 @@ class RetentionQueryRunner(QueryRunner):
             )
 
         return result
-
-    def entity_to_expr(self, entity: dict) -> ast.Expr:
-        if entity["type"] == TREND_FILTER_TYPE_ACTIONS and entity["id"] is not None:
-            action = Action.objects.get(pk=entity["id"])
-            return action_to_expr(action)
-        elif entity["type"] == TREND_FILTER_TYPE_EVENTS:
-            if entity["id"] is None:
-                return ast.Constant(value=True)
-
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["events", "event"]),
-                right=ast.Constant(value=entity["id"]),
-            )
-
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=PAGEVIEW_EVENT),
-        )
 
     def date_filter_expr(self, event_query_type) -> ast.Expr:
         field_to_compare = (
