@@ -335,7 +335,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         instance = self.get_object()
         serializer = self.get_serializer(instance)
 
-        if request.headers.get("If-None-Match") == str(instance.version):
+        if str(request.headers.get("If-None-Match")) == str(instance.version):
             return Response(None, 304)
 
         return Response(serializer.data)

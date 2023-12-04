@@ -239,7 +239,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
-            headers={"If-None-Match": response.json()["version"]},
+            HTTP_IF_NONE_MATCH=response.json()["version"],
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
