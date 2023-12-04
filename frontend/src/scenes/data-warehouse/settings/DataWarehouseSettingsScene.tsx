@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -112,12 +112,26 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                                                         >
                                                             Reload
                                                         </LemonButton>
+
                                                         <LemonButton
                                                             status="danger"
                                                             data-attr={`delete-data-warehouse-${source.source_type}`}
                                                             key={`delete-data-warehouse-${source.source_type}`}
                                                             onClick={() => {
-                                                                deleteSource(source)
+                                                                LemonDialog.open({
+                                                                    title: 'Delete data source?',
+                                                                    description:
+                                                                        'Are you sure you want to delete this data source? All related tables will be deleted.',
+
+                                                                    primaryButton: {
+                                                                        children: 'Delete',
+                                                                        status: 'danger',
+                                                                        onClick: () => deleteSource(source),
+                                                                    },
+                                                                    secondaryButton: {
+                                                                        children: 'Cancel',
+                                                                    },
+                                                                })
                                                             }}
                                                         >
                                                             Delete
