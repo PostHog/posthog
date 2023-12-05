@@ -105,9 +105,9 @@ export const SidePanelWelcome = (): JSX.Element => {
                         👋 <span className="opacity-75">Say hello to</span>
                         <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
                     </h1>
-                    <p className="max-w-120 text-sm font-medium mb-3 opacity-75">We're past zero to one.</p>
-                    <p className="max-w-40 text-sm font-medium mb-3 opacity-75">
-                        It's time to go from one to 3000. And this is just the beginning...
+                    <p className="text-sm font-medium mb-3 opacity-75">We're past 0 to 1.</p>
+                    <p className="text-sm font-medium mb-3 opacity-75" style={{ maxWidth: 'calc(50% - 1rem)' }}>
+                        It's time to go from 1 to&nbsp;3000. And&nbsp;this is just the&nbsp;beginning…
                     </p>
                     <div className="flex">
                         <LemonButton
