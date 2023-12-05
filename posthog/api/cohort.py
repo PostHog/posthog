@@ -139,7 +139,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
-            insert_cohort_from_query.delay(cohort.pk, validated_data["query"], self.context["team_id"])
+            insert_cohort_from_query.delay(cohort.pk)
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -489,6 +489,12 @@ def insert_cohort_people_into_pg(cohort: Cohort):
     cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
 
 
+def insert_cohort_query_actors_into_ch(cohort: Cohort):
+    context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
+    query = print_cohort_hogql_query(cohort, context)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context)
+
+
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     from_existing_cohort_id = filter_data.get("from_cohort_id")
     context: HogQLContext
@@ -508,10 +514,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
         insert_actors_into_cohort_by_query(cohort, query, params, context)
-    elif cohort.query is not None:
-        context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
-        query = print_cohort_hogql_query(cohort, context)
-        insert_actors_into_cohort_by_query(cohort, query, {}, context)
     else:
         insight_type = filter_data.get("insight")
         query_builder: ActorBaseQuery
