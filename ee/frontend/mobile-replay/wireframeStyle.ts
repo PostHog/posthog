@@ -70,13 +70,16 @@ export function makePositionStyles(wireframe: wireframe): string {
     if (isNumber(wireframe.height)) {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
-    if (isNumber(wireframe.x) || isNumber(wireframe.y)) {
+
+    const posX = wireframe.x || 0
+    const posY = wireframe.y || 0
+    if (isNumber(posX) || isNumber(posY)) {
         styles += `position: fixed;`
-        if (isNumber(wireframe.x)) {
-            styles += `left: ${ensureUnit(wireframe.x)};`
+        if (isNumber(posX)) {
+            styles += `left: ${ensureUnit(posX)};`
         }
-        if (isNumber(wireframe.y)) {
-            styles += `top: ${ensureUnit(wireframe.y)};`
+        if (isNumber(posY)) {
+            styles += `top: ${ensureUnit(posY)};`
         }
     }
     return styles
