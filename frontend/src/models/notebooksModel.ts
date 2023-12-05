@@ -28,7 +28,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget,
-    focus: EditorFocusPosition | undefined = undefined,
+    autofocus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
@@ -36,7 +36,7 @@ export const openNotebook = async (
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
-        notebookPanelLogic.actions.selectNotebook(notebookId, focus)
+        notebookPanelLogic.actions.selectNotebook(notebookId, { autofocus })
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
             router.actions.replace(urls.notebook(notebookId))
@@ -122,8 +122,6 @@ export const notebooksModel = kea<notebooksModelType>([
                         object: { name: title || shortId, id: shortId },
                         callback: actions.loadNotebooks,
                     })
-
-                    notebookPanelLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },

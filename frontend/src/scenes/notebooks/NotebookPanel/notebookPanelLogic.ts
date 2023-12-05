@@ -4,6 +4,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { notebooksModel, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookNodeResource, SidePanelTab } from '~/types'
 
 import { EditorFocusPosition } from '../Notebook/utils'
@@ -26,10 +27,15 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             ['openSidePanel', 'closeSidePanel'],
             notebookPopoverLogic,
             ['setPopoverVisibility'],
+            notebooksModel,
+            ['deleteNotebook'],
         ],
     }),
     actions({
-        selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
+        selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
+            id,
+            ...options,
+        }),
         startDropMode: true,
         endDropMode: true,
         setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
@@ -108,6 +114,9 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
 
     listeners(({ cache, actions, values }) => ({
         selectNotebook: (options) => {
+            if (options.silent) {
+                return
+            }
             if (!values.is3000) {
                 actions.setPopoverVisibility('visible')
                 notebookPopoverLogic.actions.selectNotebook(options.id, options.autofocus)
@@ -176,6 +185,12 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                 }
             }
             window.removeEventListener('drag', cache.dragListener)
+        },
+
+        deleteNotebook: async ({ shortId }) => {
+            if (values.selectedNotebook === shortId) {
+                actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id, { silent: true })
+            }
         },
     })),
 ])
