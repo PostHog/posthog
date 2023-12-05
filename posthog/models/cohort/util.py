@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
@@ -75,7 +76,9 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
 
     persons_query = cast(Dict, cohort.query)
     persons_query["select"] = ["id as actor_id"]
-    query = get_query_runner(persons_query, team=cast(Team, cohort.team)).to_query()
+    query = get_query_runner(
+        persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+    ).to_query()
     hogql_context.enable_select_queries = True
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 

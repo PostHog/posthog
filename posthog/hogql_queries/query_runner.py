@@ -217,7 +217,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key() + ("_export" if self.limit_context == LimitContext.EXPORT else "")
+        cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
