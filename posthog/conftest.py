@@ -14,6 +14,7 @@ def create_clickhouse_tables(num_tables: int):
     from posthog.clickhouse.schema import (
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
+        CREATE_DATA_QUERIES,
         build_query,
     )
 
@@ -26,6 +27,9 @@ def create_clickhouse_tables(num_tables: int):
 
     queries = list(map(build_query, CREATE_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(queries)
+
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(data_queries)
 
 
 def reset_clickhouse_tables():
@@ -51,6 +55,7 @@ def reset_clickhouse_tables():
     from posthog.session_recordings.sql.session_recording_event_sql import (
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
     )
+    from posthog.models.channel_type.sql import TRUNCATE_GA4_CHANNEL_DEFINITION_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
@@ -66,6 +71,7 @@ def reset_clickhouse_tables():
         TRUNCATE_GROUPS_TABLE_SQL,
         TRUNCATE_APP_METRICS_TABLE_SQL,
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
+        TRUNCATE_GA4_CHANNEL_DEFINITION_TABLE_SQL,
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)

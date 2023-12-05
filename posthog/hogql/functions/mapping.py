@@ -568,6 +568,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    # dict
+    "dictGet": HogQLFunctionMeta("dictGet", 3, 3),
+    "dictGetOrNull": HogQLFunctionMeta("dictGetOrNull", 3, 3),
+    "dictGetOrDefault": HogQLFunctionMeta("dictGetOrDefault", 4, 4),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
