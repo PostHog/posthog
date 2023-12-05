@@ -12,6 +12,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import clsx from 'clsx'
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -19,7 +20,7 @@ export const LineGraph = (): JSX.Element => {
     const colors = getGraphColors(isDarkModeOn)
 
     const vizLogic = useMountedLogic(dataVisualizationLogic)
-    const { xData, yData } = useValues(vizLogic)
+    const { xData, yData, presetChartHeight } = useValues(vizLogic)
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -136,7 +137,11 @@ export const LineGraph = (): JSX.Element => {
     }, [xData, yData])
 
     return (
-        <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
+        <div
+            className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                DataVisualization__LineGraph: presetChartHeight,
+            })}
+        >
             <div className="flex flex-1 w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>
