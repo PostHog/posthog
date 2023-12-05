@@ -54,7 +54,7 @@ export function StaffUsersTab(): JSX.Element {
                         data-attr="invite-delete"
                         icon={<IconDelete />}
                         status="danger"
-                        disabled={staffUsers.length < 2}
+                        disabledReason={staffUsers.length < 2 && 'At least one staff user must remain'}
                         title={
                             staffUsers.length < 2
                                 ? 'You should always have at least one staff user.'

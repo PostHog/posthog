@@ -51,9 +51,9 @@ class TrendsQueryRunner(QueryRunner):
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
-        in_export_context: Optional[bool] = None,
+        limit_context: Optional[bool] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
