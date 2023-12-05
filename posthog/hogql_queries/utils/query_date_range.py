@@ -5,7 +5,6 @@ from typing import Literal, Optional, Dict, List
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-from pydantic_core._pydantic_core import ValidationError
 
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.errors import HogQLException
@@ -265,7 +264,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         }
 
         if period.lower() not in period_map:
-            raise ValidationError(f"Period {period} is unsupported.")
+            raise ValueError(f"Period {period} is unsupported.")
 
         return period_map[period.lower()] * total_intervals
 
