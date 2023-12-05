@@ -74,7 +74,7 @@ function CreateKeyModal({
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
     const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     useEffect(() => loadKeys(), [])
 
