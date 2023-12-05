@@ -12,7 +12,7 @@ import { ReplayTabs } from '~/types'
 import recording_playlists from './__mocks__/recording_playlists.json'
 
 const meta: Meta = {
-    title: 'Scenes-App/Recordings',
+    title: 'Replay/Listings',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

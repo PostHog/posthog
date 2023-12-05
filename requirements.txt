@@ -9,7 +9,6 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
-    #   aiobotocore
     #   s3fs
 aiohttp==3.9.0
     # via
@@ -243,7 +242,6 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -400,7 +398,7 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.12
+psycopg==3.1.13
     # via -r requirements.in
 psycopg2-binary==2.9.7
     # via -r requirements.in

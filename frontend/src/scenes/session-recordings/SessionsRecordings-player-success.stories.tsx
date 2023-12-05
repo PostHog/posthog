@@ -13,7 +13,7 @@ import recording_playlists from './__mocks__/recording_playlists.json'
 import recordings from './__mocks__/recordings.json'
 
 const meta: Meta = {
-    title: 'Scenes-App/Recordings',
+    title: 'Replay/Player/Success',
     tags: ['test-skip'], // TODO: Fix the flakey rendering due to player playback
     parameters: {
         layout: 'fullscreen',
@@ -89,7 +89,6 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {

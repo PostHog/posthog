@@ -1,15 +1,11 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 
 import { query } from '~/queries/query'
-import { DatabaseSchemaQuery, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
-
-export interface DatabaseTableListRow {
-    name: string
-    columns: DatabaseSchemaQueryResponseField[]
-}
 
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),

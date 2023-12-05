@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { RefObject } from 'react'
 
 import { Tab, tabToName } from './constants'
@@ -11,22 +12,22 @@ type SearchBarTabProps = {
 }
 
 export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element => {
-    const { activeTab } = useValues(searchBarLogic)
+    const { activeTab, aggregationLabel } = useValues(searchBarLogic)
     const { setActiveTab } = useActions(searchBarLogic)
 
     const isActive = tab === activeTab
 
     return (
         <div
-            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-t-2 ${
+            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-l-2 ${
                 isActive ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
-            }`}
+            } ${tab === Tab.All ? 'h-9' : ''}`}
             onClick={() => {
                 setActiveTab(tab)
                 inputRef.current?.focus()
             }}
         >
-            {tabToName[tab]}
+            {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
             <Count tab={tab} />
         </div>
     )
@@ -39,16 +40,15 @@ type CountProps = {
 const Count = ({ tab }: CountProps): JSX.Element | null => {
     const { activeTab, tabsCount, tabsLoading } = useValues(searchBarLogic)
 
-    // TODO: replace todo with condition that time since search start > 1s
-    const isActive = tab === activeTab || true
+    const isLoading = tabsLoading.length > 0
 
-    if (tab === Tab.All) {
-        return null
-    } else if (isActive && tabsLoading.includes(tab)) {
+    if (isLoading && tab === Tab.All && activeTab === Tab.All) {
         return <Spinner className="ml-0.5" />
-    } else if (tabsCount[tab] != null) {
+    } else if (tabsLoading.includes(tab) && activeTab !== Tab.All) {
+        return <Spinner className="ml-0.5" />
+    } else if (!isLoading && tabsCount[tab] != null) {
         return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
     } else {
-        return <span className="ml-1 text-xxs text-muted-3000">&mdash;</span>
+        return null
     }
 }

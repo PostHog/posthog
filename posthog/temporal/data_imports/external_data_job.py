@@ -9,24 +9,18 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import AsyncHeartbeatDetails
-from posthog.warehouse.data_load.pipeline import (
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
-    SourceSchema,
-    move_draft_to_production,
 )
-from posthog.warehouse.data_load.sync_table import (
-    SchemaValidationError,
-    is_schema_valid,
-)
+from posthog.warehouse.data_load.sync_table import SchemaValidationError, validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
-    get_external_data_source,
+    get_external_data_job,
     update_external_job_status,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 @dataclasses.dataclass
@@ -40,6 +34,12 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     run = await sync_to_async(create_external_data_job)(  # type: ignore
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
+        workflow_id=activity.info().workflow_id,
+    )
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    logger.info(
+        f"Created external data job with for external data source {inputs.external_data_source_id}",
     )
 
     return str(run.id)
@@ -48,6 +48,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     id: str
+    team_id: int
     run_id: str
     status: str
     latest_error: str | None
@@ -59,73 +60,77 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
+        team_id=inputs.team_id,
+    )
+
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    logger.info(
+        f"Updated external data job with for external data source {inputs.run_id} to status {inputs.status}",
     )
 
 
 @dataclasses.dataclass
 class ValidateSchemaInputs:
-    source_schemas: list[SourceSchema]
-    external_data_source_id: str
-    create: bool
+    run_id: str
+    team_id: int
 
 
 @activity.defn
-async def validate_schema_activity(inputs: ValidateSchemaInputs) -> bool:
-    return await sync_to_async(is_schema_valid)(  # type: ignore
-        source_schemas=inputs.source_schemas,
-        external_data_source_id=inputs.external_data_source_id,
-        create=inputs.create,
+async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
+    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+        run_id=inputs.run_id,
+        team_id=inputs.team_id,
+    )
+
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    logger.info(
+        f"Validated schema for external data job {inputs.run_id}",
     )
 
 
 @dataclasses.dataclass
-class MoveDraftToProductionExternalDataJobInputs:
+class ExternalDataWorkflowInputs:
     team_id: int
     external_data_source_id: str
-
-
-@activity.defn
-async def move_draft_to_production_activity(inputs: MoveDraftToProductionExternalDataJobInputs) -> None:
-    await sync_to_async(move_draft_to_production)(  # type: ignore
-        team_id=inputs.team_id,
-        external_data_source_id=inputs.external_data_source_id,
-    )
 
 
 @dataclasses.dataclass
 class ExternalDataJobInputs:
     team_id: int
-    external_data_source_id: str
+    run_id: str
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> list[SourceSchema]:
-    model: ExternalDataSource = await sync_to_async(get_external_data_source)(  # type: ignore
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
+    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
         team_id=inputs.team_id,
-        external_data_source_id=inputs.external_data_source_id,
+        run_id=inputs.run_id,
     )
 
-    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.source_type](
-        team_id=inputs.team_id, job_type=model.source_type, dataset_name=model.draft_folder_path, **model.job_inputs
+    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.pipeline.source_type](
+        run_id=inputs.run_id,
+        team_id=inputs.team_id,
+        job_type=model.pipeline.source_type,
+        dataset_name=model.folder_path,
+        **model.pipeline.job_inputs,
     )
-    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.source_type]
+    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.pipeline.source_type]
 
-    heartbeat_details = AsyncHeartbeatDetails()
-    func = heartbeat_details.make_activity_heartbeat_while_running(job_fn, dt.timedelta(seconds=10))
-
-    return await func(job_inputs)
+    await job_fn(job_inputs)
 
 
 # TODO: update retry policies
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> ExternalDataJobInputs:
+    def parse_inputs(inputs: list[str]) -> ExternalDataWorkflowInputs:
         loaded = json.loads(inputs[0])
-        return ExternalDataJobInputs(**loaded)
+        return ExternalDataWorkflowInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: ExternalDataJobInputs):
+    async def run(self, inputs: ExternalDataWorkflowInputs):
+        logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
         # create external data job and trigger activity
         create_external_data_job_inputs = CreateExternalDataJobInputs(
             team_id=inputs.team_id,
@@ -145,45 +150,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None
+            id=run_id, run_id=run_id, status=ExternalDataJob.Status.COMPLETED, latest_error=None, team_id=inputs.team_id
         )
 
         try:
+            job_inputs = ExternalDataJobInputs(
+                team_id=inputs.team_id,
+                run_id=run_id,
+            )
+
             # TODO: can make this a child workflow for separate worker pool
-            source_schemas = await workflow.execute_activity(
+            await workflow.execute_activity(
                 run_external_data_job,
-                inputs,
-                start_to_close_timeout=dt.timedelta(minutes=60),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                job_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=120),
+                retry_policy=RetryPolicy(maximum_attempts=10),
+                heartbeat_timeout=dt.timedelta(seconds=60),
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(
-                source_schemas=source_schemas, external_data_source_id=inputs.external_data_source_id, create=False
-            )
+            validate_inputs = ValidateSchemaInputs(run_id=run_id, team_id=inputs.team_id)
 
-            await workflow.execute_activity(
-                validate_schema_activity,
-                validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            move_inputs = MoveDraftToProductionExternalDataJobInputs(
-                team_id=inputs.team_id,
-                external_data_source_id=inputs.external_data_source_id,
-            )
-
-            await workflow.execute_activity(
-                move_draft_to_production_activity,
-                move_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            # if not errors, then create the schema
-            validate_inputs.create = True
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
@@ -196,14 +183,20 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
                 update_inputs.status = ExternalDataJob.Status.FAILED
-
+            logger.error(
+                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
+            )
             update_inputs.latest_error = str(e.cause)
             raise
         except SchemaValidationError as e:
+            logger.error(f"Schema validation failed for external data source {inputs.external_data_source_id}")
             update_inputs.latest_error = str(e)
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
-        except Exception:
+        except Exception as e:
+            logger.error(
+                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e}"
+            )
             # Catch all
             update_inputs.latest_error = "An unexpected error has ocurred"
             update_inputs.status = ExternalDataJob.Status.FAILED
@@ -217,6 +210,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
                 ),
             )

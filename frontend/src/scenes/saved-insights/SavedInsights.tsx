@@ -205,6 +205,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.DataVisualizationNode]: {
+        name: 'Data visualization',
+        description: 'Slice and dice your data in a table or chart',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',

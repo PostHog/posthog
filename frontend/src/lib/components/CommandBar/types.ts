@@ -1,4 +1,4 @@
-import { PersonType, SearchableEntity, SearchResultType } from '~/types'
+import { Group, PersonType, SearchableEntity, SearchResultType } from '~/types'
 
 export enum BarStatus {
     HIDDEN = 'hidden',
@@ -16,4 +16,11 @@ export type PersonResult = {
     rank: number
 }
 
-export type SearchResult = SearchResultType | PersonResult
+export type GroupResult = {
+    type: 'group'
+    result_id: string
+    extra_fields: Group
+    rank: number
+}
+
+export type SearchResult = SearchResultType | PersonResult | GroupResult

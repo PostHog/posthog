@@ -115,6 +115,11 @@ def events_column_config_default() -> Dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+class ThemeMode(models.TextChoices):
+    LIGHT = "light", "Light"
+    DARK = "dark", "Dark"
+
+
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
@@ -140,6 +145,7 @@ class User(AbstractUser, UUIDClassicModel):
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
     partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)

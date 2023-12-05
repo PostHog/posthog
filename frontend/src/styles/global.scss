@@ -534,6 +534,7 @@ body {
     --bg-table: var(--bg-light);
     --link: var(--primary-3000);
     --tooltip-bg: var(--bg-charcoal);
+    --data-color-1-hover: #1d4affe5;
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
@@ -547,6 +548,8 @@ body {
 
     &.posthog-3000 {
         --shadow-elevation: var(--shadow-elevation-3000);
+        --primary: var(--primary-3000);
+        --primary-highlight: var(--primary-3000-highlight);
 
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
         background: var(--bg-3000);

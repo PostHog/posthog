@@ -220,10 +220,6 @@ export function addHistoricalEventsExportCapabilityV2(
             createLog(`Starting export ${dateFrom} - ${dateTo}. id=${id}, parallelism=${parallelism}`, {
                 type: PluginLogEntryType.Info,
             })
-            hub.statsd?.increment('historical_export.started', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-            })
 
             await coordinateHistoricalExport()
         },
@@ -300,10 +296,6 @@ export function addHistoricalEventsExportCapabilityV2(
                         )} seems inactive, restarting!`,
                         { type: PluginLogEntryType.Debug }
                     )
-                    hub.statsd?.increment('historical_export.chunks_resumed', {
-                        teamId: pluginConfig.team_id.toString(),
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                    })
                     await startChunk(payload, payload.progress)
                 })
             )
@@ -488,10 +480,6 @@ export function addHistoricalEventsExportCapabilityV2(
                     successes: payload.retriesPerformedSoFar == 0 ? events.length : 0,
                     successesOnRetry: payload.retriesPerformedSoFar == 0 ? 0 : events.length,
                 })
-                hub.statsd?.increment('historical_export.chunks_success', {
-                    teamId: pluginConfig.team_id.toString(),
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                })
             } catch (error) {
                 clearInterval(interval)
 
@@ -533,11 +521,6 @@ export function addHistoricalEventsExportCapabilityV2(
                     type: PluginLogEntryType.Warn,
                 }
             )
-            hub.statsd?.increment('historical_export.chunks_error', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-                retriable: 'true',
-            })
 
             await meta.jobs
                 .exportHistoricalEventsV2({
@@ -556,11 +539,6 @@ export function addHistoricalEventsExportCapabilityV2(
                 await stopExport(params, `exportEvents returned unknown error, stopping export. error=${error}`, 'fail')
                 await processError(hub, pluginConfig, error)
             }
-            hub.statsd?.increment('historical_export.chunks_error', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-                retriable: 'false',
-            })
             await hub.appMetrics.queueError(
                 {
                     teamId: pluginConfig.team_id,
@@ -594,10 +572,6 @@ export function addHistoricalEventsExportCapabilityV2(
                     type: PluginLogEntryType.Warn,
                 }
             )
-            hub.statsd?.increment('historical_export.fetch_fail', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-            })
 
             await meta.jobs
                 .exportHistoricalEventsV2({
@@ -616,11 +590,6 @@ export function addHistoricalEventsExportCapabilityV2(
                 await processError(hub, pluginConfig, error)
                 await stopExport(params, 'Failed fetching events. Stopping export - please try again later.', 'fail')
             }
-            hub.statsd?.increment('historical_export.chunks_error', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-                retriable: 'false',
-            })
             await hub.appMetrics.queueError(
                 {
                     teamId: pluginConfig.team_id,
@@ -664,11 +633,6 @@ export function addHistoricalEventsExportCapabilityV2(
 
         createLog(message, {
             type: status === 'success' ? PluginLogEntryType.Info : PluginLogEntryType.Error,
-        })
-
-        hub.statsd?.increment(`historical_export.${status}`, {
-            teamId: pluginConfig.team_id.toString(),
-            plugin: pluginConfig.plugin?.name ?? '?',
         })
     }
 
