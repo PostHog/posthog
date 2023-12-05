@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+const config = {
     // Avoiding analysis of .ts files for performance (and we shouldn't have .js(x) anywhere!)
     content: ['./frontend/src/**/*.tsx', './ee/frontend/**/*.tsx', './frontend/src/index.html'],
     theme: {
@@ -20,7 +20,7 @@ module.exports = {
                 xl: '1200px',
                 '2xl': '1600px',
             },
-            spacing: {
+            width: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
                 18: '4.5rem',
@@ -40,3 +40,10 @@ module.exports = {
     },
     plugins: [require('@tailwindcss/container-queries')],
 }
+config.theme.extend.maxWidth = config.theme.extend.width
+config.theme.extend.minWidth = config.theme.extend.width
+config.theme.extend.height = config.theme.extend.width
+config.theme.extend.maxHeight = config.theme.extend.width
+config.theme.extend.minHeight = config.theme.extend.width
+
+module.exports = config
