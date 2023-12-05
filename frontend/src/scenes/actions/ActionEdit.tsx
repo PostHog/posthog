@@ -170,6 +170,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 type="primary"
                                 htmlType="submit"
                                 loading={actionLoading}
+                                onClick={submitAction}
                             >
                                 Save
                             </LemonButton>
