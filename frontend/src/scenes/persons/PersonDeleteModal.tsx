@@ -10,7 +10,7 @@ import { asDisplay } from './person-utils'
 export function PersonDeleteModal(): JSX.Element | null {
     const { personDeleteModal } = useValues(personDeleteModalLogic)
     const { deletePerson, showPersonDeleteModal } = useActions(personDeleteModalLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         <LemonModal
