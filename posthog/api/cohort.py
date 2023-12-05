@@ -513,7 +513,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             "version": existing_cohort.version,
         }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
-        insert_actors_into_cohort_by_query(cohort, query, params, context)
     else:
         insight_type = filter_data.get("insight")
         query_builder: ActorBaseQuery
@@ -556,7 +555,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         else:
             query, params = query_builder.actor_query(limit_actors=False)
 
-        insert_actors_into_cohort_by_query(cohort, query, params, context)
+    insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
 def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any], context: HogQLContext):
