@@ -60,20 +60,26 @@
         border-radius: 0;
     }
 
-    &--borderless-rows {
-        tr {
-            border: none !important;
-        }
-    }
-
     &--stealth {
         background: none;
-        border: none;
-        border-radius: 0;
 
-        .LemonTable__content > table > thead {
-            background: none;
-            border: none;
+        .LemonTable__content > table {
+            > thead {
+                border-bottom: none;
+
+                .posthog-3000 & {
+                    background: none;
+                }
+            }
+
+            > thead,
+            > tbody {
+                > tr {
+                    &:not(:first-child) {
+                        border-top: none;
+                    }
+                }
+            }
         }
     }
 
