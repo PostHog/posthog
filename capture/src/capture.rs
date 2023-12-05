@@ -79,12 +79,12 @@ pub async fn event(
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(input.data)
                 .unwrap();
-            RawEvent::from_bytes(&meta, payload.into())
+            RawEvent::from_bytes(payload.into())
         }
         ct => {
             tracing::Span::current().record("content_type", ct);
 
-            RawEvent::from_bytes(&meta, body)
+            RawEvent::from_bytes(body)
         }
     }?;
 
@@ -165,19 +165,6 @@ pub fn process_single_event(
     event: &RawEvent,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
-    let distinct_id = match &event.distinct_id {
-        Some(id) => id,
-        None => match event.properties.get("distinct_id").map(|v| v.as_str()) {
-            Some(Some(id)) => id,
-            _ => return Err(CaptureError::MissingDistinctId),
-        },
-    };
-    // Limit the size of distinct_id to 200 chars
-    let distinct_id: String = match distinct_id.len() {
-        0..=200 => distinct_id.to_owned(),
-        _ => distinct_id.chars().take(200).collect(),
-    };
-
     if event.event.is_empty() {
         return Err(CaptureError::MissingEventName);
     }
@@ -189,7 +176,7 @@ pub fn process_single_event(
 
     Ok(ProcessedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id,
+        distinct_id: event.extract_distinct_id()?,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
@@ -252,7 +239,7 @@ mod tests {
         let events = vec![
             RawEvent {
                 token: Some(String::from("hello")),
-                distinct_id: Some("testing".to_string()),
+                distinct_id: Some(json!("testing")),
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::new(),
@@ -263,7 +250,7 @@ mod tests {
             },
             RawEvent {
                 token: None,
-                distinct_id: Some("testing".to_string()),
+                distinct_id: Some(json!("testing")),
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::from([(String::from("token"), json!("hello"))]),
@@ -283,7 +270,7 @@ mod tests {
         let events = vec![
             RawEvent {
                 token: Some(String::from("hello")),
-                distinct_id: Some("testing".to_string()),
+                distinct_id: Some(json!("testing")),
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::new(),
@@ -294,7 +281,7 @@ mod tests {
             },
             RawEvent {
                 token: None,
-                distinct_id: Some("testing".to_string()),
+                distinct_id: Some(json!("testing")),
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::from([(String::from("token"), json!("goodbye"))]),
