@@ -29,7 +29,7 @@ interface NavbarItemBase {
     label: string
     icon: JSX.Element
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
-    tag?: 'alpha' | 'beta'
+    tag?: 'alpha' | 'beta' | 'new'
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string

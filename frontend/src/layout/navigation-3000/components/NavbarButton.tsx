@@ -19,7 +19,7 @@ export interface NavbarButtonProps {
     title?: string
     shortTitle?: string
     forceTooltipOnHover?: boolean
-    tag?: 'alpha' | 'beta'
+    tag?: 'alpha' | 'beta' | 'new'
     onClick?: () => void
     to?: string
     active?: boolean
@@ -53,25 +53,18 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         if (!isNavCollapsedActually) {
             content = shortTitle || title
             if (tag) {
-                if (tag === 'alpha') {
-                    content = (
-                        <>
-                            <span className="grow">{content}</span>
-                            <LemonTag type="completion" size="small" className="ml-2">
-                                ALPHA
-                            </LemonTag>
-                        </>
-                    )
-                } else if (tag === 'beta') {
-                    content = (
-                        <>
-                            <span className="grow">{content}</span>
-                            <LemonTag type="warning" size="small" className="ml-2">
-                                BETA
-                            </LemonTag>
-                        </>
-                    )
-                }
+                content = (
+                    <>
+                        <span className="grow">{content}</span>
+                        <LemonTag
+                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'warning'}
+                            size="small"
+                            className="ml-2"
+                        >
+                            {tag.toUpperCase()}
+                        </LemonTag>
+                    </>
+                )
             }
         }
 
