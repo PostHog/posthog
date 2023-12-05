@@ -54,11 +54,17 @@ from .views import (
 )
 from .year_in_posthog import year_in_posthog
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
 except ImportError:
+    if settings.DEBUG:
+        logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
     extend_api_router(
