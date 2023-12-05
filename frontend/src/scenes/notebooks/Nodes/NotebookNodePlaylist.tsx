@@ -86,7 +86,8 @@ const Component = ({
                           icon: <IconComment />,
                           onClick: () => {
                               if (activeSessionRecording.id) {
-                                  insertReplayCommentByTimestamp(0, activeSessionRecording.id)
+                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
+                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
                               }
                           },
                       },
