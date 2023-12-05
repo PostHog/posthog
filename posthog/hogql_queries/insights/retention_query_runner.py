@@ -122,12 +122,14 @@ class RetentionQueryRunner(QueryRunner):
         elif event_query_type == RetentionQueryType.RETURNING:
             group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
 
-        result = parse_select("SELECT * FROM events", timings=self.timings)
-        result.select = fields
-        result.distinct = event_query_type == RetentionQueryType.TARGET
-        result.where = ast.And(exprs=event_filters)
-        result.group_by = group_by_fields
-        result.having = having_expr
+        result = ast.SelectQuery(
+            select=fields,
+            distinct=event_query_type == RetentionQueryType.TARGET,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=event_filters),
+            group_by=group_by_fields,
+            having=having_expr,
+        )
 
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
             result.select_from.sample = ast.SampleExpr(
