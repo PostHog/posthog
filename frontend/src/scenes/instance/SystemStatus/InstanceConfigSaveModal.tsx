@@ -57,7 +57,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
         useValues(systemStatusLogic)
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const isChangingEnabledEmailSettings =
         instanceConfigEditingState.EMAIL_ENABLED !== false &&
