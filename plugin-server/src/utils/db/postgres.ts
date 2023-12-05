@@ -105,7 +105,7 @@ export class PostgresRouter {
         transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
-        return instrumentQuery(this.statsd, 'query.postgres_transation', wrappedTag, async () => {
+        return instrumentQuery(this.statsd, 'query.postgres_transaction', wrappedTag, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
             try {
