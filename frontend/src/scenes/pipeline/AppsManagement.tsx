@@ -75,7 +75,7 @@ type RenderAppsTable = {
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
     const { uninstallPlugin, patchPlugin } = useActions(appsManagementLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     // TODO: row expansion to show the source code and allow updating source apps
 
