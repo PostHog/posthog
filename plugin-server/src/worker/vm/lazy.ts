@@ -234,14 +234,7 @@ export class LazyPluginVM {
                     throw Error('Only 1x replication is allowed')
                 }
             }
-            await instrument(
-                {
-                    metricName: 'plugin.setupPlugin',
-                    key: 'plugin',
-                    tag: this.pluginConfig.plugin?.name || '?',
-                },
-                () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
-            )
+            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             pluginSetupMsSummary
                 .labels({ plugin_id: pluginId, status: 'success' })
                 .observe(new Date().getTime() - timer.getTime())

@@ -4,7 +4,6 @@ import { Summary } from 'prom-client'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { trackedFetch } from '../../utils/fetch'
-import { instrument } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 
@@ -68,16 +67,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
     await Promise.all(
         pluginMethodsToRun
             .filter(([, method]) => !!method)
-            .map(([pluginConfig, onEvent]) =>
-                instrument(
-                    {
-                        metricName: 'plugin.runOnEvent',
-                        key: 'plugin',
-                        tag: pluginConfig.plugin?.name || '?',
-                    },
-                    () => runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent)
-                )
-            )
+            .map(([pluginConfig, onEvent]) => runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent))
     )
 }
 
@@ -174,14 +164,7 @@ export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<
         pluginMethodsToRun
             .filter(([, method]) => !!method)
             .map(([pluginConfig, composeWebhook]) =>
-                instrument(
-                    {
-                        metricName: 'plugin.runComposeWebhook',
-                        key: 'plugin',
-                        tag: pluginConfig.plugin?.name || '?',
-                    },
-                    () => runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
-                )
+                runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
             )
     )
 }
@@ -205,15 +188,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
             }
 
             try {
-                returnedEvent =
-                    (await instrument(
-                        {
-                            metricName: 'plugin.processEvent',
-                            key: 'plugin',
-                            tag: pluginConfig.plugin?.name || '?',
-                        },
-                        () => processEvent(returnedEvent!)
-                    )) || null
+                returnedEvent = (await processEvent(returnedEvent!)) || null
                 if (returnedEvent && returnedEvent.team_id !== teamId) {
                     returnedEvent.team_id = teamId
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
@@ -302,18 +277,7 @@ export async function runPluginTask(
         }
 
         shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
-        response = await instrument(
-            {
-                metricName: 'plugin.runTask',
-                key: 'plugin',
-                tag: pluginConfig?.plugin?.name || '?',
-                data: {
-                    taskName,
-                    taskType,
-                },
-            },
-            () => (payload ? task?.exec(payload) : task?.exec())
-        )
+        response = await (payload ? task?.exec(payload) : task?.exec())
 
         pluginActionMsSummary
             .labels(String(pluginConfig?.plugin?.id), 'task', 'success')
