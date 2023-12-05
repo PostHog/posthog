@@ -611,7 +611,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": f"select event from events where distinct_id='{random_uuid}'",
                 },
-                in_export_context=True,  # This is the only difference
+                limit_context="export",  # This is the only difference
             )
             self.assertEqual(len(response.get("results", [])), 15)
 
@@ -663,7 +663,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "select": ["event"],
                     "where": [f"distinct_id = '{random_uuid}'"],
                 },
-                in_export_context=True,
+                limit_context="export",
             )
 
         self.assertEqual(len(response.get("results", [])), 15)

@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Union, cast
+from typing import Dict, Optional, Union, cast, Literal
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
@@ -24,6 +24,8 @@ from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
 
 EXPORT_CONTEXT_MAX_EXECUTION_TIME = 600
 
+LimitContext = Literal["query", "export"]
+
 
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
@@ -34,7 +36,7 @@ def execute_hogql_query(
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    in_export_context: Optional[bool] = False,
+    limit_context: Optional[LimitContext] = None,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
 ) -> HogQLQueryResponse:
@@ -80,7 +82,7 @@ def execute_hogql_query(
             if one_query.limit is None:
                 # One more "max" of MAX_SELECT_RETURNED_ROWS (10k) in applied in the query printer.
                 one_query.limit = ast.Constant(
-                    value=MAX_SELECT_RETURNED_ROWS if in_export_context else DEFAULT_RETURNED_ROWS
+                    value=MAX_SELECT_RETURNED_ROWS if limit_context == "export" else DEFAULT_RETURNED_ROWS
                 )
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
@@ -122,7 +124,7 @@ def execute_hogql_query(
                     )
 
     settings = settings or HogQLGlobalSettings()
-    if in_export_context:
+    if limit_context == "export":
         settings.max_execution_time = EXPORT_CONTEXT_MAX_EXECUTION_TIME
 
     # Print the ClickHouse SQL query

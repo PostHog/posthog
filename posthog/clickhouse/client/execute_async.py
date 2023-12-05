@@ -69,7 +69,7 @@ def execute_process_query(
     team_id,
     query_id,
     query_json,
-    in_export_context,
+    limit_context,
     refresh_requested,
 ):
     manager = QueryStatusManager(query_id, team_id)
@@ -90,7 +90,7 @@ def execute_process_query(
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
         results = process_query(
-            team=team, query_json=query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+            team=team, query_json=query_json, limit_context=limit_context, refresh_requested=refresh_requested
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
@@ -135,10 +135,10 @@ def enqueue_process_query_task(
 
     if bypass_celery:
         # Call directly ( for testing )
-        process_query_task(team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested)
+        process_query_task(team_id, query_id, query_json, limit_context="export", refresh_requested=refresh_requested)
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested
+            team_id, query_id, query_json, limit_context="export", refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         manager.store_query_status(query_status)

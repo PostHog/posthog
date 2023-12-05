@@ -187,7 +187,7 @@ class EventsQueryRunner(QueryRunner):
             query_type="EventsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
-            in_export_context=self.in_export_context,
+            limit_context=self.limit_context,
         )
 
         # Convert star field from tuple to dict in each result
@@ -265,7 +265,7 @@ class EventsQueryRunner(QueryRunner):
         return (
             min(
                 MAX_SELECT_RETURNED_ROWS,
-                (MAX_SELECT_RETURNED_ROWS if self.in_export_context else DEFAULT_RETURNED_ROWS)
+                (MAX_SELECT_RETURNED_ROWS if self.limit_context == "export" else DEFAULT_RETURNED_ROWS)
                 if self.query.limit is None
                 else self.query.limit,
             )
