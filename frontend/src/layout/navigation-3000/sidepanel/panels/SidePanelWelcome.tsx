@@ -2,6 +2,7 @@ import './SidePanelWelcome.scss'
 
 import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import featureCommandPalette from 'public/3000/3000-command-palette.png'
@@ -18,10 +19,12 @@ import featureSidePanelDark from 'public/3000/3000-side-panel-dark.png'
 import featureToolbar from 'public/3000/3000-toolbar.png'
 import { useEffect } from 'react'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
-const blogPostUrl = 'https://posthog.com/blog/why-redesign'
+const BLOG_POST_URL = 'https://posthog.com/blog/posthog-as-a-dev-tool'
 
 type RowProps = {
     className?: string
@@ -30,35 +33,39 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
-    <div className={`mb-6 gap-5 grid ${className}`} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+    <div className={clsx('mb-6 gap-5 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
 )
 
 type CardProps = {
-    width?: string
     children: React.ReactNode
     className?: string
 }
 
-const Card = ({ width, children, className }: CardProps): JSX.Element => (
-    <div
-        className={`welcome-card bg-accent-3000 border rounded-md px-4 py-3 w-full overflow-hidden ${
-            width ? width : 'w-full'
-        } ${className}`}
-    >
-        {children}
-    </div>
+const Card = ({ children, className }: CardProps): JSX.Element => (
+    <div className={clsx('welcome-card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>{children}</div>
 )
 
 const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <h3 className="mb-1 font-bold leading-5">{children}</h3>
 )
 const Description = ({ children }: { children: React.ReactNode }): JSX.Element => (
-    <p className="text-sm opacity-75">{children}</p>
+    <p className="text-sm opacity-75 mb-1">{children}</p>
 )
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+const Image = ({
+    src,
+    alt,
+    width,
+    height,
+    style,
+}: {
+    src: string
+    alt: string
+    width?: number | string
+    height?: number | string
+    style?: React.CSSProperties
+}): JSX.Element => <img src={src} alt={alt} width={width} height={height} style={style} className="mt-2" />
 
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
@@ -84,8 +91,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 <div className="flex-shrink">
                     <button
                         onClick={() => closeSidePanel()}
-                        className="btn btn-sm btn-secondary cursor-pointer"
-                        style={{ background: 'transparent' }}
+                        className="btn btn-sm btn-secondary cursor-pointer bg-transparent"
                     >
                         <IconX className="text-lg" />
                     </button>
@@ -97,28 +103,30 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
                 </h1>
                 <p className="max-w-120 text-sm font-medium mb-3 opacity-75">
-                    We're past 0 to 1. In this new version of PostHog, we're going from 1 to 3000. (And this is just the
-                    beginning...)
+                    We're past zero to one.
+                    <br />
+                    In this new version of PostHog, we're going from one… to&nbsp;3000.
+                    <br />
+                    And this is just the beginning.
                 </p>
-                <div className="mb-6">
-                    <LemonButton
-                        to={blogPostUrl}
-                        targetBlank
-                        type="primary"
-                        fullWidth={false}
-                        style={{ display: 'inline-flex' }}
-                    >
-                        Read the blog post
-                        <IconExternal className="ml-1 h-5 w-5" />
-                    </LemonButton>
-                </div>
+                <LemonButton
+                    to={BLOG_POST_URL}
+                    targetBlank
+                    type="primary"
+                    sideIcon={<IconExternal className="text-xl" />}
+                    className="mb-5"
+                >
+                    Read the blog post
+                </LemonButton>
 
                 <Row>
                     <Card>
                         <Title>Dark mode</Title>
-                        <Description>Toggle between light, dark, or sync with your system</Description>
+                        <Description>
+                            Toggle between light and dark. Synced with your system by&nbsp;default.
+                        </Description>
                         <div className="-mr-4 -mb-3">
-                            <img
+                            <Image
                                 src={featureDarkMode}
                                 alt="Dark mode"
                                 width="100%"
@@ -130,10 +138,10 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row className="grid grid-cols-2" columns="40% calc(60% - 1.25rem)">
                     <Card>
-                        <Title>Updated nav</Title>
-                        <Description>Products are now split out from project & data.</Description>
+                        <Title>Updated navigation</Title>
+                        <Description>Products are now split out from project&nbsp;&&nbsp;data.</Description>
                         <div className="-mr-4 -mb-3">
-                            <img
+                            <Image
                                 src={isDarkModeOn ? featureNavDark : featureNav}
                                 alt="Updated nav"
                                 width="100%"
@@ -144,11 +152,11 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <Card>
                         <Title>Notebooks</Title>
                         <Description>
-                            Analyze data from different angles and share results with your team - all in a single
-                            document.
+                            Analyze data from different angles and share results with your team - all in a
+                            single&nbsp;document.
                         </Description>
                         <div className="-mr-4 -mb-3">
-                            <img
+                            <Image
                                 src={isDarkModeOn ? featureNotebooksDark : featureNotebooks}
                                 alt="Notebooks"
                                 width="100%"
@@ -163,11 +171,11 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <div className="grid grid-cols-2 gap-5 items-center">
                             <div>
                                 <Title>Side panel</Title>
-                                <Description>It’s this multipurpose thing you’re looking at right now!</Description>
-                                <Description>Access docs, notebooks, contact support, and more.</Description>
+                                <Description>It's this multipurpose thing you're looking at right now!</Description>
+                                <Description>Create notebooks, read docs, contact support, and more.</Description>
                             </div>
                             <div className="-mr-4 -my-3">
-                                <img
+                                <Image
                                     src={isDarkModeOn ? featureSidePanelDark : featureSidePanel}
                                     alt="Side panel"
                                     height="100%"
@@ -185,7 +193,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                             Search for anything with <KeyboardShortcut command k />
                         </Description>
                         <div className="-mr-4 -mb-3">
-                            <img
+                            <Image
                                 src={isDarkModeOn ? featureSearchDark : featureSearch}
                                 alt="Improved search"
                                 width="100%"
@@ -201,7 +209,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                             </Description>
                         </div>
                         <div className="-mr-4 -mb-3 flex-shrink">
-                            <img
+                            <Image
                                 src={isDarkModeOn ? featureCommandPaletteDark : featureCommandPalette}
                                 alt="Command palette"
                                 width="100%"
@@ -215,24 +223,24 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <Card>
                         <Title>Toolbar</Title>
                         <Description>
-                            Same functionality, but easier to look at. And we finally put the <em>bar</em> in toolbar.
-                            Also dark mode.
+                            Dark mode: on. Same features, but easier to use. And we finally put the "<em>bar</em>"
+                            in&nbsp;"toolbar".
                         </Description>
                         <div>
-                            <img src={featureToolbar} alt="Toolbar" width={259} />
+                            <Image src={featureToolbar} alt="Toolbar" width={259} />
                         </div>
                     </Card>
                 </Row>
 
-                <div className="flex items-center gap-2 -mb-3">
-                    <IconArrowLeft className="w-5 h-5" />
-                    <p className="m-0">
+                <div className="-mb-3">
+                    <IconArrowLeft className="text-base mr-2 inline" />
+                    <span className="m-0">
                         <strong>Pro tip:</strong> Access this panel again from the{' '}
-                        <span className="w-6 h-6 border p-1 rounded mx-1">
-                            <IconEllipsis className="" />
+                        <span className="text-base font border p-1 rounded mx-1 w-6 h-6 inline-flex align-middle">
+                            <IconEllipsis />
                         </span>{' '}
                         menu
-                    </p>
+                    </span>
                 </div>
             </div>
         </>
