@@ -18,7 +18,7 @@ import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, cast, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -175,7 +175,9 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def validate_query(self, query: Dict) -> Dict:
+    def validate_query(self, query: Optional[Dict]) -> Optional[Dict]:
+        if not query:
+            return None
         if not isinstance(query, dict):
             raise ValidationError("Query must be a dictionary.")
         if query.get("kind") != "PersonsQuery":
