@@ -18,7 +18,7 @@ export function DeleteProjectModal({
 }): JSX.Element {
     const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
     const { deleteTeam } = useActions(teamLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
