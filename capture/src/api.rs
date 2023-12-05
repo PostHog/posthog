@@ -29,7 +29,7 @@ pub struct CaptureResponse {
 pub enum CaptureError {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
-    #[error("failed to decode request: {0}")]
+    #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
 
     #[error("request holds no event")]
