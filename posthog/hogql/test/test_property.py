@@ -1,6 +1,7 @@
 from typing import List, Union, cast, Optional, Dict, Any, Literal
+from unittest.mock import MagicMock, patch
 
-from posthog.constants import PropertyOperatorType
+from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
@@ -10,6 +11,7 @@ from posthog.hogql.property import (
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
+    entity_to_expr,
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
@@ -604,3 +606,35 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event' property filter only works in 'event' scope, not in 'person' scope",
         )
+
+    def test_entity_to_expr_actions_type_with_id(self):
+        action_mock = MagicMock()
+        with patch("posthog.models.Action.objects.get", return_value=action_mock):
+            entity = {"type": TREND_FILTER_TYPE_ACTIONS, "id": 123}
+            result = entity_to_expr(entity)
+            self.assertIsInstance(result, ast.Expr)
+
+    def test_entity_to_expr_events_type_with_id(self):
+        entity = {"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"}
+        result = entity_to_expr(entity)
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="event_id"),
+        )
+        self.assertEqual(result, expected)
+
+    def test_entity_to_expr_events_type_without_id(self):
+        entity = {"type": TREND_FILTER_TYPE_EVENTS, "id": None}
+        result = entity_to_expr(entity)
+        self.assertEqual(result, ast.Constant(value=True))
+
+    def test_entity_to_expr_default_case(self):
+        entity = {"type": "other_type"}
+        result = entity_to_expr(entity, default_event="default_event")
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="default_event"),
+        )
+        self.assertEqual(result, expected)
