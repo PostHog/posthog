@@ -18,7 +18,7 @@ interface NotFoundProps {
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const nodeLogic = useNotebookNode()
 
