@@ -9,9 +9,10 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
-from posthog.hogql.query import create_default_modifiers_for_team, LimitContext
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team

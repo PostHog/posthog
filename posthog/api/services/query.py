@@ -5,10 +5,10 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import LimitContext
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer

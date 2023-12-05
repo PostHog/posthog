@@ -1,10 +1,9 @@
-from enum import Enum
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -24,11 +23,6 @@ from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
 
 EXPORT_CONTEXT_MAX_EXECUTION_TIME = 600
-
-
-class LimitContext(Enum):
-    QUERY = "query"
-    EXPORT = "export"
 
 
 def execute_hogql_query(

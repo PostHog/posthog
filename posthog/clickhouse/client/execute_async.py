@@ -9,7 +9,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql.query import LimitContext
+from posthog.hogql.constants import LimitContext
 from posthog.schema import QueryStatus
 
 logger = structlog.get_logger(__name__)
