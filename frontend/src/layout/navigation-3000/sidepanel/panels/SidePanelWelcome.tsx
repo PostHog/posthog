@@ -114,7 +114,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     targetBlank
                     type="primary"
                     sideIcon={<IconExternal className="text-xl" />}
-                    className="mb-5"
+                    className="mb-5 self-start"
                 >
                     Read the blog post
                 </LemonButton>
