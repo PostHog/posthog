@@ -674,6 +674,10 @@ $decorations: underline, overline, line-through, no-underline;
     flex-grow: 0;
 }
 
+.basis-0 {
+    flex-basis: 0;
+}
+
 .justify-start {
     justify-content: flex-start;
 }

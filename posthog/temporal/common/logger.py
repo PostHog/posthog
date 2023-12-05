@@ -16,8 +16,8 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 BACKGROUND_LOGGER_TASKS = set()
 
 
-async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
-    """Return a bound logger for BatchExports."""
+async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
+    """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
         configure_logger()
 
@@ -67,7 +67,7 @@ def configure_logger(
         # We save the error to log it later as the logger hasn't yet been configured at this time.
         log_producer_error = e
     else:
-        put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
+        put_in_queue = PutInLogQueueProcessor(log_queue)
         base_processors.append(put_in_queue)
 
     base_processors += [
@@ -118,7 +118,7 @@ def create_logger_background_task(task) -> asyncio.Task:
     return new_task
 
 
-class PutInBatchExportsLogQueueProcessor:
+class PutInLogQueueProcessor:
     """A StructLog processor that puts event_dict into a queue.
 
     We format event_dict as a message to be sent to Kafka by a queue listener.
@@ -156,14 +156,14 @@ class PutInBatchExportsLogQueueProcessor:
 
 
 def get_temporal_context() -> dict[str, str | int]:
-    """Return batch export context variables from Temporal.
+    """Return context variables from Temporal.
 
-    More specifically, the batch export context variables coming from Temporal are:
+    More specifically, the context variables coming from Temporal are:
     * attempt: The current attempt number of the Temporal Workflow.
-    * log_source: Either "batch_exports" or "batch_exports_backfill".
-    * log_source_id: The batch export ID.
-    * workflow_id: The ID of the Temporal Workflow running the batch export.
-    * workflow_run_id: The ID of the Temporal Workflow Execution running the batch export.
+    * log_source: Either "batch_exports" or "batch_exports_backfill" or "external_data_jobs".
+    * log_source_id: The batch export ID or external data source id.
+    * workflow_id: The ID of the Temporal Workflow running job.
+    * workflow_run_id: The ID of the Temporal Workflow Execution running the workflow.
     * workflow_type: The name of the Temporal Workflow.
 
     We attempt to fetch the context from the activity information. If undefined, an empty dict
@@ -182,6 +182,10 @@ def get_temporal_context() -> dict[str, str | int]:
         # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
         log_source_id = workflow_id.split("-Backfill")[0]
         log_source = "batch_exports_backfill"
+    elif workflow_type == "external-data-job":
+        # This works because the WorkflowID is made up like f"{external_data_source_id}-{data_interval_end}"
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "external_data_jobs"
     else:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the

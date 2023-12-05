@@ -1,4 +1,5 @@
 import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import type { actionBarLogicType } from './actionBarLogicType'
@@ -10,7 +11,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
     connect({
         actions: [
             commandBarLogic,
-            ['hideCommandBar', 'setCommandBar'],
+            ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
             commandPaletteLogic,
             [
                 'showPalette',
@@ -25,6 +26,8 @@ export const actionBarLogic = kea<actionBarLogicType>([
             ],
         ],
         values: [
+            commandBarLogic,
+            ['initialQuery', 'barStatus'],
             commandPaletteLogic,
             [
                 'input',
@@ -40,6 +43,19 @@ export const actionBarLogic = kea<actionBarLogicType>([
         hidePalette: () => {
             // listen on hide action from legacy palette, and hide command bar
             actions.hideCommandBar()
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        barStatus: (value, oldvalue) => {
+            if (value !== BarStatus.SHOW_ACTIONS || oldvalue === BarStatus.SHOW_ACTIONS) {
+                return
+            }
+
+            if (values.initialQuery !== null) {
+                // set default query from url
+                actions.setInput(values.initialQuery)
+                actions.clearInitialQuery()
+            }
         },
     })),
     afterMount(({ actions, values, cache }) => {

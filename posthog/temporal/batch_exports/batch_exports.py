@@ -21,7 +21,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -504,7 +504,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         "Creating batch export for range %s - %s",
         inputs.data_interval_start,
@@ -536,7 +536,7 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
     batch_export_run = await sync_to_async(update_batch_export_run_status)(
         run_id=uuid.UUID(inputs.id),
@@ -574,7 +574,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
     model instance to represent them in our database.
     """
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         "Creating historical export for batches in range %s - %s",
         inputs.start_at,
@@ -608,7 +608,7 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     backfill = await sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id), status=inputs.status
     )  # type: ignore
-    logger = await bind_batch_exports_logger(team_id=backfill.team_id)
+    logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status == "Failed":
         logger.error("Historical export failed")
