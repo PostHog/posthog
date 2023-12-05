@@ -12,7 +12,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import execute_hogql_query, LimitContext
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Action, Person
@@ -265,7 +265,7 @@ class EventsQueryRunner(QueryRunner):
         return (
             min(
                 MAX_SELECT_RETURNED_ROWS,
-                (MAX_SELECT_RETURNED_ROWS if self.limit_context == "export" else DEFAULT_RETURNED_ROWS)
+                (MAX_SELECT_RETURNED_ROWS if self.limit_context == LimitContext.EXPORT else DEFAULT_RETURNED_ROWS)
                 if self.query.limit is None
                 else self.query.limit,
             )

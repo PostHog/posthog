@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.query import LimitContext
 from posthog.schema import QueryStatus
 
 logger = structlog.get_logger(__name__)
@@ -135,10 +136,12 @@ def enqueue_process_query_task(
 
     if bypass_celery:
         # Call directly ( for testing )
-        process_query_task(team_id, query_id, query_json, limit_context="export", refresh_requested=refresh_requested)
+        process_query_task(
+            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
+        )
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, limit_context="export", refresh_requested=refresh_requested
+            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         manager.store_query_status(query_status)

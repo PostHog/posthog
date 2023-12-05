@@ -202,7 +202,7 @@ class QueryRunner(ABC):
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
-        self.limit_context = limit_context or "query"
+        self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
         if isinstance(query, self.query_type):
             self.query = query  # type: ignore
@@ -216,7 +216,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key() + ("_export" if self.limit_context == "export" else "")
+        cache_key = self._cache_key() + ("_export" if self.limit_context == LimitContext.EXPORT else "")
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
