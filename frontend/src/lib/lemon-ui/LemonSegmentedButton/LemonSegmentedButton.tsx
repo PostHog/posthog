@@ -44,7 +44,7 @@ export function LemonSegmentedButton<T extends React.Key>({
         HTMLDivElement,
         HTMLLIElement
     >(value, 200)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     let buttonProps = {}
 

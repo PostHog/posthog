@@ -142,7 +142,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    NOTEBOOKS: 'notebooks', // owner: #team-monitoring
+    NOTEBOOKS: 'notebooks', // owner: #team-replay
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
@@ -160,7 +160,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
+    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
@@ -168,17 +168,18 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     SURVEYS_PAYGATES: 'surveys-paygates',
-    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-replay
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
-    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
+    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
+    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
-    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: @pauldambra
+    SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

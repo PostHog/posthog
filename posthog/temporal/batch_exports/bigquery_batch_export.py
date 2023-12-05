@@ -23,13 +23,13 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.common.utils import (
-    HeartbeatDetails,
+    BatchExportHeartbeatDetails,
     should_resume_from_activity_heartbeat,
 )
 
@@ -63,7 +63,7 @@ async def create_table_in_bigquery(
 
 
 @dataclasses.dataclass
-class BigQueryHeartbeatDetails(HeartbeatDetails):
+class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
 
     pass
@@ -114,7 +114,7 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,
