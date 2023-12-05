@@ -13,7 +13,6 @@ const meta: Meta = {
         testOptions: {
             excludeNavigationFromSnapshot: true,
             snapshotBrowsers: ['chromium', 'webkit'],
-            include3000: true,
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
