@@ -97,27 +97,28 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </button>
                 </div>
             </div>
-            <div className="flex flex-col m-4 my-6 flex-1">
-                <h1 className="font-bold text-xl mb-2 w-full">
-                    👋 Say hello to
-                    <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
-                </h1>
-                <p className="max-w-120 text-sm font-medium mb-3 opacity-75">
-                    We're past zero to one.
-                    <br />
-                    In this new version of PostHog, we're going from one… to&nbsp;3000.
-                    <br />
-                    And this is just the beginning.
-                </p>
-                <LemonButton
-                    to={BLOG_POST_URL}
-                    targetBlank
-                    type="primary"
-                    sideIcon={<IconExternal className="text-xl" />}
-                    className="mb-5 self-start"
-                >
-                    Read the blog post
-                </LemonButton>
+            <div className="flex flex-col mx-4 mb-6 flex-1">
+                <div className="hero-art -mx-4 pt-4 pl-4 mb-4 border-b">
+                    <h1 className="font-semibold text-base mb-2 w-full">
+                        👋 <span className="opacity-75">Say hello to</span>
+                        <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
+                    </h1>
+                    <p className="max-w-120 text-sm font-medium mb-3 opacity-75">We're past zero to one.</p>
+                    <p className="max-w-40 text-sm font-medium mb-3 opacity-75" style={{ maxWidth: '10rem' }}>
+                        We're going from one to 3000. And this is just the beginning...
+                    </p>
+                    <div className="flex">
+                        <LemonButton
+                            to={BLOG_POST_URL}
+                            targetBlank
+                            type="primary"
+                            sideIcon={<IconExternal className="text-xl" />}
+                            className="mb-5 self-start"
+                        >
+                            Read the blog post
+                        </LemonButton>
+                    </div>
+                </div>
 
                 <Row>
                     <Card>
