@@ -344,9 +344,15 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
+    try:
+        year_in_hog_url = f"/year_in_posthog/2023/{str(request.user.uuid)}"  # type: ignore
+    except:
+        year_in_hog_url = None
+
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: Dict[str, Any] = {}
