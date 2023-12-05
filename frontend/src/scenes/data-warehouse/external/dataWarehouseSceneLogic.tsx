@@ -49,6 +49,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             columns: table.columns,
                             url_pattern: table.url_pattern,
                             format: table.format,
+                            external_data_source: table.external_data_source,
                         } as DataWarehouseSceneRow)
                 )
             },

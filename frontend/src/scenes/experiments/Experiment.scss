@@ -25,6 +25,10 @@
             .ant-slider-rail {
                 background-color: var(--primary-3000-highlight);
             }
+
+            .ant-slider-handle:focus {
+                box-shadow: 0 0 0 5px var(--primary-3000-highlight);
+            }
         }
     }
 
