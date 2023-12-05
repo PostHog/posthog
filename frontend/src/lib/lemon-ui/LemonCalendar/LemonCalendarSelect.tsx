@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
 
@@ -74,8 +74,6 @@ export function LemonCalendarSelectInput(
 
     const showClear = props.value && clearable
 
-    const ButtonComponent = showClear ? LemonButtonWithSideAction : LemonButton
-
     return (
         <Popover
             actionable
@@ -95,7 +93,7 @@ export function LemonCalendarSelectInput(
                 />
             }
         >
-            <ButtonComponent
+            <LemonButton
                 onClick={() => setVisible(true)}
                 type="secondary"
                 status="stealth"
@@ -111,7 +109,7 @@ export function LemonCalendarSelectInput(
                 {...props.buttonProps}
             >
                 {props.value?.format('MMMM D, YYYY') ?? placeholder ?? 'Select date'}
-            </ButtonComponent>
+            </LemonButton>
         </Popover>
     )
 }
