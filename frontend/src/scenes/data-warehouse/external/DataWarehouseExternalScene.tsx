@@ -89,7 +89,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 />
             )}
             {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

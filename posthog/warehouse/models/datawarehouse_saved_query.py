@@ -1,12 +1,13 @@
-from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
-from django.db import models
-from posthog.models.team import Team
-
-from posthog.hogql.database.models import SavedQuery
-from posthog.hogql.database.database import Database
-from typing import Dict
 import re
+from typing import Dict
+
 from django.core.exceptions import ValidationError
+from django.db import models
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.warehouse.models.util import remove_named_tuples
 
 
@@ -56,9 +57,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def s3_tables(self):
-        from posthog.hogql.parser import parse_select
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import create_hogql_database
+        from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
         from posthog.models.property.util import S3TableVisitor

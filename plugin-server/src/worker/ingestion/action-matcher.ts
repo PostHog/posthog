@@ -3,6 +3,7 @@ import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
+import { Summary } from 'prom-client'
 import RE2 from 're2'
 
 import {
@@ -42,6 +43,12 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
     [PropertyOperator.NotIContains]: true,
     [PropertyOperator.NotRegex]: true,
 }
+
+const actionMatchMsSummary = new Summary({
+    name: 'action_match_ms',
+    help: 'Time taken to match actions',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 /** Return whether two values compare to each other according to the specified operator.
  * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
@@ -159,6 +166,7 @@ export class ActionMatcher {
         }
         this.statsd?.timing('action_matching_for_event', matchingStart)
         this.statsd?.increment('action_matches_found', matches.length)
+        actionMatchMsSummary.observe(new Date().getTime() - matchingStart.getTime())
         return matches
     }
 

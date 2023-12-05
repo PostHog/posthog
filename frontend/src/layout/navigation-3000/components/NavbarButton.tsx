@@ -1,6 +1,6 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -22,7 +22,6 @@ export interface NavbarButtonProps {
     tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
-    persistentTooltip?: boolean
     active?: boolean
     keyboardShortcut?: KeyboardShortcutProps
 }
@@ -32,21 +31,12 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(
     (
-        {
-            identifier,
-            shortTitle,
-            title,
-            forceTooltipOnHover,
-            tag,
-            onClick,
-            persistentTooltip,
-            keyboardShortcut,
-            ...buttonProps
-        },
+        { identifier, shortTitle, title, forceTooltipOnHover, tag, onClick, keyboardShortcut, ...buttonProps },
         ref
     ): JSX.Element => {
         const { activeScene } = useValues(sceneLogic)
         const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
+        const { hideNavOnMobile } = useActions(navigation3000Logic)
         const { isNavCollapsed } = useValues(navigation3000Logic)
         const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
@@ -91,6 +81,9 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                 onMouseEnter={() => setHasBeenClicked(false)}
                 onClick={() => {
+                    if (buttonProps.to) {
+                        hideNavOnMobile()
+                    }
                     setHasBeenClicked(true)
                     onClick?.()
                 }}
@@ -135,7 +128,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         }
                         placement="right"
                         delayMs={0}
-                        visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                        visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
                     >
                         {buttonContent}
                     </Tooltip>

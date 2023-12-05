@@ -1,9 +1,10 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightQueryNode } from '~/queries/schema'
+import { IntervalType } from '~/types'
 
 interface IntervalFilterProps {
     disabled?: boolean
@@ -19,21 +20,44 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
             <span>
                 <span className="hide-lte-md">grouped </span>by
             </span>
-            <LemonSelect
-                size={'small'}
+            <IntervalFilterStandalone
                 disabled={disabled}
-                value={interval || 'day'}
-                dropdownMatchSelectWidth={false}
-                onChange={(value) => {
+                interval={interval || 'day'}
+                onIntervalChange={(value) => {
                     updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
-                data-attr="interval-filter"
                 options={Object.entries(enabledIntervals).map(([value, { label, disabledReason }]) => ({
-                    value,
+                    value: value as IntervalType,
                     label,
                     disabledReason,
                 }))}
             />
         </>
+    )
+}
+
+interface IntervalFilterStandaloneProps {
+    disabled?: boolean
+    interval: IntervalType | undefined
+    onIntervalChange: (interval: IntervalType) => void
+    options: LemonSelectOption<IntervalType>[]
+}
+
+export function IntervalFilterStandalone({
+    disabled,
+    interval,
+    onIntervalChange,
+    options,
+}: IntervalFilterStandaloneProps): JSX.Element {
+    return (
+        <LemonSelect
+            size={'small'}
+            disabled={disabled}
+            value={interval || 'day'}
+            dropdownMatchSelectWidth={false}
+            onChange={onIntervalChange}
+            data-attr="interval-filter"
+            options={options}
+        />
     )
 }

@@ -264,7 +264,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <LemonDivider />
+                        <LemonDivider className="my-2 non-3000" />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -494,17 +494,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </div>
                                         </div>
                                     }
-                                    description={
-                                        <>
-                                            {featureFlag.name ? (
-                                                <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
-                                            ) : (
-                                                'There is no description for this feature flag.'
-                                            )}
-                                        </>
-                                    }
                                     caption={
                                         <>
+                                            <span>{featureFlag.name || <i>Description (optional)</i>}</span>
                                             {featureFlag?.tags && (
                                                 <>
                                                     {featureFlag.can_edit ? (

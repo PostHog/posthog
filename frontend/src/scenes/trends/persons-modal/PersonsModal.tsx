@@ -25,6 +25,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
+import { InsightPersonsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -33,11 +34,12 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { personsModalLogic } from './personsModalLogic'
+import { personsModalLogic, wrapInsightsPersonsQuery } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
+    query?: InsightPersonsQuery | null
     url?: string | null
     urlsIndex?: number
     urls?: {
@@ -51,6 +53,7 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
+    query,
     title,
     onAfterClose,
     inline,
@@ -60,6 +63,7 @@ export function PersonsModal({
 
     const logic = personsModalLogic({
         url: originalUrl,
+        query: query,
     })
 
     const {
@@ -73,7 +77,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
     } = useValues(logic)
-    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
+    const { setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -131,7 +135,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.next_offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -167,13 +171,9 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {actorsResponse?.next && (
+                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
                             <div className="m-4 flex justify-center">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                                    loading={actorsResponseLoading}
-                                >
+                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
                                 </LemonButton>
                             </div>
@@ -187,9 +187,9 @@ export function PersonsModal({
                             onClick={() => {
                                 void triggerExport({
                                     export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: originalUrl,
-                                    },
+                                    export_context: query
+                                        ? { source: wrapInsightsPersonsQuery(query) as Record<string, any> }
+                                        : { path: originalUrl },
                                 })
                             }}
                             data-attr="person-modal-download-csv"
@@ -201,7 +201,7 @@ export function PersonsModal({
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                    {actors && actors.length > 0 && !isGroupType(actors[0]) && !query && (
                         <LemonButton
                             onClick={() => setIsCohortModalOpen(true)}
                             type="primary"

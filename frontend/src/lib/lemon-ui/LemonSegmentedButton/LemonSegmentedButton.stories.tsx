@@ -8,6 +8,11 @@ type Story = StoryObj<typeof LemonSegmentedButton>
 const meta: Meta<typeof LemonSegmentedButton> = {
     title: 'Lemon UI/Lemon Segmented Button',
     component: LemonSegmentedButton,
+    parameters: {
+        testOptions: {
+            include3000: true,
+        },
+    },
     argTypes: {
         options: {
             control: {

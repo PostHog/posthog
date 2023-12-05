@@ -81,7 +81,7 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 let uniqueNode = 0
 
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
-    const uniqueNodeKey = useState(() => uniqueNode++)
+    const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
@@ -439,7 +439,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                <div className="relative w-full flex flex-col gap-4 flex-1">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}

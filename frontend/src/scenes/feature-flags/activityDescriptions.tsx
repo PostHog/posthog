@@ -5,6 +5,7 @@ import {
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -308,7 +309,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                         listParts={changes}
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong>
+                                <strong>{userNameForLogItem(logItem)}</strong>
                             </>
                         }
                         suffix={changeSuffix}

@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
+import { Summary } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
 import {
@@ -36,6 +37,12 @@ const NOT_SYNCED_PROPERTIES = new Set([
     '$group_4',
     '$groups',
 ])
+
+const updateEventNamesAndPropertiesMsSummary = new Summary({
+    name: 'update_event_names_and_properties_ms',
+    help: 'Duration spent in updateEventNamesAndProperties',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 type PartialPropertyDefinition = {
     key: string
@@ -112,6 +119,7 @@ export class PropertyDefinitionsManager {
         } finally {
             clearTimeout(timeout)
             this.statsd?.timing('updateEventNamesAndProperties', timer)
+            updateEventNamesAndPropertiesMsSummary.observe(Date.now() - timer.valueOf())
         }
     }
 

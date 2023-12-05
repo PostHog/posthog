@@ -80,7 +80,12 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     forms(() => ({
         externalDataSource: {
-            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeSourceCreatePayload,
+            defaults: {
+                account_id: '',
+                client_secret: '',
+                prefix: '',
+                source_type: 'Stripe',
+            } as ExternalDataStripeSourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
@@ -101,8 +106,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
-        submitExternalDataSourceFailure: () => {
-            lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
+        submitExternalDataSourceFailure: ({ error }) => {
+            lemonToast.error(error?.message || 'Something went wrong')
         },
     })),
 ])

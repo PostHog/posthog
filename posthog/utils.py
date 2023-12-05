@@ -1004,8 +1004,6 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
             offset = pytz.timezone(tz).utcoffset(now)
         except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
-        if offset is None:
-            continue
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result

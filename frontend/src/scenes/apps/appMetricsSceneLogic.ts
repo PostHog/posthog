@@ -184,7 +184,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
                     key: Scene.Apps,
-                    name: 'Apps',
+                    name: 'Data pipeline',
                     path: urls.projectApps(),
                 },
                 {

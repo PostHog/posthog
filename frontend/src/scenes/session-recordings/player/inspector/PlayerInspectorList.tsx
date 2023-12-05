@@ -21,7 +21,12 @@ import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 function isLocalhost(url: string | null | undefined): boolean {
-    return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
+    try {
+        return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
+    } catch (e) {
+        // for e.g. mobile doesn't have a URL, so we can swallow this and move on
+        return false
+    }
 }
 
 function EmptyNetworkTab({

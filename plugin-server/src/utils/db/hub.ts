@@ -33,7 +33,6 @@ import { status } from '../status'
 import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
-import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
@@ -135,8 +134,6 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created`)
     }
 
-    const promiseManager = new PromiseManager(serverConfig, statsd)
-
     const db = new DB(
         postgres,
         redisPool,
@@ -195,7 +192,6 @@ export async function createHub(
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
-        promiseManager,
         conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),

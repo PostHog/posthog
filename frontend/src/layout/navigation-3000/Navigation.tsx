@@ -8,10 +8,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useEffect } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { Breadcrumbs } from './components/Breadcrumbs'
+import { navigationLogic } from '../navigation/navigationLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -24,6 +25,7 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)
+    const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
     useEffect(() => {
@@ -41,13 +43,13 @@ export function Navigation({
     }
 
     return (
-        <div className="Navigation3000">
+        <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')}>
             <Navbar />
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                <Breadcrumbs />
+                <TopBar />
                 <div
                     className={clsx(
                         'Navigation3000__scene',
@@ -58,7 +60,7 @@ export function Navigation({
                     {children}
                 </div>
             </main>
-            <SidePanel />
+            {!mobileLayout && <SidePanel />}
             <CommandPalette />
         </div>
     )

@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
 import { runProcessEvent } from '../../plugins/run'
+import { droppedEventCounter } from './metrics'
 import { EventPipelineRunner } from './runner'
 
 export async function pluginsProcessEventStep(
@@ -25,6 +26,7 @@ export async function pluginsProcessEventStep(
         runner.hub.statsd?.increment('kafka_queue.dropped_event', {
             teamID: String(event.team_id),
         })
+        droppedEventCounter.inc()
         return null
     }
 }

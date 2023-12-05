@@ -1,8 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
-    convertSnapshotsByWindowId,
     prepareRecordingSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'

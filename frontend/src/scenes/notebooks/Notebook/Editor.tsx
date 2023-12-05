@@ -93,11 +93,6 @@ export function Editor(): JSX.Element {
                     updatePreviousNode()
                     resetSuggestions()
                 },
-                addKeyboardShortcuts() {
-                    return {
-                        Tab: () => true,
-                    }
-                },
             }),
             TaskList,
             TaskItem.configure({

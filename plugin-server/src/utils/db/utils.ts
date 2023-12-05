@@ -54,6 +54,7 @@ const eventToPersonProperties = new Set([
     '$current_url',
     '$pathname',
     '$os',
+    '$os_version',
     '$referring_domain',
     '$referrer',
     // campaign params

@@ -7,11 +7,13 @@ import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
 
 export type LemonTagType =
     | 'primary'
+    | 'option'
     | 'highlight'
     | 'warning'
     | 'danger'
     | 'success'
     | 'default'
+    | 'muted'
     | 'completion'
     | 'caution'
     | 'none'
@@ -21,6 +23,7 @@ export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagType
     children: React.ReactNode
     size?: 'small' | 'medium'
+    weight?: 'normal'
     icon?: JSX.Element
     closable?: boolean
     onClose?: () => void
@@ -32,6 +35,7 @@ export function LemonTag({
     children,
     className,
     size = 'medium',
+    weight,
     icon,
     closable,
     onClose,
@@ -40,7 +44,14 @@ export function LemonTag({
 }: LemonTagProps): JSX.Element {
     return (
         <div
-            className={clsx('LemonTag', `LemonTag--size-${size}`, !!props.onClick && 'cursor-pointer', type, className)}
+            className={clsx(
+                'LemonTag',
+                `LemonTag--size-${size}`,
+                !!props.onClick && 'cursor-pointer',
+                `LemonTag--${type}`,
+                weight && `LemonTag--${weight}`,
+                className
+            )}
             {...props}
         >
             {icon && <span className="LemonTag__icon">{icon}</span>}

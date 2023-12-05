@@ -1,4 +1,4 @@
-import { Counter, exponentialBuckets, Histogram } from 'prom-client' // but fail to commit offsets, which can cause duplicate events
+import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client' // but fail to commit offsets, which can cause duplicate events
 
 // The following two counters can be used to see how often we start,
 // but fail to commit offsets, which can cause duplicate events
@@ -28,4 +28,16 @@ export const ingestionParallelismPotential = new Histogram({
     help: 'Number of eligible parts per ingestion consumer batch',
     labelNames: ['overflow_mode'],
     buckets: exponentialBuckets(1, 2, 7), // Up to 64
+})
+
+export const ingestEventBatchingInputLengthSummary = new Summary({
+    name: 'ingest_event_batching_input_length',
+    help: 'Length of input batches of events',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const ingestEventBatchingBatchCountSummary = new Summary({
+    name: 'ingest_event_batching_batch_count',
+    help: 'Number of batches of events',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
 })

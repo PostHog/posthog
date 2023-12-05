@@ -443,6 +443,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportFeatureFlagCopySuccess: true,
+        reportFeatureFlagCopyFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
@@ -616,8 +618,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.mode = insightMode // View or edit
-            // eslint-disable-next-line no-constant-binary-expression
-            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.viewer_is_creator =
+                insightModel.created_by?.uuid && values.user?.uuid
+                    ? insightModel.created_by?.uuid === values.user?.uuid
+                    : null
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
             properties.tags_count = insightModel.tags?.length ?? 0
@@ -1045,6 +1049,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
+        },
+        reportFeatureFlagCopySuccess: () => {
+            posthog.capture('feature flag copied')
+        },
+        reportFeatureFlagCopyFailure: ({ error }) => {
+            posthog.capture('feature flag copy failure', { error })
         },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')

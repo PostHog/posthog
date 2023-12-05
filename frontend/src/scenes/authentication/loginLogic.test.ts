@@ -32,7 +32,15 @@ describe('loginLogic', () => {
 
         for (const [next, result] of matches) {
             it(`for next param "${next}" it returns "${result}"`, () => {
-                router.actions.push(next ? `${origin}/?next=${encodeURIComponent(next)}` : origin)
+                if (next) {
+                    const [nextPath, nextHash] = next.split('#')
+                    // The hash is the only part of the URL that isn't sent to the server
+                    router.actions.push(
+                        `${origin}/?next=${encodeURIComponent(nextPath)}${nextHash ? `#` + nextHash : ''}`
+                    )
+                } else {
+                    router.actions.push(origin)
+                }
                 handleLoginRedirect()
                 const newPath =
                     router.values.location.pathname + router.values.location.search + router.values.location.hash

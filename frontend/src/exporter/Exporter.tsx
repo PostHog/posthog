@@ -3,6 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { use3000Body } from 'lib/hooks/use3000Body'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
@@ -32,6 +33,8 @@ export function Exporter(props: ExportedData): JSX.Element {
         // NOTE: We post the window name to allow the parent to identify the iframe
         window.parent?.postMessage({ event: 'posthog:dimensions', name: window.name, height, width }, '*')
     }, [height, width])
+
+    use3000Body()
 
     return (
         <div

@@ -6,6 +6,7 @@ import {
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -129,7 +130,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -141,7 +142,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted <DescribeType logItem={logItem} />{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <DescribeType logItem={logItem} />{' '}
                     {nameAndLink(logItem)}
                 </>
             ),

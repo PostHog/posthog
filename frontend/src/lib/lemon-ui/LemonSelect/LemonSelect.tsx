@@ -63,6 +63,7 @@ export interface LemonSelectPropsBase<T>
         | 'aria-label'
         | 'onClick'
         | 'tabIndex'
+        | 'type'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */

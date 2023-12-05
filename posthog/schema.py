@@ -87,6 +87,14 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    xAxisIndex: Optional[List[float]] = None
+    yAxisIndex: Optional[List[float]] = None
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -339,6 +347,7 @@ class NodeKind(str, Enum):
     PersonsQuery = "PersonsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
+    DataVisualizationNode = "DataVisualizationNode"
     SavedInsightNode = "SavedInsightNode"
     InsightVizNode = "InsightVizNode"
     TrendsQuery = "TrendsQuery"
@@ -1441,6 +1450,16 @@ class ActionsNode(BaseModel):
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
+class DataVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: Optional[ChartSettings] = None
+    display: Optional[ChartDisplayType] = None
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: HogQLQuery
+
+
 class HasPropertiesNode(RootModel):
     root: Union[EventsNode, EventsQuery, PersonsNode]
 
@@ -1901,6 +1920,7 @@ class DataTableNode(BaseModel):
 
 class QuerySchema(RootModel):
     root: Union[
+        DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
         InsightVizNode,

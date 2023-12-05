@@ -367,8 +367,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_lifetime": 55,
-                    "event_count_in_period": 23,
-                    "event_count_in_month": 43,
+                    "event_count_in_period": 22,
+                    "event_count_in_month": 42,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
@@ -409,8 +409,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "teams": {
                         str(self.org_1_team_1.id): {
                             "event_count_lifetime": 44,
-                            "event_count_in_period": 13,
-                            "event_count_in_month": 33,
+                            "event_count_in_period": 12,
+                            "event_count_in_month": 32,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
@@ -983,6 +983,47 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         assert org_2_report["survey_responses_count_in_month"] == 7
         assert org_2_report["teams"]["5"]["survey_responses_count_in_period"] == 1
         assert org_2_report["teams"]["5"]["survey_responses_count_in_month"] == 7
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_survey_events_are_not_double_charged(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="survey sent",
+                properties={
+                    "$survey_id": "see22eep-o12-as124",
+                    "$survey_response": "correct",
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id="4",
+                event="survey shown",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id="4",
+                event="survey dismissed",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+        flush_persons_and_events()
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+        report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert report["organization_name"] == "Org 1"
+        assert report["survey_responses_count_in_month"] == 5
+        assert report["event_count_in_period"] == 0
+        assert report["event_count_in_month"] == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")

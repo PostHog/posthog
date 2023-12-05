@@ -1,12 +1,11 @@
 .LemonButton,
 .Link.LemonButton {
+    // Make sure we override .Link's styles where needed, e.g. padding
     position: relative;
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
     gap: 0.5rem;
-
-    // Make sure we override .Link's styles where needed, e.g. padding
     align-items: center;
     justify-content: flex-start;
     padding: 0.25rem 0.75rem;
@@ -23,15 +22,11 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
         transform 100ms ease;
 
-    .posthog-3000 & {
-        font-family: var(--font-title);
-    }
-
     .font-normal {
         font-family: var(--font-sans);
     }
 
-    > span {
+    .LemonButton__chrome {
         display: flex;
         flex: 1;
         gap: 0.5rem;
@@ -59,13 +54,6 @@
 
     &.LemonButton--full-width {
         width: 100%;
-        padding-right: 0.5rem;
-        padding-left: 0.5rem;
-
-        > span,
-        .LemonButton__content {
-            overflow: hidden;
-        }
     }
 
     &.LemonButton--centered {
@@ -156,26 +144,6 @@
 
         .LemonButton__icon {
             color: #fff !important;
-        }
-    }
-
-    @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
-        &.LemonButton--status-#{$status} {
-            // Primary - blocked color style
-            &.LemonButton--onboarding,
-            &.LemonButton--primary {
-                color: #fff;
-                background: var(--#{$status}-3000, var(--#{$status}));
-
-                &:not([aria-disabled='true']):hover,
-                &.LemonButton--active {
-                    color: #fff;
-                }
-
-                &:not([aria-disabled='true']):active {
-                    color: #fff;
-                }
-            }
         }
     }
 }

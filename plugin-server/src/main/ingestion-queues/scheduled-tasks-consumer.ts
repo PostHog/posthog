@@ -7,7 +7,7 @@ import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
-import { latestOffsetTimestampGauge } from './metrics'
+import { latestOffsetTimestampGauge, scheduledTaskCounter } from './metrics'
 
 // The valid task types that can be scheduled.
 // TODO: not sure if there is another place that defines these but it would be good to unify.
@@ -78,6 +78,7 @@ export const startScheduledTasksConsumer = async ({
                     durationSeconds: (performance.now() - startTime) / 1000,
                 })
                 statsd?.increment('completed_scheduled_task', { taskType })
+                scheduledTaskCounter.labels({ status: 'completed', task: taskType }).inc()
             } catch (error) {
                 // TODO: figure out a nice way to test this code path.
 
@@ -93,6 +94,7 @@ export const startScheduledTasksConsumer = async ({
                         stack: error.stack,
                     })
                     statsd?.increment('retriable_scheduled_task', { taskType })
+                    scheduledTaskCounter.labels({ status: 'error', task: taskType }).inc()
                     throw error
                 }
 
@@ -104,6 +106,7 @@ export const startScheduledTasksConsumer = async ({
                 })
                 resolveOffset(message.offset)
                 statsd?.increment('failed_scheduled_tasks', { taskType })
+                scheduledTaskCounter.labels({ status: 'failed', task: taskType }).inc()
             } finally {
                 clearInterval(heartbeatInterval)
             }

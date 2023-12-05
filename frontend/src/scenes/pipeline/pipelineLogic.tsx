@@ -15,6 +15,8 @@ export const singularName = (tab: PipelineTabs): string => {
             return 'transformation'
         case PipelineTabs.Destinations:
             return 'destination'
+        default:
+            return ''
     }
 }
 
@@ -26,6 +28,8 @@ export const humanFriendlyTabName = (tab: PipelineTabs): string => {
             return 'Transformations'
         case PipelineTabs.Destinations:
             return 'Destinations'
+        case PipelineTabs.AppsManagement:
+            return 'Apps Management'
     }
 }
 

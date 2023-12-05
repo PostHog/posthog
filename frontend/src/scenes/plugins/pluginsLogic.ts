@@ -11,18 +11,12 @@ import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import type { pluginsLogicType } from './pluginsLogicType'
-import {
-    PluginInstallationType,
-    PluginRepositoryEntry,
-    PluginTab,
-    PluginTypeWithConfig,
-    PluginUpdateStatusType,
-} from './types'
+import { PluginRepositoryEntry, PluginTab, PluginTypeWithConfig, PluginUpdateStatusType } from './types'
 
 export type PluginForm = FormInstance
 

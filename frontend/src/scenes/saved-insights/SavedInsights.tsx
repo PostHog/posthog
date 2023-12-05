@@ -205,6 +205,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.DataVisualizationNode]: {
+        name: 'Data visualization',
+        description: 'Slice and dice your data in a table or chart',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',
@@ -314,12 +320,13 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-        ? {
-              size: 'small',
-              icon: <IconPlusMini />,
-          }
-        : {}
+    const overrides3000: Partial<LemonButtonWithSideActionProps> =
+        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+            ? {
+                  size: 'small',
+                  icon: <IconPlusMini />,
+              }
+            : {}
 
     return (
         <LemonButtonWithSideAction

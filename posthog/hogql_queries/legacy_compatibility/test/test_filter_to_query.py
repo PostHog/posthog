@@ -379,9 +379,33 @@ insight_17 = {
     "funnel_viz_type": "steps",
     "filter_test_accounts": True,
 }
+insight_18 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": None,
+            "math_hogql": None,
+            "properties": {},
+            "custom_name": None,
+            "math_property": None,
+            "math_group_type_index": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "date_from": "-7d",
+    "sampling_factor": "",
+    "smoothing_intervals": 1,
+    "breakdown_normalize_url": False,
+    "breakdown_attribution_type": "first_touch",
+}
 
 # real world regression tests
-insight_18 = {
+insight_19 = {
     "actions": [
         {
             "id": 2760,
@@ -405,7 +429,7 @@ insight_18 = {
     "interval": "day",
     "shown_as": "Lifecycle",
 }
-insight_19 = {
+insight_20 = {
     "events": [
         {
             "id": "created change",
@@ -423,7 +447,7 @@ insight_19 = {
     "interval": "day",
     "shown_as": "Lifecycle",
 }
-insight_20 = {
+insight_21 = {
     "events": [
         {
             "id": "$pageview",
@@ -441,7 +465,7 @@ insight_20 = {
     "shown_as": "Lifecycle",
     "properties": [{"key": "id", "type": "cohort", "value": 929, "operator": "exact"}],
 }
-insight_21 = {
+insight_22 = {
     "actions": [
         {
             "id": 4317,
@@ -461,7 +485,7 @@ insight_21 = {
     "properties": [{"key": "id", "type": "precalculated-cohort", "value": 760, "operator": None}],
     "funnel_window_days": 14,
 }
-insight_22 = {
+insight_23 = {
     "actions": [
         {
             "id": "10184",
@@ -478,7 +502,7 @@ insight_22 = {
     "interval": "day",
     "breakdown_type": "undefined",
 }
-insight_23 = {
+insight_24 = {
     "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
     "display": "ActionsLineGraph",
     "insight": "TRENDS",
@@ -495,7 +519,7 @@ insight_23 = {
     ],
     "breakdown_type": "undefined",
 }
-insight_24 = {
+insight_25 = {
     "events": [
         {
             "id": "$pageview",
@@ -512,7 +536,7 @@ insight_24 = {
     "interval": "day",
     "date_from": "-90d",
 }
-insight_25 = {
+insight_26 = {
     "events": [
         {
             "id": "$pageview",
@@ -526,7 +550,7 @@ insight_25 = {
     ],
     "insight": "TRENDS",
 }
-insight_26 = {
+insight_27 = {
     "events": [
         {
             "id": "$pageview",
@@ -536,7 +560,7 @@ insight_26 = {
     ],
     "insight": "TRENDS",
 }
-insight_27 = {
+insight_28 = {
     "actions": [
         {
             "id": None,
@@ -550,7 +574,7 @@ insight_27 = {
     ],
     "insight": "TRENDS",
 }
-insight_28 = {
+insight_29 = {
     "events": [
         {
             "id": "$pageview",
@@ -561,7 +585,7 @@ insight_28 = {
     "breakdown": [None],
     "breakdown_type": "cohort",
 }
-insight_29 = {
+insight_30 = {
     "events": [
         "{EXAMPLE_VARIABLE}",
         {
@@ -583,7 +607,7 @@ insight_29 = {
     ],
     "insight": "TRENDS",
 }
-insight_30 = {
+insight_31 = {
     "events": [
         {
             "id": "$pageview",
@@ -595,7 +619,7 @@ insight_30 = {
     "breakdown_type": "events",
     "breakdown_group_type_index": 0,
 }
-insight_31 = {
+insight_32 = {
     "events": [
         {
             "id": "$autocapture",
@@ -608,7 +632,7 @@ insight_31 = {
     "insight": "STICKINESS",
     "entity_type": "events",
 }
-insight_32 = {
+insight_33 = {
     "events": [
         {
             "id": "$pageview",
@@ -625,7 +649,7 @@ insight_32 = {
     "shown_as": "Stickiness",
     "date_from": "dStart",
 }
-insight_33 = {
+insight_34 = {
     "period": "Week",
     "display": "ActionsTable",
     "insight": "RETENTION",
@@ -693,6 +717,7 @@ test_insights = [
     insight_31,
     insight_32,
     insight_33,
+    insight_34,
 ]
 
 

@@ -28,7 +28,16 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionFilter, FilterType, InsightType } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    FilterType,
+    InsightType,
+    PropertyFilterType,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+} from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -52,7 +61,7 @@ export const actionsAndEventsToSeries = ({
             const shared = objectCleanWithEmpty({
                 name: f.name || undefined,
                 custom_name: f.custom_name,
-                properties: f.properties,
+                properties: cleanProperties(f.properties),
                 math: f.math || 'total',
                 math_property: f.math_property,
                 math_hogql: f.math_hogql,
@@ -96,6 +105,74 @@ export const cleanHiddenLegendSeries = (
         : undefined
 }
 
+const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
+    if (!parentProperties || !parentProperties.values) {
+        return parentProperties
+    }
+
+    const processAnyPropertyFilter = (filter: AnyPropertyFilter): AnyPropertyFilter => {
+        if (
+            filter.type === PropertyFilterType.Event ||
+            filter.type === PropertyFilterType.Person ||
+            filter.type === PropertyFilterType.Element ||
+            filter.type === PropertyFilterType.Session ||
+            filter.type === PropertyFilterType.Group ||
+            filter.type === PropertyFilterType.Feature ||
+            filter.type === PropertyFilterType.Recording
+        ) {
+            return {
+                ...filter,
+                operator: filter.operator ?? PropertyOperator.Exact,
+            }
+        }
+
+        return filter
+    }
+
+    const processPropertyGroupFilterValue = (
+        propertyGroupFilterValue: PropertyGroupFilterValue
+    ): PropertyGroupFilterValue => {
+        if (propertyGroupFilterValue.values?.length === 0 || !propertyGroupFilterValue.values) {
+            return propertyGroupFilterValue
+        }
+
+        // Check whether the first values type is an AND or OR
+        const firstValueType = propertyGroupFilterValue.values[0].type
+
+        if (firstValueType === FilterLogicalOperator.And || firstValueType === FilterLogicalOperator.Or) {
+            // propertyGroupFilterValue.values is PropertyGroupFilterValue[]
+            const values = (propertyGroupFilterValue.values as PropertyGroupFilterValue[]).map(
+                processPropertyGroupFilterValue
+            )
+
+            return {
+                ...propertyGroupFilterValue,
+                values,
+            }
+        }
+
+        // propertyGroupFilterValue.values is AnyPropertyFilter[]
+        const values = (propertyGroupFilterValue.values as AnyPropertyFilter[]).map(processAnyPropertyFilter)
+
+        return {
+            ...propertyGroupFilterValue,
+            values,
+        }
+    }
+
+    if (Array.isArray(parentProperties)) {
+        // parentProperties is AnyPropertyFilter[]
+        return parentProperties.map(processAnyPropertyFilter)
+    }
+
+    // parentProperties is PropertyGroupFilter
+    const values = parentProperties.values.map(processPropertyGroupFilterValue)
+    return {
+        ...parentProperties,
+        values,
+    }
+}
+
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
         Sentry.captureException(new Error(message), {
@@ -110,7 +187,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     const query: InsightsQueryBase = {
         kind: reverseInsightMap[filters.insight],
-        properties: filters.properties,
+        properties: cleanProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
         samplingFactor: filters.sampling_factor,
     }

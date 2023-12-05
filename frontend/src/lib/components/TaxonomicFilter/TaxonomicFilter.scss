@@ -36,39 +36,5 @@
         padding-left: 10px;
         margin-top: 8px;
         margin-bottom: 8px;
-
-        .ant-tag {
-            margin-right: 2px;
-            margin-bottom: 2px;
-            color: var(--link);
-            cursor: pointer;
-            background: var(--side);
-            border-color: var(--side);
-            transition: none;
-
-            .posthog-3000 & {
-                font-weight: 500;
-                color: var(--default);
-
-                &:not(.taxonomic-pill-active) {
-                    opacity: 0.7;
-                }
-
-                &:hover {
-                    opacity: 1;
-                }
-            }
-
-            &.taxonomic-count-zero {
-                color: var(--muted);
-                cursor: not-allowed;
-            }
-
-            &.taxonomic-pill-active {
-                color: #fff;
-                background: var(--link);
-                border-color: var(--link);
-            }
-        }
     }
 }

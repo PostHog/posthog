@@ -31,8 +31,10 @@
         "noUnusedParameters": true, // Report errors on unused parameters
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
+        // TODO this will be deprecated in TS 5. and we have _many_ of these
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
-        "lib": ["dom", "es2019"]
+        "lib": ["dom", "es2019"],
+        "ignoreDeprecations": "5.0"
     },
     "include": ["frontend/**/*", ".storybook/**/*", "ee/frontend/**/*"],
     "exclude": ["frontend/dist/**/*"],

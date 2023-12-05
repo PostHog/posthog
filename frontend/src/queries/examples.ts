@@ -3,6 +3,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
     DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -316,10 +317,31 @@ const HogQLRaw: HogQLQuery = {
     },
 }
 
+const HogQLForDataVisualization: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+where {filters}
+group by timestamp
+order by timestamp asc
+limit 100`,
+    explain: true,
+    filters: {
+        dateRange: {
+            date_from: '-7d',
+        },
+    },
+}
+
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: HogQLRaw,
+}
+
+const DataVisualization: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: HogQLForDataVisualization,
 }
 
 /* a subset of examples including only those we can show all users and that don't use HogQL */
@@ -353,6 +375,7 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataJSON,
     HogQLRaw,
     HogQLTable,
+    DataVisualization,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
