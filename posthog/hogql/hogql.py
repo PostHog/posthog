@@ -34,7 +34,6 @@ def translate_hogql(
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
             context.database = create_hogql_database(context.team_id)
         node = parse_expr(query, placeholders=placeholders)
-
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=[table])))
         if events_table_alias is not None:
             select_query.select_from.alias = events_table_alias
