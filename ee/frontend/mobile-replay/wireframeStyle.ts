@@ -49,8 +49,8 @@ export function makeSvgBorder(style: MobileStyles | undefined): Record<string, s
         return svgBorderStyles
     }
 
-    if (style.borderWidth) {
-        svgBorderStyles['stroke-width'] = style.borderWidth.toString()
+    if (isUnitLike(style.borderWidth)) {
+        svgBorderStyles['stroke-width'] = ensureUnit(style.borderWidth)
     }
     if (style.borderColor) {
         svgBorderStyles.stroke = style.borderColor
