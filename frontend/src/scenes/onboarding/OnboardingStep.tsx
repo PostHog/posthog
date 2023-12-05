@@ -14,6 +14,7 @@ export const OnboardingStep = ({
     children,
     showSkip = false,
     onSkip,
+    continueAction,
     continueOverride,
     backActionOverride,
 }: {
@@ -23,6 +24,7 @@ export const OnboardingStep = ({
     children: React.ReactNode
     showSkip?: boolean
     onSkip?: () => void
+    continueAction?: () => void
     continueOverride?: JSX.Element
     backActionOverride?: () => void
 }): JSX.Element => {
@@ -77,7 +79,10 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
-                            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            onClick={() => {
+                                continueAction && continueAction()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                            }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
                             {!hasNextStep ? 'Finish' : 'Continue'}

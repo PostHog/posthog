@@ -1,3 +1,5 @@
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
@@ -264,3 +266,30 @@ export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 export const LOGS_PORTION_LIMIT = 50
+
+export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number | null> = [
+    {
+        label: 'no minimum',
+        value: null,
+    },
+    {
+        label: '1',
+        value: 1000,
+    },
+    {
+        label: '2',
+        value: 2000,
+    },
+    {
+        label: '5',
+        value: 5000,
+    },
+    {
+        label: '10',
+        value: 10000,
+    },
+    {
+        label: '15',
+        value: 15000,
+    },
+]
