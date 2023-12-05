@@ -13,7 +13,7 @@ function isUnitLike(candidate: unknown): candidate is string | number {
 }
 
 function ensureUnit(value: string | number): string {
-    return typeof value === 'number' ? `${value}px` : value.replace(/px$/g, '') + 'px'
+    return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
 function makeBorderStyles(wireframe: wireframe): string {
