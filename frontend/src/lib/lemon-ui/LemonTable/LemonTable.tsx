@@ -52,7 +52,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     inset?: boolean
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
-    /** Whether a table background and inner borders should be shown. **/
+    /** Whether to hide the table background and inner borders. **/
     stealth?: boolean
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
