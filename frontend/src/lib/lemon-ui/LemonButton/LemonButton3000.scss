@@ -17,6 +17,7 @@
         --lemon-button-height: 2.3125rem;
         --lemon-button-gap: 0.5rem;
         --lemon-button-icon-opacity: 0.5;
+        --lemon-button-profile-picture-opacity: 0.75; // Profile pictures must be more prominent than icons
         --lemon-button-color: var(--default);
 
         position: relative;
@@ -54,12 +55,22 @@
 
             .LemonButton__icon {
                 transition: none;
+
+                > * {
+                    opacity: var(--lemon-button-icon-opacity);
+                }
+
+                > .ProfilePicture,
+                > .Lettermark {
+                    opacity: var(--lemon-button-profile-picture-opacity);
+                }
             }
         }
 
         &:hover:not([aria-disabled='true']),
         &:not([aria-disabled='true']):active {
-            --lemon-button-icon-opacity: 0.7;
+            --lemon-button-icon-opacity: 0.75;
+            --lemon-button-profile-picture-opacity: 1;
         }
 
         &.LemonButton--full-width {
