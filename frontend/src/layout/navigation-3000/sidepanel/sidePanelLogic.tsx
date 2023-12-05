@@ -46,7 +46,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
-                if (!isReady || hasCompletedAllTasks) {
+                if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
                 tabs.push(SidePanelTab.Activity)
