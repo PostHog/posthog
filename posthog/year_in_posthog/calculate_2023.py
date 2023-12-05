@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Dict, Optional
 
+from django.conf import settings
 from django.db import connection
 
 from posthog.cache_utils import cache_for
@@ -129,7 +130,7 @@ def dictfetchall(cursor):
 
 
 @timed("year_in_posthog_2023_calculation")
-@cache_for(timedelta(seconds=30))
+@cache_for(timedelta(seconds=0 if settings.DEBUG else 30))
 def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
     with connection.cursor() as cursor:
         cursor.execute(query, {"user_uuid": user_uuid})
