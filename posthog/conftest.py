@@ -15,6 +15,7 @@ def create_clickhouse_tables(num_tables: int):
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_DATA_QUERIES,
+        CREATE_DICTIONARY_QUERIES,
         build_query,
     )
 
@@ -25,11 +26,14 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(CREATE_TABLE_QUERIES):
         return
 
-    queries = list(map(build_query, CREATE_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(queries)
+    table_queries = list(map(build_query, CREATE_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES))
     run_clickhouse_statement_in_parallel(data_queries)
+
+    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
+    run_clickhouse_statement_in_parallel(dictionary_queries)
 
 
 def reset_clickhouse_tables():
@@ -75,6 +79,12 @@ def reset_clickhouse_tables():
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
+
+    from posthog.clickhouse.schema import (
+        CREATE_DATA_QUERIES,
+    )
+
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
 @pytest.fixture(scope="package")
