@@ -114,7 +114,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 export interface FeatureFlagLogicProps {
-    id: number | 'new' | 'link'
+    id: number | 'new' | 'link' | 'schedule'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -230,6 +230,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
+        setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setScheduleChangeType: (changeType: string | null) => ({ changeType }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -482,11 +484,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setCopyDestinationProject: (_, { id }) => id,
             },
         ],
+        scheduleDateMarker: [
+            null as any,
+            {
+                setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        scheduleChangeType: [
+            'add_condition' as string | null,
+            {
+                setScheduleChangeType: (_, { changeType }) => changeType,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new' && props.id !== 'link') {
+                if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
@@ -587,7 +601,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortType | null,
             {
                 createStaticCohort: async () => {
-                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                    if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
@@ -625,6 +639,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         target_project_ids: [copyDestinationProject],
                     })
                 }
+            },
+        },
+        scheduledChanges: {
+            __default: [] as any,
+            loadScheduledChanges: async () => {
+                return []
             },
         },
     })),
