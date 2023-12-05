@@ -139,7 +139,7 @@ export const LineGraph = (): JSX.Element => {
 
     return (
         <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
-            <div className="flex w-full h-full overflow-hidden">
+            <div className="flex flex-1 w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>
         </div>

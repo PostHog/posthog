@@ -3,6 +3,18 @@ export const actionScopeToName: Record<string, string> = {
     insights: 'Insights',
 }
 
+export enum TabGroup {
+    All = 'all',
+    EventData = 'event_data',
+    PostHog = 'posthog',
+}
+
+export const groupToName: Record<TabGroup, string | null> = {
+    [TabGroup.All]: 'All',
+    [TabGroup.EventData]: 'Event data',
+    [TabGroup.PostHog]: 'PostHog',
+}
+
 export enum Tab {
     All = 'all',
     Action = 'action',

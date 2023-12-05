@@ -8,6 +8,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
 export interface DataVisualizationLogicProps {
@@ -78,6 +79,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     selectors({
         query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [(state) => [state.insightMode], (insightMode) => insightMode == ItemMode.Edit],
+        sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
@@ -165,14 +167,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         }
     }),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         columns: (value, oldValue) => {
-            if (!oldValue || !oldValue.length) {
-                return
+            if (oldValue && oldValue.length) {
+                if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
+                    actions.clearAxis()
+                }
             }
 
-            if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
-                actions.clearAxis()
+            // Set default axis values
+            if (values.response && values.selectedXIndex === null && values.selectedYIndex === null) {
+                const types: string[][] = values.response['types']
+                const yAxisIndex = types.findIndex((n) => n[1].indexOf('Int') !== -1)
+                const xAxisIndex = types.findIndex((n) => n[1].indexOf('Date') !== -1)
+
+                if (yAxisIndex >= 0) {
+                    actions.setYAxis(yAxisIndex)
+                }
+
+                if (xAxisIndex >= 0) {
+                    actions.setXAxis(xAxisIndex)
+                }
             }
         },
     })),

@@ -1,5 +1,4 @@
 import { RetryError } from '@posthog/plugin-scaffold'
-import { Counter } from 'prom-client'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
@@ -63,12 +62,6 @@ export type RetriableFunctionPayload = RetriableFunctionDefinition &
     Partial<RetryParams> &
     MetricsDefinition & { hub: Hub }
 
-const retryableFnCounter = new Counter({
-    name: 'retryable_fn_status',
-    help: 'Number of times a retriable function status changed',
-    labelNames: ['status', 'name'],
-})
-
 function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, attempt = 1): Promise<void> {
     const {
         metricName,
@@ -112,8 +105,6 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                 }
                 if (error instanceof RetryError && attempt < maxAttempts) {
                     const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
-                    hub.statsd?.increment(`${metricName}.RETRY`)
-                    retryableFnCounter.labels({ name: metricName, status: 'retry' }).inc()
                     nextIterationPromise = new Promise((resolve, reject) =>
                         setTimeout(() => {
                             // This is not awaited directly so that attempts beyond the first one don't stall the payload queue
@@ -126,8 +117,6 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                     await hub.promiseManager.awaitPromisesIfNeeded()
                 } else {
                     await catchFn?.(error)
-                    hub.statsd?.increment(`${metricName}.ERROR`)
-                    retryableFnCounter.labels({ name: metricName, status: 'error' }).inc()
                     if (appMetric) {
                         await hub.appMetrics.queueError(
                             {

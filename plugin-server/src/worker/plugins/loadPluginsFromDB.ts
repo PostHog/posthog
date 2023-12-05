@@ -70,7 +70,7 @@ export async function loadPluginsFromDB(
         let method = undefined
         if (plugin.capabilities?.methods) {
             const methods = plugin.capabilities.methods
-            if (methods?.some((method) => [PluginMethod.onEvent.toString(), 'exportEvents'].includes(method))) {
+            if (methods?.some((method) => [PluginMethod.onEvent.toString()].includes(method))) {
                 method = PluginMethod.onEvent
             } else if (methods?.some((method) => [PluginMethod.composeWebhook.toString()].includes(method))) {
                 method = PluginMethod.composeWebhook

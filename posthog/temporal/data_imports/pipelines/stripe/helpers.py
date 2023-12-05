@@ -1,14 +1,22 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Iterable, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import stripe
 from dlt.common import pendulum
-from dlt.common.typing import TDataItem
 from pendulum import DateTime
+from asgiref.sync import sync_to_async
+
+stripe.api_version = "2022-11-15"
 
 
-def pagination(endpoint: str, start_date: Optional[Any] = None, end_date: Optional[Any] = None) -> Iterable[TDataItem]:
+async def stripe_pagination(
+    api_key: str,
+    endpoint: str,
+    start_date: Optional[Any] = None,
+    end_date: Optional[Any] = None,
+    starting_after: Optional[str] = None,
+):
     """
     Retrieves data from an endpoint with pagination.
 
@@ -20,9 +28,9 @@ def pagination(endpoint: str, start_date: Optional[Any] = None, end_date: Option
     Returns:
         Iterable[TDataItem]: Data items retrieved from the endpoint.
     """
-    starting_after = None
     while True:
-        response = stripe_get_data(
+        response = await stripe_get_data(
+            api_key,
             endpoint,
             start_date=start_date,
             end_date=end_date,
@@ -31,7 +39,7 @@ def pagination(endpoint: str, start_date: Optional[Any] = None, end_date: Option
 
         if len(response["data"]) > 0:
             starting_after = response["data"][-1]["id"]
-        yield response["data"]
+        yield response["data"], starting_after
 
         if not response["has_more"]:
             break
@@ -46,7 +54,8 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
     return date
 
 
-def stripe_get_data(
+async def stripe_get_data(
+    api_key: str,
     resource: str,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -60,5 +69,11 @@ def stripe_get_data(
     if resource == "Subscription":
         kwargs.update({"status": "all"})
 
-    resource_dict = getattr(stripe, resource).list(created={"gte": start_date, "lt": end_date}, limit=100, **kwargs)
+    _resource = getattr(stripe, resource)
+    resource_dict = await sync_to_async(_resource.list)(
+        api_key=api_key,
+        created={"gte": start_date, "lt": end_date},
+        limit=100,
+        **kwargs,  # type: ignore
+    )
     return dict(resource_dict)

@@ -94,10 +94,9 @@ export class GraphileWorker {
         await instrument(
             this.hub.statsd,
             {
-                metricName: 'job_queues_enqueue',
+                metricName: `job_queues_enqueue_${jobName}`,
                 key: instrumentationContext?.key ?? '?',
                 tag: instrumentationContext?.tag ?? '?',
-                tags: { jobName, type: jobType },
                 data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
             },
             enqueueFn

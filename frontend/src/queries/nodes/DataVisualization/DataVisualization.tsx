@@ -7,9 +7,11 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { DataTable } from '../DataTable/DataTable'
+import { QueryFeature } from '../DataTable/queryFeatures'
 import { HogQLQueryEditor } from '../HogQLQuery/HogQLQueryEditor'
 import { Chart } from './Components/Chart'
 import { TableDisplay } from './Components/TableDisplay'
@@ -45,7 +47,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         cachedResults: props.cachedResults,
     }
 
-    const { query, visualizationType, showEditingUI } = useValues(builtDataVisualizationLogic)
+    const { query, visualizationType, showEditingUI, sourceFeatures } = useValues(builtDataVisualizationLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -73,7 +75,24 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
                 <div className="DataVisualization">
                     <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                        {showEditingUI && <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />}
+                        {showEditingUI && (
+                            <>
+                                <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
+                                {sourceFeatures.has(QueryFeature.dateRangePicker) && (
+                                    <div className="flex gap-4 items-center flex-wrap">
+                                        <DateRange
+                                            key="date-range"
+                                            query={query.source}
+                                            setQuery={(query) => {
+                                                if (query.kind === NodeKind.HogQLQuery) {
+                                                    setQuerySource(query)
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </>
+                        )}
                         <LemonDivider className="my-0" />
                         <div className="flex gap-4 justify-between flex-wrap">
                             <div className="flex gap-4 items-center">
