@@ -46,7 +46,7 @@ export function PayGatePage({
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >
-                        Learn more about {featureName} <IconOpenInNew style={{ marginLeft: 8 }} />
+                        Learn more <IconOpenInNew style={{ marginLeft: 8 }} />
                     </LemonButton>
                 )}
             </div>
