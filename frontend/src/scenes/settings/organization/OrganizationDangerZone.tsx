@@ -16,7 +16,7 @@ export function DeleteOrganizationModal({
 }): JSX.Element {
     const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
