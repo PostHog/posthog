@@ -94,9 +94,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 data-attr="delete-cohort"
                                                 fullWidth
                                                 status="danger"
-                                                onClick={() => {
-                                                    deleteCohort()
-                                                }}
+                                                onClick={deleteCohort}
                                             >
                                                 Delete cohort
                                             </LemonButton>
