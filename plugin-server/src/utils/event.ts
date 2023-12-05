@@ -2,8 +2,7 @@ import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
-import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
+import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import {
@@ -11,6 +10,22 @@ import {
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
 } from './utils'
+
+interface RawElement extends Element {
+    $el_text?: string
+}
+
+const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+    for (const element of elements) {
+        if (element.attributes && element.attributes.attr__class) {
+            element.attr_class = element.attributes.attr__class
+        }
+        if (element.text) {
+            element.$el_text = element.text
+        }
+    }
+    return elements
+}
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {

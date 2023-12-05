@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
@@ -91,7 +90,6 @@ export class PersonState {
     maxMergeAttempts: number
 
     private db: DB
-    private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
 
     constructor(
@@ -100,7 +98,6 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        statsd: StatsD | undefined = undefined,
         private personOverrideWriter?: PersonOverrideWriter | DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
@@ -114,7 +111,6 @@ export class PersonState {
         this.maxMergeAttempts = maxMergeAttempts
 
         this.db = db
-        this.statsd = statsd
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
@@ -402,20 +398,7 @@ export class PersonState {
         otherPersonDistinctId: string
     }): Promise<Person> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
-        const newerCreatedAt = DateTime.max(mergeInto.created_at, otherPerson.created_at)
-
         const mergeAllowed = this.isMergeAllowed(otherPerson)
-
-        this.statsd?.increment('merge_users', {
-            call: this.event.event, // $identify, $create_alias or $merge_dangerously
-            teamId: this.teamId.toString(),
-            oldPersonIdentified: String(otherPerson.is_identified),
-            newPersonIdentified: String(mergeInto.is_identified),
-            // For analyzing impact of merges we need to know how old data would need to get updated
-            // If we are smart we merge the newer person into the older one,
-            // so we need to know the newer person's age
-            newerPersonAgeInMonths: String(ageInMonthsLowCardinality(newerCreatedAt)),
-        })
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
@@ -819,14 +802,6 @@ export class DeferredPersonOverrideWriter {
             return rows.length
         })
     }
-}
-
-export function ageInMonthsLowCardinality(timestamp: DateTime): number {
-    const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
-    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB:
-    // https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
-    const ageLowCardinality = Math.min(ageInMonths, 50)
-    return ageLowCardinality
 }
 
 function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {

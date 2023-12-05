@@ -9,7 +9,6 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import {
-    ageInMonthsLowCardinality,
     DeferredPersonOverrideWriter,
     PersonOverrideWriter,
     PersonState,
@@ -134,7 +133,6 @@ describe('PersonState.update()', () => {
             event.distinct_id!,
             timestamp,
             customHub ? customHub.db : hub.db,
-            customHub ? customHub.statsd : hub.statsd,
             overridesMode?.getWriter(customHub ?? hub),
             uuid,
             maxMergeAttempts ?? 3 // the default
@@ -1154,10 +1152,6 @@ describe('PersonState.update()', () => {
     })
 
     describe('illegal aliasing', () => {
-        beforeEach(() => {
-            hub.statsd = { increment: jest.fn() } as any
-        })
-
         const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
         it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
@@ -2098,32 +2092,6 @@ describe('PersonState.update()', () => {
                     ])
                 }
             })
-        })
-    })
-
-    describe('ageInMonthsLowCardinality', () => {
-        beforeEach(() => {
-            jest.setSystemTime(new Date('2022-03-15'))
-        })
-        it('gets the correct age in months', () => {
-            let date = DateTime.fromISO('2022-01-16')
-            expect(ageInMonthsLowCardinality(date)).toEqual(2)
-            date = DateTime.fromISO('2022-01-14')
-            expect(ageInMonthsLowCardinality(date)).toEqual(3)
-            date = DateTime.fromISO('2021-11-25')
-            expect(ageInMonthsLowCardinality(date)).toEqual(4)
-        })
-        it('returns 0 for future dates', () => {
-            let date = DateTime.fromISO('2022-06-01')
-            expect(ageInMonthsLowCardinality(date)).toEqual(0)
-            date = DateTime.fromISO('2023-01-01')
-            expect(ageInMonthsLowCardinality(date)).toEqual(0)
-        })
-        it('returns a low cardinality value', () => {
-            let date = DateTime.fromISO('1990-01-01')
-            expect(ageInMonthsLowCardinality(date)).toEqual(50)
-            date = DateTime.fromMillis(0)
-            expect(ageInMonthsLowCardinality(date)).toEqual(50)
         })
     })
 })

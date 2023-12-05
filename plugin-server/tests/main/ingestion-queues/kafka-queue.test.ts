@@ -54,11 +54,6 @@ describe.skip('IngestionConsumer', () => {
 
     test('consumer consumes from both topics - ingestion and buffer', async () => {
         expect((await hub.db.fetchEvents()).length).toBe(0)
-        hub.statsd = {
-            timing: jest.fn(),
-            increment: jest.fn(),
-            gauge: jest.fn(),
-        } as any
 
         const uuid = new UUIDT().toString()
 

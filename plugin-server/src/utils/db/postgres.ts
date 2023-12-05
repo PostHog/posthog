@@ -1,6 +1,5 @@
 // Postgres
 
-import { StatsD } from 'hot-shots'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { PluginsServerConfig } from '../../types'
@@ -29,9 +28,8 @@ export class TransactionClient {
 
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
-    private readonly statsd: StatsD | undefined
 
-    constructor(serverConfig: PluginsServerConfig, statsd: StatsD | undefined) {
+    constructor(serverConfig: PluginsServerConfig) {
         status.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(serverConfig.DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
         status.info('👍', `Common Postgresql ready`)
@@ -42,7 +40,6 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
         ])
-        this.statsd = statsd
 
         if (serverConfig.DATABASE_READONLY_URL) {
             status.info('🤔', `Connecting to read-only common Postgresql...`)
@@ -70,10 +67,10 @@ export class PostgresRouter {
     ): Promise<QueryResult<R>> {
         if (target instanceof TransactionClient) {
             const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
-            return postgresQuery(target.client, queryString, values, wrappedTag, this.statsd)
+            return postgresQuery(target.client, queryString, values, wrappedTag)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
-            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, this.statsd)
+            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag)
         }
     }
 
@@ -105,7 +102,8 @@ export class PostgresRouter {
         transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
-        return instrumentQuery(this.statsd, 'query.postgres_transation', wrappedTag, async () => {
+
+        return instrumentQuery('query.postgres_transaction', wrappedTag, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
             try {
@@ -143,10 +141,9 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     client: Client | Pool | PoolClient,
     queryString: string | QueryConfig<I>,
     values: I | undefined,
-    tag: string,
-    statsd?: StatsD
+    tag: string
 ): Promise<QueryResult<R>> {
-    return instrumentQuery(statsd, 'query.postgres', tag, async () => {
+    return instrumentQuery('query.postgres', tag, async () => {
         const queryConfig =
             typeof queryString === 'string'
                 ? {
