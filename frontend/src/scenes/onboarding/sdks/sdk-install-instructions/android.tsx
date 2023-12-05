@@ -4,9 +4,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 function AndroidInstallSnippet(): JSX.Element {
     return (
-        <CodeSnippet language={Language.Java}>
+        <CodeSnippet language={Language.Kotlin}>
             {`dependencies {
-    implementation 'com.posthog.android:posthog:1.+'
+    implementation("com.posthog:posthog-android:3.+")
 }`}
         </CodeSnippet>
     )
@@ -16,24 +16,25 @@ function AndroidSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <CodeSnippet language={Language.Java}>
-            {`public class SampleApp extends Application {
-    private static final String POSTHOG_API_KEY = "${currentTeam?.api_token}";
-    private static final String POSTHOG_HOST = "${window.location.origin}";
+        <CodeSnippet language={Language.Kotlin}>
+            {`class SampleApp : Application() {
 
-    @Override
-    public void onCreate() {
-        // Create a PostHog client with the given context, API key and host
-        PostHog posthog = new PostHog.Builder(this, POSTHOG_API_KEY, POSTHOG_HOST)
-            .captureApplicationLifecycleEvents() // Record certain application events automatically!
-            .recordScreenViews() // Record screen views automatically!
-            .build();
+    companion object {
+        const val POSTHOG_API_KEY = "${currentTeam?.api_token}"
+        const val POSTHOG_HOST = "${window.location.origin}"
+    }
 
-        // Set the initialized instance as a globally accessible instance
-        PostHog.setSingletonInstance(posthog);
+    override fun onCreate() {
+        super.onCreate()
 
-        // Now any time you call PostHog.with, the custom instance will be returned
-        PostHog posthog = PostHog.with(this);
+        // Create a PostHog Config with the given API key and host
+        val config = PostHogAndroidConfig(
+            apiKey = POSTHOG_API_KEY,
+            host = POSTHOG_HOST
+        )
+
+        // Setup PostHog with the given Context and Config
+        PostHogAndroid.setup(this, config)
     }`}
         </CodeSnippet>
     )
