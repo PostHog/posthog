@@ -57,9 +57,9 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind'>,
+    extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
         Omit<Partial<FunnelsQuery>, 'kind'>,
-        Omit<Partial<RetentionQuery>, 'kind'>,
+        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind'>,
         Omit<Partial<StickinessQuery>, 'kind'>,
         Omit<Partial<LifecycleQuery>, 'kind'> {
