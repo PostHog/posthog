@@ -20,7 +20,7 @@ export function AppManagementView({
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     if (!canGloballyManagePlugins(user?.organization)) {
         return <></>
