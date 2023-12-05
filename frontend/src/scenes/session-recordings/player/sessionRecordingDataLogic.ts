@@ -4,7 +4,9 @@ import { captureException } from '@sentry/react'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -41,9 +43,10 @@ let postHogEEModule: PostHogEE
 
 const parseEncodedSnapshots = async (
     items: (EncodedRecordingSnapshot | string)[],
-    sessionId: string
+    sessionId: string,
+    withMobileTransformer: boolean
 ): Promise<RecordingSnapshot[]> => {
-    if (!postHogEEModule) {
+    if (!postHogEEModule && withMobileTransformer) {
         postHogEEModule = await posthogEE()
     }
     return items.flatMap((l) => {
@@ -167,6 +170,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -342,7 +346,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         )
 
                         data.snapshots = prepareRecordingSnapshots(
-                            await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
+                            await parseEncodedSnapshots(
+                                encodedResponse,
+                                props.sessionRecordingId,
+                                !!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
+                            ),
                             values.sessionPlayerSnapshotData?.snapshots ?? []
                         )
                     } else {
@@ -354,7 +362,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             data.snapshots = prepareRecordingSnapshots(
-                                await parseEncodedSnapshots(response.snapshots, props.sessionRecordingId),
+                                await parseEncodedSnapshots(
+                                    response.snapshots,
+                                    props.sessionRecordingId,
+                                    !!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
+                                ),
                                 values.sessionPlayerSnapshotData?.snapshots ?? []
                             )
                         }
