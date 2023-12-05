@@ -140,6 +140,7 @@ export const FEATURE_FLAGS = {
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
+    POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-replay
