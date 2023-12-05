@@ -54,8 +54,6 @@
             }
 
             .LemonButton__icon {
-                transition: none;
-
                 > * {
                     opacity: var(--lemon-button-icon-opacity);
                 }
