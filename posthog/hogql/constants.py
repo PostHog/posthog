@@ -33,7 +33,7 @@ DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
 
 
-class LimitContext(Enum):
+class LimitContext(str, Enum):
     QUERY = "query"
     EXPORT = "export"
 
