@@ -129,7 +129,7 @@ export function ActionsPie({
                         />
                     </div>
                     {showAggregation && (
-                        <div className="text-7xl text-center font-bold font-sans m-0">
+                        <div className="text-7xl text-center font-bold m-0">
                             {formatAggregationAxisValue(trendsFilter, total)}
                         </div>
                     )}
