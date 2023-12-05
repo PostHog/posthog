@@ -21,6 +21,7 @@ export const ChartSelection = (): JSX.Element => {
             <div className="flex flex-col">
                 <LemonLabel>X-axis</LemonLabel>
                 <LemonSelect
+                    className="w-full"
                     value={selectedXIndex !== null ? options[selectedXIndex]?.label : 'None'}
                     options={options}
                     disabledReason={responseLoading ? 'Query loading...' : undefined}
@@ -31,6 +32,7 @@ export const ChartSelection = (): JSX.Element => {
                 />
                 <LemonLabel className="mt-4">Y-axis</LemonLabel>
                 <LemonSelect
+                    className="w-full"
                     value={selectedYIndex !== null ? options[selectedYIndex]?.label : 'None'}
                     options={options}
                     disabledReason={responseLoading ? 'Query loading...' : undefined}

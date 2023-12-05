@@ -26,13 +26,13 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.common.utils import (
-    HeartbeatDetails,
+    BatchExportHeartbeatDetails,
     HeartbeatParseError,
     NotEnoughHeartbeatValuesError,
     should_resume_from_activity_heartbeat,
@@ -58,7 +58,7 @@ class SnowflakeFileNotLoadedError(Exception):
 
 
 @dataclasses.dataclass
-class SnowflakeHeartbeatDetails(HeartbeatDetails):
+class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat.
 
     Attributes:
@@ -301,7 +301,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
     logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,

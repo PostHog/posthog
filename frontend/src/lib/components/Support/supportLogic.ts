@@ -336,7 +336,7 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values }) => {
         return {
             closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                     return
                 }
 
