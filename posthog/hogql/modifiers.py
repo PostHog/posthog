@@ -1,12 +1,14 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from posthog.models import Team
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 def create_default_modifiers_for_team(
-    team: Team, modifiers: Optional[HogQLQueryModifiers] = None
+    team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
 ) -> HogQLQueryModifiers:
     if modifiers is None:
         modifiers = HogQLQueryModifiers()

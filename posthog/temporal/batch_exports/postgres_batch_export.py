@@ -24,7 +24,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -155,7 +155,7 @@ class PostgresInsertInputs:
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="PostgreSQL")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,

@@ -14,6 +14,7 @@ from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
 )
+from posthog.warehouse.api.external_data_source import ExternalDataSourceSerializers
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -34,6 +35,7 @@ class TableSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
+    external_data_source = ExternalDataSourceSerializers(read_only=True)
 
     class Meta:
         model = DataWarehouseTable
@@ -47,8 +49,9 @@ class TableSerializer(serializers.ModelSerializer):
             "url_pattern",
             "credential",
             "columns",
+            "external_data_source",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)

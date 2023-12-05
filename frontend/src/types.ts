@@ -3273,6 +3273,7 @@ export interface DataWarehouseTable {
     url_pattern: string
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
+    external_data_source?: ExternalDataStripeSource
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3307,6 +3308,8 @@ export interface ExternalDataStripeSource {
     connection_id: string
     status: string
     source_type: string
+    prefix: string
+    last_run_at?: Dayjs
 }
 
 export type BatchExportDestinationS3 = {
