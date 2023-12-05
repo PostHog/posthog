@@ -24,6 +24,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RetentionQueryResponse,
     IntervalType,
+    RetentionEntity,
 )
 from posthog.schema import RetentionQuery, RetentionType
 
@@ -46,10 +47,12 @@ class RetentionQueryRunner(QueryRunner):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
 
     def get_applicable_entity(self, event_query_type):
-        default_entity = {
-            "id": "$pageview",
-            "type": TREND_FILTER_TYPE_EVENTS,
-        }
+        default_entity = RetentionEntity(
+            **{
+                "id": "$pageview",
+                "type": TREND_FILTER_TYPE_EVENTS,
+            }
+        )
         target_entity = self.query.retentionFilter.target_entity or default_entity
         if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
             return target_entity

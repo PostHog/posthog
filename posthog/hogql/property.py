@@ -33,6 +33,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     FilterLogicalOperator,
+    RetentionEntity,
 )
 
 
@@ -387,18 +388,18 @@ def action_to_expr(action: Action) -> ast.Expr:
         return ast.Or(exprs=or_queries)
 
 
-def entity_to_expr(entity: dict, default_event=PAGEVIEW_EVENT) -> ast.Expr:
-    if entity["type"] == TREND_FILTER_TYPE_ACTIONS and entity["id"] is not None:
-        action = Action.objects.get(pk=entity["id"])
+def entity_to_expr(entity: RetentionEntity, default_event=PAGEVIEW_EVENT) -> ast.Expr:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
+        action = Action.objects.get(pk=entity.id)
         return action_to_expr(action)
-    elif entity["type"] == TREND_FILTER_TYPE_EVENTS:
-        if entity["id"] is None:
+    elif entity.type == TREND_FILTER_TYPE_EVENTS:
+        if entity.id is None:
             return ast.Constant(value=True)
 
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity["id"]),
+            right=ast.Constant(value=entity.id),
         )
 
     return ast.CompareOperation(

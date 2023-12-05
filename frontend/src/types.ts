@@ -37,6 +37,7 @@ import type {
     InsightVizNode,
     Node,
 } from './queries/schema'
+import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1874,13 +1875,24 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
 }
+
+export interface RetentionEntity {
+    id?: string | number // TODO: Fix weird typing issues
+    kind?: NodeKind.ActionsNode | NodeKind.EventsNode
+    name?: string
+    type?: EntityType
+    // @asType integer
+    order?: number
+    uuid?: string
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
     /** @asType integer */
     total_intervals?: number // retention total intervals
-    returning_entity?: Record<string, any>
-    target_entity?: Record<string, any>
+    returning_entity?: RetentionEntity
+    target_entity?: RetentionEntity
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {

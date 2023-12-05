@@ -2536,6 +2536,31 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "RetentionEntity": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "kind": {
+                    "enum": ["ActionsNode", "EventsNode"],
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "RetentionFilter": {
             "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
@@ -2551,10 +2576,10 @@
                     "$ref": "#/definitions/RetentionType"
                 },
                 "returning_entity": {
-                    "type": "object"
+                    "$ref": "#/definitions/RetentionEntity"
                 },
                 "target_entity": {
-                    "type": "object"
+                    "$ref": "#/definitions/RetentionEntity"
                 },
                 "total_intervals": {
                     "type": "integer"

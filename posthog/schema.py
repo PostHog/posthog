@@ -485,6 +485,23 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
+class Kind(str, Enum):
+    ActionsNode = "ActionsNode"
+    EventsNode = "EventsNode"
+
+
+class RetentionEntity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[Union[str, float]] = None
+    kind: Optional[Kind] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+    uuid: Optional[str] = None
+
+
 class RetentionReference(str, Enum):
     total = "total"
     previous = "previous"
@@ -631,7 +648,7 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
-class Kind(str, Enum):
+class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
     percentage = "percentage"
@@ -644,7 +661,7 @@ class WebOverviewItem(BaseModel):
     changeFromPreviousPct: Optional[float] = None
     isIncreaseBad: Optional[bool] = None
     key: str
-    kind: Kind
+    kind: Kind1
     previous: Optional[float] = None
     value: Optional[float] = None
 
@@ -934,8 +951,8 @@ class RetentionFilter(BaseModel):
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Dict[str, Any]] = None
-    target_entity: Optional[Dict[str, Any]] = None
+    returning_entity: Optional[RetentionEntity] = None
+    target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
 

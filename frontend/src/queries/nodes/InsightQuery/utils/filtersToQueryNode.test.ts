@@ -404,8 +404,8 @@ describe('filtersToQueryNode', () => {
                 retention_type: 'retention_first_time',
                 retention_reference: 'total',
                 total_intervals: 2,
-                returning_entity: [{ a: 1 }],
-                target_entity: [{ b: 1 }],
+                returning_entity: { id: '1' },
+                target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
             }
 
@@ -417,8 +417,8 @@ describe('filtersToQueryNode', () => {
                     retention_type: 'retention_first_time',
                     retention_reference: 'total',
                     total_intervals: 2,
-                    returning_entity: [{ a: 1 }],
-                    target_entity: [{ b: 1 }],
+                    returning_entity: { id: '1' },
+                    target_entity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
