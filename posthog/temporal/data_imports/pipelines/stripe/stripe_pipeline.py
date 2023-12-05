@@ -85,25 +85,45 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
 
     asyncio.create_task(worker_shutdown_handler())
 
+    def flush_to_s3(records, write_to_endpoint):
+        # init pipeline and run data import
+        try:
+            logger.debug(
+                "Loading %s records",
+                len(records),
+            )
+            pipeline = create_pipeline(inputs)
+            len(records)
+            pipeline.run(records, table_name=write_to_endpoint.lower(), loader_file_format="parquet")
+            pipeline.drop()
+            pipeline.deactivate()
+
+        except PipelineStepFailed:
+            logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
+            raise
+        # clear everything from pipeline
+
     for endpoint in ordered_endpoints:
         if should_resume and details and endpoint == details.endpoint:
             starting_after = details.cursor
         else:
             starting_after = None
 
+        data_to_import = []
         async for item, cursor in stripe_pagination(inputs.stripe_secret_key, endpoint, starting_after=starting_after):
-            try:
-                # init pipeline and run data import
-                pipeline = create_pipeline(inputs)
-                pipeline.run(item, table_name=endpoint.lower(), loader_file_format="parquet")
+            data_to_import.extend(item)
 
-                # clear everything from pipeline
-                pipeline.drop()
-                pipeline.deactivate()
+            if len(data_to_import) >= 1000:
+                flush_to_s3(data_to_import, endpoint)
+
                 activity.heartbeat(endpoint, cursor)
-            except PipelineStepFailed:
-                logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
-                raise
+                data_to_import = []
+
+        if len(data_to_import) > 0:
+            flush_to_s3(data_to_import, endpoint)
+            activity.heartbeat(endpoint, cursor)
+
+            data_to_import = []
 
 
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {ExternalDataSource.Type.STRIPE: ENDPOINTS}
