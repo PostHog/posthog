@@ -760,13 +760,15 @@ export class DeferredPersonOverrideWriter {
     }
 
     /**
-     * Process all pending overrides. An advisory lock is acquired prior to
-     * processing to ensure that this function has exclusive access to the
-     * pending overrides during the update process.
+     * Process all (or up to the given limit) pending overrides.
+     *
+     * An advisory lock is acquired prior to processing to ensure that this
+     * function has exclusive access to the pending overrides during the update
+     * process.
      *
      * @returns the number of overrides processed
      */
-    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper): Promise<number> {
+    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper, limit?: number): Promise<number> {
         const writer = new PersonOverrideWriter(this.postgres)
 
         return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
@@ -785,7 +787,8 @@ export class DeferredPersonOverrideWriter {
             // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
             const { rows } = await this.postgres.query(
                 tx,
-                `SELECT * FROM posthog_pendingpersonoverride ORDER BY id`,
+                `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
+                    (limit !== undefined ? ` LIMIT ${limit}` : ''),
                 undefined,
                 'processPendingOverrides'
             )

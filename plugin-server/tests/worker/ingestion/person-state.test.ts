@@ -2270,4 +2270,34 @@ describe('DeferredPersonOverrideWriter', () => {
         expect(acquiredLock!).toBe(false)
         await expect(writer.processPendingOverrides(kafkaProducer)).resolves.toEqual(0)
     })
+
+    it('respects limit if provided', async () => {
+        const { postgres, kafkaProducer } = hub.db
+
+        const overrides = [...Array(3)].map(() => ({
+            old_person_id: new UUIDT().toString(),
+            override_person_id: new UUIDT().toString(),
+        }))
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            await Promise.all(
+                overrides.map(
+                    async (override) =>
+                        await writer.addPersonOverride(tx, {
+                            team_id: teamId,
+                            ...override,
+                            oldest_event: DateTime.fromMillis(0),
+                        })
+                )
+            )
+        })
+
+        expect(await getPendingPersonOverrides()).toEqual(overrides)
+
+        expect(await writer.processPendingOverrides(kafkaProducer, 2)).toEqual(2)
+        expect(await getPendingPersonOverrides()).toMatchObject(overrides.slice(-1))
+
+        expect(await writer.processPendingOverrides(kafkaProducer, 2)).toEqual(1)
+        expect(await getPendingPersonOverrides()).toEqual([])
+    })
 })
