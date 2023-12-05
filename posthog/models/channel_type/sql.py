@@ -14,7 +14,7 @@ ORDER BY domain;
 DROP_GA4_CHANNEL_DEFINITION_TABLE_SQL = f"DROP TABLE IF EXISTS ga4_channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 TRUNCATE_GA4_CHANNEL_DEFINITION_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS ga4_channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS ga4_channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 
 with open(os.path.join(os.path.dirname(__file__), "ga4_channel_definitions.json"), "r") as f:
