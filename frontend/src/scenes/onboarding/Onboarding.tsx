@@ -108,7 +108,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         {
             type: 'toggle',
             title: 'Capture console logs',
-            description: `Capture browser console logs as a part of user session recordings. 
+            description: `Capture console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
             value: true,
