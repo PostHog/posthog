@@ -44,7 +44,9 @@ type CardProps = {
 }
 
 const Card = ({ children, className }: CardProps): JSX.Element => (
-    <div className={clsx('welcome-card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>{children}</div>
+    <div className={clsx('SidePanelWelcome__card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>
+        {children}
+    </div>
 )
 
 const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -98,7 +100,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </div>
             </div>
             <div className="flex flex-col mx-4 mb-6 flex-1">
-                <div className="hero-art -mx-4 pt-4 pl-4 mb-4 border-b">
+                <div className="SidePanelWelcome__hero -mx-4 pt-4 pl-4 mb-4 border-b">
                     <h1 className="font-semibold text-base mb-2 w-full">
                         👋 <span className="opacity-75">Say hello to</span>
                         <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>

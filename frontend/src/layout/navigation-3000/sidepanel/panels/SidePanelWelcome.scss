@@ -1,4 +1,4 @@
-.welcome-card {
+.SidePanelWelcome__card {
     background: var(--primary-alt-highlight-3000);
 
     body[theme='dark'] & {
@@ -6,6 +6,8 @@
     }
 }
 
-.hero-art {
-    background: url('../../../../../public/3000/3000-launch.png') 400% 100% / 95% no-repeat;
+.SidePanelWelcome__hero {
+    background: url('../../../../../public/3000/3000-launch.png') no-repeat;
+    background-position: right min(calc(-5rem + 75%), 0rem) bottom;
+    background-size: 22.875rem auto;
 }
