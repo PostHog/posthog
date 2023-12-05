@@ -29,12 +29,6 @@ export async function populateTeamDataStep(
         })
         .inc()
 
-    // statsd copy as prometheus is currently not supported in worker threads.
-    runner.hub.statsd?.increment('ingestion_event_hasauthinfo', {
-        team_id_present: event.team_id ? 'true' : 'false',
-        token_present: event.token ? 'true' : 'false',
-    })
-
     // If a team_id is present (event captured from an app), trust it and return the event as is.
     if (event.team_id) {
         // Check for an invalid UUID, which should be blocked by capture, when team_id is present
@@ -56,7 +50,6 @@ export async function populateTeamDataStep(
                 drop_cause: 'no_token',
             })
             .inc()
-        runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'false' })
         return null
     }
 
@@ -72,7 +65,6 @@ export async function populateTeamDataStep(
                 drop_cause: 'invalid_token',
             })
             .inc()
-        runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'true' })
         return null
     }
 

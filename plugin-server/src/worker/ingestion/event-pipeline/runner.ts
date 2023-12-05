@@ -93,7 +93,6 @@ export class EventPipelineRunner {
             } else {
                 result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
             eventProcessedAndIngestedCounter.inc()
             return result
         } catch (error) {
@@ -145,10 +144,6 @@ export class EventPipelineRunner {
         args: any[],
         promises?: Array<Promise<void>>
     ): EventPipelineResult {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-            step: stepName,
-            team_id: String(teamId), // NOTE: potentially high cardinality
-        })
         pipelineLastStepCounter.labels(stepName).inc()
         return { promises: promises, lastStep: stepName, args }
     }
@@ -176,8 +171,6 @@ export class EventPipelineRunner {
                 try {
                     const result = await step(...args)
                     pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
-                    this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
                     return result
                 } catch (err) {
                     await this.handleError(err, step.name, args, teamId, sentToDql)
@@ -206,7 +199,6 @@ export class EventPipelineRunner {
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
 
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
         pipelineStepErrorCounter.labels(currentStepName).inc()
 
         // Should we throw or should we drop and send the event to DLQ.
@@ -225,7 +217,6 @@ export class EventPipelineRunner {
                     `plugin_server_ingest_event:${currentStepName}`
                 )
                 await this.hub.db.kafkaProducer!.queueMessage(message)
-                this.hub.statsd?.increment('events_added_to_dead_letter_queue')
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {

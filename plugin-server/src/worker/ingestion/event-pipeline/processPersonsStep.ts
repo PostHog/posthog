@@ -28,7 +28,6 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         runner.hub.db,
-        runner.hub.statsd,
         runner.poEEmbraceJoin
     ).update()
 

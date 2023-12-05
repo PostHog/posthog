@@ -39,14 +39,6 @@ export function createPluginConfigVM(
 ): PluginConfigVMResponse {
     const timer = new Date()
 
-    const statsdTiming = (metric: string) => {
-        hub.statsd?.timing(metric, timer, {
-            pluginConfigId: String(pluginConfig.id),
-            pluginName: String(pluginConfig.plugin?.name),
-            teamId: String(pluginConfig.team_id),
-        })
-    }
-
     const usedImports: Set<string> = new Set()
     const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
@@ -232,7 +224,6 @@ export function createPluginConfigVM(
     const vmResponse = vm.run(responseVar)
     const { methods, tasks } = vmResponse
 
-    statsdTiming('vm_setup_full')
     vmSetupMsSummary.labels(String(pluginConfig.plugin?.id)).observe(new Date().getTime() - timer.getTime())
 
     return {
