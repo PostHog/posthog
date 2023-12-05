@@ -15,11 +15,9 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
@@ -132,11 +130,6 @@ export function Transformations(): JSX.Element {
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
-                                    // We're not very good at cleaning up the errors, so let's not show it if more than 7 days have passed
-                                    const days_since_error = pluginConfig.error
-                                        ? dayjs().diff(dayjs(pluginConfig.error.time), 'day')
-                                        : null
-                                    const show_error: boolean = !(days_since_error && days_since_error < 7)
                                     return (
                                         <>
                                             {pluginConfig.enabled ? (
@@ -147,30 +140,6 @@ export function Transformations(): JSX.Element {
                                                 <LemonTag type="default" className="uppercase">
                                                     Disabled
                                                 </LemonTag>
-                                            )}
-                                            {pluginConfig.error && show_error && (
-                                                <>
-                                                    <br />
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                Click to see logs.
-                                                                <br />
-                                                                {humanFriendlyDetailedTime(
-                                                                    pluginConfig.error.time
-                                                                )}: {pluginConfig.error.message}
-                                                            </>
-                                                        }
-                                                    >
-                                                        <Link
-                                                            to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
-                                                        >
-                                                            <LemonTag type="danger" className="uppercase">
-                                                                Error
-                                                            </LemonTag>
-                                                        </Link>
-                                                    </Tooltip>
-                                                </>
                                             )}
                                         </>
                                     )
