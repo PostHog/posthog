@@ -80,7 +80,7 @@ export function AppManagementView({
                                 }
                                 data-attr="plugin-uninstall"
                             >
-                                Uninstall me
+                                Uninstall
                             </LemonButton>
                         </Popconfirm>
                         {plugin.is_global ? (
