@@ -76,6 +76,8 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
     },
 }
 
+const DEFAULT_WIDTH = 512
+
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -139,7 +141,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredWidth ?? undefined : undefined,
+                width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
             }}
         >
             <Resizer {...resizerLogicProps} />
