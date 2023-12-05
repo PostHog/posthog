@@ -513,12 +513,12 @@ export interface FunnelsQuery extends InsightsQueryBase {
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
 
-export type RetentionValue = {
+export interface RetentionValue {
     /** @asType integer */
     count: number
 }
 
-export type RetentionResult = {
+export interface RetentionResult {
     values: RetentionValue[]
     label: string
     /** @format date-time */
