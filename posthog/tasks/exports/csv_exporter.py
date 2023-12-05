@@ -19,6 +19,7 @@ from ..exporter import (
     EXPORT_TIMER,
 )
 from ...constants import CSV_EXPORT_LIMIT
+from ...hogql.query import LimitContext
 
 logger = structlog.get_logger(__name__)
 
@@ -184,7 +185,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
 
     if resource.get("source"):
         query = resource.get("source")
-        query_response = process_query(team=exported_asset.team, query_json=query, in_export_context=True)
+        query_response = process_query(team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT)
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:
