@@ -18,7 +18,7 @@ if(
     properties.$initial_referring_domain = '$direct',
     '$direct',
     dictGetOrNull(
-        'ga4_channel_definition_dict',
+        'channel_definition_dict',
         'type',
         cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, ''))
     )
@@ -38,7 +38,7 @@ multiIf(
     'Cross Network',
 
     match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$'),
-    CASE dictGetOrNull('ga4_channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
+    CASE dictGetOrNull('channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
         WHEN 'Shopping' THEN 'Paid Shopping'
         WHEN 'Search' THEN 'Paid Search'
         WHEN 'Video' THEN 'Paid Video'
@@ -56,7 +56,7 @@ multiIf(
     properties.$initial_referring_domain = '$direct' AND (properties.$initial_utm_medium IS NULL OR properties.$initial_utm_medium = ''),
     'Direct',
 
-    CASE dictGetOrNull('ga4_channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
+    CASE dictGetOrNull('channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
         WHEN 'Shopping' THEN 'Organic Shopping'
         WHEN 'Search' THEN 'Organic Search'
         WHEN 'Video' THEN 'Organic Video'

@@ -10,9 +10,9 @@ from posthog.clickhouse.log_entries import (
 from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
 from posthog.models.channel_type.sql import (
-    GA4_CHANNEL_DEFINITION_TABLE_SQL,
-    GA_CHANNEL_DEFINITIONS_DATA_SQL,
-    GA4_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
+    CHANNEL_DEFINITIONS_DATA_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
 )
 from posthog.models.cohort.sql import *
 from posthog.models.event.sql import *
@@ -62,7 +62,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     APP_METRICS_DATA_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
-    GA4_CHANNEL_DEFINITION_TABLE_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -115,9 +115,9 @@ CREATE_TABLE_QUERIES = (
     + CREATE_MV_TABLE_QUERIES
 )
 
-CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, GA4_CHANNEL_DEFINITION_DICTIONARY_SQL)
+CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, CHANNEL_DEFINITION_DICTIONARY_SQL)
 
-CREATE_DATA_QUERIES = (GA_CHANNEL_DEFINITIONS_DATA_SQL,)
+CREATE_DATA_QUERIES = (CHANNEL_DEFINITIONS_DATA_SQL,)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

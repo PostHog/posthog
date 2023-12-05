@@ -1,19 +1,19 @@
 import json
-import logging
 import re
 import subprocess
 
 from django.core.management.base import BaseCommand
 
-logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
-OUTPUT_FILE = "posthog/hogql/database/schema/channel_grouping.json"
+OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 
 class Command(BaseCommand):
     help = (
-        "Clean a ga4 sources file like . The best way I have found to do this is to open it in Google Docs, "
-        "then copy/paste it to a text file, then run this command on it."
+        "Clean a ga4 sources file like"
+        "https://storage.googleapis.com/support-kms-prod/qn1xhBu8MVcZPIZ2WZMNdI40FtZXFPGYxj2K"
+        ". The best way I have found to do this is to open it in Google Docs, then copy/paste it to a text file, then"
+        "run this command on it."
     )
 
     def add_arguments(self, parser):
