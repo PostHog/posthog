@@ -2,7 +2,6 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
-    Meta,
     PluginAttachment,
     PluginConfigSchema,
     PluginEvent,
@@ -193,10 +192,6 @@ export interface PluginsServerConfig {
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
-    HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
-    HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
-    HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
@@ -490,7 +485,6 @@ export type VMMethods = {
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    exportEvents?: (events: PluginEvent[]) => Promise<void>
     composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
@@ -524,12 +518,6 @@ export interface PluginConfigVMResponse {
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
-}
-
-export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
-    methods: VMMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-    meta: M
 }
 
 export interface EventUsage {

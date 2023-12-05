@@ -51,7 +51,7 @@ export function makePositionStyles(wireframe: wireframe): string {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
     if (wireframe.x || wireframe.y) {
-        styles += `position: absolute;`
+        styles += `position: fixed;`
         if (wireframe.x) {
             styles += `left: ${ensureUnit(wireframe.x)};`
         }

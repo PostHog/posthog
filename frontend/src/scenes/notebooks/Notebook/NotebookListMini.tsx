@@ -16,7 +16,7 @@ export type NotebookListMiniProps = {
 export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {
     const { notebooks, notebookTemplates } = useValues(notebooksModel)
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
