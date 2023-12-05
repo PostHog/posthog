@@ -138,8 +138,8 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row className="grid grid-cols-2" columns="40% calc(60% - 1.25rem)">
                     <Card>
-                        <Title>Updated navigation</Title>
-                        <Description>Products are now split out from project&nbsp;&&nbsp;data.</Description>
+                        <Title>Updated nav</Title>
+                        <Description>Sub-products are now split out from project &&nbsp;data.</Description>
                         <div className="-mr-4 -mb-3">
                             <Image
                                 src={isDarkModeOn ? featureNavDark : featureNav}
@@ -152,8 +152,8 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <Card>
                         <Title>Notebooks</Title>
                         <Description>
-                            Analyze data from different angles and share results with your team - all in a
-                            single&nbsp;document.
+                            Analyze data from different angles and share results with your team - all in
+                            a&nbsp;single&nbsp;document.
                         </Description>
                         <div className="-mr-4 -mb-3">
                             <Image
@@ -171,8 +171,10 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <div className="grid grid-cols-2 gap-5 items-center">
                             <div>
                                 <Title>Side panel</Title>
-                                <Description>It's this multipurpose thing you're looking at right now!</Description>
-                                <Description>Create notebooks, read docs, contact support, and more.</Description>
+                                <Description>
+                                    It's this multipurpose thing you're looking at right&nbsp;now!
+                                </Description>
+                                <Description>Create notebooks, read docs, contact support, and&nbsp;more.</Description>
                             </div>
                             <div className="-mr-4 -my-3">
                                 <Image
@@ -203,7 +205,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                     <Card className="flex flex-col">
                         <div className="flex-1">
-                            <Title>Command palette</Title>
+                            <Title>Command bar</Title>
                             <Description>
                                 Navigate faster with <KeyboardShortcut command shift k />
                             </Description>
@@ -221,9 +223,9 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row>
                     <Card>
-                        <Title>Toolbar</Title>
+                        <Title>Toolbar redesigned</Title>
                         <Description>
-                            Dark mode: on. Same features, but easier to use. And we finally put the "<em>bar</em>"
+                            Dark mode: on. Same features, but easier to use. And&nbsp;we&nbsp;finally put the "bar"
                             in&nbsp;"toolbar".
                         </Description>
                         <div>
