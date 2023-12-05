@@ -24,7 +24,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RetentionQueryResponse,
     IntervalType,
-    RetentionFilter,
 )
 from posthog.schema import RetentionQuery, RetentionType
 
@@ -45,14 +44,17 @@ class RetentionQueryRunner(QueryRunner):
         in_export_context: Optional[bool] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
-        if not self.query.retentionFilter:
-            self.query.retentionFilter = RetentionFilter()  # TODO: Clarify default filter
 
-        self.target_entity = self.query.retentionFilter.target_entity or {
+    def get_applicable_entity(self, event_query_type):
+        default_entity = {
             "id": "$pageview",
             "type": TREND_FILTER_TYPE_EVENTS,
         }
-        self.returning_entity = self.query.retentionFilter.returning_entity or self.target_entity
+        target_entity = self.query.retentionFilter.target_entity or default_entity
+        if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
+            return target_entity
+
+        return self.query.retentionFilter.returning_entity or target_entity
 
     def retention_events_query(self, event_query_type) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
@@ -92,11 +94,7 @@ class RetentionQueryRunner(QueryRunner):
             )
 
         event_filters = [
-            entity_to_expr(
-                entity=self.target_entity
-                if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]
-                else self.returning_entity
-            )
+            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
         ]
 
         if self.query.properties is not None and self.query.properties != []:
