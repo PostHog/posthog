@@ -213,7 +213,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <div className="-mr-4 -mb-3 flex-shrink">
                             <Image
                                 src={isDarkModeOn ? featureCommandPaletteDark : featureCommandPalette}
-                                alt="Command palette"
+                                alt="Command bar"
                                 width="100%"
                                 style={{ borderTopLeftRadius: '0.25rem' }}
                             />
