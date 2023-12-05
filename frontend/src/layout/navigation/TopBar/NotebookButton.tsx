@@ -7,7 +7,7 @@ import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanel
 export function NotebookButton(): JSX.Element {
     const { visibility } = useValues(notebookPanelLogic)
     const { toggleVisibility } = useActions(notebookPanelLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const overrides3000: Partial<LemonButtonWithSideActionProps> = is3000
         ? {

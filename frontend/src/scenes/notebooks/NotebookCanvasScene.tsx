@@ -25,7 +25,7 @@ export function NotebookCanvas(): JSX.Element {
 
     const { duplicateNotebook } = useActions(notebookLogic(logicProps))
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     if (!is3000) {
         return <NotFound object="canvas" caption={<>Canvas mode requires PostHog 3000</>} />

@@ -57,7 +57,7 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('filters')
     })
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding

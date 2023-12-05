@@ -251,7 +251,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
     selectors({
         isUsingCmdKSearch: [
             (selectors) => [selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test',
         ],
         isSqueak: [
             (selectors) => [selectors.input],
@@ -1008,7 +1008,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
-            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                 actions.registerCommand(toggleTheme)
                 actions.registerCommand(toggleHedgehogMode)
                 actions.registerCommand(shortcuts)

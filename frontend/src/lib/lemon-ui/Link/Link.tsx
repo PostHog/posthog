@@ -87,7 +87,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const is3000 = useFeatureFlag('POSTHOG_3000')
+        const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
         const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {

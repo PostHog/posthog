@@ -12,7 +12,7 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const rounded = is3000 ? 'rounded-md' : 'rounded'
 
     return (
