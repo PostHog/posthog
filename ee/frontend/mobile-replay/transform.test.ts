@@ -312,5 +312,39 @@ describe('replay/transform', () => {
             ])
             expect(textEvent).toMatchSnapshot()
         })
+
+        test('respect incremental ids, replace with body otherwise', () => {
+            const textEvent = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    windowId: 'ddc9c89d-2272-4b07-a280-c00db3a9182f',
+                    data: {
+                        id: 0, // must be an element id - replace with body
+                        pointerType: 2,
+                        source: 2,
+                        type: 7,
+                        x: 523,
+                        y: 683,
+                    },
+                    timestamp: 1701355473313,
+                    type: 3,
+                    delay: 2160,
+                },
+                {
+                    windowId: 'ddc9c89d-2272-4b07-a280-c00db3a9182f',
+                    data: {
+                        id: 145, // element provided - respected without validation
+                        pointerType: 2,
+                        source: 2,
+                        type: 7,
+                        x: 523,
+                        y: 683,
+                    },
+                    timestamp: 1701355473313,
+                    type: 3,
+                    delay: 2160,
+                },
+            ])
+            expect(textEvent).toMatchSnapshot()
+        })
     })
 })

@@ -46,9 +46,8 @@ describe('graphileWorker', () => {
             expect(runRetriableFunction).toHaveBeenCalled()
             const runRetriableFunctionArgs = jest.mocked(runRetriableFunction).mock.calls[0][0]
 
-            expect(runRetriableFunctionArgs.metricName).toEqual('job_queues_enqueue')
+            expect(runRetriableFunctionArgs.metricName).toEqual('job_queues_enqueue_pluginJob')
             expect(runRetriableFunctionArgs.payload).toEqual({ type: 'foo' })
-            expect(runRetriableFunctionArgs.metricTags).toEqual({ jobName: 'pluginJob' })
             expect(runRetriableFunctionArgs.tryFn).not.toBeUndefined()
             expect(runRetriableFunctionArgs.catchFn).not.toBeUndefined()
             expect(runRetriableFunctionArgs.finallyFn).toBeUndefined()

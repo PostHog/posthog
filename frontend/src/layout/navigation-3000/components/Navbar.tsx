@@ -1,5 +1,4 @@
-import { IconAsterisk, IconDay, IconGear, IconNight, IconSearch, IconToolbar } from '@posthog/icons'
-import { LemonBadge } from '@posthog/lemon-ui'
+import { IconGear, IconSearch, IconToolbar } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
@@ -16,23 +15,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 
 import { navigation3000Logic } from '../navigationLogic'
-import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
-
-export function ThemeIcon(): JSX.Element {
-    const { isDarkModeOn, isThemeSyncedWithSystem } = useValues(themeLogic)
-
-    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
-
-    return isThemeSyncedWithSystem ? (
-        <div className="relative">
-            {activeThemeIcon}
-            <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
-        </div>
-    ) : (
-        activeThemeIcon
-    )
-}
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -40,8 +23,6 @@ export function Navbar(): JSX.Element {
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { darkModeSavedPreference, darkModeSystemPreference } = useValues(themeLogic)
-    const { toggleTheme } = useActions(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
 
@@ -98,23 +79,6 @@ export function Navbar(): JSX.Element {
                                 identifier={Scene.ToolbarLaunch}
                                 title="Toolbar"
                                 to={urls.toolbarLaunch()}
-                            />
-                            <NavbarButton
-                                icon={<ThemeIcon />}
-                                identifier="theme-button"
-                                title={
-                                    darkModeSavedPreference === false
-                                        ? `Sync theme with system preference (${
-                                              darkModeSystemPreference ? 'dark' : 'light'
-                                          } mode)`
-                                        : darkModeSavedPreference
-                                        ? 'Switch to light mode'
-                                        : 'Switch to dark mode'
-                                }
-                                shortTitle="Toggle theme"
-                                forceTooltipOnHover
-                                onClick={() => toggleTheme()}
-                                persistentTooltip
                             />
                             <NavbarButton
                                 icon={<IconGear />}

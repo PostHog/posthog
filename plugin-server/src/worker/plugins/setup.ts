@@ -1,4 +1,4 @@
-import { Gauge } from 'prom-client'
+import { Gauge, Summary } from 'prom-client'
 
 import { Hub, StatelessVmMap } from '../../types'
 import { status } from '../../utils/status'
@@ -12,6 +12,11 @@ export const importUsedGauge = new Gauge({
     name: 'plugin_import_used',
     help: 'Imports used by plugins, broken down by import name and plugin_id',
     labelNames: ['name', 'plugin_id'],
+})
+const setupPluginsMsSummary = new Summary({
+    name: 'setup_plugins_ms',
+    help: 'Time to setup plugins',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
 export async function setupPlugins(hub: Hub): Promise<void> {
@@ -54,6 +59,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
 
     await Promise.all(pluginVMLoadPromises)
     hub.statsd?.timing('setup_plugins.success', timer)
+    setupPluginsMsSummary.observe(new Date().getTime() - timer.getTime())
 
     hub.plugins = plugins
     hub.pluginConfigs = pluginConfigs

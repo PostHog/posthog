@@ -163,6 +163,11 @@ export type fullSnapshotEvent = {
     }
 }
 
+export type incrementalSnapshotEvent = {
+    type: EventType.IncrementalSnapshot
+    data: any // TODO: this will change as we implement incremental snapshots
+}
+
 export type metaEvent = {
     type: EventType.Meta
     data: {
@@ -172,7 +177,7 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

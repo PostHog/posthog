@@ -1,4 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactNode } from 'react'
 import { insightTypeURL } from 'scenes/insights/utils'
@@ -13,6 +15,11 @@ function insightTypesForMenu(): [string, InsightTypeMetadata][] {
 
 export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
     const menuEntries = insightTypesForMenu()
+
+    const insightTypeUrls = insightTypeURL(
+        Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.BI_VIZ])
+    )
+
     return menuEntries.map(
         ([listedInsightType, listedInsightTypeMetadata]) =>
             listedInsightTypeMetadata.inMenu && (
@@ -24,7 +31,7 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                         )
                     }
-                    to={insightTypeURL[listedInsightType as InsightType]}
+                    to={insightTypeUrls[listedInsightType as InsightType]}
                     data-attr={dataAttr}
                     data-attr-insight-type={listedInsightType}
                     onClick={() => {

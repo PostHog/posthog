@@ -10,6 +10,7 @@ import {
     eachBatchWebhooksHandlers,
     groupIntoBatchesByUsage,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
+import * as batchProcessingMetrics from '../../../src/main/ingestion-queues/batch-processing/metrics'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
@@ -158,19 +159,11 @@ describe('eachBatchX', () => {
                     distinct_id: 'my_id',
                 })
             )
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_on_event',
-                expect.any(Date)
-            )
         })
         it('skip runOnEvent when no pluginconfig for team', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.clear()
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_on_event',
-                expect.any(Date)
-            )
         })
         it('parses elements when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
@@ -249,10 +242,6 @@ describe('eachBatchX', () => {
                     },
                 },
                 []
-            )
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_webhooks',
-                expect.any(Date)
             )
         })
 
@@ -422,10 +411,6 @@ describe('eachBatchX', () => {
                 team_id: 1,
                 uuid: 'uuid1',
             })
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_parallel_ingestion',
-                expect.any(Date)
-            )
         })
 
         it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
@@ -512,6 +497,14 @@ describe('eachBatchX', () => {
         })
 
         it('batches events but commits offsets only once', async () => {
+            const ingestEventBatchingInputLengthSummarySpy = jest.spyOn(
+                batchProcessingMetrics.ingestEventBatchingInputLengthSummary,
+                'observe'
+            )
+            const ingestEventBatchingBatchCountSummarySpy = jest.spyOn(
+                batchProcessingMetrics.ingestEventBatchingBatchCountSummary,
+                'observe'
+            )
             const batch = createBatchWithMultipleEvents([
                 { ...captureEndpointEvent, offset: 1, team_id: 3 },
                 { ...captureEndpointEvent, offset: 2, team_id: 3 }, // repeat
@@ -538,9 +531,11 @@ describe('eachBatchX', () => {
                     key: 'ingestion',
                 }
             )
+            expect(ingestEventBatchingInputLengthSummarySpy).toHaveBeenCalledWith(14)
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
                 key: 'ingestion',
             })
+            expect(ingestEventBatchingBatchCountSummarySpy).toHaveBeenCalledWith(5)
         })
 
         it('fails the batch if runEventPipeline rejects repeatedly', async () => {

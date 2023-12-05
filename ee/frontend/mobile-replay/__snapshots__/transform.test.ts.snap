@@ -27,7 +27,9 @@ exports[`replay/transform transform can convert images 1`] = `
             "type": 1,
           },
           {
-            "attributes": {},
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
             "childNodes": [
               {
                 "attributes": {},
@@ -37,7 +39,9 @@ exports[`replay/transform transform can convert images 1`] = `
                 "type": 2,
               },
               {
-                "attributes": {},
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
                 "childNodes": [
                   {
                     "attributes": {},
@@ -122,7 +126,9 @@ exports[`replay/transform transform can convert rect with text 1`] = `
             "type": 1,
           },
           {
-            "attributes": {},
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
             "childNodes": [
               {
                 "attributes": {},
@@ -132,7 +138,9 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                 "type": 2,
               },
               {
-                "attributes": {},
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
                 "childNodes": [
                   {
                     "attributes": {},
@@ -232,7 +240,9 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
             "type": 1,
           },
           {
-            "attributes": {},
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
             "childNodes": [
               {
                 "attributes": {},
@@ -242,7 +252,9 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
                 "type": 2,
               },
               {
-                "attributes": {},
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
                 "childNodes": [
                   {
                     "attributes": {},
@@ -311,7 +323,9 @@ exports[`replay/transform transform can process unknown types without error 1`] 
             "type": 1,
           },
           {
-            "attributes": {},
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
             "childNodes": [
               {
                 "attributes": {},
@@ -321,7 +335,9 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                 "type": 2,
               },
               {
-                "attributes": {},
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
                 "childNodes": [
                   {
                     "attributes": {},
@@ -414,7 +430,9 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
             "type": 1,
           },
           {
-            "attributes": {},
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
             "childNodes": [
               {
                 "attributes": {},
@@ -424,7 +442,9 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                 "type": 2,
               },
               {
-                "attributes": {},
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
                 "childNodes": [
                   {
                     "attributes": {},
@@ -516,6 +536,39 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
     },
     "timestamp": 1,
     "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform respect incremental ids, replace with body otherwise 1`] = `
+[
+  {
+    "data": {
+      "id": 5,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
+  },
+  {
+    "data": {
+      "id": 145,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
   },
 ]
 `;

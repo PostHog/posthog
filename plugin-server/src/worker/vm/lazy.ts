@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
+import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import {
@@ -31,6 +32,17 @@ export class SetupPluginError extends Error {
         this.name = 'SetupPluginError'
     }
 }
+
+const pluginSetupMsSummary = new Summary({
+    name: 'plugin_setup_ms',
+    help: 'Time to setup plugins',
+    labelNames: ['plugin_id', 'status'],
+})
+const pluginDisabledBySystemCounter = new Counter({
+    name: 'plugin_disabled_by_system',
+    help: 'Count of plugins disabled by the system',
+    labelNames: ['plugin_id'],
+})
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
@@ -205,6 +217,7 @@ export class LazyPluginVM {
             ? pluginDigest(this.pluginConfig.plugin)
             : `plugin config ID '${this.pluginConfig.id}'`
         this.totalInitAttemptsCounter++
+        const pluginId = this.pluginConfig.plugin?.id.toString() || 'unknown'
         const timer = new Date()
         try {
             // Make sure one can't self-replicate resulting in an infinite loop
@@ -237,6 +250,9 @@ export class LazyPluginVM {
             )
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'success' })
+                .observe(new Date().getTime() - timer.getTime())
             this.ready = true
 
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
@@ -249,6 +265,10 @@ export class LazyPluginVM {
             this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
                 plugin: this.pluginConfig.plugin?.name ?? '?',
             })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'fail' })
+                .observe(new Date().getTime() - timer.getTime())
+
             this.clearRetryTimeoutIfExists()
             if (error instanceof RetryError) {
                 error._attempt = this.totalInitAttemptsCounter
@@ -296,6 +316,7 @@ export class LazyPluginVM {
             teamId: this.pluginConfig.team_id.toString(),
             plugin: this.pluginConfig.plugin?.name ?? '?',
         })
+        pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [

@@ -1,5 +1,3 @@
-import './Dashboard.scss'
-
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'

@@ -193,6 +193,8 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
+    /** Null means "sync with system". */
+    theme_mode: 'light' | 'dark' | null
 }
 
 export interface NotificationSettings {
@@ -857,6 +859,8 @@ export type SearchResponse = {
     results: SearchResultType[]
     counts: Record<SearchableEntity, number | null>
 }
+
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
 
 export interface MatchedRecordingEvent {
     uuid: string
@@ -3269,6 +3273,7 @@ export interface DataWarehouseTable {
     url_pattern: string
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
+    external_data_source?: ExternalDataStripeSource
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3293,6 +3298,8 @@ export interface DataWarehouseViewLink {
 export interface ExternalDataStripeSourceCreatePayload {
     account_id: string
     client_secret: string
+    prefix: string
+    source_type: string
 }
 
 export interface ExternalDataStripeSource {
@@ -3301,6 +3308,8 @@ export interface ExternalDataStripeSource {
     connection_id: string
     status: string
     source_type: string
+    prefix: string
+    last_run_at?: Dayjs
 }
 
 export type BatchExportDestinationS3 = {

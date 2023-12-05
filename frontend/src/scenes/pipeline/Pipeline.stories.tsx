@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
+import { appMetricsLogic } from './appMetricsLogic'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineLogic } from './pipelineLogic'
 
@@ -71,8 +72,31 @@ export function PipelineAppConfiguration(): JSX.Element {
 }
 
 export function PipelineAppMetrics(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/app_metrics/4?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
+            'api/projects/:team_id/app_metrics/4/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
+        },
+    })
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Metrics))
+        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        appMetricsLogic({ pluginConfigId: 4 }).mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineAppMetricsErrorModal(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/app_metrics/4?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
+            'api/projects/:team_id/app_metrics/4/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        const logic = appMetricsLogic({ pluginConfigId: 4 })
+        logic.mount()
+        logic.actions.openErrorDetailsModal('Error')
     }, [])
     return <App />
 }

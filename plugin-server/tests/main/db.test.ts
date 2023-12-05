@@ -6,6 +6,7 @@ import { ClickHouseTimestamp, Hub, Person, PropertyOperator, PropertyUpdateOpera
 import { DB, GroupId } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
+import * as dbMetrics from '../../src/utils/db/metrics'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
@@ -700,10 +701,12 @@ describe('DB', () => {
                 expect(db.fetchGroup).toHaveBeenCalled()
             })
 
-            it('triggers a statsd metric if the data doesnt exist in Postgres or Redis', async () => {
+            it('triggers a metric if the data doesnt exist in Postgres or Redis', async () => {
+                const groupDataMissingCounterSpy = jest.spyOn(dbMetrics.groupDataMissingCounter, 'inc')
                 await db.getGroupsColumns(2, [[0, 'unknown_key']])
 
                 expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
+                expect(groupDataMissingCounterSpy).toHaveBeenCalledTimes(1)
             })
         })
 

@@ -70,16 +70,6 @@ describe.skip('IngestionConsumer', () => {
         const events = await hub.db.fetchEvents()
 
         expect(events.length).toEqual(1)
-
-        const statsdTimingCalls = (hub.statsd?.timing as any).mock.calls
-
-        const mainIngestionCalls = statsdTimingCalls.filter(
-            (item: string[]) => item[0] === 'kafka_queue.single_ingestion'
-        )
-        expect(mainIngestionCalls.length).toEqual(1)
-
-        const bufferCalls = statsdTimingCalls.filter((item: string[]) => item[0] === 'kafka_queue.ingest_buffer_event')
-        expect(bufferCalls.length).toEqual(1)
     })
 })
 

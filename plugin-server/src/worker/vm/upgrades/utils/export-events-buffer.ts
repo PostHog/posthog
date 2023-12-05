@@ -49,8 +49,6 @@ export class ExportEventsBuffer {
     }
 
     public async flush(): Promise<void> {
-        this.hub.statsd?.increment(`buffer_voided_promises`, { instanceId: this.hub.instanceId.toString() })
-
         const oldBuffer = this.buffer
         const oldPoints = this.points
         this.buffer = []
@@ -63,7 +61,7 @@ export class ExportEventsBuffer {
         await this.hub.promiseManager.awaitPromisesIfNeeded()
     }
 
-    public async _flush(oldBuffer: any[], oldPoints: number, timer: Date): Promise<void> {
+    public async _flush(oldBuffer: any[], oldPoints: number, _: Date): Promise<void> {
         if (this.timeout) {
             clearTimeout(this.timeout)
             this.timeout = null
@@ -91,7 +89,5 @@ export class ExportEventsBuffer {
         } finally {
             clearTimeout(slowTimeout)
         }
-
-        this.hub.statsd?.timing(`buffer_promise_duration`, timer)
     }
 }

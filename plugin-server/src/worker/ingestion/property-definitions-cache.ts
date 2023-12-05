@@ -58,10 +58,6 @@ export class PropertyDefinitionsCache {
         }
 
         this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
-
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamPropertyDefinitionsCache.length ?? 0, {
-            team_id: teamId.toString(),
-        })
     }
 
     has(teamId: number): boolean {
@@ -91,10 +87,6 @@ export class PropertyDefinitionsCache {
             this.key(property, type, groupTypeIndex),
             detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION
         )
-
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamCache?.length ?? 0, {
-            team_id: teamId.toString(),
-        })
     }
 
     get(teamId: number): LRUCache<string, string | symbol> | undefined {

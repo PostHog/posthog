@@ -1,8 +1,7 @@
-import { IconFeatures, IconLive } from '@posthog/icons'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
+import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconArrowDropDown,
@@ -10,7 +9,6 @@ import {
     IconCheckmark,
     IconCorporate,
     IconExclamation,
-    IconFlare,
     IconLogout,
     IconOffline,
     IconPlus,
@@ -225,6 +223,26 @@ function FeaturePreviewsButton(): JSX.Element {
     )
 }
 
+function ThemeSwitcher(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
+
+    return (
+        <LemonSelect
+            options={[
+                { icon: <IconLaptop />, value: null, label: `Theme synced with system` },
+                { icon: <IconDay />, value: 'light', label: 'Light mode' },
+                { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
+            ]}
+            value={user?.theme_mode}
+            onChange={(value) => updateUser({ theme_mode: value })}
+            type="tertiary"
+            fullWidth
+            dropdownPlacement="right-start"
+        />
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -241,8 +259,6 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
     return (
         <>
@@ -284,6 +300,9 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
+                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000}>
+                    <ThemeSwitcher />
+                </FlaggedFeature>
                 <LemonButton
                     onClick={closeSitePopover}
                     to={'https://posthog.com/changelog'}
@@ -297,15 +316,6 @@ export function SitePopoverOverlay(): JSX.Element {
                 <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
                     <FeaturePreviewsButton />
                 </FlaggedFeature>
-
-                <LemonButton
-                    onClick={() => setHedgehogModeEnabled(!hedgehogModeEnabled)}
-                    icon={<IconFlare />}
-                    fullWidth
-                    data-attr="hedgehog-mode-button"
-                >
-                    {hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode
-                </LemonButton>
             </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />

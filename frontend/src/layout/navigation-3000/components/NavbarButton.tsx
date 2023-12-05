@@ -22,7 +22,6 @@ export interface NavbarButtonProps {
     tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
-    persistentTooltip?: boolean
     active?: boolean
     keyboardShortcut?: KeyboardShortcutProps
 }
@@ -32,17 +31,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(
     (
-        {
-            identifier,
-            shortTitle,
-            title,
-            forceTooltipOnHover,
-            tag,
-            onClick,
-            persistentTooltip,
-            keyboardShortcut,
-            ...buttonProps
-        },
+        { identifier, shortTitle, title, forceTooltipOnHover, tag, onClick, keyboardShortcut, ...buttonProps },
         ref
     ): JSX.Element => {
         const { activeScene } = useValues(sceneLogic)
@@ -139,7 +128,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         }
                         placement="right"
                         delayMs={0}
-                        visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                        visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
                     >
                         {buttonContent}
                     </Tooltip>

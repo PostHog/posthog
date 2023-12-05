@@ -155,7 +155,7 @@ FROM (
         FROM app_metrics
         WHERE team_id = %(team_id)s
           AND plugin_config_id = %(plugin_config_id)s
-          AND category = %(category)s
+          {category_clause}
           {job_id_clause}
           AND timestamp >= %(date_from)s
           AND timestamp < %(date_to)s
@@ -175,7 +175,7 @@ SELECT error_type, count() AS count, max(timestamp) AS last_seen
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND plugin_config_id = %(plugin_config_id)s
-  AND category = %(category)s
+  {category_clause}
   {job_id_clause}
   AND timestamp >= %(date_from)s
   AND timestamp < %(date_to)s
@@ -189,8 +189,8 @@ SELECT timestamp, error_uuid, error_type, error_details
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND plugin_config_id = %(plugin_config_id)s
-  AND category = %(category)s
   AND error_type = %(error_type)s
+  {category_clause}
   {job_id_clause}
 ORDER BY timestamp DESC
 LIMIT 20

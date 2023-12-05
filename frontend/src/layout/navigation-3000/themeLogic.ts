@@ -2,30 +2,19 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import type { themeLogicType } from './themeLogicType'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     }),
     actions({
-        toggleTheme: true,
-        overrideTheme: (darkModePreference: boolean | null) => ({ darkModePreference }),
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
     }),
     reducers({
-        darkModeSavedPreference: [
-            null as boolean | null,
-            {
-                persist: true,
-            },
-            {
-                toggleTheme: (state) => (state === false ? null : !state),
-                overrideTheme: (_, { darkModePreference }) => darkModePreference,
-            },
-        ],
         darkModeSystemPreference: [
             window.matchMedia('(prefers-color-scheme: dark)').matches,
             {
@@ -35,13 +24,8 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [
-                s.darkModeSavedPreference,
-                s.darkModeSystemPreference,
-                s.featureFlags,
-                sceneLogic.selectors.sceneConfig,
-            ],
-            (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
+            (s) => [s.user, s.darkModeSystemPreference, s.featureFlags, sceneLogic.selectors.sceneConfig],
+            (user, darkModeSystemPreference, featureFlags, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||
@@ -53,14 +37,10 @@ export const themeLogic = kea<themeLogicType>([
                 // Dark mode is a PostHog 3000 feature
                 // User-saved preference is used when set, oterwise we fall back to the system value
                 return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-                    ? darkModeSavedPreference ?? darkModeSystemPreference
+                    ? user?.theme_mode
+                        ? user.theme_mode === 'dark'
+                        : darkModeSystemPreference
                     : false
-            },
-        ],
-        isThemeSyncedWithSystem: [
-            (s) => [s.darkModeSavedPreference],
-            (darkModeSavedPreference) => {
-                return darkModeSavedPreference === null
             },
         ],
     }),

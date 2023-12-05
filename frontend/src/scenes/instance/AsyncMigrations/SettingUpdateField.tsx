@@ -1,4 +1,4 @@
-import { Button, Col, Divider, Input, Row } from 'antd'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useState } from 'react'
 
@@ -15,21 +15,21 @@ export function SettingUpdateField({ setting }: { setting: InstanceSetting }): J
         <div key={setting.key}>
             <h4>{setting.key}</h4>
             <p>{setting.description}</p>
-            <Row gutter={[8, 8]}>
-                <Col span={8}>
-                    <Input value={inputValue} onChange={(e) => setInputValue(e.target.value)} />
-                </Col>
-                <Col span={16}>
-                    <Button
-                        disabled={String(setting.value) === inputValue}
-                        type="primary"
+            <div className="flex space-x-2">
+                <div className="w-1/3">
+                    <LemonInput value={inputValue} onChange={setInputValue} />
+                </div>
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        disabledReason={String(setting.value) === inputValue && 'Edit the value to save it'}
                         onClick={() => updateSetting(setting.key, inputValue)}
                     >
                         Update
-                    </Button>
-                </Col>
-            </Row>
-            <Divider />
+                    </LemonButton>
+                </div>
+            </div>
+            <LemonDivider />
         </div>
     )
 }

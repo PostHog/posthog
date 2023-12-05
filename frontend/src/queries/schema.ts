@@ -51,6 +51,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    DataVisualizationNode = 'DataVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -98,6 +99,7 @@ export type QuerySchema =
     | AnyDataNode
 
     // Interface nodes
+    | DataVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -341,6 +343,18 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+}
+
+interface ChartSettings {
+    xAxisIndex?: number[]
+    yAxisIndex?: number[]
+}
+
+export interface DataVisualizationNode extends Node {
+    kind: NodeKind.DataVisualizationNode
+    source: HogQLQuery
+    display?: ChartDisplayType
+    chartSettings?: ChartSettings
 }
 
 interface DataTableNodeViewProps {

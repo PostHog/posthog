@@ -31,7 +31,7 @@ export interface LemonButtonPropsBase
         | 'aria-haspopup'
     > {
     children?: React.ReactNode
-    type?: 'onboarding' | 'primary' | 'secondary' | 'tertiary'
+    type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
     status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */

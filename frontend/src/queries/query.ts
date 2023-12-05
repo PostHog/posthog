@@ -22,6 +22,7 @@ import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
     isDataTableNode,
+    isDataVisualizationNode,
     isEventsQuery,
     isHogQLQuery,
     isInsightQueryNode,
@@ -47,6 +48,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
     if (isInsightVizNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
+        return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
@@ -103,7 +106,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'DataVisualizationNode']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 

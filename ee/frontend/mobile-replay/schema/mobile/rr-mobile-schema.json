@@ -102,6 +102,23 @@
             },
             "required": ["data", "timestamp", "type"],
             "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {},
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.IncrementalSnapshot"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
         }
     ],
     "definitions": {
@@ -111,6 +128,10 @@
         },
         "EventType.FullSnapshot": {
             "const": 2,
+            "type": "number"
+        },
+        "EventType.IncrementalSnapshot": {
+            "const": 3,
             "type": "number"
         },
         "EventType.Meta": {

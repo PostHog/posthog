@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.constants import LimitContext
 from posthog.schema import QueryStatus
 
 logger = structlog.get_logger(__name__)
@@ -69,7 +70,7 @@ def execute_process_query(
     team_id,
     query_id,
     query_json,
-    in_export_context,
+    limit_context,
     refresh_requested,
 ):
     manager = QueryStatusManager(query_id, team_id)
@@ -84,13 +85,13 @@ def execute_process_query(
 
     pickup_time = datetime.datetime.utcnow()
     if query_status.start_time:
-        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(milliseconds=1000000)
+        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.observe(wait_duration)
 
     try:
         tag_queries(client_query_id=query_id, team_id=team_id)
         results = process_query(
-            team=team, query_json=query_json, in_export_context=in_export_context, refresh_requested=refresh_requested
+            team=team, query_json=query_json, limit_context=limit_context, refresh_requested=refresh_requested
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
@@ -98,7 +99,7 @@ def execute_process_query(
         query_status.results = results
         query_status.end_time = datetime.datetime.utcnow()
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
-        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(milliseconds=1000000)
+        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.observe(process_duration)
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
@@ -135,10 +136,12 @@ def enqueue_process_query_task(
 
     if bypass_celery:
         # Call directly ( for testing )
-        process_query_task(team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested)
+        process_query_task(
+            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
+        )
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, in_export_context=True, refresh_requested=refresh_requested
+            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         manager.store_query_status(query_status)

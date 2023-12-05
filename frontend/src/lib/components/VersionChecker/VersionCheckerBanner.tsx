@@ -3,7 +3,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { versionCheckerLogic } from './versionCheckerLogic'
 
-export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepted?: string }): JSX.Element {
+export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepted?: string }): JSX.Element | null {
     const { versionWarning } = useValues(versionCheckerLogic)
     // We don't want to show a message if the diff is too small (we might be still deploying the changes out)
     if (
@@ -12,7 +12,7 @@ export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepte
             ? versionWarning.currentVersion.localeCompare(minVersionAccepted) >= 0
             : versionWarning.diff < 5)
     ) {
-        return <></>
+        return null
     }
 
     const dismissKey = `version-checker-${versionWarning.latestVersion}-${versionWarning.currentVersion}`
@@ -26,6 +26,7 @@ export function VersionCheckerBanner({ minVersionAccepted }: { minVersionAccepte
                 to: 'https://posthog.com/docs/libraries/js#option-2-install-via-npm',
                 targetBlank: true,
             }}
+            className="mb-4"
         >
             <b>Your PostHog SDK needs updating.</b> The latest version of <code>posthog-js</code> is{' '}
             <b>{versionWarning.latestVersion}</b>, but you're using <b>{versionWarning.currentVersion}</b>. <br />

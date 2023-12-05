@@ -2,7 +2,7 @@ import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { toParams } from 'lib/utils'
+import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -33,6 +33,8 @@ import {
     ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
+    Group,
+    GroupListParams,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
@@ -100,6 +102,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
+    headers?: Record<string, any>
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -461,6 +464,11 @@ class ApiRequest {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
+    }
+
+    // # Groups
+    public groups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('groups')
     }
 
     // # Search
@@ -1233,6 +1241,12 @@ const api = {
         },
     },
 
+    groups: {
+        async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
+            return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+    },
+
     search: {
         async list(params: SearchListParams): Promise<SearchResponse> {
             return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
@@ -1506,8 +1520,14 @@ const api = {
     },
 
     notebooks: {
-        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
-            return await new ApiRequest().notebook(notebookId).get()
+        async get(
+            notebookId: NotebookType['short_id'],
+            params: Record<string, any> = {},
+            headers: Record<string, any> = {}
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withQueryString(toParams(params)).get({
+                headers,
+            })
         },
         async update(
             notebookId: NotebookType['short_id'],
@@ -1829,6 +1849,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
@@ -1852,6 +1873,7 @@ const api = {
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
@@ -1884,6 +1906,7 @@ const api = {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
