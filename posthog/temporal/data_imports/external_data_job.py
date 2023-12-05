@@ -31,7 +31,7 @@ class CreateExternalDataJobInputs:
 
 @activity.defn
 async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> str:
-    run = await sync_to_async(create_external_data_job)(  # type: ignore
+    run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
         workflow_id=activity.info().workflow_id,
@@ -56,7 +56,7 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    await sync_to_async(update_external_job_status)(  # type: ignore
+    await sync_to_async(update_external_job_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
@@ -77,7 +77,7 @@ class ValidateSchemaInputs:
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
-    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+    await sync_to_async(validate_schema_and_update_table)(
         run_id=inputs.run_id,
         team_id=inputs.team_id,
     )
@@ -102,7 +102,7 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
+    model: ExternalDataJob = await sync_to_async(get_external_data_job)(
         team_id=inputs.team_id,
         run_id=inputs.run_id,
     )

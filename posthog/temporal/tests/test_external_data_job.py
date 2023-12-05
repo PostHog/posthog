@@ -44,14 +44,14 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )  # type: ignore
+    )
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
     run_id = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()  # type:ignore
+    assert await sync_to_async(runs.exists)()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -67,11 +67,11 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )  # type: ignore
+    )
 
     new_job = await sync_to_async(create_external_data_job)(
         team_id=team.id, external_data_source_id=new_source.pk, workflow_id=activity_environment.info.workflow_id
-    )  # type: ignore
+    )
 
     inputs = UpdateExternalDataJobStatusInputs(
         id=str(new_job.id),
@@ -82,7 +82,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     )
 
     await activity_environment.run(update_external_data_job_model, inputs)
-    await sync_to_async(new_job.refresh_from_db)()  # type: ignore
+    await sync_to_async(new_job.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
 
@@ -98,16 +98,16 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
     )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
     inputs = ExternalDataJobInputs(team_id=team.id, run_id=new_job.pk)
 
@@ -147,9 +147,9 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
@@ -182,9 +182,9 @@ async def test_validate_schema_and_update_table_activity_failed(activity_environ
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
@@ -220,9 +220,9 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
@@ -243,5 +243,5 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
 
         assert mock_get_columns.call_count == 10
         all_tables = DataWarehouseTable.objects.all()
-        table_length = await sync_to_async(len)(all_tables)  # type: ignore
+        table_length = await sync_to_async(len)(all_tables)
         assert table_length == 5
