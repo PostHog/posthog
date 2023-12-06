@@ -9,7 +9,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -266,7 +266,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
-                                            <FlaggedFeature flag={'notebooks'}>
+                                            <FlaggedFeature
+                                                flag={[FEATURE_FLAGS.NOTEBOOKS, FEATURE_FLAGS.POSTHOG_3000]}
+                                            >
                                                 <LemonButton
                                                     onClick={() => createNotebookFromDashboard(dashboard)}
                                                     status="stealth"

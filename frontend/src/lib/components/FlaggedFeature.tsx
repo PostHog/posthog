@@ -3,7 +3,8 @@ import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type PostHogFeatureProps = {
-    flag: FeatureFlagKey
+    /** The feature flag key(s) to check. Enabled if any flag matches. */
+    flag: FeatureFlagKey | FeatureFlagKey[]
     /** What specific state or variant of feature flag needs to be active. */
     match?: string | boolean
     /** Rendered when the flag state/variant matches. */
@@ -15,11 +16,14 @@ export type PostHogFeatureProps = {
 export function FlaggedFeature({ flag, match, children, fallback }: PostHogFeatureProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const flagValue = featureFlags[flag] || false
-    const doesFlagMatch = match === undefined ? !!flagValue : flagValue === match
+    const flagArray = Array.isArray(flag) ? flag : [flag]
+    const matchingKey =
+        match === undefined
+            ? flagArray.find((flag) => !!featureFlags[flag])
+            : flagArray.find((flag) => (featureFlags[flag] || false) === match)
 
-    if (doesFlagMatch) {
-        return typeof children === 'function' ? children(flagValue) : children
+    if (matchingKey) {
+        return typeof children === 'function' ? children(featureFlags[matchingKey]) : children
     } else if (fallback) {
         return <>{fallback}</>
     }

@@ -258,7 +258,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
     )
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+        <FlaggedFeature flag={[FEATURE_FLAGS.NOTEBOOKS, FEATURE_FLAGS.POSTHOG_3000]} match>
             {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
         </FlaggedFeature>
     )

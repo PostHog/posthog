@@ -35,7 +35,7 @@ export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }:
     const [isDragging, setIsDragging] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
+    const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS] || featureFlags[FEATURE_FLAGS.POSTHOG_3000]
     const isInNotebook = useNotebookNode()
     const hasDragOptions = !!(href || node)
 

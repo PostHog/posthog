@@ -146,7 +146,6 @@ export const FEATURE_FLAGS = {
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-replay
-    EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
@@ -175,7 +174,6 @@ export const FEATURE_FLAGS = {
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-replay
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success

@@ -22,7 +22,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -200,21 +199,15 @@ function InstanceSettings(): JSX.Element | null {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
-
-    const isUsingSiteApp = featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] === 'site-app'
 
     return (
         <LemonButton
             onClick={() => {
                 closeSitePopover()
-                if (!isUsingSiteApp) {
-                    showFeaturePreviewsModal()
-                }
+                showFeaturePreviewsModal()
             }}
-            data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
             icon={<IconFeatures />}
             fullWidth
         >
@@ -313,9 +306,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 >
                     What's new?
                 </LemonButton>
-                <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
-                    <FeaturePreviewsButton />
-                </FlaggedFeature>
+                <FeaturePreviewsButton />
             </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />
