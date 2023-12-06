@@ -1,14 +1,13 @@
-export enum BillingGaugeItemType {
+export enum BillingGaugeItemKind {
     FreeTier = 'free_tier',
     CurrentUsage = 'current_usage',
     ProjectedUsage = 'projected_usage',
     BillingLimit = 'billing_limit',
 }
 
-export type BillingGaugeItem = {
-    type: BillingGaugeItemType
+export type BillingGaugeItemType = {
+    type: BillingGaugeItemKind
     text: string | JSX.Element
-    color: string
     value: number
     top: boolean
 }

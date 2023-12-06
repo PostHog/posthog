@@ -7,7 +7,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { BillingGaugeItem, BillingGaugeItemType } from './types'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -164,42 +164,34 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingGaugeItems: [
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage): BillingGaugeItem[] => {
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
                     freeTier
                         ? {
-                              type: BillingGaugeItemType.FreeTier,
+                              type: BillingGaugeItemKind.FreeTier,
                               text: 'Free tier limit',
-                              color: 'success-light',
                               value: freeTier,
                               top: true,
                           }
                         : undefined,
                     {
-                        type: BillingGaugeItemType.CurrentUsage,
+                        type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
-                        color: product.percentage_usage
-                            ? product.percentage_usage <= 1
-                                ? 'success'
-                                : 'danger'
-                            : 'success',
                         value: product.current_usage || 0,
                         top: false,
                     },
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
                         ? {
-                              type: BillingGaugeItemType.ProjectedUsage,
+                              type: BillingGaugeItemKind.ProjectedUsage,
                               text: 'Projected',
-                              color: 'border',
                               value: product.projected_usage || 0,
                               top: false,
                           }
                         : undefined,
                     billingLimitAsUsage
                         ? {
-                              type: BillingGaugeItemType.BillingLimit,
+                              type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              color: 'primary-alt-light',
                               top: true,
                               value: billingLimitAsUsage || 0,
                           }

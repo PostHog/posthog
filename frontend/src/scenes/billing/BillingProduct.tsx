@@ -419,7 +419,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 />
                                             )}
                                             <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} />
+                                                <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
