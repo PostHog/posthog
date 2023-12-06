@@ -540,7 +540,1161 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
 ]
 `;
 
-exports[`replay/transform transform inputs omitting x and y is equivalent to setting them to 0 1`] = `
+exports[`replay/transform transform inputs $inputType - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [],
+                    "id": 120,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs $inputType - $value 2`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [],
+                    "id": 121,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs button - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "button",
+                        },
+                        "childNodes": [],
+                        "id": 12359,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 127,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs button - click me 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "button",
+                          "value": "click me",
+                        },
+                        "childNodes": [],
+                        "id": 12358,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 126,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs button - click me 2`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "button",
+                          "value": "click me",
+                        },
+                        "childNodes": [],
+                        "id": 12361,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 128,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs checkbox - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "checked": true,
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "checkbox",
+                        },
+                        "childNodes": [],
+                        "id": 12357,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 122,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs checkbox - $value 2`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "checkbox",
+                        },
+                        "childNodes": [],
+                        "id": 12357,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 123,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs checkbox - $value 3`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "checked": true,
+                          "disabled": true,
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "checkbox",
+                        },
+                        "childNodes": [],
+                        "id": 12357,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 124,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs checkbox - $value 4`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "checked": true,
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "checkbox",
+                        },
+                        "childNodes": [],
+                        "id": 12357,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 125,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs email - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "email",
+                        },
+                        "childNodes": [],
+                        "id": 12349,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 115,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs number - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "number",
+                        },
+                        "childNodes": [],
+                        "id": 12350,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 116,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs password - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "password",
+                        },
+                        "childNodes": [],
+                        "id": 12348,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 114,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs search - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "search",
+                        },
+                        "childNodes": [],
+                        "id": 12351,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 117,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs select - hello 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "select",
+                          "value": "hello",
+                        },
+                        "childNodes": [],
+                        "id": 12365,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 131,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs tel - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "disabled": true,
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "tel",
+                        },
+                        "childNodes": [],
+                        "id": 12352,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 118,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs text - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                          "type": "text",
+                        },
+                        "childNodes": [],
+                        "id": 12347,
+                        "tagName": "input",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 113,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs text - hello 1`] = `
 [
   {
     "data": {
@@ -588,67 +1742,216 @@ exports[`replay/transform transform inputs omitting x and y is equivalent to set
                         "tagName": "input",
                         "type": 2,
                       },
+                    ],
+                    "id": 112,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs textArea - $value 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
                       {
                         "attributes": {
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "text",
+                          "type": "textArea",
                         },
                         "childNodes": [],
-                        "id": 12347,
+                        "id": 12364,
                         "tagName": "input",
                         "type": 2,
                       },
+                    ],
+                    "id": 130,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs textArea - hello 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
                       {
                         "attributes": {
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "password",
+                          "type": "textArea",
+                          "value": "hello",
                         },
                         "childNodes": [],
-                        "id": 12348,
+                        "id": 12363,
                         "tagName": "input",
                         "type": 2,
                       },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "email",
-                        },
-                        "childNodes": [],
-                        "id": 12349,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "number",
-                        },
-                        "childNodes": [],
-                        "id": 12350,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "search",
-                        },
-                        "childNodes": [],
-                        "id": 12351,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "disabled": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "tel",
-                        },
-                        "childNodes": [],
-                        "id": 12352,
-                        "tagName": "input",
-                        "type": 2,
-                      },
+                    ],
+                    "id": 129,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs url - https://example.io 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {},
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {},
+                    "childNodes": [
                       {
                         "attributes": {
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
@@ -660,116 +1963,8 @@ exports[`replay/transform transform inputs omitting x and y is equivalent to set
                         "tagName": "input",
                         "type": 2,
                       },
-                      {
-                        "attributes": {
-                          "checked": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
-                        },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
-                        },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "checked": true,
-                          "disabled": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
-                        },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "checked": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
-                        },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                          "value": "click me",
-                        },
-                        "childNodes": [],
-                        "id": 12358,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                        },
-                        "childNodes": [],
-                        "id": 12358,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                          "value": "click me",
-                        },
-                        "childNodes": [],
-                        "id": 12360,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "textArea",
-                          "value": "hello",
-                        },
-                        "childNodes": [],
-                        "id": 12362,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "textArea",
-                        },
-                        "childNodes": [],
-                        "id": 12363,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "select",
-                          "value": "hello",
-                        },
-                        "childNodes": [],
-                        "id": 12364,
-                        "tagName": "input",
-                        "type": 2,
-                      },
                     ],
-                    "id": 112,
+                    "id": 119,
                     "tagName": "div",
                     "type": 2,
                   },
