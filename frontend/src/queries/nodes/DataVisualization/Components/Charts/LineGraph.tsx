@@ -3,6 +3,7 @@ import './LineGraph.scss'
 
 import { ChartData, Color, GridLineOptions, TickOptions } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
+import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors } from 'lib/colors'
@@ -12,7 +13,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
-import clsx from 'clsx'
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
