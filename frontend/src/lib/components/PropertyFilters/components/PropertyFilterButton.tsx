@@ -1,9 +1,10 @@
 import './PropertyFilterButton.scss'
 
-import { Button } from 'antd'
+import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { CloseButton } from 'lib/components/CloseButton'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { IconClose } from 'lib/lemon-ui/icons'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { midEllipsis } from 'lib/utils'
 
@@ -24,6 +25,8 @@ export function PropertyFilterButton({ onClick, onClose, children, item }: Prope
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const closable = onClose !== undefined
+    const clickable = onClick !== undefined
     const label =
         children ||
         formatPropertyLabel(
@@ -33,20 +36,34 @@ export function PropertyFilterButton({ onClick, onClose, children, item }: Prope
             (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
         )
 
+    const ButtonComponent = clickable ? 'button' : 'div'
+
     return (
-        <Button shape="round" onClick={onClick} className="PropertyFilterButton ph-no-capture">
+        <ButtonComponent
+            onClick={onClick}
+            className={clsx('PropertyFilterButton', {
+                'PropertyFilterButton--closeable': closable,
+                'PropertyFilterButton--clickable': clickable,
+                'ph-no-capture': true,
+            })}
+        >
             <PropertyFilterIcon type={item.type} />
             <span className="PropertyFilterButton-content" title={label}>
                 {midEllipsis(label, 32)}
             </span>
-            {onClose && (
-                <CloseButton
-                    onClick={(e: MouseEvent) => {
+            {closable && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconClose />}
+                    onClick={(e) => {
                         e.stopPropagation()
                         onClose()
                     }}
+                    stealth
+                    className="p-0.5"
+                    status="stealth"
                 />
             )}
-        </Button>
+        </ButtonComponent>
     )
 }
