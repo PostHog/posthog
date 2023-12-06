@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
 
@@ -64,7 +64,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
 export function LemonCalendarSelectInput(
     props: LemonCalendarSelectProps & {
         onChange: (date: dayjs.Dayjs | null) => void
-        buttonProps?: LemonButtonProps
+        buttonProps?: LemonButtonWithSideActionProps
         placeholder?: string
         clearable?: boolean
     }
