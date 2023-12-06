@@ -23,8 +23,10 @@ services:
         restart: on-failure
         command: >
             sh -c "sqlx database create && sqlx migrate run"
-        requires:
-            - db
+        depends_on:
+            db:
+                condition: service_healthy
+                restart: true
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/test_database
         volumes:
