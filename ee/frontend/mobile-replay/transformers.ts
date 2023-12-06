@@ -208,6 +208,10 @@ function makeInputElement(
 ): serializedNodeWithId | null {
     // TODO labels?
 
+    if (!wireframe.inputType) {
+        return null
+    }
+
     if (wireframe.inputType === 'button') {
         return makeButtonElement(wireframe, children)
     }

@@ -569,6 +569,16 @@ describe('replay/transform', () => {
                     value: 'hello',
                     options: ['hello', 'world'],
                 },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    // missing input type - should be ignored
+                    // inputType: 'select',
+                    value: 'hello',
+                    options: ['hello', 'world'],
+                },
             ])('$inputType - $value', (testCase) => {
                 expect(
                     posthogEEModule.mobileReplay?.transformToWeb([
