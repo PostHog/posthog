@@ -87,7 +87,7 @@ export function FilterTypes(): JSX.Element {
     return (
         <div>
             {propertyFilters.map((f) => (
-                <div className="mb-1" key={f.type + f.key}>
+                <div className="mb-1" key={f.type && f.key ? `${f.type}_${f.key}` : 'empty-property-filter'}>
                     <PropertyFilterButton item={f} />
                 </div>
             ))}
