@@ -25,6 +25,7 @@
         --lemon-button-height: 2.3125rem;
         --lemon-button-gap: 0.5rem;
         --lemon-button-icon-opacity: 0.5;
+        --lemon-button-profile-picture-opacity: 0.75; // Profile pictures must be more prominent than icons
         --lemon-button-color: var(--default);
 
         position: relative;
@@ -61,13 +62,22 @@
             }
 
             .LemonButton__icon {
-                opacity: var(--lemon-button-icon-opacity);
+                > * {
+                    opacity: var(--lemon-button-icon-opacity);
+                }
+
+                > .ProfilePicture,
+                > .Lettermark {
+                    opacity: var(--lemon-button-profile-picture-opacity);
+                }
             }
         }
 
+        &.LemonButton--active,
         &:hover:not([aria-disabled='true']),
         &:not([aria-disabled='true']):active {
-            --lemon-button-icon-opacity: 0.7;
+            --lemon-button-icon-opacity: 0.75;
+            --lemon-button-profile-picture-opacity: 1;
         }
 
         &.LemonButton--full-width {
@@ -269,7 +279,7 @@
         height: 1.25rem;
         color: var(--muted);
 
-        &.LemonButtonWithSideAction__spacer--divider {
+        &--divider {
             padding: 0;
             margin-left: calc(var(--lemon-button-padding-horizontal) / 2);
         }
@@ -286,6 +296,9 @@
         transform: none;
 
         .LemonButton {
+            --lemon-button-depth: 0px;
+            --lemon-button-icon-opacity: 0.5;
+
             width: var(--lemon-button-side-action-width);
             height: 100%;
             border-top-left-radius: 0;
@@ -293,8 +306,6 @@
         }
 
         .LemonButton__chrome {
-            --lemon-button-depth: 0px;
-
             justify-content: center !important;
             padding: 0 !important;
             border: none !important;
@@ -309,6 +320,10 @@
             .LemonButton__chrome {
                 transform: none !important;
             }
+        }
+
+        .LemonButton__icon {
+            color: currentColor;
         }
 
         &:not([aria-disabled='true']):hover {
