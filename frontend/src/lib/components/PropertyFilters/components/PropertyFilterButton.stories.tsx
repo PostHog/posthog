@@ -101,14 +101,20 @@ export function PseudoStates(): JSX.Element {
             <div>
                 <h5>STATE=DEFAULT</h5>
                 <PropertyFilterButton item={propertyFilters[0]} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
             </div>
             <div id="hover">
                 <h5>STATE=HOVER</h5>
                 <PropertyFilterButton item={propertyFilters[0]} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
             </div>
             <div id="active">
                 <h5>STATE=HOVER,ACTIVE</h5>
                 <PropertyFilterButton item={propertyFilters[0]} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
             </div>
         </div>
     )
