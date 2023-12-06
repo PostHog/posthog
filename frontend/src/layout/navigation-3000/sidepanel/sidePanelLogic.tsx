@@ -33,7 +33,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             notificationsLogic,
             ['unreadCount'],
         ],
-        actions: [sidePanelStateLogic, ['closeSidePanel']],
+        actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     reducers(() => ({
@@ -42,6 +42,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             { persist: true },
             {
                 closeSidePanel: () => true,
+                openSidePanel: () => true,
             },
         ],
     })),
