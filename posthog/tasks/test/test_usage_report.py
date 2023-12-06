@@ -1401,7 +1401,7 @@ class SendUsageNoLicenseTest(APIBaseTest):
 
         mock_post.assert_not_called()
 
-    def test_get_teams_for_usage_reports_only_fields(self):
+    def test_get_teams_for_usage_reports_only_fields(self) -> None:
         teams = _get_teams_for_usage_reports()
         team: Team = teams[0]
 
