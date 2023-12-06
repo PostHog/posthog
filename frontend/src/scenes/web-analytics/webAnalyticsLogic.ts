@@ -29,8 +29,8 @@ import {
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
-    colSpan?: number
-    rowSpan?: number
+    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
+    colSpanClassName?: `md:col-span-${number}`
     className?: string
 }
 
@@ -266,7 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
-                            colSpan: 12,
+                            colSpanClassName: `md:col-span-12`,
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -276,7 +276,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpanClassName: `md:col-span-6`,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -376,7 +376,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpanClassName: `md:col-span-6`,
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -417,7 +417,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpanClassName: `md:col-span-6`,
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -471,7 +471,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpanClassName: `md:col-span-6`,
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -547,7 +547,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         title: 'Retention',
                         layout: {
-                            colSpan: 12,
+                            colSpanClassName: `md:col-span-12`,
                         },
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -576,7 +576,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     shouldShowGeographyTile
                         ? {
                               layout: {
-                                  colSpan: 12,
+                                  colSpanClassName: `md:col-span- 12`,
                               },
                               activeTabId: geographyTab,
                               setTabId: actions.setGeographyTab,

@@ -111,8 +111,8 @@ export const Dimensions = (): JSX.Element => {
             </p>
 
             <div className="space-y-2">
-                {[8, 10, 20, 'full', 'screen'].map((x) => (
-                    <div key={x} className={`border rounded-lg p-2 w-${x}`}>
+                {['w-8', 'w-10', 'w-20', 'w-full', 'w-screen'].map((x) => (
+                    <div key={x} className={`border rounded-lg p-2 ${x}`}>
                         w-{x}
                     </div>
                 ))}
@@ -124,13 +124,26 @@ export const Dimensions = (): JSX.Element => {
 export const TextSize = (): JSX.Element => {
     return (
         <>
-            {['xxs', 'xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl'].map(
-                (x) => (
-                    <p key={x} className={`text-${x}`}>
-                        text-{x}
-                    </p>
-                )
-            )}
+            {[
+                'text-xxs',
+                'text-xs',
+                'text-sm',
+                'text-base',
+                'text-lg',
+                'text-xl',
+                'text-2xl',
+                'text-3xl',
+                'text-4xl',
+                'text-5xl',
+                'text-6xl',
+                'text-7xl',
+                'text-8xl',
+                'text-9xl',
+            ].map((x) => (
+                <p key={x} className={x}>
+                    text-{x}
+                </p>
+            ))}
         </>
     )
 }

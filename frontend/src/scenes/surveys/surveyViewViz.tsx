@@ -325,16 +325,16 @@ export function SingleChoiceQuestionPieChart({
                             </BindLogic>
                         </div>
                         <div
-                            className={`grid h-full pl-4 py-${(() => {
+                            className={`grid h-full pl-4 ${(() => {
                                 const dataLength = surveySingleChoiceResults[questionIndex].data.length
                                 if (dataLength < 5) {
-                                    return 20
+                                    return 'py-20'
                                 } else if (dataLength < 7) {
-                                    return 15
+                                    return 'py-15'
                                 } else if (dataLength < 10) {
-                                    return 10
+                                    return 'py-10'
                                 } else {
-                                    return 5
+                                    return 'py-5'
                                 }
                             })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
                         >

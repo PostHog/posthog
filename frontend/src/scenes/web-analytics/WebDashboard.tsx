@@ -103,7 +103,7 @@ const Tiles = (): JSX.Element => {
                             key={i}
                             className={clsx(
                                 'col-span-1 row-span-1 flex flex-col',
-                                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                                layout.colSpanClassName ?? 'md:col-span-6',
                                 layout.className
                             )}
                         >
@@ -126,11 +126,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 
     return (
         <WebTabs
-            className={clsx(
-                'col-span-1 row-span-1',
-                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
-                layout.className
-            )}
+            className={clsx('col-span-1 row-span-1', layout.colSpanClassName, layout.className)}
             activeTabId={tile.activeTabId}
             setActiveTabId={tile.setTabId}
             tabs={tile.tabs.map((tab) => ({

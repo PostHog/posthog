@@ -1,7 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 const config = {
-    // Avoiding analysis of .ts files for performance (and we shouldn't have .js(x) anywhere!)
-    content: ['./frontend/src/**/*.tsx', './ee/frontend/**/*.tsx', './frontend/src/index.html'],
+    content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
