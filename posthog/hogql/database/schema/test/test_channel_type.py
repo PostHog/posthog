@@ -7,10 +7,11 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_person,
+    ClickhouseDestroyTablesMixin,
 )
 
 
-class ReferringDomainTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class ReferringDomainTypeQueryRunner(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_initial_referring_domain_type(self, initial_referring_domain: str):
@@ -27,7 +28,7 @@ class ReferringDomainTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select $initial_referring_domain_type as channel_type from persons where id = {person_id}",
+                "select $virt_initial_referring_domain_type as channel_type from persons where id = {person_id}",
                 placeholders={"person_id": ast.Constant(value=person_id)},
             ),
             self.team,
@@ -87,7 +88,7 @@ class ChannelTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select $initial_channel_type as channel_type from persons where id = {person_id}",
+                "select $virt_initial_channel_type as channel_type from persons where id = {person_id}",
                 placeholders={"person_id": ast.Constant(value=person_id)},
             ),
             self.team,

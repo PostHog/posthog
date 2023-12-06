@@ -168,10 +168,10 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
-    database.persons.fields["$initial_referring_domain_type"] = create_initial_domain_type(
-        "$initial_referring_domain_type"
+    database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+        "$virt_initial_referring_domain_type"
     )
-    database.persons.fields["$initial_channel_type"] = create_initial_channel_type("$initial_channel_type")
+    database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type("$virt_initial_channel_type")
 
     for mapping in GroupTypeMapping.objects.filter(team=team):
         if database.events.fields.get(mapping.group_type) is None:

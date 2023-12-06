@@ -19,8 +19,8 @@ if(
     '$direct',
     dictGetOrNull(
         'channel_definition_dict',
-        'type',
-        cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, ''))
+        'domain_type',
+        (cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')), 'source')
     )
 )
 """
@@ -38,29 +38,36 @@ multiIf(
     'Cross Network',
 
     match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$'),
-    CASE dictGetOrNull('channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
-        WHEN 'Shopping' THEN 'Paid Shopping'
-        WHEN 'Search' THEN 'Paid Search'
-        WHEN 'Video' THEN 'Paid Video'
-        WHEN 'Social' THEN 'Paid Social'
-        ELSE multiIf(
+    coalesce(
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_paid',
+            (
+                cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')),
+                'source'
+            )
+        ),
+        if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
-            properties.$initial_utm_medium IN
-                ('display', 'banner', 'expandable', 'interstitial', 'cpm'),
-            'Display',
-            'Paid Other'
-            )
-    END,
+            NULL
+        ),
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_paid',
+            (coalesce(properties.$initial_utm_medium, ''), 'source')
+        ),
+        'Paid Other'
+    ),
 
     properties.$initial_referring_domain = '$direct' AND (properties.$initial_utm_medium IS NULL OR properties.$initial_utm_medium = ''),
     'Direct',
 
-    CASE dictGetOrNull('channel_definition_dict', 'type', cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')))
-        WHEN 'Shopping' THEN 'Organic Shopping'
-        WHEN 'Search' THEN 'Organic Search'
-        WHEN 'Video' THEN 'Organic Video'
-        WHEN 'Social' THEN 'Organic Social'
+    CASE dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')), 'source'))
+        WHEN 'Organic Shopping' THEN 'Organic Shopping'
+        WHEN 'Organic Search' THEN 'Organic Search'
+        WHEN 'Organic Video' THEN 'Organic Video'
+        WHEN 'Organic Social' THEN 'Organic Social'
         ELSE multiIf(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
