@@ -8,11 +8,12 @@ import {
     NodeType,
     serializedNodeWithId,
     wireframe,
+    wireframeButton,
     wireframeDiv,
     wireframeImage,
-    wireframeInput,
     wireframeInputComponent,
     wireframeRectangle,
+    wireframeSelect,
     wireframeText,
 } from './mobile.types'
 import { makeBodyStyles, makeHTMLStyles, makePositionStyles, makeStylesString, makeSvgBorder } from './wireframeStyle'
@@ -152,7 +153,7 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
                 ...attributes,
                 ...(wireframe.value ? { value: wireframe.value } : {}),
             }
-        case 'textarea':
+        case 'text_area':
             return {
                 ...attributes,
                 ...(wireframe.value ? { value: wireframe.value } : {}),
@@ -165,9 +166,56 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
     }
 }
 
-function makeInputElement(wireframe: wireframeInput, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    // TODO select?
+function makeButtonElement(wireframe: wireframeButton, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    return {
+        type: NodeType.Element,
+        tagName: 'button',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: children,
+    }
+}
+
+function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'option',
+        attributes: {
+            value: option,
+            ...(selected ? { selected: selected } : {}),
+        },
+        id: idSequence.next().value,
+        childNodes: [],
+    }
+}
+
+function makeSelectElement(wireframe: wireframeSelect, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    return {
+        type: NodeType.Element,
+        tagName: 'select',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: [
+            ...(wireframe.options?.map((option) => makeSelectOptionElement(option, wireframe.value === option)) || []),
+            ...children,
+        ],
+    }
+}
+
+function makeInputElement(
+    wireframe: wireframeInputComponent,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
     // TODO labels?
+
+    if (wireframe.inputType === 'button') {
+        return makeButtonElement(wireframe, children)
+    }
+
+    if (wireframe.inputType === 'select') {
+        return makeSelectElement(wireframe, children)
+    }
+
     return {
         type: NodeType.Element,
         tagName: 'input',

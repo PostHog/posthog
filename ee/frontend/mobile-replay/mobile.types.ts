@@ -134,7 +134,7 @@ export type wireframeCheckBox = wireframeInputBase & {
 }
 
 export type wireframeRadioGroup = wireframeBase & {
-    type: ' radio group'
+    type: ' radio_group'
 }
 
 export type wireframeRadio = wireframeInputBase & {
@@ -155,7 +155,7 @@ export type wireframeSelect = wireframeInputBase & {
 }
 
 export type wireframeTextArea = wireframeInputBase & {
-    inputType: 'textarea'
+    inputType: 'text_area'
     value?: string
 }
 
