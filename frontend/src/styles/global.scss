@@ -16,7 +16,6 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'mixins';
 @import 'utility-legacy';
 @import 'colors';
-@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
