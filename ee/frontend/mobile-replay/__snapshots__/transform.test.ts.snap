@@ -701,80 +701,7 @@ exports[`replay/transform transform inputs $inputType - hello 1`] = `
                   {
                     "attributes": {},
                     "childNodes": [],
-                    "id": 134,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
-    },
-    "timestamp": 1,
-    "type": 2,
-  },
-]
-`;
-
-exports[`replay/transform transform inputs button - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                        },
-                        "childNodes": [],
-                        "id": 12359,
-                        "tagName": "button",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 127,
+                    "id": 132,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -873,76 +800,40 @@ exports[`replay/transform transform inputs button - click me 1`] = `
 ]
 `;
 
-exports[`replay/transform transform inputs button - click me 2`] = `
+exports[`replay/transform transform inputs buttons with nested elements 1`] = `
 [
   {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
+    "childNodes": [
+      {
+        "height": 30,
+        "id": 12360,
+        "text": "click me",
+        "type": "text",
+        "width": 100,
       },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                          "value": "click me",
-                        },
-                        "childNodes": [],
-                        "id": 12361,
-                        "tagName": "button",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 128,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
+    ],
+    "height": 30,
+    "id": 12359,
+    "inputType": "button",
+    "type": "input",
+    "width": 100,
+  },
+  {
+    "childNodes": [
+      {
+        "height": 30,
+        "id": 12362,
+        "text": "and have more text",
+        "type": "text",
+        "width": 100,
       },
-    },
-    "timestamp": 1,
-    "type": 2,
+    ],
+    "height": 30,
+    "id": 12361,
+    "inputType": "button",
+    "type": "input",
+    "value": "click me",
+    "width": 100,
   },
 ]
 `;
@@ -1585,7 +1476,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                               "value": "hello",
                             },
                             "childNodes": [],
-                            "id": 132,
+                            "id": 130,
                             "tagName": "option",
                             "type": 2,
                           },
@@ -1594,7 +1485,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                               "value": "world",
                             },
                             "childNodes": [],
-                            "id": 133,
+                            "id": 131,
                             "tagName": "option",
                             "type": 2,
                           },
@@ -1604,7 +1495,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 131,
+                    "id": 129,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1898,7 +1789,7 @@ exports[`replay/transform transform inputs textArea - $value 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 130,
+                    "id": 128,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1972,7 +1863,7 @@ exports[`replay/transform transform inputs textArea - hello 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 129,
+                    "id": 127,
                     "tagName": "div",
                     "type": 2,
                   },

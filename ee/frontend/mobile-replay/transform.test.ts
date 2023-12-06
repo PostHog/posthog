@@ -367,6 +367,45 @@ describe('replay/transform', () => {
             ).toMatchSnapshot()
         })
         describe('inputs', () => {
+            test('buttons with nested elements', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformToWeb([
+                        {
+                            id: 12359,
+                            width: 100,
+                            height: 30,
+                            type: 'input',
+                            inputType: 'button',
+                            childNodes: [
+                                {
+                                    id: 12360,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'text',
+                                    text: 'click me',
+                                },
+                            ],
+                        },
+                        {
+                            id: 12361,
+                            width: 100,
+                            height: 30,
+                            type: 'input',
+                            inputType: 'button',
+                            value: 'click me',
+                            childNodes: [
+                                {
+                                    id: 12362,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'text',
+                                    text: 'and have more text',
+                                },
+                            ],
+                        },
+                    ])
+                ).toMatchSnapshot()
+            })
             test.each([
                 {
                     id: 12346,
@@ -511,39 +550,6 @@ describe('replay/transform', () => {
                     type: 'input',
                     inputType: 'button',
                     value: 'click me',
-                },
-                {
-                    id: 12359,
-                    width: 100,
-                    height: 30,
-                    type: 'input',
-                    inputType: 'button',
-                    childNodes: [
-                        {
-                            id: 12360,
-                            width: 100,
-                            height: 30,
-                            type: 'text',
-                            text: 'click me',
-                        },
-                    ],
-                },
-                {
-                    id: 12361,
-                    width: 100,
-                    height: 30,
-                    type: 'input',
-                    inputType: 'button',
-                    value: 'click me',
-                    childNodes: [
-                        {
-                            id: 12362,
-                            width: 100,
-                            height: 30,
-                            type: 'text',
-                            text: 'and have more text',
-                        },
-                    ],
                 },
                 {
                     id: 12363,
