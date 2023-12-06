@@ -112,7 +112,7 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",
             "image_webp": f"year_in_hog/badges/2023_{badge}.webp",
-            "opengraph_image": f"open-graph/2023_{badge}.png",
+            "opengraph_image": f"year_in_hog/open-graph/2023_{badge}.png",
             "explanation": explanation.get(badge),
             "stats": stats,
             "page_url": f"{request.scheme}://{request.META['HTTP_HOST']}{request.get_full_path()}",
