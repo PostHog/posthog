@@ -110,7 +110,7 @@ export async function startPluginsServer(
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
-    let personOverridesWorker: PeriodicTask | undefined
+    let personOverridesPeriodicTask: PeriodicTask | undefined
 
     let httpServer: Server | undefined // healthcheck server
 
@@ -150,7 +150,7 @@ export async function startPluginsServer(
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
-            personOverridesWorker?.stop(),
+            personOverridesPeriodicTask?.stop(),
         ])
 
         if (piscina) {
@@ -437,9 +437,9 @@ export async function startPluginsServer(
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
 
-            personOverridesWorker = new DeferredPersonOverrideWorker(postgres, kafkaProducer).run()
-            personOverridesWorker.promise.catch(async () => {
-                status.error('⚠️', 'Person override writer crashed! Requesting shutdown...')
+            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(postgres, kafkaProducer).runTask()
+            personOverridesPeriodicTask.promise.catch(async () => {
+                status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
                 await closeJobs()
                 process.exit(1)
             })

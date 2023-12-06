@@ -808,7 +808,7 @@ export class DeferredPersonOverrideWorker {
         })
     }
 
-    public run(): PeriodicTask {
+    public runTask(): PeriodicTask {
         return new PeriodicTask(async () => {
             status.debug('👥', 'Processing pending overrides...')
             const overridesCount = await this.processPendingOverrides()
