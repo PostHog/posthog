@@ -20,6 +20,7 @@ export enum OnboardingStepKey {
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
+    INVITE_TEAMMATES = 'invite_teammates',
 }
 
 // These types have to be set like this, so that kea typegen is happy

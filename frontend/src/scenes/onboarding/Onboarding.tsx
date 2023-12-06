@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
+import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -31,6 +32,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -62,6 +64,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         if (shouldShowOtherProductsStep) {
             const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
             steps = [...steps, OtherProductsStep]
+        }
+        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING]) {
+            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+            steps = [...steps, inviteTeammatesStep]
         }
         setAllSteps(steps)
     }

@@ -20,7 +20,7 @@ import { inviteLogic } from './inviteLogic'
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
     () => Math.random() - 0.5
 )
-const MAX_INVITES_AT_ONCE = 20
+export const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
@@ -37,7 +37,7 @@ export function EmailUnavailableMessage(): JSX.Element {
     )
 }
 
-function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
+export function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { invitesToSend } = useValues(inviteLogic)
