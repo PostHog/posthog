@@ -28,13 +28,11 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData,
-            datasets: [
-                {
-                    label: 'Dataset 1',
-                    data: yData,
-                    borderColor: 'red',
-                },
-            ],
+            datasets: yData.map((n) => ({
+                label: 'Dataset 1',
+                data: n,
+                borderColor: 'red',
+            })),
         }
 
         const tickOptions: Partial<TickOptions> = {
