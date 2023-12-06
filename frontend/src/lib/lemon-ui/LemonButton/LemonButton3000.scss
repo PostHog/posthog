@@ -73,6 +73,7 @@
             }
         }
 
+        &.LemonButton--active,
         &:hover:not([aria-disabled='true']),
         &:not([aria-disabled='true']):active {
             --lemon-button-icon-opacity: 0.75;
@@ -292,6 +293,9 @@
         transform: none;
 
         .LemonButton {
+            --lemon-button-depth: 0px;
+            --lemon-button-icon-opacity: 0.5;
+
             width: calc(
                 var(--lemon-button-side-action-icon-width) +
                     var(--lemon-button-padding-adjacent-icon, var(--lemon-button-padding-horizontal))
@@ -302,8 +306,6 @@
         }
 
         .LemonButton__chrome {
-            --lemon-button-depth: 0px;
-
             justify-content: center !important;
             padding: 0 !important;
             border: none !important;
@@ -322,7 +324,6 @@
 
         .LemonButton__icon {
             color: currentColor;
-            opacity: 0.5;
         }
 
         &:not([aria-disabled='true']):hover {
