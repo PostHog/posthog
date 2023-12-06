@@ -119,6 +119,9 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
+// NOTE: Run `DEBUG=1 python manage.py sync_feature_flags` locally to sync these flags into your local project
+// By default all flags are boolean but you can add `multivariate` to the comment to have it created as multivariate with "test" and "control" values
+
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
