@@ -19,11 +19,10 @@ export interface PropertyFilterButtonProps {
     onClose?: () => void
     children?: string
     item: AnyPropertyFilter
-    style?: React.CSSProperties
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, children, item, style }, ref): JSX.Element {
+    function PropertyFilterButton({ onClick, onClose, children, item }, ref): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -37,13 +36,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             )
 
         return (
-            <Button
-                shape="round"
-                style={style}
-                onClick={onClick}
-                ref={ref}
-                className="PropertyFilterButton ph-no-capture"
-            >
+            <Button shape="round" onClick={onClick} ref={ref} className="PropertyFilterButton ph-no-capture">
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
