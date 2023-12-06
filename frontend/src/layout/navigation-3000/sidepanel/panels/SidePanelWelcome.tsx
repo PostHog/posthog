@@ -1,7 +1,7 @@
 import './SidePanelWelcome.scss'
 
 import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -99,14 +99,17 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </button>
                 </div>
             </div>
-            <div className="flex flex-col mx-4 mb-6 flex-1">
-                <div className="SidePanelWelcome__hero -mx-4 pt-4 pl-4 mb-4 border-b">
+            <div className="SidePanelWelcome__hero pt-4">
+                <div className="mx-auto px-4 max-w-160">
                     <h1 className="font-semibold text-base mb-2 w-full">
                         👋 <span className="opacity-75">Say hello to</span>
                         <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
                     </h1>
                     <p className="text-sm font-medium mb-3 opacity-75">We're past 0 to 1.</p>
-                    <p className="text-sm font-medium mb-4 opacity-75" style={{ maxWidth: 'calc(50% - 1rem)' }}>
+                    <p
+                        className="text-sm font-medium mb-4 opacity-75"
+                        style={{ maxWidth: 'min(calc(50% - 1rem), 16rem)' }}
+                    >
                         It's time to go from 1 to&nbsp;3000. And&nbsp;this is just the&nbsp;beginning…
                     </p>
                     <div className="flex">
@@ -121,7 +124,9 @@ export const SidePanelWelcome = (): JSX.Element => {
                         </LemonButton>
                     </div>
                 </div>
-
+            </div>
+            <LemonDivider className="mb-4" />
+            <div className="flex flex-col px-4 pb-6 mx-auto max-w-160 flex-1">
                 <Row>
                     <Card>
                         <Title>Dark mode</Title>
