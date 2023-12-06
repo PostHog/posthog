@@ -21,7 +21,7 @@ import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { DeferredPersonOverrideWriter } from '../worker/ingestion/person-state'
+import { DeferredPersonOverrideWorker } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -436,11 +436,11 @@ export async function startPluginsServer(
         if (capabilities.personOverrides) {
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const overridesWriter = new DeferredPersonOverrideWriter(postgres)
+            const overridesWorker = new DeferredPersonOverrideWorker(postgres)
 
             personOverridesWorker = new PeriodicTask(async () => {
                 status.debug('👥', 'Processing pending overrides...')
-                const overridesCount = await overridesWriter.processPendingOverrides(kafkaProducer)
+                const overridesCount = await overridesWorker.processPendingOverrides(kafkaProducer)
                 ;(overridesCount > 0 ? status.info : status.debug)(
                     '👥',
                     `Processed ${overridesCount} pending overrides.`
