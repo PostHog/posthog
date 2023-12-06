@@ -7,6 +7,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { BillingGaugeItem } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -163,7 +164,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingGaugeItems: [
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage) => {
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItem[] => {
                 return [
                     freeTier
                         ? {

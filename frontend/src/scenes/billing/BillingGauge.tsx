@@ -5,6 +5,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 import { useMemo } from 'react'
 
+import { BillingGaugeItem } from './types'
+
 type BillingGaugeItemProps = {
     width: string
     className: string
@@ -17,6 +19,7 @@ const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaug
     return (
         <div
             className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${className}`}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
             <div className="absolute right-0 w-px h-full bg-bg-light" />
@@ -35,12 +38,7 @@ const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaug
 }
 
 export type BillingGaugeProps = {
-    items: {
-        text: string | JSX.Element
-        color: string
-        value: number
-        top: boolean
-    }[]
+    items: BillingGaugeItem[]
 }
 
 export function BillingGauge({ items }: BillingGaugeProps): JSX.Element {
