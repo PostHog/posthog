@@ -9,7 +9,7 @@ const config = {
             // CSS vars in lots of stylesheets
         },
         fontFamily: {
-          // TODO
+            // TODO
         },
         extend: {
             screens: {
@@ -40,7 +40,7 @@ const config = {
     },
     plugins: [require('@tailwindcss/container-queries')],
 }
-config.theme.extend.maxWidth = config.theme.extend.width
+config.theme.extend.maxWidth = { ...config.theme.extend.width, '1/2': '50%' }
 config.theme.extend.minWidth = config.theme.extend.width
 config.theme.extend.height = config.theme.extend.width
 config.theme.extend.maxHeight = config.theme.extend.width
