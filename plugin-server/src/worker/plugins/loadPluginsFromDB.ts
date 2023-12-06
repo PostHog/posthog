@@ -35,7 +35,6 @@ export async function loadPluginsFromDB(
     for (const row of pluginRows) {
         plugins.set(row.id, row)
     }
-    hub.statsd?.timing('load_plugins.plugins', startTimer)
     loadPluginsMsSummary.observe(new Date().getTime() - startTimer.getTime())
 
     const pluginAttachmentTimer = new Date()
@@ -53,7 +52,6 @@ export async function loadPluginsFromDB(
             contents: row.contents,
         }
     }
-    hub.statsd?.timing('load_plugins.plugin_attachments', pluginAttachmentTimer)
     loadPluginAttachmentsMsSummary.observe(new Date().getTime() - pluginAttachmentTimer.getTime())
 
     const pluginConfigTimer = new Date()
@@ -70,7 +68,7 @@ export async function loadPluginsFromDB(
         let method = undefined
         if (plugin.capabilities?.methods) {
             const methods = plugin.capabilities.methods
-            if (methods?.some((method) => [PluginMethod.onEvent.toString(), 'exportEvents'].includes(method))) {
+            if (methods?.some((method) => [PluginMethod.onEvent.toString()].includes(method))) {
                 method = PluginMethod.onEvent
             } else if (methods?.some((method) => [PluginMethod.composeWebhook.toString()].includes(method))) {
                 method = PluginMethod.composeWebhook
@@ -97,10 +95,8 @@ export async function loadPluginsFromDB(
         }
         teamConfigs.push(pluginConfig)
     }
-    hub.statsd?.timing('load_plugins.plugin_configs', pluginConfigTimer)
-    loadPluginConfigsMsSummary.observe(new Date().getTime() - pluginConfigTimer.getTime())
 
-    hub.statsd?.timing('load_plugins.total', startTimer)
+    loadPluginConfigsMsSummary.observe(new Date().getTime() - pluginConfigTimer.getTime())
     loadPluginsTotalMsSummary.observe(new Date().getTime() - startTimer.getTime())
 
     return { plugins, pluginConfigs, pluginConfigsPerTeam }
