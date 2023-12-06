@@ -7,7 +7,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { BillingGaugeItem } from './types'
+import { BillingGaugeItem, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -168,6 +168,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return [
                     freeTier
                         ? {
+                              type: BillingGaugeItemType.FreeTier,
                               text: 'Free tier limit',
                               color: 'success-light',
                               value: freeTier,
@@ -175,6 +176,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                           }
                         : undefined,
                     {
+                        type: BillingGaugeItemType.CurrentUsage,
                         text: 'Current',
                         color: product.percentage_usage
                             ? product.percentage_usage <= 1
@@ -186,6 +188,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
                         ? {
+                              type: BillingGaugeItemType.ProjectedUsage,
                               text: 'Projected',
                               color: 'border',
                               value: product.projected_usage || 0,
@@ -194,6 +197,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : undefined,
                     billingLimitAsUsage
                         ? {
+                              type: BillingGaugeItemType.BillingLimit,
                               text: 'Billing limit',
                               color: 'primary-alt-light',
                               top: true,
