@@ -11,7 +11,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
-interface AxisSeries<T> {
+export interface AxisSeries<T> {
     name: string
     data: T[]
 }
