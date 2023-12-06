@@ -108,7 +108,7 @@ export function LemonCalendarRangeInline({
                                           'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
                                           'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
                                       },
-                                      'bg-glass-border-3000'
+                                      'LemonCalendar__range--boundary'
                                   ),
                         status: 'primary',
                         type: 'primary',

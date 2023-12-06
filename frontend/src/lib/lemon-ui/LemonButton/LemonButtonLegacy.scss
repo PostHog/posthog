@@ -4,7 +4,6 @@ body:not(.posthog-3000) {
         --lemon-button-height: 2.5rem;
 
         min-height: var(--lemon-button-height);
-        background: none;
 
         &.LemonButton--has-side-icon {
             padding-right: 0.5rem;
