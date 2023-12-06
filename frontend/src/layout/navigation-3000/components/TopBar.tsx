@@ -1,10 +1,11 @@
 import './TopBar.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconArrowDropDown, IconMenu } from 'lib/lemon-ui/icons'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useLayoutEffect, useState } from 'react'
@@ -163,7 +164,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconArrowDropDown />}
+            {breadcrumb.popover && <IconChevronDown />}
         </Component>
     )
 
