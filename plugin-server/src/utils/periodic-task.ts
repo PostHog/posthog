@@ -17,10 +17,15 @@ export class PeriodicTask {
             try {
                 status.debug('🔄', 'Periodic task starting...', { task })
                 while (!this.abortController.signal.aborted) {
-                    const startTimeMs = +Date.now()
+                    const startTimeMs = Date.now()
                     await task()
-                    const waitTimeMs = Math.max(intervalMs - startTimeMs, minimumWaitMs)
-                    status.debug('🔄', `Next evaluation in ${waitTimeMs / 1000}s`, { task })
+                    const durationMs = Date.now() - startTimeMs
+                    const waitTimeMs = Math.max(intervalMs - durationMs, minimumWaitMs)
+                    status.debug(
+                        '🔄',
+                        `Task completed in ${durationMs / 1000}s, next evaluation in ${waitTimeMs / 1000}s`,
+                        { task }
+                    )
                     await Promise.race([sleep(waitTimeMs), abortRequested])
                 }
                 status.info('✅', 'Periodic task stopped by request.', { task })
