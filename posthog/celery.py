@@ -402,7 +402,7 @@ def redis_heartbeat():
 
 
 @app.task(ignore_result=True, bind=True)
-def process_query_task(self, team_id, query_id, query_json, in_export_context=False, refresh_requested=False):
+def process_query_task(self, team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
     Kick off query
     Once complete save results to redis
@@ -413,7 +413,7 @@ def process_query_task(self, team_id, query_id, query_json, in_export_context=Fa
         team_id=team_id,
         query_id=query_id,
         query_json=query_json,
-        in_export_context=in_export_context,
+        limit_context=limit_context,
         refresh_requested=refresh_requested,
     )
 

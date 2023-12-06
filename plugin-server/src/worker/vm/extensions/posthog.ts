@@ -74,7 +74,6 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHo
                 uuid: new UUIDT().toString(),
             }
             await queueEvent(hub, pluginConfig, data)
-            hub.statsd?.increment('vm_posthog_extension_capture_called')
             vmPosthogExtensionCaptureCalledCounter.labels(String(pluginConfig.plugin?.id)).inc()
         },
         api: createApi(hub, pluginConfig),

@@ -63,8 +63,7 @@ export class EventsProcessor {
             this.teamManager,
             this.groupTypeManager,
             pluginsServer.db,
-            pluginsServer,
-            pluginsServer.statsd
+            pluginsServer
         )
     }
 
@@ -95,9 +94,6 @@ export class EventsProcessor {
             })
             try {
                 result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
-                this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                    team_id: teamId.toString(),
-                })
                 processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
