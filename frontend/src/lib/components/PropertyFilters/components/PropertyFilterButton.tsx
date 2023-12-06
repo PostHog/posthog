@@ -26,7 +26,7 @@ export interface PropertyFilterButtonProps {
 export function PropertyFilterButton({ onClick, onClose, children, item }: PropertyFilterButtonProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { is3000 } = useFeatureFlag('POSTHOG_3000', 'test')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const closable = onClose !== undefined
     const clickable = onClick !== undefined
