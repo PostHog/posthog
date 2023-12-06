@@ -447,7 +447,11 @@ export async function startPluginsServer(
                 )
             })
 
-            healthChecks['person-overrides'] = () => personOverridesWorker!.isRunning()
+            personOverridesWorker.promise.catch(async () => {
+                status.error('⚠️', 'Person override writer crashed! Requesting shutdown...')
+                await closeJobs()
+                process.exit(1)
+            })
         }
 
         if (capabilities.http) {

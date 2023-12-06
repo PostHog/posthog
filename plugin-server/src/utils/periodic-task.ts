@@ -2,7 +2,7 @@ import { status } from './status'
 import { sleep } from './utils'
 
 export class PeriodicTask {
-    private promise: Promise<void>
+    public readonly promise: Promise<void>
     private running = true
     private abortController: AbortController
 
