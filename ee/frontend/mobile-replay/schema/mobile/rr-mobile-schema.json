@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "input", "div"],
+            "enum": ["text", "image", "rectangle", "input", "div", "radio_group"],
             "type": "string"
         },
         "MobileStyles": {
@@ -202,6 +202,9 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeInputComponent"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRadioGroup"
                 }
             ]
         },
@@ -441,9 +444,6 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeButton"
-                },
-                {
-                    "$ref": "#/definitions/wireframeRadioGroup"
                 }
             ]
         },

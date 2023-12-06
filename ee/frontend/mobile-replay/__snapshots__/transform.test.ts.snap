@@ -541,1483 +541,1632 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
 `;
 
 exports[`replay/transform transform inputs $inputType - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [],
-                    "id": 120,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 125,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs $inputType - $value 2`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [],
-                    "id": 121,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 126,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs $inputType - hello 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [],
-                    "id": 138,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 143,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs button - click me 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "button",
-                          "value": "click me",
-                        },
-                        "childNodes": [],
-                        "id": 12358,
-                        "tagName": "button",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 132,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "button",
+                        "value": "click me",
+                      },
+                      "childNodes": [],
+                      "id": 12358,
+                      "tagName": "button",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 137,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs buttons with nested elements 1`] = `
-[
-  {
-    "childNodes": [
-      {
-        "height": 30,
-        "id": 12360,
-        "text": "click me",
-        "type": "text",
-        "width": 100,
-      },
-    ],
-    "height": 30,
-    "id": 12359,
-    "inputType": "button",
-    "type": "input",
-    "width": 100,
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "button",
+                      },
+                      "childNodes": [],
+                      "id": 12359,
+                      "tagName": "button",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "button",
+                        "value": "click me",
+                      },
+                      "childNodes": [],
+                      "id": 12361,
+                      "tagName": "button",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 112,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-  {
-    "childNodes": [
-      {
-        "height": 30,
-        "id": 12362,
-        "text": "and have more text",
-        "type": "text",
-        "width": 100,
-      },
-    ],
-    "height": 30,
-    "id": 12361,
-    "inputType": "button",
-    "type": "input",
-    "value": "click me",
-    "width": 100,
-  },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs checkbox - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                        },
-                        "childNodes": [
-                          {
-                            "attributes": {
-                              "checked": true,
-                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                              "type": "checkbox",
-                            },
-                            "childNodes": [],
-                            "id": 12357,
-                            "tagName": "input",
-                            "type": 2,
-                          },
-                          {
-                            "id": 124,
-                            "textContent": "first",
-                            "type": 3,
-                          },
-                        ],
-                        "id": 123,
-                        "tagName": "label",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 122,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "checked": true,
+                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 129,
+                          "textContent": "first",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 128,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 127,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs checkbox - $value 2`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                        },
-                        "childNodes": [
-                          {
-                            "attributes": {
-                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                              "type": "checkbox",
-                            },
-                            "childNodes": [],
-                            "id": 12357,
-                            "tagName": "input",
-                            "type": 2,
-                          },
-                          {
-                            "id": 127,
-                            "textContent": "second",
-                            "type": 3,
-                          },
-                        ],
-                        "id": 126,
-                        "tagName": "label",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 125,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 132,
+                          "textContent": "second",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 131,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 130,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs checkbox - $value 3`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                        },
-                        "childNodes": [
-                          {
-                            "attributes": {
-                              "checked": true,
-                              "disabled": true,
-                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                              "type": "checkbox",
-                            },
-                            "childNodes": [],
-                            "id": 12357,
-                            "tagName": "input",
-                            "type": 2,
-                          },
-                          {
-                            "id": 130,
-                            "textContent": "third",
-                            "type": 3,
-                          },
-                        ],
-                        "id": 129,
-                        "tagName": "label",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 128,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "checked": true,
+                            "disabled": true,
+                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 135,
+                          "textContent": "third",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 134,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 133,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs checkbox - $value 4`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "checked": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
-                        },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 131,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "checked": true,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12357,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 136,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs email - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "email",
-                        },
-                        "childNodes": [],
-                        "id": 12349,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 115,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "email",
+                      },
+                      "childNodes": [],
+                      "id": 12349,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 120,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs number - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "number",
-                        },
-                        "childNodes": [],
-                        "id": 12350,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 116,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "number",
+                      },
+                      "childNodes": [],
+                      "id": 12350,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 121,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs password - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "password",
-                        },
-                        "childNodes": [],
-                        "id": 12348,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 114,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "password",
+                      },
+                      "childNodes": [],
+                      "id": 12348,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 119,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio_group 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [],
+                      "id": 54321,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 116,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs search - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "search",
-                        },
-                        "childNodes": [],
-                        "id": 12351,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 117,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "search",
+                      },
+                      "childNodes": [],
+                      "id": 12351,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 122,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs select - hello 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "select",
-                          "value": "hello",
-                        },
-                        "childNodes": [
-                          {
-                            "attributes": {
-                              "selected": true,
-                              "value": "hello",
-                            },
-                            "childNodes": [],
-                            "id": 136,
-                            "tagName": "option",
-                            "type": 2,
-                          },
-                          {
-                            "attributes": {
-                              "value": "world",
-                            },
-                            "childNodes": [],
-                            "id": 137,
-                            "tagName": "option",
-                            "type": 2,
-                          },
-                        ],
-                        "id": 12365,
-                        "tagName": "select",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 135,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "select",
+                        "value": "hello",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "selected": true,
+                            "value": "hello",
+                          },
+                          "childNodes": [],
+                          "id": 141,
+                          "tagName": "option",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "value": "world",
+                          },
+                          "childNodes": [],
+                          "id": 142,
+                          "tagName": "option",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 12365,
+                      "tagName": "select",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 140,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs tel - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "disabled": true,
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "tel",
-                        },
-                        "childNodes": [],
-                        "id": 12352,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 118,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "disabled": true,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "tel",
+                      },
+                      "childNodes": [],
+                      "id": 12352,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 123,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs text - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "text",
-                        },
-                        "childNodes": [],
-                        "id": 12347,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 113,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "text",
+                      },
+                      "childNodes": [],
+                      "id": 12347,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 118,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs text - hello 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "text",
-                          "value": "hello",
-                        },
-                        "childNodes": [],
-                        "id": 12346,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 112,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "text",
+                        "value": "hello",
+                      },
+                      "childNodes": [],
+                      "id": 12346,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 117,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs textArea - $value 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "textArea",
-                        },
-                        "childNodes": [],
-                        "id": 12364,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 134,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "textArea",
+                      },
+                      "childNodes": [],
+                      "id": 12364,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 139,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs textArea - hello 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "textArea",
-                          "value": "hello",
-                        },
-                        "childNodes": [],
-                        "id": 12363,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 133,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "textArea",
+                        "value": "hello",
+                      },
+                      "childNodes": [],
+                      "id": 12363,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 138,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs url - https://example.io 1`] = `
-[
-  {
-    "data": {
-      "initialOffset": {
-        "left": 0,
-        "top": 0,
-      },
-      "node": {
-        "childNodes": [
-          {
-            "id": 2,
-            "name": "html",
-            "publicId": "",
-            "systemId": "",
-            "type": 1,
-          },
-          {
-            "attributes": {
-              "style": "height: 100vh; width: 100vw;",
-            },
-            "childNodes": [
-              {
-                "attributes": {},
-                "childNodes": [],
-                "id": 4,
-                "tagName": "head",
-                "type": 2,
-              },
-              {
-                "attributes": {
-                  "style": "height: 100vh; width: 100vw;",
-                },
-                "childNodes": [
-                  {
-                    "attributes": {},
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "url",
-                          "value": "https://example.io",
-                        },
-                        "childNodes": [],
-                        "id": 12352,
-                        "tagName": "input",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 119,
-                    "tagName": "div",
-                    "type": 2,
-                  },
-                ],
-                "id": 5,
-                "tagName": "body",
-                "type": 2,
-              },
-            ],
-            "id": 3,
-            "tagName": "html",
-            "type": 2,
-          },
-        ],
-        "id": 1,
-        "type": 0,
-      },
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
     },
-    "timestamp": 1,
-    "type": 2,
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "url",
+                        "value": "https://example.io",
+                      },
+                      "childNodes": [],
+                      "id": 12352,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 124,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform inputs wrapping with labels 1`] = `
-[
-  {
-    "height": 30,
-    "id": 12359,
-    "inputType": "checkbox",
-    "label": "i will wrap the checkbox",
-    "type": "input",
-    "width": 100,
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12359,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 115,
+                          "textContent": "i will wrap the checkbox",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 114,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 113,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
   },
-]
+  "timestamp": 1,
+  "type": 2,
+}
 `;
 
 exports[`replay/transform transform omitting x and y is equivalent to setting them to 0 1`] = `

@@ -369,55 +369,113 @@ describe('replay/transform', () => {
         describe('inputs', () => {
             test('buttons with nested elements', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformToWeb([
-                        {
-                            id: 12359,
-                            width: 100,
-                            height: 30,
-                            type: 'input',
-                            inputType: 'button',
-                            childNodes: [
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
                                 {
-                                    id: 12360,
+                                    id: 12359,
                                     width: 100,
                                     height: 30,
-                                    type: 'text',
-                                    text: 'click me',
+                                    type: 'input',
+                                    inputType: 'button',
+                                    childNodes: [
+                                        {
+                                            id: 12360,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'click me',
+                                        },
+                                    ],
+                                },
+                                {
+                                    id: 12361,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'button',
+                                    value: 'click me',
+                                    childNodes: [
+                                        {
+                                            id: 12362,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'and have more text',
+                                        },
+                                    ],
                                 },
                             ],
                         },
-                        {
-                            id: 12361,
-                            width: 100,
-                            height: 30,
-                            type: 'input',
-                            inputType: 'button',
-                            value: 'click me',
-                            childNodes: [
-                                {
-                                    id: 12362,
-                                    width: 100,
-                                    height: 30,
-                                    type: 'text',
-                                    text: 'and have more text',
-                                },
-                            ],
-                        },
-                    ])
+                        timestamp: 1,
+                    })
                 ).toMatchSnapshot()
             })
             test('wrapping with labels', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformToWeb([
-                        {
-                            id: 12359,
-                            width: 100,
-                            height: 30,
-                            type: 'input',
-                            inputType: 'checkbox',
-                            label: 'i will wrap the checkbox',
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12359,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'checkbox',
+                                    label: 'i will wrap the checkbox',
+                                },
+                            ],
                         },
-                    ])
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+            test('radio_group', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 54321,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'radio_group',
+                                    timestamp: 12345,
+                                    childNodes: [
+                                        {
+                                            id: 12345,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'input',
+                                            inputType: 'radio',
+                                            checked: true,
+                                            label: 'first',
+                                        },
+                                        {
+                                            id: 12346,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'input',
+                                            inputType: 'radio',
+                                            checked: false,
+                                            label: 'second',
+                                        },
+                                        {
+                                            id: 12347,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'to check that only radios are given a name',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
                 ).toMatchSnapshot()
             })
             test.each([
@@ -601,15 +659,13 @@ describe('replay/transform', () => {
                 },
             ])('$inputType - $value', (testCase) => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformToWeb([
-                        {
-                            type: 2,
-                            data: {
-                                wireframes: [testCase],
-                            },
-                            timestamp: 1,
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [testCase],
                         },
-                    ])
+                        timestamp: 1,
+                    })
                 ).toMatchSnapshot()
             })
         })

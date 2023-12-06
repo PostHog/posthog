@@ -64,7 +64,7 @@ export type serializedNodeWithId = serializedNode & { id: number }
 
 // end copied section
 
-export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div'
+export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div' | 'radio_group'
 
 export type MobileStyles = {
     /**
@@ -184,7 +184,6 @@ export type wireframeInputComponent =
     | wireframeSelect
     | wireframeTextArea
     | wireframeButton
-    | wireframeRadioGroup
 
 export type wireframeText = wireframeBase & {
     type: 'text'
@@ -210,7 +209,13 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
-export type wireframe = wireframeText | wireframeImage | wireframeRectangle | wireframeDiv | wireframeInputComponent
+export type wireframe =
+    | wireframeText
+    | wireframeImage
+    | wireframeRectangle
+    | wireframeDiv
+    | wireframeInputComponent
+    | wireframeRadioGroup
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

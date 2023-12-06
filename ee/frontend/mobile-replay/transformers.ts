@@ -12,6 +12,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
     wireframeText,
@@ -203,12 +204,41 @@ function makeSelectElement(wireframe: wireframeSelect, children: serializedNodeW
     }
 }
 
+function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: string): serializedNodeWithId[] {
+    return children.map((child) => {
+        if (child.type === NodeType.Element && child.tagName === 'input' && child.attributes.type === 'radio') {
+            return {
+                ...child,
+                attributes: {
+                    ...child.attributes,
+                    name: radioGroupName,
+                },
+            }
+        }
+        return child
+    })
+}
+
+function makeRadioGroupElement(
+    wireframe: wireframeRadioGroup,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    const radioGroupName = 'radio_group_' + wireframe.id
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: wireframe.id,
+        childNodes: groupRadioButtons(children, radioGroupName),
+    }
+}
+
 function makeInputElement(
     wireframe: wireframeInputComponent,
     children: serializedNodeWithId[]
 ): serializedNodeWithId | null {
-    // TODO labels?
-
     if (!wireframe.inputType) {
         return null
     }
@@ -311,6 +341,11 @@ function chooseConverter<T extends wireframe>(
             ) => serializedNodeWithId | null
         case 'input':
             return makeInputElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'radio_group':
+            return makeRadioGroupElement as unknown as (
                 wireframe: T,
                 children: serializedNodeWithId[]
             ) => serializedNodeWithId | null
