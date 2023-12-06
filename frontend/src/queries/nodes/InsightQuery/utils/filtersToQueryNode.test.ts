@@ -167,9 +167,7 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
-                retentionFilter: {},
-            }
-            result.retentionFilter = {} // Put this here to make TS happy
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -198,7 +196,6 @@ describe('filtersToQueryNode', () => {
 
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
-                retentionFilter: {},
                 properties: {
                     type: FilterLogicalOperator.And,
                     values: [
@@ -215,8 +212,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
-            }
-            result.retentionFilter = {} // Put this here to make TS happy
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -231,13 +227,11 @@ describe('filtersToQueryNode', () => {
 
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
-                retentionFilter: {},
                 dateRange: {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                 },
-            }
-            result.retentionFilter = {} // Put this here to make TS happy
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
     })

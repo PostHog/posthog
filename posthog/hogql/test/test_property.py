@@ -630,7 +630,7 @@ class TestProperty(BaseTest):
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
-        entity = RetentionEntity(**{"type": "other_type"})
+        entity = RetentionEntity()
         result = entity_to_expr(entity, default_event="default_event")
         expected = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
