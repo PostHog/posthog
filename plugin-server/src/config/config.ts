@@ -128,6 +128,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
+        POE_DEFERRED_WRITES_ENABLED: false,
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
 

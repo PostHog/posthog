@@ -198,6 +198,7 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    POE_DEFERRED_WRITES_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
