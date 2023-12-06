@@ -1,15 +1,21 @@
 import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } from '@rrweb/types'
 
 import {
+    attributes,
     fullSnapshotEvent as MobileFullSnapshotEvent,
     incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     metaEvent as MobileMetaEvent,
     NodeType,
     serializedNodeWithId,
+    textNode,
     wireframe,
+    wireframeButton,
     wireframeDiv,
     wireframeImage,
+    wireframeInputComponent,
+    wireframeRadioGroup,
     wireframeRectangle,
+    wireframeSelect,
     wireframeText,
 } from './mobile.types'
 import { makeBodyStyles, makeHTMLStyles, makePositionStyles, makeStylesString, makeSvgBorder } from './wireframeStyle'
@@ -37,6 +43,8 @@ function* ids(): Generator<number> {
         yield i++
     }
 }
+
+// TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
 const idSequence = ids()
 
 const BODY_ID = 5
@@ -121,6 +129,165 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
     }
 }
 
+function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attributes {
+    const attributes = {
+        style: makeStylesString(wireframe),
+        type: wireframe.inputType,
+        ...(wireframe.disabled ? { disabled: wireframe.disabled } : {}),
+    }
+
+    switch (wireframe.inputType) {
+        case 'checkbox':
+            return {
+                ...attributes,
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+            }
+        case 'radio':
+            return {
+                ...attributes,
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+                // radio value defaults to the string "on" if not specified
+                // we're not really submitting the form, so it doesn't matter 🤞
+                // radio name is used to correctly uncheck values when one is checked
+                // mobile doesn't really have it, and we will be checking based on snapshots,
+                // so we can ignore it for now
+            }
+        case 'button':
+            return {
+                ...attributes,
+            }
+        case 'text_area':
+            return {
+                ...attributes,
+                value: wireframe.value || '',
+            }
+        default:
+            return {
+                ...attributes,
+                value: wireframe.value || '',
+            }
+    }
+}
+
+function makeButtonElement(wireframe: wireframeButton, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    const buttonText: textNode | null = wireframe.value
+        ? {
+              type: NodeType.Text,
+              textContent: wireframe.value,
+          }
+        : null
+
+    return {
+        type: NodeType.Element,
+        tagName: 'button',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: buttonText ? [{ ...buttonText, id: idSequence.next().value }, ...children] : children,
+    }
+}
+
+function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'option',
+        attributes: {
+            value: option,
+            ...(selected ? { selected: selected } : {}),
+        },
+        id: idSequence.next().value,
+        childNodes: [],
+    }
+}
+
+function makeSelectElement(wireframe: wireframeSelect, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    return {
+        type: NodeType.Element,
+        tagName: 'select',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: [
+            ...(wireframe.options?.map((option) => makeSelectOptionElement(option, wireframe.value === option)) || []),
+            ...children,
+        ],
+    }
+}
+
+function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: string): serializedNodeWithId[] {
+    return children.map((child) => {
+        if (child.type === NodeType.Element && child.tagName === 'input' && child.attributes.type === 'radio') {
+            return {
+                ...child,
+                attributes: {
+                    ...child.attributes,
+                    name: radioGroupName,
+                },
+            }
+        }
+        return child
+    })
+}
+
+function makeRadioGroupElement(
+    wireframe: wireframeRadioGroup,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    const radioGroupName = 'radio_group_' + wireframe.id
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: wireframe.id,
+        childNodes: groupRadioButtons(children, radioGroupName),
+    }
+}
+
+function makeInputElement(
+    wireframe: wireframeInputComponent,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    if (!wireframe.inputType) {
+        return null
+    }
+
+    if (wireframe.inputType === 'button') {
+        return makeButtonElement(wireframe, children)
+    }
+
+    if (wireframe.inputType === 'select') {
+        return makeSelectElement(wireframe, children)
+    }
+
+    const theInputElement: serializedNodeWithId = {
+        type: NodeType.Element,
+        tagName: 'input',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: children,
+    }
+    if ('label' in wireframe) {
+        return {
+            type: NodeType.Element,
+            tagName: 'label',
+            attributes: {
+                style: makeStylesString(wireframe),
+            },
+            id: idSequence.next().value,
+            childNodes: [
+                theInputElement,
+                {
+                    type: NodeType.Text,
+                    textContent: wireframe.label || '',
+                    id: idSequence.next().value,
+                },
+            ],
+        }
+    } else {
+        return theInputElement
+    }
+}
+
 function makeRectangleElement(
     wireframe: wireframeRectangle,
     children: serializedNodeWithId[]
@@ -156,7 +323,7 @@ function chooseConverter<T extends wireframe>(
     wireframe: T
 ): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
     // in theory type is always present
-    // but since this is coming over the wire we can't really be sure
+    // but since this is coming over the wire we can't really be sure,
     // and so we default to div
     const converterType = wireframe.type || 'div'
     switch (converterType) {
@@ -177,6 +344,16 @@ function chooseConverter<T extends wireframe>(
             ) => serializedNodeWithId | null
         case 'div':
             return makeDivElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'input':
+            return makeInputElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'radio_group':
+            return makeRadioGroupElement as unknown as (
                 wireframe: T,
                 children: serializedNodeWithId[]
             ) => serializedNodeWithId | null
