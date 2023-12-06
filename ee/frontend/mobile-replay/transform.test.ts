@@ -366,5 +366,222 @@ describe('replay/transform', () => {
                 ])
             ).toMatchSnapshot()
         })
+        describe('inputs', () => {
+            test('omitting x and y is equivalent to setting them to 0', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformToWeb([
+                        {
+                            type: 2,
+                            data: {
+                                wireframes: [
+                                    {
+                                        id: 12346,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'text',
+                                        value: 'hello',
+                                    },
+                                    {
+                                        id: 12347,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'text',
+                                        // without value
+                                    },
+                                    {
+                                        id: 12348,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'password',
+                                        // without value
+                                    },
+                                    {
+                                        id: 12349,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'email',
+                                        // without value
+                                    },
+                                    {
+                                        id: 12350,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'number',
+                                        // without value
+                                    },
+                                    {
+                                        id: 12351,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'search',
+                                        // without value
+                                    },
+                                    {
+                                        id: 12352,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'tel',
+                                        disabled: true,
+                                    },
+                                    {
+                                        id: 12352,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'url',
+                                        value: 'https://example.io',
+                                        disabled: false,
+                                    },
+                                    {
+                                        id: 12353,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'radio group',
+                                        // no child nodes, ??
+                                    },
+                                    {
+                                        id: 12354,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'radio group',
+                                        childNodes: [
+                                            {
+                                                id: 12355,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'input',
+                                                inputType: 'radio',
+                                                checked: true,
+                                                label: 'first',
+                                            },
+                                            {
+                                                id: 12356,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'input',
+                                                inputType: 'radio',
+                                                checked: false,
+                                                label: 'second',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        id: 12357,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'checkbox',
+                                        checked: true,
+                                        label: 'first',
+                                    },
+                                    {
+                                        id: 12357,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'checkbox',
+                                        checked: false,
+                                        label: 'second',
+                                    },
+                                    {
+                                        id: 12357,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'checkbox',
+                                        checked: true,
+                                        disabled: true,
+                                        label: 'third',
+                                    },
+                                    {
+                                        id: 12357,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'checkbox',
+                                        checked: true,
+                                        disabled: false,
+                                        // no label
+                                    },
+                                    {
+                                        id: 12358,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'button',
+                                        value: 'click me',
+                                    },
+                                    {
+                                        id: 12358,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'button',
+                                        childNodes: [
+                                            {
+                                                id: 12359,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'text',
+                                                text: 'click me',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        id: 12360,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'button',
+                                        value: 'click me',
+                                        childNodes: [
+                                            {
+                                                id: 12361,
+                                                width: 100,
+                                                height: 30,
+                                                type: 'text',
+                                                text: 'and have more text',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        id: 12362,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'textArea',
+                                        value: 'hello',
+                                    },
+                                    {
+                                        id: 12363,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'textArea',
+                                    },
+                                    {
+                                        id: 12364,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'select',
+                                        value: 'hello',
+                                        options: ['hello', 'world'],
+                                    },
+                                ],
+                            },
+                            timestamp: 1,
+                        },
+                    ])
+                ).toMatchSnapshot()
+            })
+        })
     })
 })

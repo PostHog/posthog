@@ -1,6 +1,7 @@
 import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } from '@rrweb/types'
 
 import {
+    attributes,
     fullSnapshotEvent as MobileFullSnapshotEvent,
     incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     metaEvent as MobileMetaEvent,
@@ -9,6 +10,8 @@ import {
     wireframe,
     wireframeDiv,
     wireframeImage,
+    wireframeInput,
+    wireframeInputComponent,
     wireframeRectangle,
     wireframeText,
 } from './mobile.types'
@@ -121,6 +124,59 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
     }
 }
 
+function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attributes {
+    const attributes = {
+        style: makeStylesString(wireframe),
+        type: wireframe.inputType,
+        ...(wireframe.disabled ? { disabled: wireframe.disabled } : {}),
+    }
+
+    switch (wireframe.inputType) {
+        case 'checkbox':
+            return {
+                ...attributes,
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+            }
+        case 'radio':
+            return {
+                ...attributes,
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+                // radio value defaults to the string "on" if not specified
+                // we're not really submitting the form, so it doesn't matter 🤞
+                // radio name is used to correctly uncheck values when one is checked
+                // mobile doesn't really have it, and we will be checking based on snapshots,
+                // so we can ignore it for now
+            }
+        case 'button':
+            return {
+                ...attributes,
+                ...(wireframe.value ? { value: wireframe.value } : {}),
+            }
+        case 'textarea':
+            return {
+                ...attributes,
+                ...(wireframe.value ? { value: wireframe.value } : {}),
+            }
+        default:
+            return {
+                ...attributes,
+                ...(wireframe.value ? { value: wireframe.value } : {}),
+            }
+    }
+}
+
+function makeInputElement(wireframe: wireframeInput, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    // TODO select?
+    // TODO labels?
+    return {
+        type: NodeType.Element,
+        tagName: 'input',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: children,
+    }
+}
+
 function makeRectangleElement(
     wireframe: wireframeRectangle,
     children: serializedNodeWithId[]
@@ -156,7 +212,7 @@ function chooseConverter<T extends wireframe>(
     wireframe: T
 ): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
     // in theory type is always present
-    // but since this is coming over the wire we can't really be sure
+    // but since this is coming over the wire we can't really be sure,
     // and so we default to div
     const converterType = wireframe.type || 'div'
     switch (converterType) {
@@ -177,6 +233,11 @@ function chooseConverter<T extends wireframe>(
             ) => serializedNodeWithId | null
         case 'div':
             return makeDivElement as unknown as (
+                wireframe: T,
+                children: serializedNodeWithId[]
+            ) => serializedNodeWithId | null
+        case 'input':
+            return makeInputElement as unknown as (
                 wireframe: T,
                 children: serializedNodeWithId[]
             ) => serializedNodeWithId | null

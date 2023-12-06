@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "div"],
+            "enum": ["text", "image", "rectangle", "input", "div"],
             "type": "string"
         },
         "MobileStyles": {
@@ -201,25 +201,7 @@
                     "$ref": "#/definitions/wireframeDiv"
                 },
                 {
-                    "$ref": "#/definitions/wireframeCheckBox"
-                },
-                {
-                    "$ref": "#/definitions/wireframeRadioGroup"
-                },
-                {
-                    "$ref": "#/definitions/wireframeRadio"
-                },
-                {
-                    "$ref": "#/definitions/wireframeInput"
-                },
-                {
-                    "$ref": "#/definitions/wireframeSelect"
-                },
-                {
-                    "$ref": "#/definitions/wireframeTextArea"
-                },
-                {
-                    "$ref": "#/definitions/wireframeButton"
+                    "$ref": "#/definitions/wireframeInputComponent"
                 }
             ]
         },
@@ -436,6 +418,31 @@
             "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
             "type": "object"
         },
+        "wireframeInputComponent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/wireframeCheckBox"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRadio"
+                },
+                {
+                    "$ref": "#/definitions/wireframeInput"
+                },
+                {
+                    "$ref": "#/definitions/wireframeSelect"
+                },
+                {
+                    "$ref": "#/definitions/wireframeTextArea"
+                },
+                {
+                    "$ref": "#/definitions/wireframeButton"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRadioGroup"
+                }
+            ]
+        },
         "wireframeRadio": {
             "additionalProperties": false,
             "properties": {
@@ -493,9 +500,6 @@
                     },
                     "type": "array"
                 },
-                "groupName": {
-                    "type": "string"
-                },
                 "height": {
                     "type": "number"
                 },
@@ -519,7 +523,7 @@
                     "type": "number"
                 }
             },
-            "required": ["groupName", "height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width", "x", "y"],
             "type": "object"
         },
         "wireframeRectangle": {
