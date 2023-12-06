@@ -30,4 +30,8 @@ body:not(.posthog-3000) {
             }
         }
     }
+
+    .LemonButton.LemonSelect {
+        --lemon-button-gap: 0.1875rem;
+    }
 }
