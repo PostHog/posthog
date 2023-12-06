@@ -1,4 +1,3 @@
-import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import LRUCache from 'lru-cache'
 
@@ -27,12 +26,10 @@ type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | ty
  */
 export class PropertyDefinitionsCache {
     readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
-    private readonly statsd?: StatsD
     private readonly lruCacheSize: number
 
-    constructor(serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(serverConfig: PluginsServerConfig) {
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
-        this.statsd = statsd
         this.propertyDefinitionsCache = new Map()
     }
 

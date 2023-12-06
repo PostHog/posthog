@@ -1,5 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 
@@ -56,6 +57,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
         useValues(systemStatusLogic)
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const isChangingEnabledEmailSettings =
         instanceConfigEditingState.EMAIL_ENABLED !== false &&
@@ -79,7 +81,12 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
+                    <LemonButton
+                        type={is3000 ? 'secondary' : 'primary'}
+                        status="danger"
+                        loading={loading}
+                        onClick={saveInstanceConfig}
+                    >
                         Apply {changeNoun}
                     </LemonButton>
                 </>

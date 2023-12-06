@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from enum import Enum
 from typing import Optional, Literal, TypeAlias, Tuple, List
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -30,6 +31,11 @@ RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
 MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+
+
+class LimitContext(str, Enum):
+    QUERY = "query"
+    EXPORT = "export"
 
 
 # Settings applied at the SELECT level

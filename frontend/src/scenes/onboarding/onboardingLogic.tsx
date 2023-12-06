@@ -19,6 +19,7 @@ export enum OnboardingStepKey {
     BILLING = 'billing',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
+    PRODUCT_CONFIGURATION = 'configure',
 }
 
 // These types have to be set like this, so that kea typegen is happy
