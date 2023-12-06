@@ -4,9 +4,10 @@
 
 use std::default::Default;
 use std::str::FromStr;
+use std::time;
 
-use chrono::{prelude::*, Duration};
-use serde::{de::DeserializeOwned, Serialize};
+use chrono;
+use serde;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use thiserror::Error;
 
@@ -18,12 +19,18 @@ pub enum PgQueueError {
     ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
     QueryError { command: String, error: sqlx::Error },
-    #[error("transaction {command} failed with: {error}")]
-    TransactionError { command: String, error: sqlx::Error },
     #[error("{0} is not a valid JobStatus")]
     ParseJobStatusError(String),
-    #[error("{0} Job has reached max attempts and cannot be retried further")]
-    MaxAttemptsReachedError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum PgJobError<T> {
+    #[error("retry is an invalid state for this PgJob: {error}")]
+    RetryInvalidError { job: T, error: String },
+    #[error("{command} query failed with: {error}")]
+    QueryError { command: String, error: sqlx::Error },
+    #[error("transaction {command} failed with: {error}")]
+    TransactionError { command: String, error: sqlx::Error },
 }
 
 /// Enumeration of possible statuses for a Job.
@@ -64,18 +71,18 @@ impl FromStr for JobStatus {
 pub type JobParameters<J> = sqlx::types::Json<J>;
 
 /// A Job to be executed by a worker dequeueing a PgQueue.
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct Job<J> {
     /// A unique id identifying a job.
     pub id: i64,
     /// A number corresponding to the current job attempt.
     pub attempt: i32,
     /// A datetime corresponding to when the job was attempted.
-    pub attempted_at: DateTime<Utc>,
+    pub attempted_at: chrono::DateTime<chrono::offset::Utc>,
     /// A vector of identifiers that have attempted this job. E.g. thread ids, pod names, etc...
     pub attempted_by: Vec<String>,
     /// A datetime corresponding to when the job was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: chrono::DateTime<chrono::offset::Utc>,
     /// The current job's number of max attempts.
     pub max_attempts: i32,
     /// Arbitrary job parameters stored as JSON.
@@ -89,28 +96,29 @@ pub struct Job<J> {
 }
 
 impl<J> Job<J> {
+    /// Return true if this job attempt is greater or equal to the maximum number of possible attempts.
+    pub fn is_gte_max_attempts(&self) -> bool {
+        self.attempt >= self.max_attempts
+    }
+
     /// Consume Job to retry it.
     /// This returns a RetryableJob that can be enqueued by PgQueue.
     ///
     /// # Arguments
     ///
     /// * `error`: Any JSON-serializable value to be stored as an error.
-    pub fn retry<E: Serialize>(self, error: E) -> Result<RetryableJob<E>, PgQueueError> {
-        if self.attempt >= self.max_attempts {
-            Err(PgQueueError::MaxAttemptsReachedError(self.target))
-        } else {
-            Ok(RetryableJob {
-                id: self.id,
-                attempt: self.attempt,
-                error: sqlx::types::Json(error),
-                queue: self.queue,
-            })
+    fn retry<E: serde::Serialize>(self, error: E) -> RetryableJob<E> {
+        RetryableJob {
+            id: self.id,
+            attempt: self.attempt,
+            error: sqlx::types::Json(error),
+            queue: self.queue,
         }
     }
 
     /// Consume Job to complete it.
     /// This returns a CompletedJob that can be marked as completed by PgQueue.
-    pub fn complete(self) -> CompletedJob {
+    fn complete(self) -> CompletedJob {
         CompletedJob {
             id: self.id,
             queue: self.queue,
@@ -123,7 +131,7 @@ impl<J> Job<J> {
     /// # Arguments
     ///
     /// * `error`: Any JSON-serializable value to be stored as an error.
-    pub fn fail<E: Serialize>(self, error: E) -> FailedJob<E> {
+    fn fail<E: serde::Serialize>(self, error: E) -> FailedJob<E> {
         FailedJob {
             id: self.id,
             error: sqlx::types::Json(error),
@@ -133,6 +141,7 @@ impl<J> Job<J> {
 }
 
 /// A Job that can be updated in PostgreSQL.
+#[derive(Debug)]
 pub struct PgJob<J> {
     pub job: Job<J>,
     pub table: String,
@@ -141,11 +150,21 @@ pub struct PgJob<J> {
 }
 
 impl<J> PgJob<J> {
-    pub async fn retry<E: Serialize + std::marker::Sync>(
+    pub async fn retry<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<RetryableJob<E>, PgQueueError> {
-        let retryable_job = self.job.retry(error)?;
+        preferred_retry_interval: Option<time::Duration>,
+    ) -> Result<RetryableJob<E>, PgJobError<PgJob<J>>> {
+        if self.job.is_gte_max_attempts() {
+            return Err(PgJobError::RetryInvalidError {
+                job: self,
+                error: "Maximum attempts reached".to_owned(),
+            });
+        }
+        let retryable_job = self.job.retry(error);
+        let retry_interval = self
+            .retry_policy
+            .time_until_next_retry(&retryable_job, preferred_retry_interval);
 
         let base_query = format!(
             r#"
@@ -161,7 +180,6 @@ WHERE
     AND queue = $1
 RETURNING
     "{0}".*
-
             "#,
             &self.table
         );
@@ -169,11 +187,11 @@ RETURNING
         sqlx::query(&base_query)
             .bind(&retryable_job.queue)
             .bind(retryable_job.id)
-            .bind(self.retry_policy.time_until_next_retry(&retryable_job))
+            .bind(retry_interval)
             .bind(&retryable_job.error)
             .execute(&mut *self.connection)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -181,7 +199,7 @@ RETURNING
         Ok(retryable_job)
     }
 
-    pub async fn complete(mut self) -> Result<CompletedJob, PgQueueError> {
+    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgJob<J>>> {
         let completed_job = self.job.complete();
 
         let base_query = format!(
@@ -190,13 +208,12 @@ UPDATE
     "{0}"
 SET
     finished_at = NOW(),
-    status = 'completed'::job_status,
+    status = 'completed'::job_status
 WHERE
     "{0}".id = $2
     AND queue = $1
 RETURNING
     "{0}".*
-
             "#,
             &self.table
         );
@@ -206,7 +223,7 @@ RETURNING
             .bind(completed_job.id)
             .execute(&mut *self.connection)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -214,10 +231,10 @@ RETURNING
         Ok(completed_job)
     }
 
-    pub async fn fail<E: Serialize + std::marker::Sync>(
+    pub async fn fail<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<FailedJob<E>, PgQueueError> {
+    ) -> Result<FailedJob<E>, PgJobError<PgJob<J>>> {
         let failed_job = self.job.fail(error);
 
         let base_query = format!(
@@ -226,7 +243,7 @@ UPDATE
     "{0}"
 SET
     finished_at = NOW(),
-    status = 'failed'::job_status,
+    status = 'failed'::job_status
 WHERE
     "{0}".id = $2
     AND queue = $1
@@ -242,7 +259,7 @@ RETURNING
             .bind(failed_job.id)
             .execute(&mut *self.connection)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -253,6 +270,7 @@ RETURNING
 
 /// A Job within an open PostgreSQL transaction.
 /// This implementation allows 'hiding' the job from any other workers running SKIP LOCKED queries.
+#[derive(Debug)]
 pub struct PgTransactionJob<'c, J> {
     pub job: Job<J>,
     pub table: String,
@@ -261,11 +279,21 @@ pub struct PgTransactionJob<'c, J> {
 }
 
 impl<'c, J> PgTransactionJob<'c, J> {
-    pub async fn retry<E: Serialize + std::marker::Sync>(
+    pub async fn retry<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<RetryableJob<E>, PgQueueError> {
-        let retryable_job = self.job.retry(error)?;
+        preferred_retry_interval: Option<time::Duration>,
+    ) -> Result<RetryableJob<E>, PgJobError<PgTransactionJob<'c, J>>> {
+        if self.job.is_gte_max_attempts() {
+            return Err(PgJobError::RetryInvalidError {
+                job: self,
+                error: "Maximum attempts reached".to_owned(),
+            });
+        }
+        let retryable_job = self.job.retry(error);
+        let retry_interval = self
+            .retry_policy
+            .time_until_next_retry(&retryable_job, preferred_retry_interval);
 
         let base_query = format!(
             r#"
@@ -289,11 +317,11 @@ RETURNING
         sqlx::query(&base_query)
             .bind(&retryable_job.queue)
             .bind(retryable_job.id)
-            .bind(self.retry_policy.time_until_next_retry(&retryable_job))
+            .bind(retry_interval)
             .bind(&retryable_job.error)
             .execute(&mut *self.transaction)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -301,7 +329,7 @@ RETURNING
         self.transaction
             .commit()
             .await
-            .map_err(|error| PgQueueError::TransactionError {
+            .map_err(|error| PgJobError::TransactionError {
                 command: "COMMIT".to_owned(),
                 error,
             })?;
@@ -309,7 +337,7 @@ RETURNING
         Ok(retryable_job)
     }
 
-    pub async fn complete(mut self) -> Result<CompletedJob, PgQueueError> {
+    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgTransactionJob<'c, J>>> {
         let completed_job = self.job.complete();
 
         let base_query = format!(
@@ -318,13 +346,12 @@ UPDATE
     "{0}"
 SET
     finished_at = NOW(),
-    status = 'completed'::job_status,
+    status = 'completed'::job_status
 WHERE
     "{0}".id = $2
     AND queue = $1
 RETURNING
     "{0}".*
-
             "#,
             &self.table
         );
@@ -334,7 +361,7 @@ RETURNING
             .bind(completed_job.id)
             .execute(&mut *self.transaction)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -342,7 +369,7 @@ RETURNING
         self.transaction
             .commit()
             .await
-            .map_err(|error| PgQueueError::TransactionError {
+            .map_err(|error| PgJobError::TransactionError {
                 command: "COMMIT".to_owned(),
                 error,
             })?;
@@ -350,10 +377,10 @@ RETURNING
         Ok(completed_job)
     }
 
-    pub async fn fail<E: Serialize + std::marker::Sync>(
+    pub async fn fail<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<FailedJob<E>, PgQueueError> {
+    ) -> Result<FailedJob<E>, PgJobError<PgTransactionJob<'c, J>>> {
         let failed_job = self.job.fail(error);
 
         let base_query = format!(
@@ -362,13 +389,12 @@ UPDATE
     "{0}"
 SET
     finished_at = NOW(),
-    status = 'failed'::job_status,
+    status = 'failed'::job_status
 WHERE
     "{0}".id = $2
     AND queue = $1
 RETURNING
     "{0}".*
-
             "#,
             &self.table
         );
@@ -378,7 +404,7 @@ RETURNING
             .bind(failed_job.id)
             .execute(&mut *self.transaction)
             .await
-            .map_err(|error| PgQueueError::QueryError {
+            .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
                 error,
             })?;
@@ -386,7 +412,7 @@ RETURNING
         self.transaction
             .commit()
             .await
-            .map_err(|error| PgQueueError::TransactionError {
+            .map_err(|error| PgJobError::TransactionError {
                 command: "COMMIT".to_owned(),
                 error,
             })?;
@@ -399,7 +425,7 @@ RETURNING
 /// The time until retry will depend on the PgQueue's RetryPolicy.
 pub struct RetryableJob<J> {
     /// A unique id identifying a job.
-    pub id: i64,
+    id: i64,
     /// A number corresponding to the current job attempt.
     pub attempt: i32,
     /// Any JSON-serializable value to be stored as an error.
@@ -411,7 +437,7 @@ pub struct RetryableJob<J> {
 /// A Job that has completed to be enqueued into a PgQueue and marked as completed.
 pub struct CompletedJob {
     /// A unique id identifying a job.
-    pub id: i64,
+    id: i64,
     /// A unique id identifying a job queue.
     pub queue: String,
 }
@@ -419,7 +445,7 @@ pub struct CompletedJob {
 /// A Job that has failed to be enqueued into a PgQueue and marked as failed.
 pub struct FailedJob<J> {
     /// A unique id identifying a job.
-    pub id: i64,
+    id: i64,
     /// Any JSON-serializable value to be stored as an error.
     pub error: sqlx::types::Json<J>,
     /// A unique id identifying a job queue.
@@ -446,27 +472,47 @@ impl<J> NewJob<J> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// The retry policy that PgQueue will use to determine how to set scheduled_at when enqueuing a retry.
 pub struct RetryPolicy {
     /// Coefficient to multiply initial_interval with for every past attempt.
-    backoff_coefficient: i32,
+    backoff_coefficient: u32,
     /// The backoff interval for the first retry.
-    initial_interval: Duration,
+    initial_interval: time::Duration,
     /// The maximum possible backoff between retries.
-    maximum_interval: Option<Duration>,
+    maximum_interval: Option<time::Duration>,
 }
 
 impl RetryPolicy {
+    pub fn new(
+        backoff_coefficient: u32,
+        initial_interval: time::Duration,
+        maximum_interval: Option<time::Duration>,
+    ) -> Self {
+        Self {
+            backoff_coefficient,
+            initial_interval,
+            maximum_interval,
+        }
+    }
+
     /// Calculate the time until the next retry for a given RetryableJob.
-    pub fn time_until_next_retry<J>(&self, job: &RetryableJob<J>) -> Duration {
+    pub fn time_until_next_retry<J>(
+        &self,
+        job: &RetryableJob<J>,
+        preferred_retry_interval: Option<time::Duration>,
+    ) -> time::Duration {
         let candidate_interval =
             self.initial_interval * self.backoff_coefficient.pow(job.attempt as u32);
 
-        if let Some(max_interval) = self.maximum_interval {
-            std::cmp::min(candidate_interval, max_interval)
-        } else {
-            candidate_interval
+        match (preferred_retry_interval, self.maximum_interval) {
+            (Some(duration), Some(max_interval)) => std::cmp::min(
+                std::cmp::max(std::cmp::min(candidate_interval, max_interval), duration),
+                max_interval,
+            ),
+            (Some(duration), None) => std::cmp::max(candidate_interval, duration),
+            (None, Some(max_interval)) => std::cmp::min(candidate_interval, max_interval),
+            (None, None) => candidate_interval,
         }
     }
 }
@@ -475,7 +521,7 @@ impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
             backoff_coefficient: 2,
-            initial_interval: Duration::seconds(1),
+            initial_interval: time::Duration::from_secs(1),
             maximum_interval: None,
         }
     }
@@ -491,8 +537,6 @@ pub struct PgQueue {
     retry_policy: RetryPolicy,
     /// The identifier of the PostgreSQL table this queue runs on.
     table: String,
-    /// The identifier of the worker listening on this queue.
-    worker: String,
 }
 
 pub type PgQueueResult<T> = std::result::Result<T, PgQueueError>;
@@ -511,12 +555,10 @@ impl PgQueue {
         queue_name: &str,
         table_name: &str,
         url: &str,
-        worker_name: &str,
         retry_policy: RetryPolicy,
     ) -> PgQueueResult<Self> {
         let name = queue_name.to_owned();
         let table = table_name.to_owned();
-        let worker = worker_name.to_owned();
         let pool = PgPoolOptions::new()
             .connect(url)
             .await
@@ -527,13 +569,15 @@ impl PgQueue {
             pool,
             retry_policy,
             table,
-            worker,
         })
     }
 
     /// Dequeue a Job from this PgQueue to work on it.
-    pub async fn dequeue<J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static>(
+    pub async fn dequeue<
+        J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
+    >(
         &self,
+        attempted_by: &str,
     ) -> PgQueueResult<Option<PgJob<J>>> {
         let mut connection = self
             .pool
@@ -578,7 +622,7 @@ RETURNING
 
         let query_result: Result<Job<J>, sqlx::Error> = sqlx::query_as(&base_query)
             .bind(&self.name)
-            .bind(&self.worker)
+            .bind(attempted_by)
             .fetch_one(&mut *connection)
             .await;
 
@@ -608,10 +652,12 @@ RETURNING
 
     /// Dequeue a Job from this PgQueue to work on it.
     pub async fn dequeue_tx<
-        J: DeserializeOwned + std::marker::Send + std::marker::Unpin + 'static,
+        'a,
+        J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
     >(
         &self,
-    ) -> PgQueueResult<Option<PgTransactionJob<J>>> {
+        attempted_by: &str,
+    ) -> PgQueueResult<Option<PgTransactionJob<'a, J>>> {
         let mut tx = self
             .pool
             .begin()
@@ -655,7 +701,7 @@ RETURNING
 
         let query_result: Result<Job<J>, sqlx::Error> = sqlx::query_as(&base_query)
             .bind(&self.name)
-            .bind(&self.worker)
+            .bind(attempted_by)
             .fetch_one(&mut *tx)
             .await;
 
@@ -678,7 +724,7 @@ RETURNING
 
     /// Enqueue a Job into this PgQueue.
     /// We take ownership of NewJob to enforce a specific NewJob is only enqueued once.
-    pub async fn enqueue<J: Serialize + std::marker::Sync>(
+    pub async fn enqueue<J: serde::Serialize + std::marker::Sync>(
         &self,
         job: NewJob<J>,
     ) -> PgQueueResult<()> {
@@ -712,9 +758,8 @@ VALUES
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::Deserialize;
 
-    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct JobParameters {
         method: String,
         body: String,
@@ -752,7 +797,6 @@ mod tests {
             "test_can_dequeue_job",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             RetryPolicy::default(),
         )
         .await
@@ -761,7 +805,7 @@ mod tests {
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
         let pg_job: PgJob<JobParameters> = queue
-            .dequeue()
+            .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
@@ -782,14 +826,15 @@ mod tests {
             "test_dequeue_returns_none_on_no_jobs",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
 
-        let pg_job: Option<PgJob<JobParameters>> =
-            queue.dequeue().await.expect("failed to dequeue job");
+        let pg_job: Option<PgJob<JobParameters>> = queue
+            .dequeue(&worker_id)
+            .await
+            .expect("failed to dequeue job");
 
         assert!(pg_job.is_none());
     }
@@ -805,7 +850,6 @@ mod tests {
             "test_can_dequeue_tx_job",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             RetryPolicy::default(),
         )
         .await
@@ -814,7 +858,7 @@ mod tests {
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
         let tx_job: PgTransactionJob<'_, JobParameters> = queue
-            .dequeue_tx()
+            .dequeue_tx(&worker_id)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
@@ -835,14 +879,15 @@ mod tests {
             "test_dequeue_tx_returns_none_on_no_jobs",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
 
-        let tx_job: Option<PgTransactionJob<'_, JobParameters>> =
-            queue.dequeue_tx().await.expect("failed to dequeue job");
+        let tx_job: Option<PgTransactionJob<'_, JobParameters>> = queue
+            .dequeue_tx(&worker_id)
+            .await
+            .expect("failed to dequeue job");
 
         assert!(tx_job.is_none());
     }
@@ -855,7 +900,7 @@ mod tests {
         let new_job = NewJob::new(2, job_parameters, &job_target);
         let retry_policy = RetryPolicy {
             backoff_coefficient: 0,
-            initial_interval: Duration::seconds(0),
+            initial_interval: time::Duration::from_secs(0),
             maximum_interval: None,
         };
 
@@ -863,7 +908,6 @@ mod tests {
             "test_can_retry_job_with_remaining_attempts",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             retry_policy,
         )
         .await
@@ -871,16 +915,16 @@ mod tests {
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
         let job: PgJob<JobParameters> = queue
-            .dequeue()
+            .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
         let _ = job
-            .retry("a very reasonable failure reason")
+            .retry("a very reasonable failure reason", None)
             .await
             .expect("failed to retry job");
         let retried_job: PgJob<JobParameters> = queue
-            .dequeue()
+            .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find retried job to dequeue");
@@ -906,7 +950,7 @@ mod tests {
         let new_job = NewJob::new(1, job_parameters, &job_target);
         let retry_policy = RetryPolicy {
             backoff_coefficient: 0,
-            initial_interval: Duration::seconds(0),
+            initial_interval: time::Duration::from_secs(0),
             maximum_interval: None,
         };
 
@@ -914,7 +958,6 @@ mod tests {
             "test_cannot_retry_job_without_remaining_attempts",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            &worker_id,
             retry_policy,
         )
         .await
@@ -923,11 +966,11 @@ mod tests {
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
         let job: PgJob<JobParameters> = queue
-            .dequeue()
+            .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
-        job.retry("a very reasonable failure reason")
+        job.retry("a very reasonable failure reason", None)
             .await
             .expect("failed to retry job");
     }
