@@ -53,7 +53,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             {
                 loadAllNotebooks: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.notebooks.list(undefined, undefined, values.searchQuery ?? undefined)
+                    const response = await api.notebooks.list({ search: values.searchQuery ?? undefined })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
@@ -67,23 +67,23 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                     if (!props.resource) {
                         return []
                     }
-                    const response = await api.notebooks.list(
-                        props.resource && typeof props.resource !== 'boolean'
-                            ? [
-                                  {
-                                      type: props.resource.type,
-                                      attrs: {
-                                          id:
-                                              props.resource.type === NotebookNodeType.Query
-                                                  ? props.resource.attrs.query.shortId
-                                                  : props.resource.attrs.id,
+                    const response = await api.notebooks.list({
+                        contains:
+                            props.resource && typeof props.resource !== 'boolean'
+                                ? [
+                                      {
+                                          type: props.resource.type,
+                                          attrs: {
+                                              id:
+                                                  props.resource.type === NotebookNodeType.Query
+                                                      ? props.resource.attrs.query.shortId
+                                                      : props.resource.attrs.id,
+                                          },
                                       },
-                                  },
-                              ]
-                            : undefined,
-                        undefined,
-                        values.searchQuery ?? undefined
-                    )
+                                  ]
+                                : undefined,
+                        search: values.searchQuery ?? undefined,
+                    })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
