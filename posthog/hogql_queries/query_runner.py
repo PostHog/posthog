@@ -30,6 +30,7 @@ from posthog.schema import (
     InsightPersonsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
+    RetentionQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -78,6 +79,7 @@ RunnableQueryNode = Union[
     InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
+    RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
@@ -115,6 +117,16 @@ def get_query_runner(
 
         return TrendsQueryRunner(
             query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "RetentionQuery":
+        from .insights.retention_query_runner import RetentionQueryRunner
+
+        return RetentionQueryRunner(
+            query=cast(RetentionQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -217,7 +229,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key() + ("_export" if self.limit_context == LimitContext.EXPORT else "")
+        cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
