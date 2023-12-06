@@ -34,7 +34,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
-    <div className={clsx('mb-4 gap-4 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+    <div className={clsx('gap-4 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
 )
@@ -127,7 +127,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </div>
             </div>
             <LemonDivider className="mb-4" />
-            <div className="flex flex-col px-4 pb-6 mx-auto max-w-160 flex-1">
+            <div className="flex flex-col px-4 pb-6 space-y-4 mx-auto max-w-160 flex-1">
                 <Row>
                     <Card>
                         <Title>Dark mode</Title>
@@ -243,7 +243,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
-                <div className="gap-4 mb-4 flex">
+                <div className="gap-4 flex">
                     <LemonButton
                         to={BLOG_POST_URL}
                         targetBlank

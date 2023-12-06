@@ -71,22 +71,19 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
                     tabs.push(SidePanelTab.Notebooks)
                 }
-
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
                 tabs.push(SidePanelTab.Activity)
-                tabs.push(SidePanelTab.Welcome)
-
                 if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
                     tabs.push(SidePanelTab.FeaturePreviews)
                 }
+                tabs.push(SidePanelTab.Welcome)
 
                 return tabs
             },

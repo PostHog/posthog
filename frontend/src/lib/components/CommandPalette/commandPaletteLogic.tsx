@@ -59,7 +59,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SidePanelTabs } from '~/layout/navigation-3000/sidepanel/SidePanel'
+import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -977,7 +977,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: [
                     ...values.enabledTabs.map((tab) => {
-                        const { Icon, label } = SidePanelTabs[tab]
+                        const { Icon, label } = SIDE_PANEL_TABS[tab]
                         return {
                             icon: Icon,
                             display: `Open ${label} side panel`,
