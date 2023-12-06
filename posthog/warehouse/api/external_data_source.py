@@ -19,9 +19,11 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
 )
-from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -113,9 +115,17 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
+        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        for schema in schemas:
+            ExternalDataSchema.objects.create(
+                name=schema,
+                team=self.team,
+                source=new_source_model,
+            )
+
         sync_external_data_job_workflow(new_source_model, create=True)
 
-        return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source_model.source_id})
+        return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()

@@ -1,9 +1,6 @@
 from django.conf import settings
 from django.db.models import Q
 
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -36,7 +33,7 @@ def get_s3_client():
 
 
 # TODO: make async
-def validate_schema_and_update_table(run_id: str, team_id: int) -> None:
+def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[str]) -> None:
     logger = async_to_sync(bind_temporal_worker_logger)(team_id=team_id)
 
     job = ExternalDataJob.objects.get(pk=run_id)
@@ -50,7 +47,7 @@ def validate_schema_and_update_table(run_id: str, team_id: int) -> None:
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    source_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[job.pipeline.source_type]
+    source_schemas = schemas
 
     def get_url_pattern(folder_path: str, schema_name: str) -> str:
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{folder_path}/{schema_name.lower()}/*.parquet"

@@ -2,6 +2,9 @@ from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
 from unittest.mock import patch
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
 
 
 class TestSavedQuery(APIBaseTest):
@@ -29,8 +32,14 @@ class TestSavedQuery(APIBaseTest):
             f"/api/projects/{self.team.id}/external_data_sources/",
             data={"source_type": "Stripe", "client_secret": "sk_test_123"},
         )
+        payload = response.json()
 
         self.assertEqual(response.status_code, 201)
+        # number of schemas should match default schemas for Stripe
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
+            len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING["Stripe"]),
+        )
 
     def test_prefix_external_data_source(self):
         # Create no prefix
