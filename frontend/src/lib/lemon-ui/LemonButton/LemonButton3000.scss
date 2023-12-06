@@ -281,10 +281,6 @@
         }
     }
 
-    .LemonButton--small .LemonButtonWithSideAction__spacer--divider {
-        height: 1.125rem;
-    }
-
     // SideAction buttons are buttons next to other buttons in the DOM but layered on top. since they're on another button, we don't want them to look like buttons.
     .LemonButtonWithSideAction__side-button {
         top: 1px;
