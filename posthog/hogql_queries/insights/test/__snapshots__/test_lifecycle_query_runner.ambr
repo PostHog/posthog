@@ -154,8 +154,8 @@
                0 AS counts,
                sec.status
         FROM
-          (SELECT minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
-           FROM numbers(dateDiff('day', dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 16:00:00', 6, 'US/Pacific'))), dateTrunc('day', plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
+          (SELECT minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
+           FROM numbers(dateDiff('day', dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), dateTrunc('day', plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -197,11 +197,11 @@
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
               HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 16:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY person_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'US/Pacific')))), 0), ifNull(greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 16:00:00', 6, 'US/Pacific')))), 0))
+     WHERE and(ifNull(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')))), 0), ifNull(greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific')))), 0))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
