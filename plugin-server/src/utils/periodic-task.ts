@@ -6,7 +6,7 @@ export class PeriodicTask {
     private running = true
     private abortController: AbortController
 
-    constructor(task: () => Promise<void> | void, intervalMs = 1000, minimumWaitMs = 1000) {
+    constructor(task: () => Promise<void> | void, intervalMs: number, minimumWaitMs = 0) {
         this.abortController = new AbortController()
 
         const abortRequested = new Promise((resolve) => {

@@ -808,12 +808,12 @@ export class DeferredPersonOverrideWorker {
         })
     }
 
-    public runTask(): PeriodicTask {
+    public runTask(intervalMs: number): PeriodicTask {
         return new PeriodicTask(async () => {
             status.debug('👥', 'Processing pending overrides...')
             const overridesCount = await this.processPendingOverrides()
             ;(overridesCount > 0 ? status.info : status.debug)('👥', `Processed ${overridesCount} pending overrides.`)
-        })
+        }, intervalMs)
     }
 }
 

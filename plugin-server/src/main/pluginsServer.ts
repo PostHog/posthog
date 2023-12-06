@@ -437,7 +437,7 @@ export async function startPluginsServer(
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
 
-            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(postgres, kafkaProducer).runTask()
+            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(postgres, kafkaProducer).runTask(5000)
             personOverridesPeriodicTask.promise.catch(async () => {
                 status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
                 await closeJobs()
