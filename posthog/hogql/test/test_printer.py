@@ -1153,6 +1153,58 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
 
+    def test_nullable_in(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "nullable_field in ('a', 'b'), "
+            "nullable_field in (null, 'b'), "
+            "nullable_field in ('a', null), "
+            "nullable_field in (null, null), "
+            # "null in (nullable_field, 'b'), "
+            # "null in ('a', nullable_field), "
+            # "null in (nullable_field, null), "
+            # "null in (null, null) "
+            # "'a' in (nullable_field, 'b'), "
+            # "'a' in ('a', nullable_field), "
+            # "'a' in (nullable_field, null), "
+            # "'a' in (null, nullable_field), "
+            # "'a' in (null, null) "
+            "FROM events",
+            context,
+        )
+        assert generated_sql_statements1 == (
+            f"SELECT "
+            # nullable_field in ('a', 'b')
+            "ifNull(in(events.nullable_field, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), 0), "
+            # nullable_field in (null, 'b')
+            "ifNull(in(events.nullable_field, tuple(NULL, %(hogql_val_2)s)), 0), "
+            # nullable_field in ('a', null)
+            "ifNull(in(events.nullable_field, tuple(%(hogql_val_3)s, NULL)), 0), "
+            # nullable_field in (null, null)
+            "ifNull(in(events.nullable_field, tuple(NULL, NULL)), 0) "
+            # # null in (nullable_field, 'b')
+            # "ifNull(in(NULL, tuple(events.nullable_field, %(hogql_val_4)s)), 0), "
+            # # null in ('a', nullable_field)
+            # "ifNull(in(NULL, tuple(%(hogql_val_5)s, events.nullable_field)), 0), "
+            # # null in (nullable_field, null)
+            # "ifNull(in(NULL, tuple(events.nullable_field, NULL)), 0), "
+            # # null in (null, null)
+            # "ifNull(in(NULL, tuple(NULL, NULL)), 0) "
+            # # 'a' in (nullable_field, 'b')
+            # "ifNull(in(tuple(%(hogql_val_12)s, events.nullable_field, %(hogql_val_13)s)), 0), "
+            # # 'a' in ('a', nullable_field)
+            # "ifNull(in(tuple(%(hogql_val_14)s, %(hogql_val_15)s, events.nullable_field)), 0), "
+            # # 'a' in (nullable_field, null)
+            # "ifNull(in(tuple(%(hogql_val_16)s, events.nullable_field, %(hogql_val_17)s)), 0), "
+            # # 'a' in (null, nullable_field)
+            # "ifNull(in(tuple(%(hogql_val_18)s, %(hogql_val_19)s, events.nullable_field)), 0), "
+            # # 'a' in (null, null)
+            # "ifNull(in(tuple(%(hogql_val_20)s, %(hogql_val_21)s, %(hogql_val_22)s)), 0) "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
+        )
+
     def test_print_global_settings(self):
         query = parse_select("SELECT 1 FROM events")
         printed = print_ast(

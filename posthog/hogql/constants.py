@@ -37,7 +37,7 @@ MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 
 
-class LimitContext(Enum):
+class LimitContext(str, Enum):
     QUERY = "query"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"

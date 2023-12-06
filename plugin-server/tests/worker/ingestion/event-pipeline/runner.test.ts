@@ -89,10 +89,6 @@ describe('EventPipelineRunner', () => {
                 kafkaProducer: { queueMessage: jest.fn() },
                 fetchPerson: jest.fn(),
             },
-            statsd: {
-                increment: jest.fn(),
-                timing: jest.fn(),
-            },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
         runner = new TestEventPipelineRunner(hub, pluginEvent)
@@ -165,25 +161,11 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(5)
-
-            expect(hub.statsd.increment).toHaveBeenCalledTimes(7)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
-
-            expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
-                step: 'createEventStep',
-            })
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
-
-            expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
-                step: 'createEventStep',
-                team_id: '2',
-            })
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('createEventStep')
-
-            expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.error')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -205,16 +187,8 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
                 expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(2)
-
-                expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
-                    step: 'pluginsProcessEventStep',
-                    team_id: '2',
-                })
                 expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
-
-                expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.error')
                 expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
             })
         })
@@ -231,27 +205,10 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
-                    step: 'populateTeamDataStep',
-                })
                 expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('populateTeamDataStep')
-
-                expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
-                    step: 'pluginsProcessEventStep',
-                })
                 expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
-
-                expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
-                    step: 'prepareEventStep',
-                })
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
-
-                expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
-
-                expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.error', {
-                    step: 'prepareEventStep',
-                })
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
             })
 
@@ -268,7 +225,6 @@ describe('EventPipelineRunner', () => {
                     error: 'ingestEvent failed. Error: testError',
                     error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
-                expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')
             })
 
@@ -279,7 +235,6 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(pipelineEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).not.toHaveBeenCalled()
-                expect(hub.statsd.increment).not.toHaveBeenCalledWith('events_added_to_dead_letter_queue')
                 expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })

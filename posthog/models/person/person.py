@@ -134,6 +134,14 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
 
+class PendingPersonOverride(models.Model):
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+
+
 class PersonOverride(models.Model):
     """A model of persons to be overriden in merge or merge-like events.
 

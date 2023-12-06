@@ -184,7 +184,7 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=0
-                  SELF_CAPTURE=0
+                  SELF_CAPTURE=1
                   E2E_TESTING=1
                   SKIP_SERVICE_VERSION_REQUIREMENTS=1
                   EMAIL_HOST=email.test.posthog.net
