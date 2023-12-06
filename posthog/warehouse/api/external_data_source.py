@@ -21,6 +21,7 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -29,12 +30,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    schemas = ExternalDataSchemaSerializer(many=True, read_only=True)
 
     class Meta:
         model = ExternalDataSource
         fields = [
             "id",
-            "source_id",
             "created_at",
             "created_by",
             "status",
@@ -43,8 +44,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "prefix",
             "last_run_at",
+            "schemas",
         ]
-        read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type", "last_run_at"]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type", "last_run_at", "schemas"]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = (
@@ -73,9 +75,15 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotAuthenticated()
 
         if self.action == "list":
-            return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+            return (
+                self.queryset.filter(team_id=self.team_id)
+                .prefetch_related("created_by", "schemas")
+                .order_by(self.ordering)
+            )
 
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+        return (
+            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         client_secret = request.data["client_secret"]
