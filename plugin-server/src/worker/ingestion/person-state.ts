@@ -744,7 +744,7 @@ export class DeferredPersonOverrideWorker {
     // updating the overrides at a time.
     public readonly lockId = 567
 
-    constructor(private postgres: PostgresRouter) {}
+    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.
@@ -755,7 +755,7 @@ export class DeferredPersonOverrideWorker {
      *
      * @returns the number of overrides processed
      */
-    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper, limit?: number): Promise<number> {
+    public async processPendingOverrides(limit?: number): Promise<number> {
         const writer = new PersonOverrideWriter(this.postgres)
 
         return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
@@ -801,7 +801,7 @@ export class DeferredPersonOverrideWorker {
             // Postgres for some reason -- the same row state should be
             // generated each call, and the receiving ReplacingMergeTree will
             // ensure we keep only the latest version after all writes settle.)
-            await kafkaProducer.queueMessages(messages, true)
+            await this.kafkaProducer.queueMessages(messages, true)
 
             return rows.length
         })
