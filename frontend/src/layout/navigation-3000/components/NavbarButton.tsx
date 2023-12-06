@@ -57,7 +57,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     <>
                         <span className="grow">{content}</span>
                         <LemonTag
-                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'warning'}
+                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
                             size="small"
                             className="ml-2"
                         >
