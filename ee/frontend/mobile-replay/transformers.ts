@@ -291,7 +291,14 @@ function makeInputElement(
             ],
         }
     } else {
-        return theInputElement
+        return {
+            ...theInputElement,
+            attributes: {
+                ...theInputElement.attributes,
+                // when labelled no styles are needed, when un-labelled as here - we add the styling in.
+                style: makeStylesString(wireframe),
+            },
+        }
     }
 }
 

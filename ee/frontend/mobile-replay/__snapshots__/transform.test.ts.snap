@@ -1064,7 +1064,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                     {
                       "attributes": {
                         "checked": true,
-                        "style": null,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "checkbox",
                       },
                       "childNodes": [],
