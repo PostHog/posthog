@@ -75,7 +75,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     }, [value])
 
     return (
-        <div className="LemonButton">
+        <div className="LemonButtonWithSideAction">
             <LemonDropdown
                 overlay={
                     <TaxonomicFilter
