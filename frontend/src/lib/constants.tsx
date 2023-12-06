@@ -181,8 +181,9 @@ export const FEATURE_FLAGS = {
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
-    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: @pauldambra
+    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
     SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
+    YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
