@@ -345,6 +345,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
         ],
+        hogQLInsightsRetentionFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
+        ],
         hogQLInsightsTrendsFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
