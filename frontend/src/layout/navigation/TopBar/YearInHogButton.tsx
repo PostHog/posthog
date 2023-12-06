@@ -20,7 +20,7 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
                 )}
             />
             {/*need to sync background color with button*/}
-            <div className={'rounded absolute top-0 left-0 w-full h-full YearInHog__mask'} />
+            <div className={'absolute top-0 left-0 w-full h-full YearInHog__mask'} />
             <LemonButton
                 icon={<XmasTree />}
                 type={'secondary'}
