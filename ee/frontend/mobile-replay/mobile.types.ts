@@ -134,7 +134,7 @@ export type wireframeCheckBox = wireframeInputBase & {
 }
 
 export type wireframeRadioGroup = wireframeBase & {
-    type: ' radio_group'
+    type: 'radio_group'
 }
 
 export type wireframeRadio = wireframeInputBase & {
