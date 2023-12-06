@@ -548,12 +548,10 @@ class _Printer(Visitor):
             op = f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
-            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.GlobalIn:
             op = f"globalIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
             op = f"globalNotIn({left}, {right})"
-            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.Regex:
             op = f"match({left}, {right})"
             value_if_both_sides_are_null = True
