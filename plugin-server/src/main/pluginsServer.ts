@@ -436,17 +436,8 @@ export async function startPluginsServer(
         if (capabilities.personOverrides) {
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const overridesWorker = new DeferredPersonOverrideWorker(postgres, kafkaProducer)
 
-            personOverridesWorker = new PeriodicTask(async () => {
-                status.debug('👥', 'Processing pending overrides...')
-                const overridesCount = await overridesWorker.processPendingOverrides()
-                ;(overridesCount > 0 ? status.info : status.debug)(
-                    '👥',
-                    `Processed ${overridesCount} pending overrides.`
-                )
-            })
-
+            personOverridesWorker = new DeferredPersonOverrideWorker(postgres, kafkaProducer).run()
             personOverridesWorker.promise.catch(async () => {
                 status.error('⚠️', 'Person override writer crashed! Requesting shutdown...')
                 await closeJobs()
