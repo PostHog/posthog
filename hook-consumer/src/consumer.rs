@@ -121,10 +121,10 @@ impl Serialize for HttpMethod {
 
 /// Convinience to cast `HttpMethod` to `http::Method`.
 /// Not all `http::Method` variants are valid `HttpMethod` variants, hence why we
-/// can't just use the former.
-impl Into<http::Method> for HttpMethod {
-    fn into(self) -> http::Method {
-        match self {
+/// can't just use the former or implement `From<HttpMethod>`.
+impl From<HttpMethod> for http::Method {
+    fn from(val: HttpMethod) -> Self {
+        match val {
             HttpMethod::DELETE => http::Method::DELETE,
             HttpMethod::GET => http::Method::GET,
             HttpMethod::PATCH => http::Method::PATCH,
@@ -134,9 +134,9 @@ impl Into<http::Method> for HttpMethod {
     }
 }
 
-impl Into<http::Method> for &HttpMethod {
-    fn into(self) -> http::Method {
-        match self {
+impl From<&HttpMethod> for http::Method {
+    fn from(val: &HttpMethod) -> Self {
+        match val {
             HttpMethod::DELETE => http::Method::DELETE,
             HttpMethod::GET => http::Method::GET,
             HttpMethod::PATCH => http::Method::PATCH,
@@ -203,7 +203,7 @@ impl<'p> WebhookConsumer<'p> {
             let webhook_job = self.wait_for_job().await?;
 
             let request_timeout = self.request_timeout; // Required to avoid capturing self in closure.
-            tokio::spawn(async move { process_webhook_job(webhook_job, request_timeout) });
+            tokio::spawn(async move { process_webhook_job(webhook_job, request_timeout).await });
         }
     }
 }
@@ -286,12 +286,10 @@ async fn send_webhook(
 ) -> Result<reqwest::Response, WebhookConsumerError> {
     let client = reqwest::Client::new();
     let method: http::Method = method.into();
-    let url: reqwest::Url = (url)
-        .parse()
-        .map_err(|error| WebhookConsumerError::ParseUrlError(error))?;
+    let url: reqwest::Url = (url).parse().map_err(WebhookConsumerError::ParseUrlError)?;
     let headers: reqwest::header::HeaderMap = (headers)
         .try_into()
-        .map_err(|error| WebhookConsumerError::ParseHeadersError(error))?;
+        .map_err(WebhookConsumerError::ParseHeadersError)?;
 
     let body = reqwest::Body::from(body);
     let response = client
@@ -347,7 +345,7 @@ fn parse_retry_after_header(header_map: &reqwest::header::HeaderMap) -> Option<t
         }
     };
 
-    if let Ok(u) = u64::from_str_radix(retry_after, 10) {
+    if let Ok(u) = retry_after.parse::<u64>() {
         let duration = time::Duration::from_secs(u);
         return Some(duration);
     }
