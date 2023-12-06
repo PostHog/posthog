@@ -33,6 +33,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
+    // eslint-disable-next-line react/forbid-dom-props
     <div className={clsx('mb-6 gap-5 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
@@ -67,6 +68,7 @@ const Image = ({
     width?: number | string
     height?: number | string
     style?: React.CSSProperties
+    // eslint-disable-next-line react/forbid-dom-props
 }): JSX.Element => <img src={src} alt={alt} width={width} height={height} style={style} className="mt-2" />
 
 export const SidePanelWelcome = (): JSX.Element => {
@@ -106,6 +108,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
                     </h1>
                     <p className="text-sm font-medium mb-3 opacity-75">We're past 0 to 1.</p>
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <p className="text-sm font-medium mb-4 opacity-75" style={{ maxWidth: 'calc(50% - 1rem)' }}>
                         It's time to go from 1 to&nbsp;3000. And&nbsp;this is just the&nbsp;beginning…
                     </p>
