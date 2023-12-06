@@ -101,7 +101,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </div>
             </div>
             <div className="SidePanelWelcome__hero pt-4">
-                <div className="mx-auto px-4 max-w-160">
+                <div className="mx-auto px-4 max-w-140">
                     <h1 className="font-semibold text-base mb-2 w-full">
                         👋 <span className="opacity-75">Say hello to</span>
                         <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
@@ -127,7 +127,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                 </div>
             </div>
             <LemonDivider className="mb-4" />
-            <div className="flex flex-col px-4 pb-6 space-y-4 mx-auto max-w-160 flex-1">
+            <div className="flex flex-col px-4 pb-6 space-y-4 mx-auto max-w-140 flex-1">
                 <Row>
                     <Card>
                         <Title>Dark mode</Title>
