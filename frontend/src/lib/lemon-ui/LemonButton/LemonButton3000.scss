@@ -11,7 +11,7 @@
     --lemon-button-press-depth: 0.03125rem;
     --lemon-button-padding-horizontal: 0.75rem;
     --lemon-button-padding-adjacent-icon: 0.375rem;
-    --lemon-button-side-action-icon-width: 1.25rem;
+    --lemon-button-side-action-width: 2rem;
 
     .LemonButton,
     .Link.LemonButton {
@@ -90,14 +90,14 @@
             --lemon-button-font-size: 0.75rem;
             --lemon-button-height: 1.6875rem;
             --lemon-button-gap: 0.25rem;
-            --lemon-button-side-action-icon-width: 1.25rem;
+            --lemon-button-side-action-width: 1.5rem;
         }
 
         &.LemonButton--small {
             --lemon-button-padding-horizontal: 0.5rem;
             --lemon-button-height: 2.0625rem;
             --lemon-button-gap: 0.25rem;
-            --lemon-button-side-action-icon-width: 1.25rem;
+            --lemon-button-side-action-width: 1.75rem;
         }
 
         &.LemonButton--large {
@@ -272,7 +272,10 @@
     }
 
     .LemonButtonWithSideAction__spacer {
-        width: var(--lemon-button-side-action-icon-width);
+        width: calc(
+            var(--lemon-button-side-action-width) -
+                var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
+        );
         height: 1.25rem;
         color: var(--muted);
 
@@ -296,10 +299,7 @@
             --lemon-button-depth: 0px;
             --lemon-button-icon-opacity: 0.5;
 
-            width: calc(
-                var(--lemon-button-side-action-icon-width) +
-                    var(--lemon-button-padding-adjacent-icon, var(--lemon-button-padding-horizontal))
-            );
+            width: var(--lemon-button-side-action-width);
             height: 100%;
             border-top-left-radius: 0;
             border-bottom-left-radius: 0;
