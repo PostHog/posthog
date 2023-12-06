@@ -7,6 +7,7 @@ import {
     metaEvent as MobileMetaEvent,
     NodeType,
     serializedNodeWithId,
+    textNode,
     wireframe,
     wireframeButton,
     wireframeDiv,
@@ -43,7 +44,7 @@ function* ids(): Generator<number> {
     }
 }
 
-const idSequence = ids()
+const idSequence: () => Generator<number> = () => ids()
 
 const BODY_ID = 5
 
@@ -70,7 +71,7 @@ function _isPositiveInteger(id: unknown): boolean {
 }
 
 function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    const _id = _isPositiveInteger(wireframe.id) ? wireframe.id : idSequence.next().value
+    const _id = _isPositiveInteger(wireframe.id) ? wireframe.id : idSequence().next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
@@ -96,7 +97,7 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
         },
-        id: idSequence.next().value,
+        id: idSequence().next().value,
         childNodes: [
             {
                 type: NodeType.Text,
@@ -153,7 +154,6 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
         case 'button':
             return {
                 ...attributes,
-                ...(wireframe.value ? { value: wireframe.value } : {}),
             }
         case 'text_area':
             return {
@@ -169,12 +169,19 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
 }
 
 function makeButtonElement(wireframe: wireframeButton, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    const buttonText: textNode | null = wireframe.value
+        ? {
+              type: NodeType.Text,
+              textContent: wireframe.value,
+          }
+        : null
+
     return {
         type: NodeType.Element,
         tagName: 'button',
         attributes: inputAttributes(wireframe),
         id: wireframe.id,
-        childNodes: children,
+        childNodes: buttonText ? [{ ...buttonText, id: idSequence().next().value }, ...children] : children,
     }
 }
 
@@ -186,7 +193,7 @@ function makeSelectOptionElement(option: string, selected: boolean): serializedN
             value: option,
             ...(selected ? { selected: selected } : {}),
         },
-        id: idSequence.next().value,
+        id: idSequence().next().value,
         childNodes: [],
     }
 }
@@ -265,13 +272,13 @@ function makeInputElement(
             attributes: {
                 style: makeStylesString(wireframe),
             },
-            id: idSequence.next().value,
+            id: idSequence().next().value,
             childNodes: [
                 theInputElement,
                 {
                     type: NodeType.Text,
                     textContent: wireframe.label || '',
-                    id: idSequence.next().value,
+                    id: idSequence().next().value,
                 },
             ],
         }
@@ -304,7 +311,7 @@ function makeRectangleElement(
                     fill: wireframe.style?.backgroundColor || 'transparent',
                     ...makeSvgBorder(wireframe.style),
                 },
-                id: idSequence.next().value,
+                id: idSequence().next().value,
                 childNodes: children,
             },
         ],
@@ -451,7 +458,7 @@ export const makeFullEvent = (
                                         type: NodeType.Element,
                                         tagName: 'div',
                                         attributes: {},
-                                        id: idSequence.next().value,
+                                        id: idSequence().next().value,
                                         childNodes: convertWireframesFor(mobileEvent.data.wireframes),
                                     },
                                 ],
