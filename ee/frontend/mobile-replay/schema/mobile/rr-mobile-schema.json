@@ -215,6 +215,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -255,6 +256,7 @@
             "additionalProperties": false,
             "properties": {
                 "checked": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "childWireframes": {
@@ -264,6 +266,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -383,6 +386,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -447,6 +451,7 @@
             "additionalProperties": false,
             "properties": {
                 "checked": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "childWireframes": {
@@ -456,6 +461,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -571,6 +577,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -660,6 +667,7 @@
                     "type": "array"
                 },
                 "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
                     "type": "boolean"
                 },
                 "height": {
@@ -669,7 +677,7 @@
                     "type": "number"
                 },
                 "inputType": {
-                    "const": "textarea",
+                    "const": "text_area",
                     "type": "string"
                 },
                 "style": {

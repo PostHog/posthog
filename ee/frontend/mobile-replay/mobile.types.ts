@@ -124,11 +124,17 @@ type wireframeBase = {
 
 export type wireframeInputBase = wireframeBase & {
     type: 'input'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     disabled: boolean
 }
 
 export type wireframeCheckBox = wireframeInputBase & {
     inputType: 'checkbox'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     checked: boolean
     label?: string
 }
@@ -139,6 +145,9 @@ export type wireframeRadioGroup = wireframeBase & {
 
 export type wireframeRadio = wireframeInputBase & {
     inputType: 'radio'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     checked: boolean
     label?: string
 }
