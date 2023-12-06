@@ -184,6 +184,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
     SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
+    SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
