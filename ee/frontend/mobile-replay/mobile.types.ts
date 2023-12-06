@@ -122,6 +122,51 @@ type wireframeBase = {
     style?: MobileStyles
 }
 
+export type wireframeInputBase = wireframeBase & {
+    type: 'input'
+    disabled: boolean
+}
+
+export type wireframeCheckBox = wireframeInputBase & {
+    inputType: 'checkbox'
+    checked: boolean
+    label?: string
+}
+
+export type wireframeRadioGroup = wireframeBase & {
+    groupName: string
+}
+
+export type wireframeRadio = wireframeInputBase & {
+    inputType: 'radio'
+    checked: boolean
+    label?: string
+}
+
+export type wireframeInput = wireframeInputBase & {
+    inputType: 'text' | 'password' | 'email' | 'number' | 'search' | 'tel' | 'url'
+    value?: string
+}
+
+export type wireframeSelect = wireframeInputBase & {
+    inputType: 'select'
+    value?: string
+    options?: string[]
+}
+
+export type wireframeTextArea = wireframeInputBase & {
+    inputType: 'textarea'
+    value?: string
+}
+
+export type wireframeButton = wireframeInputBase & {
+    inputType: 'button'
+    /**
+     * @description this is the text that is displayed on the button, if not sent then you must send childNodes with the button content
+     */
+    value?: string
+}
+
 export type wireframeText = wireframeBase & {
     type: 'text'
     text: string
@@ -146,7 +191,18 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
-export type wireframe = wireframeText | wireframeImage | wireframeRectangle | wireframeDiv
+export type wireframe =
+    | wireframeText
+    | wireframeImage
+    | wireframeRectangle
+    | wireframeDiv
+    | wireframeCheckBox
+    | wireframeRadioGroup
+    | wireframeRadio
+    | wireframeInput
+    | wireframeSelect
+    | wireframeTextArea
+    | wireframeButton
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

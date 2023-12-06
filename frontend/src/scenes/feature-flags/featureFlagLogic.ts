@@ -795,10 +795,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ? 'updated'
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
+                eventUsageLogic.actions.reportFeatureFlagCopySuccess()
             } else {
-                lemonToast.error(
-                    `Error while saving feature flag: ${JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy}`
-                )
+                const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
+                lemonToast.error(`Error while saving feature flag: ${errorMessage}`)
+                eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
             }
 
             actions.loadProjectsWithCurrentFlag()

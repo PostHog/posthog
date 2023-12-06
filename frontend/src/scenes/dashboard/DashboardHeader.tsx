@@ -11,7 +11,7 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
@@ -307,7 +307,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButtonWithSideAction
+                                <LemonButton
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
@@ -335,7 +335,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </LemonButtonWithSideAction>
+                                </LemonButton>
                             ) : null}
                         </>
                     )

@@ -292,7 +292,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 return {
                     all: [Tab.All],
                     event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
-                    posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag],
+                    posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag, Tab.Survey],
                 }
             },
         ],
@@ -516,6 +516,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.notebook(result.result_id)
         case 'person':
             return urls.personByDistinctId(result.result_id)
+        case 'survey':
+            return urls.survey(result.result_id)
         default:
             // @ts-expect-error
             throw new Error(`No action for type '${result?.type}' defined.`)

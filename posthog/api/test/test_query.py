@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.services.query import process_query
+from posthog.hogql.query import LimitContext
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
@@ -611,7 +612,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": f"select event from events where distinct_id='{random_uuid}'",
                 },
-                in_export_context=True,  # This is the only difference
+                limit_context=LimitContext.EXPORT,  # This is the only difference
             )
             self.assertEqual(len(response.get("results", [])), 15)
 
@@ -663,7 +664,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "select": ["event"],
                     "where": [f"distinct_id = '{random_uuid}'"],
                 },
-                in_export_context=True,
+                limit_context=LimitContext.EXPORT,
             )
 
         self.assertEqual(len(response.get("results", [])), 15)

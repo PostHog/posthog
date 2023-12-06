@@ -74,7 +74,7 @@ export interface LemonSelectPropsBase<T>
     dropdownPlacement?: PopoverProps['placement']
     className?: string
     placeholder?: string
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
