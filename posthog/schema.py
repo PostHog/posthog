@@ -494,6 +494,7 @@ class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    custom_name: Optional[str] = None
     id: Optional[Union[str, float]] = None
     kind: Optional[Kind] = None
     name: Optional[str] = None

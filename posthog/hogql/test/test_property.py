@@ -24,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -610,12 +610,12 @@ class TestProperty(BaseTest):
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
-            entity = {"type": TREND_FILTER_TYPE_ACTIONS, "id": 123}
+            entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
-        entity = {"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"}
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
         result = entity_to_expr(entity)
         expected = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -625,12 +625,12 @@ class TestProperty(BaseTest):
         self.assertEqual(result, expected)
 
     def test_entity_to_expr_events_type_without_id(self):
-        entity = {"type": TREND_FILTER_TYPE_EVENTS, "id": None}
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
         result = entity_to_expr(entity)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
-        entity = {"type": "other_type"}
+        entity = RetentionEntity(**{"type": "other_type"})
         result = entity_to_expr(entity, default_event="default_event")
         expected = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,

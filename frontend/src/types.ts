@@ -1884,6 +1884,7 @@ export interface RetentionEntity {
     // @asType integer
     order?: number
     uuid?: string
+    custom_name?: string
 }
 
 export interface RetentionFilterType extends FilterType {

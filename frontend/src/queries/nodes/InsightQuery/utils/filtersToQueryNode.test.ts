@@ -169,6 +169,7 @@ describe('filtersToQueryNode', () => {
                 filterTestAccounts: true,
                 retentionFilter: {},
             }
+            result.retentionFilter = {} // Put this here to make TS happy
             expect(result).toEqual(query)
         })
 
@@ -215,6 +216,7 @@ describe('filtersToQueryNode', () => {
                     ],
                 },
             }
+            result.retentionFilter = {} // Put this here to make TS happy
             expect(result).toEqual(query)
         })
 
@@ -235,6 +237,7 @@ describe('filtersToQueryNode', () => {
                     date_from: '2021-12-08',
                 },
             }
+            result.retentionFilter = {} // Put this here to make TS happy
             expect(result).toEqual(query)
         })
     })

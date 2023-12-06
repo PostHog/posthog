@@ -2539,6 +2539,9 @@
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
                 "id": {
                     "type": ["string", "number"]
                 },
