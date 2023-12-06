@@ -33,7 +33,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
-    <div className={clsx('mb-6 gap-5 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+    <div className={clsx('mb-4 gap-4 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
 )
@@ -176,7 +176,7 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row>
                     <Card>
-                        <div className="grid grid-cols-2 gap-5 items-center">
+                        <div className="grid grid-cols-2 gap-4 items-center">
                             <div>
                                 <Title>Side panel</Title>
                                 <Description>
