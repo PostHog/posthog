@@ -2,7 +2,7 @@
 
 .DataVisualization {
     .ChartSelectionWrapper {
-        width: 20vw;
+        min-width: 20vw;
         height: var(--viz-min-height);
         border-radius: var(--radius);
     }

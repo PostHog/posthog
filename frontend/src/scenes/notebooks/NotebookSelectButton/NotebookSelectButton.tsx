@@ -35,7 +35,7 @@ export type NotebookSelectPopoverProps = NotebookSelectProps &
     }
 
 export type NotebookSelectButtonProps = NotebookSelectProps &
-    Omit<LemonButtonProps, 'onClick' | 'children'> & {
+    Omit<LemonButtonProps, 'onClick' | 'children' | 'sideAction'> & {
         onClick?: () => void
         children?: ReactChild
     }

@@ -1,12 +1,12 @@
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { useEffect, useState } from 'react'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonProps, 'children' | 'onClick'> {
+    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
@@ -54,7 +54,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
 
     const isClearButtonShown = allowClear && !!localValue
 
-    const buttonPropsFinal = buttonPropsRest as LemonButtonProps
+    const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : (
@@ -99,7 +99,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                 }}
             >
                 {isClearButtonShown ? (
-                    <LemonButtonWithSideAction
+                    <LemonButton
                         sideAction={{
                             icon: <IconClose />,
                             tooltip: 'Clear selection',

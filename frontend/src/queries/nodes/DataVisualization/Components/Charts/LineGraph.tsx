@@ -3,6 +3,7 @@ import './LineGraph.scss'
 
 import { ChartData, Color, GridLineOptions, TickOptions } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
+import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors } from 'lib/colors'
@@ -19,7 +20,7 @@ export const LineGraph = (): JSX.Element => {
     const colors = getGraphColors(isDarkModeOn)
 
     const vizLogic = useMountedLogic(dataVisualizationLogic)
-    const { xData, yData } = useValues(vizLogic)
+    const { xData, yData, presetChartHeight } = useValues(vizLogic)
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -28,13 +29,11 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData,
-            datasets: [
-                {
-                    label: 'Dataset 1',
-                    data: yData,
-                    borderColor: 'red',
-                },
-            ],
+            datasets: yData.map((n) => ({
+                label: 'Dataset 1',
+                data: n,
+                borderColor: 'red',
+            })),
         }
 
         const tickOptions: Partial<TickOptions> = {
@@ -138,8 +137,12 @@ export const LineGraph = (): JSX.Element => {
     }, [xData, yData])
 
     return (
-        <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
-            <div className="flex w-full h-full overflow-hidden">
+        <div
+            className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                DataVisualization__LineGraph: presetChartHeight,
+            })}
+        >
+            <div className="flex flex-1 w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>
         </div>

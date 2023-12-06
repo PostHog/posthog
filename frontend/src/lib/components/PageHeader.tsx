@@ -25,7 +25,7 @@ export function PageHeader({
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element | null {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (

@@ -1,17 +1,33 @@
 import { MobileStyles, wireframe } from './mobile.types'
 
+function isNumber(candidate: unknown): candidate is number {
+    return typeof candidate === 'number'
+}
+
+function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
+function isUnitLike(candidate: unknown): candidate is string | number {
+    return isNumber(candidate) || (isString(candidate) && candidate.length > 0)
+}
+
 function ensureUnit(value: string | number): string {
-    return typeof value === 'number' ? `${value}px` : value.replace(/px$/g, '') + 'px'
+    return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
 function makeBorderStyles(wireframe: wireframe): string {
     let styles = ''
 
-    if (wireframe.style?.borderWidth) {
+    if (!wireframe.style) {
+        return styles
+    }
+
+    if (isUnitLike(wireframe.style.borderWidth)) {
         const borderWidth = ensureUnit(wireframe.style.borderWidth)
         styles += `border-width: ${borderWidth};`
     }
-    if (wireframe.style?.borderRadius) {
+    if (isUnitLike(wireframe.style.borderRadius)) {
         const borderRadius = ensureUnit(wireframe.style.borderRadius)
         styles += `border-radius: ${borderRadius};`
     }
@@ -29,13 +45,17 @@ function makeBorderStyles(wireframe: wireframe): string {
 export function makeSvgBorder(style: MobileStyles | undefined): Record<string, string> {
     const svgBorderStyles: Record<string, string> = {}
 
-    if (style?.borderWidth) {
-        svgBorderStyles['stroke-width'] = style.borderWidth.toString()
+    if (!style) {
+        return svgBorderStyles
     }
-    if (style?.borderColor) {
+
+    if (isUnitLike(style.borderWidth)) {
+        svgBorderStyles['stroke-width'] = ensureUnit(style.borderWidth)
+    }
+    if (style.borderColor) {
         svgBorderStyles.stroke = style.borderColor
     }
-    if (style?.borderRadius) {
+    if (isUnitLike(style.borderRadius)) {
         svgBorderStyles.rx = ensureUnit(style.borderRadius)
     }
 
@@ -44,19 +64,22 @@ export function makeSvgBorder(style: MobileStyles | undefined): Record<string, s
 
 export function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
-    if (wireframe.width) {
+    if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
     }
-    if (wireframe.height) {
+    if (isNumber(wireframe.height)) {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
-    if (wireframe.x || wireframe.y) {
-        styles += `position: absolute;`
-        if (wireframe.x) {
-            styles += `left: ${ensureUnit(wireframe.x)};`
+
+    const posX = wireframe.x || 0
+    const posY = wireframe.y || 0
+    if (isNumber(posX) || isNumber(posY)) {
+        styles += `position: fixed;`
+        if (isNumber(posX)) {
+            styles += `left: ${ensureUnit(posX)};`
         }
-        if (wireframe.y) {
-            styles += `top: ${ensureUnit(wireframe.y)};`
+        if (isNumber(posY)) {
+            styles += `top: ${ensureUnit(posY)};`
         }
     }
     return styles
@@ -82,11 +105,16 @@ function makeLayoutStyles(wireframe: wireframe): string {
 
 function makeFontStyles(wireframe: wireframe): string {
     let styles = ''
-    if (wireframe.style?.fontSize) {
+
+    if (!wireframe.style) {
+        return styles
+    }
+
+    if (isUnitLike(wireframe.style.fontSize)) {
         styles += `font-size: ${ensureUnit(wireframe.style?.fontSize)};`
     }
-    if (wireframe.style?.fontFamily) {
-        styles += `font-family: ${wireframe.style?.fontFamily};`
+    if (wireframe.style.fontFamily) {
+        styles += `font-family: ${wireframe.style.fontFamily};`
     }
     return styles
 }
@@ -104,4 +132,12 @@ export function makeStylesString(wireframe: wireframe): string {
     styles += makeLayoutStyles(wireframe)
     styles += makeFontStyles(wireframe)
     return styles
+}
+
+export function makeHTMLStyles(): string {
+    return 'height: 100vh; width: 100vw;'
+}
+
+export function makeBodyStyles(): string {
+    return 'height: 100vh; width: 100vw;'
 }

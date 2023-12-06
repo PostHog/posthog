@@ -9,7 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
-import { clickhouseTabs, Tab } from './constants'
+import { clickhouseTabs, Tab, TabGroup } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
 
@@ -66,7 +66,10 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
-                    if (values.activeTab === Tab.All) {
+                    if (clickhouseTabs.includes(values.activeTab)) {
+                        // prevent race conditions when switching tabs quickly
+                        return values.rawSearchResponse
+                    } else if (values.activeTab === Tab.All) {
                         return await api.search.list({ q: values.searchQuery })
                     } else {
                         return await api.search.list({
@@ -277,27 +280,30 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Loading &&
                 group4Loading,
         ],
-        tabs: [
+        tabsForGroups: [
             (s) => [s.groupTypes],
             (groupTypes): Tab[] => {
-                return [
-                    Tab.All,
-                    Tab.EventDefinition,
-                    Tab.Action,
-                    Tab.Person,
-                    Tab.Cohort,
-                    ...Array.from(groupTypes.values()).map(
-                        ({ group_type_index }) => `group_${group_type_index}` as Tab
-                    ),
-                    Tab.Insight,
-                    Tab.Dashboard,
-                    Tab.Notebook,
-                    Tab.Experiment,
-                    Tab.FeatureFlag,
-                ]
+                return Array.from(groupTypes.values()).map(({ group_type_index }) => `group_${group_type_index}` as Tab)
             },
         ],
-        tabsCount: [
+        tabsGrouped: [
+            (s) => [s.tabsForGroups],
+            (tabsForGroups): Record<TabGroup, Tab[]> => {
+                return {
+                    all: [Tab.All],
+                    event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
+                    posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag, Tab.Survey],
+                }
+            },
+        ],
+        tabs: [
+            (s) => [s.tabsGrouped],
+            (tabsGrouped): Tab[] => {
+                return Object.values(tabsGrouped).reduce((acc, val) => acc.concat(val), [])
+            },
+        ],
+        tabsCount: [(s) => [s.tabsCountMemoized], (tabsCountMemoized) => tabsCountMemoized[0]],
+        tabsCountMemoized: [
             (s) => [
                 s.rawSearchResponse,
                 s.rawPersonsResponse,
@@ -306,6 +312,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup2Response,
                 s.rawGroup3Response,
                 s.rawGroup4Response,
+                s.searchQuery,
             ],
             (
                 searchResponse,
@@ -314,8 +321,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group1Response,
                 group2Response,
                 group3Response,
-                group4Response
-            ): Record<Tab, string | null> => {
+                group4Response,
+                searchQuery
+            ): [Record<Tab, string | null>, string] => {
+                /** :TRICKY: We need to pull in the searchQuery to memoize the counts. */
+
                 const counts = {}
 
                 Object.values(Tab).forEach((tab) => {
@@ -332,11 +342,30 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 ]
                 clickhouseTabsResults.forEach(([tab, results]) => {
                     if (results !== undefined) {
-                        counts[tab] = results.length === 100 ? '>=100' : results.length.toString()
+                        counts[tab] = results.length === 100 ? '100+' : results.length.toString()
                     }
                 })
 
-                return counts as Record<Tab, string | null>
+                return [counts as Record<Tab, string | null>, searchQuery]
+            },
+            {
+                resultEqualityCheck: (prev, next) => {
+                    const [prevCounts, prevQuery] = prev
+                    const [nextCounts, nextQuery] = next
+
+                    if (prevQuery !== nextQuery) {
+                        return false
+                    }
+
+                    const prevNulls = Object.values(prevCounts).filter((v) => v === null).length
+                    const nextNulls = Object.values(nextCounts).filter((v) => v === null).length
+
+                    if (nextNulls !== prevNulls) {
+                        return false
+                    }
+
+                    return true
+                },
             },
         ],
         tabsLoading: [
@@ -487,6 +516,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.notebook(result.result_id)
         case 'person':
             return urls.personByDistinctId(result.result_id)
+        case 'survey':
+            return urls.survey(result.result_id)
         default:
             // @ts-expect-error
             throw new Error(`No action for type '${result?.type}' defined.`)

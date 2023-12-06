@@ -54,8 +54,8 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-const isPostHogComDomain = (url: string): boolean => {
-    return /^https:\/\/(www\.)?posthog\.com/.test(url)
+const isPostHogComDocs = (url: string): boolean => {
+    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
 }
 
 /**
@@ -87,7 +87,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const is3000 = useFeatureFlag('POSTHOG_3000')
+        const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
         const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -103,7 +103,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
+            if (typeof to === 'string' && is3000 && isPostHogComDocs(to)) {
                 event.preventDefault()
                 openDocsPage(to)
                 return

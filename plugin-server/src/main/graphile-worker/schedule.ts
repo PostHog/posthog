@@ -46,7 +46,6 @@ export async function runScheduledTasks(
             taskType: taskType,
             runAt: helpers.job.run_at,
         })
-        server.statsd?.increment('skipped_scheduled_tasks', { taskType })
         graphileScheduledTaskCounter.labels({ status: 'skipped', task: taskType }).inc()
         return
     }
@@ -58,14 +57,12 @@ export async function runScheduledTasks(
                 topic: KAFKA_SCHEDULED_TASKS,
                 messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
             })
-            server.statsd?.increment('queued_scheduled_task', { taskType })
             graphileScheduledTaskCounter.labels({ status: 'queued', task: taskType }).inc()
         }
     } else {
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
             status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
             await piscina.run({ task: taskType, args: { pluginConfigId } })
-            server.statsd?.increment('completed_scheduled_task', { taskType })
             graphileScheduledTaskCounter.labels({ status: 'completed', task: taskType }).inc()
         }
     }

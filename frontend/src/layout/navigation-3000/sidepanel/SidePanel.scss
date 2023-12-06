@@ -14,7 +14,7 @@
 
         // NOTE: This is only a default, as the resizer will override this
         width: min(30%, 40rem);
-        min-width: 30rem;
+        min-width: 28rem;
         max-width: 60%;
 
         @media (max-width: 1200px) {
@@ -71,20 +71,39 @@
     .LemonButton {
         padding-right: 1px !important; // padding-bottom in regular buttons
         padding-bottom: 0 !important;
-    }
 
-    .LemonButton__chrome {
-        top: 0 !important;
-        left: -1px !important; // top in regular buttons
-        margin: -1px 0 !important; // x and y axes swapped from regular buttons
-        &:hover {
-            top: 0 !important;
-            left: -1.5px !important; // top in regular buttons
+        .LemonButton__chrome {
+            padding: 0.25rem
+                calc(
+                    var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal)) +
+                        var(--lemon-button-chrome-depth) * 0.5
+                )
+                0.25rem
+                calc(
+                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) -
+                        var(--lemon-button-chrome-depth) * 0.5
+                ) !important;
+
+            &::after {
+                inset: -1px calc(var(--lemon-button-chrome-depth) - 1px) -1px -1px !important;
+                box-shadow: var(--lemon-button-chrome-depth) 0 0 -1px var(--lemon-button-frame-bg-color) !important;
+            }
         }
 
-        &:active {
-            top: 0 !important;
-            left: -0.5px !important; // top in regular buttons
+        &:hover:not([aria-disabled='true']),
+        &:not([aria-disabled='true']):active {
+            .LemonButton__chrome {
+                transform: translateX(var(--lemon-button-depth)) !important;
+
+                &::after {
+                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px var(--lemon-button-frame-bg-color) !important;
+                }
+
+                &::before {
+                    right: calc(var(--lemon-button-depth) - 1px) !important;
+                    bottom: -1px !important;
+                }
+            }
         }
     }
 }

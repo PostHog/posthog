@@ -22,11 +22,3 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     prefix: models.CharField = models.CharField(max_length=100, null=True, blank=True)
 
     __repr__ = sane_repr("source_id")
-
-    @property
-    def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.source_type}_{str(self.pk)}".lower().replace("-", "_")
-
-    @property
-    def draft_folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.source_type}_{str(self.pk)}_draft".lower().replace("-", "_")

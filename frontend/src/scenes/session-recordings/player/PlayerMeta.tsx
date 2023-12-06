@@ -4,7 +4,6 @@ import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -17,6 +16,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -30,49 +30,55 @@ function SessionPropertyMeta(props: {
     iconProperties: Record<string, any>
     predicate: (x: string) => boolean
 }): JSX.Element {
+    const gatheredProperties = gatherIconProperties(props.iconProperties)
+
     return (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
-            <span className="flex items-center gap-1 whitespace-nowrap">
-                <PropertyIcon
-                    noTooltip={!props.fullScreen}
-                    property="$browser"
-                    value={props.iconProperties['$browser']}
-                />
-                {!props.fullScreen ? props.iconProperties['$browser'] : null}
-            </span>
-            <span className="flex items-center gap-1 whitespace-nowrap">
-                <PropertyIcon
-                    noTooltip={!props.fullScreen}
-                    property="$device_type"
-                    value={props.iconProperties['$device_type'] || props.iconProperties['$initial_device_type']}
-                />
-                {!props.fullScreen
-                    ? props.iconProperties['$device_type'] || props.iconProperties['$initial_device_type']
-                    : null}
-            </span>
-            <span className="flex items-center gap-1 whitespace-nowrap">
-                <PropertyIcon noTooltip={!props.fullScreen} property="$os" value={props.iconProperties['$os']} />
-                {!props.fullScreen ? props.iconProperties['$os'] : null}
-            </span>
-            {props.iconProperties['$geoip_country_code'] && (
-                <span className="flex items-center gap-1 whitespace-nowrap">
-                    <PropertyIcon
-                        noTooltip={!props.fullScreen}
-                        property="$geoip_country_code"
-                        value={props.iconProperties['$geoip_country_code']}
+        <PropertyIcons
+            recordingProperties={gatheredProperties}
+            iconClassnames={'text-muted-alt'}
+            showTooltip={false}
+            showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
+        />
+    )
+}
+
+function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
+    if (!lastUrl) {
+        return null
+    }
+
+    // re-using the rrweb web schema means that this might be a mobile replay screen name
+    let isValidUrl = false
+    try {
+        new URL(lastUrl || '')
+        isValidUrl = true
+    } catch (_e) {
+        // no valid url
+    }
+
+    return (
+        <span className="flex items-center gap-2 truncate">
+            <span>·</span>
+            <span className="flex items-center gap-1 truncate">
+                {isValidUrl ? (
+                    <Tooltip title="Click to open url">
+                        <Link to={lastUrl} target="_blank" className="truncate">
+                            {lastUrl}
+                        </Link>
+                    </Tooltip>
+                ) : (
+                    lastUrl
+                )}
+                <span className="flex items-center">
+                    <CopyToClipboardInline
+                        description={lastUrl}
+                        explicitValue={lastUrl}
+                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        selectable={true}
                     />
-                    {
-                        props.fullScreen &&
-                            [
-                                props.iconProperties['$geoip_city_name'],
-                                props.iconProperties['$geoip_subdivision_1_code'],
-                            ]
-                                .filter(props.predicate)
-                                .join(', ') /* [city, state] */
-                    }
                 </span>
-            )}
-        </div>
+            </span>
+        </span>
     )
 }
 
@@ -224,25 +230,7 @@ export function PlayerMeta(): JSX.Element {
                                 <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
                             </Tooltip>
 
-                            {lastUrl && (
-                                <span className="flex items-center gap-2 truncate">
-                                    <span>·</span>
-                                    <span className="flex items-center gap-1 truncate">
-                                        <Tooltip title="Click to open url">
-                                            <Link to={lastUrl} target="_blank" className="truncate">
-                                                {lastUrl}
-                                            </Link>
-                                        </Tooltip>
-                                        <span className="flex items-center">
-                                            <CopyToClipboardInline
-                                                description="current url"
-                                                explicitValue={lastUrl}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            />
-                                        </span>
-                                    </span>
-                                </span>
-                            )}
+                            <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
                                 <span className="flex items-center gap-2 truncate">
                                     <span>·</span>
