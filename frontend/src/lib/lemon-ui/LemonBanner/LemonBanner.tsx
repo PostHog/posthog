@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconClose, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
 import { lemonBannerLogic } from './lemonBannerLogic'
 

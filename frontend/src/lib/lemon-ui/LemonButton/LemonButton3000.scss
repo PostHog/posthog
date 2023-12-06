@@ -1,8 +1,16 @@
+@mixin secondary-variables {
+    --button-border-color: var(--secondary-3000-button-border);
+    --lemon-button-bg-color-active: var(--bg-light);
+    --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
+    --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
+}
+
 .posthog-3000 {
     --lemon-button-chrome-depth: 0.1875rem;
     --lemon-button-hover-depth: -0.03125rem;
     --lemon-button-press-depth: 0.03125rem;
     --lemon-button-padding-horizontal: 0.75rem;
+    --lemon-button-padding-adjacent-icon: 0.375rem;
     --lemon-button-side-action-icon-width: 1.25rem;
 
     .LemonButton,
@@ -72,12 +80,14 @@
             --lemon-button-font-size: 0.75rem;
             --lemon-button-height: 1.6875rem;
             --lemon-button-gap: 0.25rem;
+            --lemon-button-side-action-icon-width: 1.25rem;
         }
 
         &.LemonButton--small {
             --lemon-button-padding-horizontal: 0.5rem;
-            --lemon-button-padding-adjacent-icon: 0.375rem;
             --lemon-button-height: 2.0625rem;
+            --lemon-button-gap: 0.25rem;
+            --lemon-button-side-action-icon-width: 1.25rem;
         }
 
         &.LemonButton--large {
@@ -118,10 +128,7 @@
         &.LemonButton--is-stealth.LemonButton--active,
         &.LemonButton--is-stealth:hover,
         &.LemonButton--secondary:not(.LemonButton--is-stealth) {
-            --button-border-color: var(--secondary-3000-button-border);
-            --lemon-button-bg-color-active: var(--bg-light);
-            --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
+            @include secondary-variables;
         }
 
         &.LemonButton--status-danger,
@@ -250,6 +257,10 @@
         }
     }
 
+    .LemonButtonWithSideAction:hover > .LemonButton--is-stealth {
+        @include secondary-variables;
+    }
+
     .LemonButtonWithSideAction__spacer {
         width: var(--lemon-button-side-action-icon-width);
         height: 1.25rem;
@@ -257,7 +268,7 @@
 
         &.LemonButtonWithSideAction__spacer--divider {
             padding: 0;
-            margin-left: 0.25rem;
+            margin-left: calc(var(--lemon-button-padding-horizontal) / 2);
         }
     }
 

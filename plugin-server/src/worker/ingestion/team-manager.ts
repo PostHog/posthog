@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
@@ -13,12 +12,10 @@ export class TeamManager {
     postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
     tokenToTeamIdCache: LRU<string, TeamId | null>
-    statsd?: StatsD
     instanceSiteUrl: string
 
-    constructor(postgres: PostgresRouter, serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(postgres: PostgresRouter, serverConfig: PluginsServerConfig) {
         this.postgres = postgres
-        this.statsd = statsd
 
         this.teamCache = new LRU({
             max: 10_000,

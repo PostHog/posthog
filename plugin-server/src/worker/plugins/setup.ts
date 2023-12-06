@@ -58,7 +58,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
     }
 
     await Promise.all(pluginVMLoadPromises)
-    hub.statsd?.timing('setup_plugins.success', timer)
     setupPluginsMsSummary.observe(new Date().getTime() - timer.getTime())
 
     hub.plugins = plugins

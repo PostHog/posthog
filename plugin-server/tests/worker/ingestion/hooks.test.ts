@@ -491,7 +491,6 @@ describe('hooks', () => {
                 {} as any,
                 {} as any,
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
-                undefined,
                 20000
             )
         })

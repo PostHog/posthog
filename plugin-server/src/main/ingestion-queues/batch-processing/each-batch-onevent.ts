@@ -83,7 +83,6 @@ export async function eachBatchAppsOnEventHandlers(
         payload,
         (teamId) => queue.pluginsServer.pluginConfigsPerTeam.has(teamId),
         (event) => eachMessageAppsOnEventHandlers(event, queue),
-        queue.pluginsServer.statsd,
         queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER,
         'on_event'
     )
