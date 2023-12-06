@@ -336,6 +336,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconNotebook />,
                             to: urls.notebooks(),
                             featureFlag: FEATURE_FLAGS.NOTEBOOKS,
+                            tag: 'new' as const,
                         },
                         {
                             identifier: Scene.Events,
