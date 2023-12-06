@@ -258,7 +258,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
-        for key in filters.items():
+        for key in filters:
             value = request.GET[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
