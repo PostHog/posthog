@@ -147,7 +147,7 @@ export const LineGraph = (): JSX.Element => {
                                                     return (
                                                         <div className="datum-label-column">
                                                             <InsightLabel
-                                                                fallbackName={value}
+                                                                fallbackName={value?.toString()}
                                                                 hideBreakdown
                                                                 showSingleName
                                                                 hideCompare
