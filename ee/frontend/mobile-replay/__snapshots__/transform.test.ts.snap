@@ -663,7 +663,7 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 145,
+                  "id": 147,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -808,7 +808,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                         {
                           "attributes": {
                             "checked": true,
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "style": null,
                             "type": "checkbox",
                           },
                           "childNodes": [],
@@ -894,7 +894,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "style": null,
                             "type": "checkbox",
                           },
                           "childNodes": [],
@@ -982,7 +982,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                           "attributes": {
                             "checked": true,
                             "disabled": true,
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "style": null,
                             "type": "checkbox",
                           },
                           "childNodes": [],
@@ -1064,7 +1064,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                     {
                       "attributes": {
                         "checked": true,
-                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "style": null,
                         "type": "checkbox",
                       },
                       "childNodes": [],
@@ -1431,19 +1431,28 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                         {
                           "attributes": {
                             "selected": true,
-                            "value": "hello",
                           },
-                          "childNodes": [],
+                          "childNodes": [
+                            {
+                              "id": 144,
+                              "textContent": "hello",
+                              "type": 3,
+                            },
+                          ],
                           "id": 143,
                           "tagName": "option",
                           "type": 2,
                         },
                         {
-                          "attributes": {
-                            "value": "world",
-                          },
-                          "childNodes": [],
-                          "id": 144,
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "id": 146,
+                              "textContent": "world",
+                              "type": 3,
+                            },
+                          ],
+                          "id": 145,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -2153,7 +2162,7 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "style": null,
                             "type": "checkbox",
                           },
                           "childNodes": [],
