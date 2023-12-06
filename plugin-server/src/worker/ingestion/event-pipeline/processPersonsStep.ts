@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Person } from 'types'
 
-import { defaultConfig } from '../../../config/config'
 import { normalizeEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { DeferredPersonOverrideWriter, PersonOverrideWriter, PersonState } from '../person-state'
@@ -25,7 +24,7 @@ export async function processPersonsStep(
 
     let overridesWriter: PersonOverrideWriter | DeferredPersonOverrideWriter | undefined = undefined
     if (runner.poEEmbraceJoin) {
-        if (defaultConfig.POE_DEFERRED_WRITES_ENABLED) {
+        if (runner.hub.POE_DEFERRED_WRITES_ENABLED) {
             overridesWriter = new DeferredPersonOverrideWriter(runner.hub.db.postgres)
         } else {
             overridesWriter = new PersonOverrideWriter(runner.hub.db.postgres)
